@@ -1,10 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "clusteringvalidation"
+name = "carve"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
-    "ipykernel>=6.30.1",
-    "pandas>=2.3.2",
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "scikit-learn>=1.3",
+  "joblib>=1.3",
+  "scipy>=1.10",
+  "threadpoolctl>=3.1",
+  "umap>=0.1.1",
+  "tqdm>=4.67.1",
 ]
+
+[tool.setuptools.packages.find]
+where = ["src"]
