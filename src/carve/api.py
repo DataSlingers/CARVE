@@ -86,7 +86,7 @@ class CARVE:
         k: Optional[int] = None,
         return_estimator: bool = False,
     ) -> Union[np.ndarray, Tuple[np.ndarray, ClusterMixin]]:
-        model_grids = self.config.model_grids or default_model_grids(X, self.config.K)
+        model_grids = self.config.model_grids or default_model_grids(self.config.X, self.config.K)
         
         if self.method_df is None:
             raise RuntimeError("Call fit() first.")
@@ -112,5 +112,3 @@ class CARVE:
             return labels, estimator
         
         return labels
-
-        
