@@ -17,7 +17,7 @@ from ._utils import align_labels, ensure_array2d
 class CARVE:
     config: ValidatorConfig
 
-    # outputs (populated by fit)
+    # outputs (populated by validate)
     method_df: Optional[pd.DataFrame] = field(default=None, init=False)
     pipeline_df: Optional[pd.DataFrame] = field(default=None, init=False)
     consensus_mats: Optional[List[np.ndarray]] = field(default=None, init=False)  
@@ -35,7 +35,7 @@ class CARVE:
         obj = type(self)(new_config)
         return obj
     
-    def fit(
+    def validate(
         self, 
         *, 
         random_preprocess: bool = False, 
