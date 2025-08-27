@@ -1,4 +1,4 @@
-# ClusteringValidation (carve)
+# Cluster Analysis with Resampling for Validation and Exploration (CARVE)
 
 A small library for stability-based clustering validation via repeated subsampling, consensus matrices, and ARI-based scores with optional randomized preprocessing.
 
