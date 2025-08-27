@@ -13,10 +13,9 @@ MEASURE_MAP = {
 
 def select_best_estimator(
     method_df: pd.DataFrame,
-    *,
     model_grids: List[GridSpec],
-    measure: Optional[str] = "stability",
-    k: Optional[int] | None = None,
+    measure: str = "stability",
+    k: Optional[int] = None,
 ) -> ClusterMixin:
     if k is not None:  # subset dataframe is k specified
         method_df = method_df[method_df['n_clusters'] == k]
@@ -34,10 +33,9 @@ def select_best_estimator(
 
 def select_best_estimator_1se(
     method_df: pd.DataFrame,
-    *,
     model_grids: List[GridSpec],
-    measure: Optional[str] = "stability",
-    k: Optional[int] | None = None,
+    measure: str = "stability",
+    k: Optional[int] = None,
 ) -> ClusterMixin:
     if k is not None:  # subset dataframe is k specified
         method_df = method_df[method_df['n_clusters'] == k]

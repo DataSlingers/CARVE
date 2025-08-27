@@ -4,6 +4,7 @@ import pandas as pd
 from scipy.optimize import linear_sum_assignment
 from sklearn.base import ClusterMixin
 from sklearn.metrics.cluster import contingency_matrix
+from numpy.typing import ArrayLike
 
 def subsample_indices(
     n_samples: int, 
@@ -71,18 +72,18 @@ def wrangle_pipeline_records(
     )
     
 def align_labels(
-    true_labels: np.ndarray, 
-    pred_labels: np.ndarray
+    ref_labels: np.ndarray, 
+    labels: np.ndarray
 ) -> np.ndarray:
     # get contingency matrix
-    cont = contingency_matrix(true_labels, pred_labels)
+    cont = contingency_matrix(ref_labels, labels)
     
     # solve assignment on -cont to max matches
     row_ind, col_ind = linear_sum_assignment(-cont)
     
     # align order
-    true_classes = np.unique(true_labels)
-    pred_classes = np.unique(pred_labels)
+    true_classes = np.unique(ref_labels)
+    pred_classes = np.unique(labels)
     
     # build mapping
     mapping = {
@@ -94,10 +95,10 @@ def align_labels(
         mapping.setdefault(pc, pc)
 
     # apply mapping
-    aligned = np.array([mapping[lbl] for lbl in pred_labels], dtype=true_labels.dtype)
+    aligned = np.array([mapping[lbl] for lbl in labels], dtype=ref_labels.dtype)
     return aligned
 
-def ensure_array2d(X: Union[np.ndarray, pd.DataFrame, List[Any]]) -> np.ndarray:
+def ensure_array2d(X: ArrayLike) -> np.ndarray:
     if isinstance(X, pd.DataFrame):     # Convert Pandas DataFrame to NumPy array
         return X.values
     elif isinstance(X, np.ndarray):     # Ensure the array is 2D

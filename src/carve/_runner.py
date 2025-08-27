@@ -14,7 +14,18 @@ from ._pipeline import create_pipeline
 from ._utils import clustering_pipeline, subsample_indices, align_labels
 
 
-ValidationResults = Tuple[
+MethodRecord = Dict[str, Any]
+PipelineRecord = Dict[str, Any]
+
+ValidationReturn = Tuple[
+    List[MethodRecord],      # method_records | TODO: check whether this type suggestion is correct
+    List[PipelineRecord],    # pipeline_records | TODO: check whether this type suggestion is correct
+    List[np.ndarray],        # consensus_mats
+    List[np.ndarray],        # consensus_mats_raw
+    List[np.ndarray],        # mis_arrs
+]
+
+ResultTuple = Tuple[
     float, float,                           # ARI stability, ARI generalizability
     np.ndarray, np.ndarray, np.ndarray,     # labels_1, labels_test, labels_pred
     np.ndarray, np.ndarray,                 # idx_test, idx_train
@@ -36,13 +47,7 @@ def run_validation(
     random_preproc: bool = False, 
     num_cores: int = 1, 
     prog_bar: bool = True
-) -> Tuple[
-    List[Dict[str, Any]],   # method_records
-    List[Dict[str, Any]],   # pipeline_records
-    List[np.ndarray],       # cons_mats
-    List[np.ndarray],       # consensus_mats_raw
-    List[np.ndarray],       # mis_arrs    
-]:
+) -> ValidationReturn:
     n = X.shape[0]
     
     method_records = []
@@ -119,7 +124,7 @@ def validation_iter(
     norm_options: List[PreprocSpec],
     dr_options: List[PreprocSpec],
     random_preproc: bool = False
-) -> ValidationResults:
+) -> ResultTuple:
     n_samples = X.shape[0]
     P_1_idx, P_test_idx = subsample_indices(n_samples, rho, seed)
     P_2_idx, _ = subsample_indices(n_samples, rho, seed + B)

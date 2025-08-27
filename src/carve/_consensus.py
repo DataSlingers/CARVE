@@ -38,12 +38,14 @@ def build_consensus_matrix(
     else:
         return M[np.ix_(order, order)], M
 
-def compute_consensus_metrics_batch(M_list: List[np.ndarray]) -> Tuple[List[np.ndarray], List[np.ndarray], List[float]]:
+def compute_consensus_metrics_batch(
+    cons_mats_raw: List[np.ndarray]
+) -> Tuple[List[np.ndarray], List[np.ndarray], List[float]]:
     gini_list = []
     ce_list = []
     pac_list = []
     
-    for M in M_list:
+    for M in cons_mats_raw:
         s_gini, s_ce = stab_from_consensus(M)
         pac = consensus_pac(M)
         
