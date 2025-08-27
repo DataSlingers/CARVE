@@ -9,7 +9,7 @@ from sklearn.model_selection import ParameterGrid
 from tqdm.notebook import tqdm
 
 from ._consensus import build_consensus_matrix
-from ._misclassificaiton import build_misclassification_array
+from ._misclassification import build_misclassification_array
 from ._pipeline import create_pipeline
 from ._utils import clustering_pipeline, subsample_indices, align_labels
 
