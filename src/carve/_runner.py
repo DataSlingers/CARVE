@@ -6,7 +6,7 @@ from sklearn.base import ClusterMixin, TransformerMixin
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import adjusted_rand_score
 from sklearn.model_selection import ParameterGrid
-from tqdm.notebook import tqdm
+from tqdm.auto import tqdm
 
 from ._consensus import build_consensus_matrix
 from ._misclassification import build_misclassification_array
@@ -44,8 +44,9 @@ def run_validation(
     norm_options: List[PreprocSpec],
     dr_options: List[PreprocSpec], 
     ref_labels: np.ndarray,
-    random_preproc: bool = False, 
-    num_cores: int = 1, 
+    random_preprocess: bool = False, 
+    n_jobs: int = 1, 
+    random_state: int = None,
     prog_bar: bool = True
 ) -> ValidationReturn:
     n = X.shape[0]
@@ -63,11 +64,11 @@ def run_validation(
                 worker = delayed(validation_iter)
                 
                 if ref_labels is None:
-                    ref_clust = clustering_pipeline(X, est_class, **params)
+                    ref_clust = clustering_pipeline(X, est_class, random_state, **params)
                 else:
                     ref_clust = ref_labels
                 
-                results = Parallel(n_jobs=num_cores)(
+                results = Parallel(n_jobs=n_jobs)(
                     worker(
                         X=X, 
                         est_class=est_class, 
@@ -78,7 +79,8 @@ def run_validation(
                         seed=b, 
                         norm_options=norm_options, 
                         dr_options=dr_options,
-                        random_preproc=random_preproc
+                        random_preprocess=random_preprocess, 
+                        random_state=random_state
                     ) 
                     for b in range(B)
                 )
@@ -102,7 +104,7 @@ def run_validation(
                     'ari_generalizability_se': np.std(aris_pred, ddof=1) / np.sqrt(B)
                 })
                 
-                if random_preproc:
+                if random_preprocess:
                     pipeline_records.append({
                         'estimator': est_class.__name__, 
                         'params': params, 
@@ -123,14 +125,16 @@ def validation_iter(
     seed: int,
     norm_options: List[PreprocSpec],
     dr_options: List[PreprocSpec],
-    random_preproc: bool = False
+    random_preprocess: bool = False,
+    random_state: int = None
 ) -> ResultTuple:
     n_samples = X.shape[0]
-    P_1_idx, P_test_idx = subsample_indices(n_samples, rho, seed)
-    P_2_idx, _ = subsample_indices(n_samples, rho, seed + B)
+    random_state0 = random_state if random_state is not None else 0
+    P_1_idx, P_test_idx = subsample_indices(n_samples, rho, random_state0 + seed)
+    P_2_idx, _ = subsample_indices(n_samples, rho, random_state0 + seed + B)
     
     pipeline, norm_params, dr_params, norm_name, dr_name = create_pipeline(
-        random_preproc, norm_options, dr_options, seed
+        random_preprocess, norm_options, dr_options, random_state0 + seed
     )
 
     X_1 = pipeline.fit_transform(X[P_1_idx])
@@ -138,9 +142,9 @@ def validation_iter(
     X_2 = pipeline.fit_transform(X[P_2_idx])
     
     # clustering 
-    labels_1_raw = clustering_pipeline(X_1, est_class, **params)
-    labels_test_raw = clustering_pipeline(X_test, est_class, **params)
-    labels_2_raw = clustering_pipeline(X_2, est_class, **params)
+    labels_1_raw = clustering_pipeline(X_1, est_class, random_state, **params)
+    labels_test_raw = clustering_pipeline(X_test, est_class, random_state, **params)
+    labels_2_raw = clustering_pipeline(X_2, est_class, random_state, **params)
     
     # align to reference clustering
     labels_1 = align_labels(ref_clust[P_1_idx], labels_1_raw)
@@ -154,9 +158,9 @@ def validation_iter(
     # predictive ARI
     rf = RandomForestClassifier(
         n_estimators=100, 
-        max_depth=X.shape[1],
-        max_features=int(np.sqrt(X.shape[1])),
-        random_state=seed, 
+        max_depth=X_1.shape[1],
+        max_features=int(np.sqrt(X_1.shape[1])),
+        random_state=random_state0+seed, 
         n_jobs=-1
     )
     rf.fit(X_1, labels_1)

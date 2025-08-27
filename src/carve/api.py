@@ -9,9 +9,8 @@ from .config import ValidatorConfig
 from .grids import default_model_grids, default_norm_options, default_dr_options
 from ._runner import run_validation
 from ._consensus import compute_consensus_metrics_batch
-from ._pipeline import wrangle_pipeline_records
 from ._selection import select_best_estimator, select_best_estimator_1se
-from ._utils import align_labels, ensure_array2d
+from ._utils import align_labels, ensure_array2d, wrangle_pipeline_records
 
 @dataclass
 class CARVE:
@@ -66,8 +65,6 @@ class CARVE:
         
         self.method_df = pd.DataFrame.from_records(method_records)
         self.pipeline_df = None if not random_preprocess else wrangle_pipeline_records(pipeline_records)
-
-        # TODO: handle 1 SE rule?
 
         # compute stability vectors from consensus matrices (pure, vectorized)
         gini_list, ce_list, pac_list = compute_consensus_metrics_batch(self.consensus_mats_raw)

@@ -26,7 +26,7 @@ def create_pipeline(
 def draw_random_pipeline(
     norm_options: List[PreprocSpec],
     dr_options: List[PreprocSpec],
-    seed: int = 0
+    seed: int
 ) -> PreprocSpec:
     rnd = random.Random(seed)
         

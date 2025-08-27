@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple, Type, Union
+from typing import Any, Dict, List, Tuple, Type
 import numpy as np
 import pandas as pd
 from scipy.optimize import linear_sum_assignment
@@ -23,12 +23,18 @@ def subsample_indices(
 def clustering_pipeline(
     X: np.ndarray,
     est_cls: Type[ClusterMixin],
+    random_state: int = None,
     **params: Any
 ) -> np.ndarray:
-    estimator = est_cls(**params)
+    try:
+        estimator = est_cls(random_state=random_state, **params)
+    
+    except Exception:
+        estimator = est_cls(**params)
 
     if hasattr(estimator, "fit_predict"):
         return estimator.fit_predict(X)
+    
     estimator.fit(X)
     return getattr(estimator, "labels_")
 
