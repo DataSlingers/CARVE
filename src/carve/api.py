@@ -40,7 +40,7 @@ class CARVE:
         random_preprocess: bool = False, 
         prog_bar: bool = True, 
         random_state: Optional[int] = None
-    ) -> pd.DataFrame:
+    ) -> None:
         X = ensure_array2d(self.config.X)
         model_grids = self.config.model_grids or default_model_grids(X, self.config.K)
         norm_options = self.config.norm_options or default_norm_options()
@@ -72,8 +72,6 @@ class CARVE:
         self.stab_gini_arr = np.vstack(gini_list)
         self.stab_ce_arr = np.vstack(ce_list)
         self.method_df["consensus_pac_stability"] = pac_list
-
-        return self.method_df
     
     def get_optimal_labels(
         self,

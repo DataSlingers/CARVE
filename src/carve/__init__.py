@@ -2,3 +2,6 @@
 __version__ = "0.1.0"
 
 # Re-export key functions/classes for a clean top-level API
+from .api import CARVE
+
+__all__ = ["__version__", "CARVE"]
