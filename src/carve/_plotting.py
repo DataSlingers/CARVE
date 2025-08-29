@@ -13,28 +13,11 @@ def plot_measure_vs_k(
     measure: str = "stability",
     rule: str = "max",
     figsize: Tuple[int, int] = (10, 8)
-) -> None:
-    if model_df is None or model_df.empty:
-        warnings.warn("model_df is empty; nothing to plot.", RuntimeWarning, stacklevel=2)
-        return
-    
-    if measure not in MEASURE_MAP:
-        raise ValueError(f"Invalid measure {measure!r}. Options: {list(MEASURE_MAP)}")
-    if rule not in {"max", "1se"}:
-        raise ValueError("rule must be 'max' or '1se'")
-    
+) -> None:    
     y_col = MEASURE_MAP[measure]
     se_col = f"{y_col}_se"
-    has_se = se_col in model_df.columns
-    
-    if rule == "1se" and not has_se:
-        warnings.warn(
-            f"Column {se_col!r} not found; falling back to 'max' rule.",
-            RuntimeWarning,
-            stacklevel=2,
-        )
-        rule = "max"
-    
+    has_se = se_col in self.model_df.columns
+        
     ylabel = "ARI (stability)" if measure == "stability" else "ARI (generalizability)"
     title = f"{measure} per estimator vs. k"
 
