@@ -86,8 +86,8 @@ def run_validation(
                 aris_stab = [r[0] for r in results]
                 aris_pred = [r[1] for r in results]
                 
-                M = build_consensus_matrix(n=n, runs=[(r[5], r[2]) for r in results], return_counts=False)   # r[5]: P_1_idx, r[2]: labels_1
-                E = build_misclassification_array(n=n, runs=[(r[6], r[3], r[4]) for r in results])                  # r[6]: P_test_idx, r[3]: labels_test, # r[4]: labels_pred
+                M = build_consensus_matrix(n=n, runs=[(r[5], r[2]) for r in results], return_counts=False)  # r[5]: P_1_idx, r[2]: labels_1
+                E = build_misclassification_array(n=n, runs=[(r[6], r[3], r[4]) for r in results])          # r[6]: P_test_idx, r[3]: labels_test, # r[4]: labels_pred
                 
                 cons_mats_raw.append(M)
                 mis_arrs.append(E)
@@ -127,8 +127,9 @@ def validation_iter(
 ) -> ResultTuple:
     n_samples = X.shape[0]
     random_state0 = random_state if random_state is not None else 0
-    P_1_idx, P_test_idx = subsample_indices(n_samples, rho, random_state0 + seed)
-    P_2_idx, _ = subsample_indices(n_samples, rho, random_state0 + seed + B)
+    
+    P_1_idx, P_test_idx = subsample_indices(n_samples, rho=rho, random_state=random_state0+seed)
+    P_2_idx, _ = subsample_indices(n_samples, rho=rho, random_state=random_state0+seed+B)
     
     pipeline, norm_params, dr_params, norm_name, dr_name = create_pipeline(
         random_preprocess, norm_options, dr_options, random_state0 + seed
@@ -139,9 +140,9 @@ def validation_iter(
     X_2 = pipeline.fit_transform(X[P_2_idx])
     
     # clustering 
-    labels_1_raw = clustering_pipeline(X_1, est_class, random_state, **params)
-    labels_test_raw = clustering_pipeline(X_test, est_class, random_state, **params)
-    labels_2_raw = clustering_pipeline(X_2, est_class, random_state, **params)
+    labels_1_raw = clustering_pipeline(X_1, est_class, random_state=random_state0+seed, **params)
+    labels_test_raw = clustering_pipeline(X_test, est_class, random_state=random_state0+seed, **params)
+    labels_2_raw = clustering_pipeline(X_2, est_class, random_state=random_state0+seed, **params)
     
     # align to reference clustering
     labels_1 = align_labels(ref_clust[P_1_idx], labels_1_raw)

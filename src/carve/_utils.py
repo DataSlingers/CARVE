@@ -8,6 +8,7 @@ from numpy.typing import ArrayLike
 
 def subsample_indices(
     n_samples: int, 
+    *,
     ratio: float = 0.6, 
     seed: int = None
 ) -> Tuple[np.ndarray, np.ndarray]:
@@ -23,6 +24,7 @@ def subsample_indices(
 def clustering_pipeline(
     X: np.ndarray,
     est_cls: Type[ClusterMixin],
+    *,
     random_state: int = None,
     **params: Any
 ) -> np.ndarray:
