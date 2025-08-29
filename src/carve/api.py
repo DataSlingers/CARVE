@@ -10,8 +10,8 @@ from .config import ValidatorConfig
 from .grids import default_model_grids, default_norm_options, default_dr_options
 from ._runner import run_validation
 from ._consensus import compute_consensus_metrics_batch
-from ._selection import select_best_estimator, MEASURE_MAP
-from ._plotting import plot_measure_vs_k, plot_consensus_matrix
+from ._selection import select_best_estimator, select_best_row, select_best_row_1se, MEASURE_MAP
+from ._plotting import plot_measure_vs_k, plot_consensus_matrix, plot_clustering
 from ._utils import align_labels, ensure_array2d, wrangle_pipeline_records
 
 @dataclass
@@ -22,9 +22,9 @@ class CARVE:
     model_df: Optional[pd.DataFrame] = field(default=None, init=False)
     pipeline_df: Optional[pd.DataFrame] = field(default=None, init=False)
     consensus_mats_raw: Optional[List[np.ndarray]] = field(default=None, init=False)
-    stab_gini_arr: Optional[np.ndarray] = field(default=None, init=False)
-    stab_ce_arr: Optional[np.ndarray] = field(default=None, init=False)
-    mis_arrs: Optional[List[np.ndarray]] = field(default=None, init=False)
+    stab_gini_arrs: Optional[List[np.ndarray]] = field(default=None, init=False)
+    stab_ce_arrs: Optional[List[np.ndarray]] = field(default=None, init=False)
+    generalizability_arrs: Optional[List[np.ndarray]] = field(default=None, init=False)
     
     def get_params(self, deep: bool = True) -> Dict[str, Any]:
         return self.config.to_params(deep)
@@ -49,7 +49,7 @@ class CARVE:
         
         (
             model_records, pipeline_records,
-            self.consensus_mats_raw, self.mis_arrs
+            self.consensus_mats_raw, self.generalizability_arrs
         ) = run_validation(
             X=X,
             model_grids=model_grids,
@@ -178,3 +178,73 @@ class CARVE:
             k=k,
             figsize=figsize
         )
+    
+    def plot_clustering(
+        self,
+        measure: str = "stability",
+        stab_measure: str = "gini",
+        rule: str = "max",
+        k: int = None,
+        figsize: Tuple[int, int] = (20, 8),
+        min_size: float = 20.0,
+        max_size: float = 180.0, 
+        min_alpha: float = 0.3, 
+        max_alpha: float = 1.0
+    ) -> None:
+        if self.model_df is None or self.model_df.empty:
+            warnings.warn("model_df is empty; nothing to plot. Run validate() first.", RuntimeWarning, stacklevel=2)
+            return
+        if measure not in MEASURE_MAP:
+            raise ValueError(f"Invalid measure {measure!r}. Options: {list(MEASURE_MAP)}")
+        if rule not in {"max", "1se"}:
+            raise ValueError("rule must be 'max' or '1se'")
+        
+        y_col = MEASURE_MAP[measure]
+        se_col = f"{y_col}_se"
+        has_se = se_col in self.model_df.columns
+        
+        if rule == "1se" and not has_se:
+            warnings.warn(
+                f"Column {se_col!r} not found; falling back to 'max' rule.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            rule = "max"
+        
+        model_df_copy = self.model_df.copy()
+        if k is not None:  # subset dataframe if k specified
+            model_df_copy = model_df_copy[model_df_copy['n_clusters'] == k]
+
+        # pick best method
+        idx = select_best_row(model_df_copy, measure=measure, return_idx=True) if rule == "max" else select_best_row_1se(model_df_copy, measure=measure, return_idx=True)
+        row = model_df_copy.loc[idx]
+        
+        labels = self.get_optimal_labels(
+            measure=measure,
+            rule=rule,
+            k=k
+        )
+        
+        if MEASURE_MAP[measure] == "ari_stability":
+            if stab_measure == "gini":
+                sample_level_measures = self.stab_gini_arr[idx]
+            elif stab_measure == "ce":
+                sample_level_measures = self.stab_ce_arr[idx]
+            else:
+                raise ValueError("stab_measure must be 'gini' or 'ce'")
+        else:
+            sample_level_measures = self.generalizability_arrs[idx]
+
+        plot_clustering(
+            X=self.config.X,
+            row=row, 
+            labels=labels, 
+            sample_level_measures=sample_level_measures,
+            measure=measure, 
+            figsize=figsize, 
+            min_size=min_size,
+            max_size=max_size,
+            min_alpha=min_alpha,
+            max_alpha=max_alpha
+        )
+

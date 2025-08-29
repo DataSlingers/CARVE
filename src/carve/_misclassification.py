@@ -3,7 +3,7 @@ import numpy as np
 
 PredLabels = Tuple[np.ndarray, np.ndarray, np.ndarray]  # (idx, true, pred)
 
-def build_misclassification_array(
+def build_generalizability_array(
     n: int,
     runs: List[PredLabels]
 ) -> np.ndarray:
@@ -15,7 +15,7 @@ def build_misclassification_array(
         np.add.at(correct, idx, corr.astype(int))
         np.add.at(total, idx, 1)
         
-    mis = np.ones(n, float)
+    generalizability_array = np.zeros(n, float)
     valid = total > 0
-    mis[valid] = 1.0 - (correct[valid] / total[valid])
-    return mis
+    generalizability_array[valid] = (correct[valid] / total[valid])
+    return generalizability_array

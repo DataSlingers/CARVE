@@ -9,7 +9,7 @@ from sklearn.model_selection import ParameterGrid
 from tqdm.auto import tqdm
 
 from ._consensus import build_consensus_matrix
-from ._misclassification import build_misclassification_array
+from ._misclassification import build_generalizability_array
 from ._pipeline import create_pipeline
 from ._utils import clustering_pipeline, subsample_indices, align_labels
 
@@ -21,7 +21,7 @@ ValidationReturn = Tuple[
     List[ModelRecord],      # model_records | TODO: check whether this type suggestion is correct
     List[PipelineRecord],   # pipeline_records | TODO: check whether this type suggestion is correct
     List[np.ndarray],       # consensus_mats_raw
-    List[np.ndarray],       # mis_arrs
+    List[np.ndarray],       # generalizability_arrs
 ]
 
 ResultTuple = Tuple[
@@ -53,7 +53,7 @@ def run_validation(
     model_records = []
     pipeline_records = []
     cons_mats_raw = []
-    mis_arrs = []
+    generalizability_arrs = []
     
     total_configs = sum(len(list(ParameterGrid(g))) for _, g in model_grids)
     with tqdm(total=total_configs, desc="Grid configs", disable=not prog_bar) as pbar:
@@ -87,10 +87,10 @@ def run_validation(
                 aris_pred = [r[1] for r in results]
                 
                 M = build_consensus_matrix(n=n, runs=[(r[5], r[2]) for r in results], return_counts=False)  # r[5]: P_1_idx, r[2]: labels_1
-                E = build_misclassification_array(n=n, runs=[(r[6], r[3], r[4]) for r in results])          # r[6]: P_test_idx, r[3]: labels_test, # r[4]: labels_pred
-                
+                E = build_generalizability_array(n=n, runs=[(r[6], r[3], r[4]) for r in results])           # r[6]: P_test_idx, r[3]: labels_test, # r[4]: labels_pred
+
                 cons_mats_raw.append(M)
-                mis_arrs.append(E)
+                generalizability_arrs.append(E)
                 
                 model_records.append({
                     'estimator': est_class.__name__,
@@ -110,7 +110,7 @@ def run_validation(
                 
                 pbar.update(1)
                 
-    return model_records, pipeline_records, cons_mats_raw, mis_arrs
+    return model_records, pipeline_records, cons_mats_raw, generalizability_arrs
 
 def validation_iter(
     X: np.ndarray,

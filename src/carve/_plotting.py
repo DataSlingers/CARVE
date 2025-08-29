@@ -4,12 +4,14 @@ from typing import List, Tuple
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
 
 from ._selection import MEASURE_MAP, select_best_row, select_best_row_1se
 from ._consensus import order_consensus_matrix
 
 non_param_cols = {
-    "n_clusters", "ari_stability", "ari_stability_se", 
+    "estimator", "n_clusters", 
+    "ari_stability", "ari_stability_se", 
     "ari_generalizability", "ari_generalizability_se", 
     "consensus_pac_stability"
 }
@@ -131,4 +133,78 @@ def plot_consensus_matrix(
     plt.xlabel('samples (ordered)')
     plt.ylabel('samples (ordered)')
     plt.show()
+    
+    
+def plot_clustering(
+    X: np.ndarray,
+    row: pd.Series,
+    labels: np.ndarray,
+    sample_level_measures: np.ndarray,
+    *,
+    measure: str = 'stability', 
+    figsize: Tuple[int, int] = (20, 8),
+    min_size: float = 20.0,
+    max_size: float = 180.0, 
+    min_alpha: float = 0.3, 
+    max_alpha: float = 1.0
+) -> None:
+    if np.isclose(sample_level_measures.max(), sample_level_measures.min()):  # catch if all sample_level_measures are same
+        # set uniform dot sizes and opacities
+        sizes = np.full_like(sample_level_measures, np.mean([min_size, max_size]))
+        alpha_map = {c: np.mean([min_alpha, max_alpha]) for c in np.unique(labels)}
+    else:
+        # normalize dot sizes
+        sizes = min_size + (sample_level_measures - sample_level_measures.min()) / (sample_level_measures.max() - sample_level_measures.min()) * max_size
+        
+        # get cluster opacities
+        clu_var = {c: sample_level_measures[labels == c].mean() for c in np.unique(labels)}
+        v = np.array(list(clu_var.values()))
+        mn, mx = v.min(), v.max()
+        norm_var = {c: (clu_var[c] - mn) / (mx - mn + 1e-8) for c in clu_var}  # norm to [0, 1] 
+        alpha_map = {
+            c: min_alpha + norm_var[c] * (max_alpha - min_alpha)
+            for c in norm_var
+        }  # map to alpha in [min_alpha, max_alpha]
+    
+    pca = PCA(n_components=2)
+    X_pca = pca.fit_transform(X)
+
+    _, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
+
+    for c in np.unique(labels):
+        mask = labels == c
+        ax1.scatter(
+            X_pca[mask, 0], X_pca[mask, 1],
+            s=sizes[mask],
+            alpha=alpha_map[c],
+            label=f"cluster {c}"
+        )
+
+    optimal_k = row['n_clusters']
+    params = {}
+    for key, value in row.items():
+        if key in non_param_cols or pd.isna(value):
+            continue
+        if isinstance(value, (int, float)):
+            value = f"{value:.4f}"
+        params[key] = value
+
+    param_str = ', '.join(f"{k} = {v}" for k, v in params.items())
+
+    ax1.set_title(
+        f"{row['estimator']} | k = {optimal_k}" +
+        (f", {param_str}" if param_str else "")
+    )
+    ax1.set_xlabel("pc1")
+    ax1.set_ylabel("pc2")
+    ax1.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
+
+    data = [sample_level_measures[labels == c] for c in np.unique(labels)]
+    ax2.boxplot(data, labels=[str(c) for c in np.unique(labels)])
+    ax2.set_title("per-sample variance by cluster") if MEASURE_MAP[measure] == "ari_stability" else ax2.set_title("per-sample generalizability by cluster")
+    ax2.set_xlabel("cluster")
+    ax2.set_ylabel("sample variance") if MEASURE_MAP[measure] == "ari_stability" else ax2.set_ylabel("sample generalizability")
+
+    plt.tight_layout()
+    plt.show()    
     
