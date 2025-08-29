@@ -10,9 +10,9 @@ def subsample_indices(
     n_samples: int, 
     *,
     ratio: float = 0.6, 
-    seed: int = None
+    random_state: int = None
 ) -> Tuple[np.ndarray, np.ndarray]:
-    rng = np.random.RandomState(seed)
+    rng = np.random.RandomState(random_state)
     all_idx = np.arange(n_samples)
     train_size = int(np.float64(ratio * n_samples))
     
