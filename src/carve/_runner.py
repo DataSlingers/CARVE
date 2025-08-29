@@ -19,9 +19,9 @@ PipelineRecord = Dict[str, Any]
 
 ValidationReturn = Tuple[
     List[ModelRecord],      # model_records | TODO: check whether this type suggestion is correct
-    List[PipelineRecord],    # pipeline_records | TODO: check whether this type suggestion is correct
-    List[np.ndarray],        # consensus_mats_raw
-    List[np.ndarray],        # mis_arrs
+    List[PipelineRecord],   # pipeline_records | TODO: check whether this type suggestion is correct
+    List[np.ndarray],       # consensus_mats_raw
+    List[np.ndarray],       # mis_arrs
 ]
 
 ResultTuple = Tuple[
@@ -128,8 +128,8 @@ def validation_iter(
     n_samples = X.shape[0]
     random_state0 = random_state if random_state is not None else 0
     
-    P_1_idx, P_test_idx = subsample_indices(n_samples, rho=rho, random_state=random_state0+seed)
-    P_2_idx, _ = subsample_indices(n_samples, rho=rho, random_state=random_state0+seed+B)
+    P_1_idx, P_test_idx = subsample_indices(n_samples, ratio=rho, random_state=random_state0+seed)
+    P_2_idx, _ = subsample_indices(n_samples, ratio=rho, random_state=random_state0+seed+B)
     
     pipeline, norm_params, dr_params, norm_name, dr_name = create_pipeline(
         random_preprocess, norm_options, dr_options, random_state0 + seed
