@@ -23,9 +23,9 @@ def select_best_estimator(
     
     # Select the row with the highest value for the specified measure
     if rule == 'max':
-        row = select_best_row(model_df, measure)
+        row = select_best_row(model_df, measure=measure, return_idx=False)
     elif rule == '1se':
-        row = select_best_row_1se(model_df, measure)
+        row = select_best_row_1se(model_df, measure=measure, return_idx=False)
     else:
         raise ValueError("Invalid rule. Options are 'max' or '1se'.")
 
@@ -35,14 +35,22 @@ def select_best_estimator(
 
 def select_best_row(
     model_df: pd.DataFrame,
+    *,
     measure: str = "stability",
+    return_idx: bool = False,
 ) -> pd.Series:
     measure_col = MEASURE_MAP[measure]
+    
+    if return_idx:
+        return model_df[measure_col].idxmax()
+    
     return model_df.loc[model_df[measure_col].idxmax()]
 
 def select_best_row_1se(
     model_df: pd.DataFrame,
+    *,
     measure: str = "stability",
+    return_idx: bool = False,
 ) -> pd.Series:
     if measure not in MEASURE_MAP:
         raise ValueError(f"Invalid measure {measure!r}. Options: {list(MEASURE_MAP)}")
@@ -57,7 +65,10 @@ def select_best_row_1se(
     
     # Filter models within 1SE of best score
     within_1se = model_df[model_df[measure_col] >= threshold]
-
+    
+    if return_idx:
+        return within_1se["n_clusters"].idxmax()
+        
     return within_1se.loc[within_1se["n_clusters"].idxmax()]
 
 def instantiate_estimator(
