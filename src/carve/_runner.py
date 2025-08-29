@@ -20,7 +20,6 @@ PipelineRecord = Dict[str, Any]
 ValidationReturn = Tuple[
     List[ModelRecord],      # model_records | TODO: check whether this type suggestion is correct
     List[PipelineRecord],    # pipeline_records | TODO: check whether this type suggestion is correct
-    List[np.ndarray],        # consensus_mats
     List[np.ndarray],        # consensus_mats_raw
     List[np.ndarray],        # mis_arrs
 ]
@@ -53,7 +52,6 @@ def run_validation(
     
     model_records = []
     pipeline_records = []
-    cons_mats = []
     cons_mats_raw = []
     mis_arrs = []
     
@@ -88,10 +86,9 @@ def run_validation(
                 aris_stab = [r[0] for r in results]
                 aris_pred = [r[1] for r in results]
                 
-                M_ord, M = build_consensus_matrix(n=n, runs=[(r[5], r[2]) for r in results], return_counts=False)   # r[5]: P_1_idx, r[2]: labels_1
+                M = build_consensus_matrix(n=n, runs=[(r[5], r[2]) for r in results], return_counts=False)   # r[5]: P_1_idx, r[2]: labels_1
                 E = build_misclassification_array(n=n, runs=[(r[6], r[3], r[4]) for r in results])                  # r[6]: P_test_idx, r[3]: labels_test, # r[4]: labels_pred
                 
-                cons_mats.append(M_ord)
                 cons_mats_raw.append(M)
                 mis_arrs.append(E)
                 
@@ -113,7 +110,7 @@ def run_validation(
                 
                 pbar.update(1)
                 
-    return model_records, pipeline_records, cons_mats, cons_mats_raw, mis_arrs
+    return model_records, pipeline_records, cons_mats_raw, mis_arrs
 
 def validation_iter(
     X: np.ndarray,

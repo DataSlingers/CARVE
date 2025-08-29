@@ -9,8 +9,7 @@ def build_consensus_matrix(
     n: int,
     runs: List[IndexLabels], 
     *,
-    return_counts: bool = False,
-    fill_nan_for_order: float = 0.0
+    return_counts: bool = False
 ) -> Tuple[np.ndarray, np.ndarray]:
     M_sum = np.zeros((n, n), dtype=float)
     I_sum = np.zeros((n, n), dtype=float)
@@ -25,19 +24,24 @@ def build_consensus_matrix(
     # build consensus fraction
     with np.errstate(divide='ignore', invalid='ignore'):
         M = M_sum / I_sum
-    M[I_sum == 0] = np.nan  # set never-sampled pairs to np.nan
+    M[I_sum == 0] = np.nan                  # set never-sampled pairs to np.nan
+
+    if return_counts:
+        return M, M_sum, I_sum, 
+    else:
+        return M
     
-    # reorder by average-linkage dendrogram
-    M_for_order = np.nan_to_num(M, nan=fill_nan_for_order)
+def order_consensus_matrix(
+    raw_cons_mat: np.ndarray, 
+    fill_nan_for_order: float = 0.0
+) -> np.ndarray:
+    M_for_order = np.nan_to_num(raw_cons_mat, nan=fill_nan_for_order)
     dists = squareform(1.0 - M_for_order, checks=False)
     Z = linkage(dists, method='average')
     order = leaves_list(Z)
-
-    if return_counts:
-        return M[np.ix_(order, order)], M, M_sum, I_sum, order
-    else:
-        return M[np.ix_(order, order)], M
-
+    
+    return raw_cons_mat[np.ix_(order, order)]
+    
 def compute_consensus_metrics_batch(
     cons_mats_raw: List[np.ndarray]
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float]]:

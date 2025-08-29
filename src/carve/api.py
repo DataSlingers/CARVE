@@ -20,7 +20,6 @@ class CARVE:
     # outputs (populated by validate)
     model_df: Optional[pd.DataFrame] = field(default=None, init=False)
     pipeline_df: Optional[pd.DataFrame] = field(default=None, init=False)
-    consensus_mats: Optional[List[np.ndarray]] = field(default=None, init=False)  
     consensus_mats_raw: Optional[List[np.ndarray]] = field(default=None, init=False)
     stab_gini_arr: Optional[np.ndarray] = field(default=None, init=False)
     stab_ce_arr: Optional[np.ndarray] = field(default=None, init=False)
@@ -49,7 +48,7 @@ class CARVE:
         
         (
             model_records, pipeline_records,
-            self.consensus_mats, self.consensus_mats_raw, self.mis_arrs
+            self.consensus_mats_raw, self.mis_arrs
         ) = run_validation(
             X=X,
             model_grids=model_grids,
