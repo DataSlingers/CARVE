@@ -114,7 +114,13 @@ def plot_consensus_matrix(
         for key in best_row.index
         if key not in non_param_cols and pd.notnull(best_row[key])
     }
-    param_str = ', '.join(f"{key} = {value}" for key, value in params.items())
+    formatted_params = {}
+    for key, value in params.items():
+        if isinstance(value, (int, float)) and key != 'n_clusters':
+            formatted_params[key] = f"{value:.4f}"
+        else:
+            formatted_params[key] = value
+    param_str = ', '.join(f"{key} = {value}" for key, value in formatted_params.items())
     title = f"{best_row['estimator']} | k = {optimal_k}" + (f", {param_str}" if param_str else "")
 
     # plot
