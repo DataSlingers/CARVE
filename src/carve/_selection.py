@@ -7,7 +7,11 @@ from sklearn.base import ClusterMixin
 GridSpec = Tuple[Type[ClusterMixin], Dict[str, List[Any]]]
 
 MEASURE_MAP = {
+    "s": "ari_stability",
+    "stab": "ari_stability",
     "stability": "ari_stability",
+    "g": "ari_generalizability",
+    "gen": "ari_generalizability",
     "generalizability": "ari_generalizability",
 }
 

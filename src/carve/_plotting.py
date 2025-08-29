@@ -131,3 +131,4 @@ def plot_consensus_matrix(
     plt.xlabel('samples (ordered)')
     plt.ylabel('samples (ordered)')
     plt.show()
+    
