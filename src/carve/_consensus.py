@@ -33,6 +33,7 @@ def build_consensus_matrix(
     
 def order_consensus_matrix(
     raw_cons_mat: np.ndarray, 
+    *,
     fill_nan_for_order: float = 0.0
 ) -> np.ndarray:
     M_for_order = np.nan_to_num(raw_cons_mat, nan=fill_nan_for_order)

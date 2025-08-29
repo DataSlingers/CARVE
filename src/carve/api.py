@@ -11,7 +11,7 @@ from .grids import default_model_grids, default_norm_options, default_dr_options
 from ._runner import run_validation
 from ._consensus import compute_consensus_metrics_batch
 from ._selection import select_best_estimator, MEASURE_MAP
-from ._plotting import plot_measure_vs_k
+from ._plotting import plot_measure_vs_k, plot_consensus_matrix
 from ._utils import align_labels, ensure_array2d, wrangle_pipeline_records
 
 @dataclass
@@ -119,7 +119,6 @@ class CARVE:
         if self.model_df is None or self.model_df.empty:
             warnings.warn("model_df is empty; nothing to plot. Run validate() first.", RuntimeWarning, stacklevel=2)
             return
-        
         if measure not in MEASURE_MAP:
             raise ValueError(f"Invalid measure {measure!r}. Options: {list(MEASURE_MAP)}")
         if rule not in {"max", "1se"}:
@@ -138,9 +137,44 @@ class CARVE:
             rule = "max"
         
         plot_measure_vs_k(
-            model_df=self.model_df,
+            self.model_df,
             measure=measure,
             rule=rule,
             figsize=figsize
         )
+    
+    def plot_consensus_matrix(
+        self,
+        measure: str = "stability",
+        rule: str = "max",
+        k: int = None,
+        figsize: Tuple[int, int] = (10, 8)
+    ) -> None:
+        if self.model_df is None or self.model_df.empty:
+            warnings.warn("model_df is empty; nothing to plot. Run validate() first.", RuntimeWarning, stacklevel=2)
+            return
+        if measure not in MEASURE_MAP:
+            raise ValueError(f"Invalid measure {measure!r}. Options: {list(MEASURE_MAP)}")
+        if rule not in {"max", "1se"}:
+            raise ValueError("rule must be 'max' or '1se'")
         
+        y_col = MEASURE_MAP[measure]
+        se_col = f"{y_col}_se"
+        has_se = se_col in self.model_df.columns
+        
+        if rule == "1se" and not has_se:
+            warnings.warn(
+                f"Column {se_col!r} not found; falling back to 'max' rule.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            rule = "max"
+        
+        plot_consensus_matrix(
+            self.model_df,
+            self.consensus_mats_raw,
+            measure=measure, 
+            rule=rule,
+            k=k,
+            figsize=figsize
+        )

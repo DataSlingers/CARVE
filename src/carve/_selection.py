@@ -18,7 +18,7 @@ def select_best_estimator(
     rule: str = "max",
     k: Optional[int] = None,
 ) -> ClusterMixin:
-    if k is not None:  # subset dataframe is k specified
+    if k is not None:  # subset dataframe if k specified
         model_df = model_df[model_df['n_clusters'] == k]
     
     # Select the row with the highest value for the specified measure

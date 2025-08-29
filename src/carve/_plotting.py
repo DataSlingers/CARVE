@@ -6,6 +6,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from ._selection import MEASURE_MAP, select_best_row, select_best_row_1se
+from ._consensus import order_consensus_matrix
+
+non_param_cols = {
+    "n_clusters", "ari_stability", "ari_stability_se", 
+    "ari_generalizability", "ari_generalizability_se", 
+    "consensus_pac_stability"
+}
 
 def plot_measure_vs_k(
     model_df: pd.DataFrame,
@@ -23,12 +30,7 @@ def plot_measure_vs_k(
 
     _, ax = plt.subplots(figsize=figsize)
 
-    exclude = {
-        "n_clusters", "ari_stability", "ari_stability_se", 
-        "ari_generalizability", "ari_generalizability_se", 
-        "consensus_pac_stability"
-    }
-    group_cols = [c for c in model_df.columns if c not in exclude]
+    group_cols = [c for c in model_df.columns if c not in non_param_cols]
 
     # pick best row according to rule
     best_row = select_best_row(model_df, measure=measure, return_idx=False) if rule == "max" else select_best_row_1se(model_df, measure=measure, return_idx=False)
@@ -86,45 +88,38 @@ def plot_measure_vs_k(
     
 def plot_consensus_matrix(
     model_df: pd.DataFrame,
-    cons_mats_raw: List[np.ndarray],
+    consensus_mats_raw: List[np.ndarray],
     *,
     measure: str = 'stability', 
-    k: int = None
+    rule: str = 'max',
+    k: int = None,
+    figsize: Tuple[int, int] = (10, 8)
 ) -> None:
-    col = MEASURE_MAP[measure]
-
-    # determine optimal k if not provided
-    if k is None:
-        avg_per_k = method_df.groupby('n_clusters')[col].mean()
-        optimal_k = int(avg_per_k.idxmax())
-    else:
-        optimal_k = k
-        if optimal_k not in model_df['n_clusters'].unique():
-            raise ValueError(f"provided k={optimal_k} not in model_df['n_clusters'] values")
+    if k is not None:  # subset dataframe if k specified
+        model_df = model_df[model_df['n_clusters'] == k]
 
     # pick best method
-    subset_k = model_df[model_df['n_clusters'] == optimal_k]
-    best_idx = subset_k[col].idxmax()
+    best_idx = select_best_row(model_df, measure=measure, return_idx=True) if rule == "max" else select_best_row_1se(model_df, measure=measure, return_idx=True)
     best_row = model_df.loc[best_idx]
 
     # get consensus matrix
-    C = cons_mats_raw[best_idx]
+    C = consensus_mats_raw[best_idx]
+    C_ordered = order_consensus_matrix(C)
     
-    # TODO: order consensus matrix
+    optimal_k = best_row['n_clusters']
 
     # build title
-    fixed = {'estimator', 'n_clusters', 'ari_stability', 'ari_generalizability', 'ari_overall'}
     params = {
         key: best_row[key]
         for key in best_row.index
-        if key not in fixed and pd.notnull(best_row[key])
+        if key not in non_param_cols and pd.notnull(best_row[key])
     }
     param_str = ', '.join(f"{key} = {value}" for key, value in params.items())
     title = f"{best_row['estimator']} | k = {optimal_k}" + (f", {param_str}" if param_str else "")
 
     # plot
-    plt.figure(figsize=(10, 8))
-    plt.imshow(C, aspect='auto', interpolation='none')
+    plt.figure(figsize=figsize)
+    plt.imshow(C_ordered, aspect='auto', interpolation='none')
     plt.colorbar(label='consensus')
     plt.title(title)
     plt.xlabel('samples (ordered)')
