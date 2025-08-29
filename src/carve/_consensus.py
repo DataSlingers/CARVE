@@ -27,7 +27,7 @@ def build_consensus_matrix(
     M[I_sum == 0] = np.nan                  # set never-sampled pairs to np.nan
 
     if return_counts:
-        return M, M_sum, I_sum, 
+        return M, M_sum, I_sum
     else:
         return M
     
