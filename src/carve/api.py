@@ -9,7 +9,8 @@ from .config import ValidatorConfig
 from .grids import default_model_grids, default_norm_options, default_dr_options
 from ._runner import run_validation
 from ._consensus import compute_consensus_metrics_batch
-from ._selection import select_best_estimator, select_best_estimator_1se
+from ._selection import select_best_estimator
+from ._plotting import plot_measure_vs_k
 from ._utils import align_labels, ensure_array2d, wrangle_pipeline_records
 
 @dataclass
@@ -17,7 +18,7 @@ class CARVE:
     config: ValidatorConfig
 
     # outputs (populated by validate)
-    method_df: Optional[pd.DataFrame] = field(default=None, init=False)
+    model_df: Optional[pd.DataFrame] = field(default=None, init=False)
     pipeline_df: Optional[pd.DataFrame] = field(default=None, init=False)
     consensus_mats: Optional[List[np.ndarray]] = field(default=None, init=False)  
     consensus_mats_raw: Optional[List[np.ndarray]] = field(default=None, init=False)
@@ -47,7 +48,7 @@ class CARVE:
         dr_options = self.config.dr_options or default_dr_options(X, self.config.rho)
         
         (
-            method_records, pipeline_records,
+            model_records, pipeline_records,
             self.consensus_mats, self.consensus_mats_raw, self.mis_arrs
         ) = run_validation(
             X=X,
@@ -63,7 +64,7 @@ class CARVE:
             prog_bar=prog_bar
         )
         
-        self.method_df = pd.DataFrame.from_records(method_records)
+        self.model_df = pd.DataFrame.from_records(model_records)
         self.pipeline_df = None if not random_preprocess else wrangle_pipeline_records(pipeline_records)
 
         # compute stability vectors from consensus matrices (pure, vectorized)
@@ -71,26 +72,27 @@ class CARVE:
 
         self.stab_gini_arr = np.vstack(gini_list)
         self.stab_ce_arr = np.vstack(ce_list)
-        self.method_df["consensus_pac_stability"] = pac_list
+        self.model_df["consensus_pac_stability"] = pac_list
     
     def get_optimal_labels(
         self,
         *,
         measure: str = "stability",
-        one_se: bool = False,
+        rule: str = 'max',
         k: Optional[int] = None,
         return_estimator: bool = False,
     ) -> Union[np.ndarray, Tuple[np.ndarray, ClusterMixin]]:
         model_grids = self.config.model_grids or default_model_grids(self.config.X, self.config.K)
         
-        if self.method_df is None:
+        if self.model_df is None:
             raise RuntimeError("Call fit() first.")
 
         estimator = select_best_estimator(
-            self.method_df, 
+            self.model_df, 
             model_grids=model_grids, 
-            measure=measure, k=k
-        ) if not one_se else select_best_estimator_1se(measure, k)
+            measure=measure, rule=rule,
+            k=k
+        )
         
         if hasattr(estimator, "fit_predict"):
             labels = estimator.fit_predict(self.config.X)
@@ -107,3 +109,17 @@ class CARVE:
             return labels, estimator
         
         return labels
+    
+    def plot_global(
+        self,
+        measure: str = "stability",
+        rule: str = "max",
+        figsize: Tuple[int, int] = (10, 8)
+    ) -> None:
+        plot_measure_vs_k(
+            model_df=self.model_df,
+            measure=measure,
+            rule=rule,
+            figsize=figsize
+        )
+        

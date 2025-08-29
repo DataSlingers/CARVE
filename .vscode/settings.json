@@ -2,4 +2,5 @@
 
     "jupyter.interactiveWindow.textEditor.executeSelection": true,
     "python.defaultInterpreterPath": "${workspaceFolder}/.venv",
+    "python-envs.pythonProjects": [],
 }

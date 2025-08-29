@@ -1,0 +1,103 @@
+from __future__ import annotations
+import warnings
+from typing import Tuple
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from ._selection import MEASURE_MAP, select_best_row, select_best_row_1se
+
+def plot_measure_vs_k(
+    model_df: pd.DataFrame,
+    *,
+    measure: str = "stability",
+    rule: str = "max",
+    figsize: Tuple[int, int] = (10, 8)
+) -> None:
+    if model_df is None or model_df.empty:
+        warnings.warn("model_df is empty; nothing to plot.", RuntimeWarning, stacklevel=2)
+        return
+    
+    if measure not in MEASURE_MAP:
+        raise ValueError(f"Invalid measure {measure!r}. Options: {list(MEASURE_MAP)}")
+    if rule not in {"max", "1se"}:
+        raise ValueError("rule must be 'max' or '1se'")
+    
+    y_col = MEASURE_MAP[measure]
+    se_col = f"{y_col}_se"
+    has_se = se_col in model_df.columns
+    
+    if rule == "1se" and not has_se:
+        warnings.warn(
+            f"Column {se_col!r} not found; falling back to 'max' rule.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        rule = "max"
+    
+    ylabel = "ARI (stability)" if measure == "stability" else "ARI (generalizability)"
+    title = f"{measure} per estimator vs. k"
+
+    _, ax = plt.subplots(figsize=figsize)
+
+    exclude = {
+        "n_clusters", "ari_stability", "ari_stability_se", 
+        "ari_generalizability", "ari_generalizability_se", 
+        "consensus_pac_stability"
+    }
+    group_cols = [c for c in model_df.columns if c not in exclude]
+
+    # pick best row according to rule
+    best_row = select_best_row(model_df, measure) if rule == "max" else select_best_row_1se(model_df, measure)
+    best_k = best_row["n_clusters"]
+
+    # normalize keys for robust comparison (since NaN != NaN)
+    def norm_key(values):
+        return tuple(None if pd.isna(v) else v for v in values)
+
+    best_key = norm_key([best_row[col] for col in group_cols])
+
+    for keys, group in model_df.groupby(group_cols, dropna=False):
+        group = group.sort_values("n_clusters")
+        if not isinstance(keys, tuple):
+            keys = (keys,)
+
+        is_best_group = norm_key(keys) == best_key
+
+        # build clean label: estimator shown plain; other params as k=v; skip NaN/None; round nums
+        label_parts = []
+        for col, val in zip(group_cols, keys):
+            if pd.isna(val):
+                continue
+            if isinstance(val, (int, float)):
+                val = f"{val:.4f}"
+            if col == "estimator":
+                label_parts.append(f"{val}")
+            else:
+                label_parts.append(f"{col}={val}")
+
+        label = ", ".join(label_parts) if label_parts else "default"
+        if is_best_group:
+            label = f"{label} ★"   # star at the end
+
+        ax.plot(group["n_clusters"], group[y_col], marker="o", label=label)
+
+        if has_se:
+            ax.fill_between(
+                group["n_clusters"],
+                group[y_col] - group[se_col],
+                group[y_col] + group[se_col],
+                alpha=0.2,
+            )
+    
+    # vertical dashed line at best k
+    ax.axvline(x=best_k, linestyle="--", alpha=0.7)
+
+    ax.set_xlabel("n_clusters")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+    

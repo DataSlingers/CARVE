@@ -14,11 +14,11 @@ from ._pipeline import create_pipeline
 from ._utils import clustering_pipeline, subsample_indices, align_labels
 
 
-MethodRecord = Dict[str, Any]
+ModelRecord = Dict[str, Any]
 PipelineRecord = Dict[str, Any]
 
 ValidationReturn = Tuple[
-    List[MethodRecord],      # method_records | TODO: check whether this type suggestion is correct
+    List[ModelRecord],      # model_records | TODO: check whether this type suggestion is correct
     List[PipelineRecord],    # pipeline_records | TODO: check whether this type suggestion is correct
     List[np.ndarray],        # consensus_mats
     List[np.ndarray],        # consensus_mats_raw
@@ -51,7 +51,7 @@ def run_validation(
 ) -> ValidationReturn:
     n = X.shape[0]
     
-    method_records = []
+    model_records = []
     pipeline_records = []
     cons_mats = []
     cons_mats_raw = []
@@ -95,7 +95,7 @@ def run_validation(
                 cons_mats_raw.append(M)
                 mis_arrs.append(E)
                 
-                method_records.append({
+                model_records.append({
                     'estimator': est_class.__name__,
                     **params,
                     'ari_stability': np.mean(aris_stab),
@@ -113,7 +113,7 @@ def run_validation(
                 
                 pbar.update(1)
                 
-    return method_records, pipeline_records, cons_mats, cons_mats_raw, mis_arrs
+    return model_records, pipeline_records, cons_mats, cons_mats_raw, mis_arrs
 
 def validation_iter(
     X: np.ndarray,
