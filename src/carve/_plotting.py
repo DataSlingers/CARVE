@@ -5,12 +5,13 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
+import matplotlib.gridspec as gridspec
 
 from ._selection import MEASURE_MAP, select_best_row, select_best_row_1se
 from ._consensus import order_consensus_matrix
 
 non_param_cols = {
-    "estimator", "n_clusters", 
+    "n_clusters", 
     "ari_stability", "ari_stability_se", 
     "ari_generalizability", "ari_generalizability_se", 
     "consensus_pac_stability"
@@ -114,7 +115,7 @@ def plot_consensus_matrix(
     params = {
         key: best_row[key]
         for key in best_row.index
-        if key not in non_param_cols and pd.notnull(best_row[key])
+        if key not in (non_param_cols | {"estimator"}) and pd.notnull(best_row[key])
     }
     formatted_params = {}
     for key, value in params.items():
@@ -133,7 +134,6 @@ def plot_consensus_matrix(
     plt.xlabel('samples (ordered)')
     plt.ylabel('samples (ordered)')
     plt.show()
-    
     
 def plot_clustering(
     X: np.ndarray,
@@ -183,7 +183,7 @@ def plot_clustering(
     optimal_k = row['n_clusters']
     params = {}
     for key, value in row.items():
-        if key in non_param_cols or pd.isna(value):
+        if key in (non_param_cols | {"estimator"}) or pd.isna(value):
             continue
         if isinstance(value, (int, float)):
             value = f"{value:.4f}"
@@ -208,3 +208,75 @@ def plot_clustering(
     plt.tight_layout()
     plt.show()    
     
+def plot_cluster_stability(
+    X: np.ndarray,
+    results: List[Tuple],
+    max_plots: int = 4,
+    figsize: Tuple[int, int] = (10, 20)
+) -> None:
+    n_runs = min(len(results), max_plots)
+    rng = np.random.RandomState()
+    
+    if len(results) > max_plots:
+        selected_indices = rng.choice(len(results), size=max_plots, replace=False)
+        selected_indices = sorted(selected_indices)
+    else:
+        selected_indices = range(len(results))
+        
+    fig = plt.figure(figsize=figsize)
+    gs = gridspec.GridSpec(n_runs, 2, figure=fig)
+    
+    for i, b in enumerate(selected_indices):
+        # Extract information from results
+        ari_stab = results[b][0]
+        labels_1 = results[b][2]
+        labels_2 = results[b][5]
+        P_1_idx = results[b][6]
+        P_2_idx = results[b][8]
+        
+        # Find intersection between P_1_idx and P_2_idx
+        _, i_1, i_2 = np.intersect1d(P_1_idx, P_2_idx, return_indices=True)
+        
+        # Extract data points for common samples
+        X_common_1 = X[P_1_idx[i_1]]
+        X_common_2 = X[P_2_idx[i_2]]
+        
+        # Apply PCA for visualization
+        pca = PCA(n_components=2)
+        X_common_1_pca = pca.fit_transform(X_common_1)
+        X_common_2_pca = pca.transform(X_common_2)
+        
+        # Get labels for common samples
+        labels_1_common = labels_1[i_1]
+        labels_2_common = labels_2[i_2]
+        
+        # Create subplots
+        ax1 = fig.add_subplot(gs[i, 0])
+        ax2 = fig.add_subplot(gs[i, 1])
+        
+        # Plot first dataset
+        ax1.scatter(
+            X_common_1_pca[:, 0], X_common_1_pca[:, 1], 
+            c=labels_1_common, cmap='tab10', alpha=0.7
+        )
+        ax1.set_title(f'Run {b+1}: X₁ Clustering')
+        ax1.set_xlabel('PCA 1')
+        ax1.set_ylabel('PCA 2')
+        
+        # Plot second dataset
+        ax2.scatter(
+            X_common_2_pca[:, 0], X_common_2_pca[:, 1], 
+            c=labels_2_common, cmap='tab10', alpha=0.7
+        )
+        ax2.set_title(f'Run {b+1}: X₂ Clustering')
+        ax2.set_xlabel('PCA 1')
+        ax2.set_ylabel('PCA 2')
+        
+        # Add ARI text
+        ax1.text(
+            0.05, 0.95, f'ARI: {ari_stab:.3f}', transform=ax1.transAxes,
+            verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8)
+        )
+    
+    plt.tight_layout()
+    plt.show()

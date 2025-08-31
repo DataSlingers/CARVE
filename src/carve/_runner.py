@@ -12,6 +12,7 @@ from ._consensus import build_consensus_matrix
 from ._misclassification import build_generalizability_array
 from ._pipeline import create_pipeline
 from ._utils import clustering_pipeline, subsample_indices, align_labels
+from ._plotting import plot_cluster_stability
 
 
 ModelRecord = Dict[str, Any]
@@ -27,7 +28,8 @@ ValidationReturn = Tuple[
 ResultTuple = Tuple[
     float, float,                           # ARI stability, ARI generalizability
     np.ndarray, np.ndarray, np.ndarray,     # labels_1, labels_test, labels_pred
-    np.ndarray, np.ndarray,                 # idx_test, idx_train
+    np.ndarray,                             # labels_2
+    np.ndarray, np.ndarray, np.ndarray,     # P_1_idx, P_test_idx, P_2_idx,
     Dict[str, Any], Dict[str, Any],         # norm_params, dr_params
     str, str                                # norm_name, dr_name
 ]
@@ -86,8 +88,8 @@ def run_validation(
                 aris_stab = [r[0] for r in results]
                 aris_pred = [r[1] for r in results]
                 
-                M = build_consensus_matrix(n=n, runs=[(r[5], r[2]) for r in results], return_counts=False)  # r[5]: P_1_idx, r[2]: labels_1
-                E = build_generalizability_array(n=n, runs=[(r[6], r[3], r[4]) for r in results])           # r[6]: P_test_idx, r[3]: labels_test, # r[4]: labels_pred
+                M = build_consensus_matrix(n=n, runs=[(r[6], r[2]) for r in results], return_counts=False)  # r[6]: P_1_idx, r[2]: labels_1
+                E = build_generalizability_array(n=n, runs=[(r[7], r[3], r[4]) for r in results])           # r[7]: P_test_idx, r[3]: labels_test, # r[4]: labels_pred
 
                 cons_mats_raw.append(M)
                 generalizability_arrs.append(E)
@@ -107,6 +109,11 @@ def run_validation(
                         'params': params, 
                         'results': results
                     })
+                    
+                # plot_cluster_stability(
+                #     X=X, 
+                #     results=results
+                # )  # for de-bugging
                 
                 pbar.update(1)
                 
@@ -167,8 +174,8 @@ def validation_iter(
     
     return [
         ari_stab, ari_pred, 
-        labels_1, labels_test, labels_pred, 
-        P_1_idx, P_test_idx, 
+        labels_1, labels_test, labels_pred, labels_2,
+        P_1_idx, P_test_idx, P_2_idx,
         norm_params, dr_params, 
         norm_name, dr_name
     ]
