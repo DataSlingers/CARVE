@@ -10,9 +10,15 @@ MEASURE_MAP = {
     "s": "ari_stability",
     "stab": "ari_stability",
     "stability": "ari_stability",
+    "ari_stability": "ari_stability",
+    
     "g": "ari_generalizability",
     "gen": "ari_generalizability",
     "generalizability": "ari_generalizability",
+    "ari_generalizability": "ari_generalizability",
+    
+    "pac": "consensus_pac_stability",
+    "consensus_pac_stability": "consensus_pac_stability",
 }
 
 def select_best_estimator(
@@ -36,6 +42,22 @@ def select_best_estimator(
     # Reconstruct the best estimator
     estimator = instantiate_estimator(model_grids, row)
     return estimator
+
+def select_best_k(
+    model_df: pd.DataFrame,
+    measure: str = "stability",
+    rule: str = "max"
+) -> ClusterMixin:
+    # Select the row with the highest value for the specified measure
+    if rule == 'max':
+        row = select_best_row(model_df, measure=measure, return_idx=False)
+    elif rule == '1se':
+        row = select_best_row_1se(model_df, measure=measure, return_idx=False)
+    else:
+        raise ValueError("Invalid rule. Options are 'max' or '1se'.")
+
+    # Reconstruct the best estimator
+    return row['n_clusters']
 
 def select_best_row(
     model_df: pd.DataFrame,

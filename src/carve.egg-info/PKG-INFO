@@ -14,3 +14,4 @@ Requires-Dist: matplotlib>=3.9.4
 Requires-Dist: numba>=0.60
 Requires-Dist: llvmlite<0.44,>=0.43
 Requires-Dist: umap-learn==0.5.6
+Requires-Dist: ipywidgets>=8.1.7

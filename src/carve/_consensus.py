@@ -93,4 +93,5 @@ def consensus_pac(
         return np.nan
     
     amb = ((V > lower) & (V < upper)).sum()
-    return amb / V.size
+    pac = amb / V.size
+    return 1.0 - pac
