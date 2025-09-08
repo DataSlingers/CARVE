@@ -8,7 +8,7 @@ from sklearn.metrics import adjusted_rand_score
 from sklearn.model_selection import ParameterGrid
 from tqdm.auto import tqdm
 
-from ._consensus import build_consensus_matrix, build_consensus_and_flip, build_contingency_entropy
+from ._consensus import build_consensus_matrix
 from ._misclassification import build_generalizability_array
 from ._pipeline import create_pipeline
 from ._utils import clustering_pipeline, subsample_indices, align_labels
