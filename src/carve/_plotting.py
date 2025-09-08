@@ -14,7 +14,8 @@ non_param_cols = {
     "n_clusters", 
     "ari_stability", "ari_stability_se", 
     "ari_generalizability", "ari_generalizability_se", 
-    "consensus_pac_stability"
+    "consensus_pac_stability", "consensus_gini_stability", "consensus_ce_stability", 
+    # "flip_instability", "contin_entropy"
 }
 
 def plot_measure_vs_k(

@@ -8,7 +8,7 @@ from sklearn.metrics import adjusted_rand_score
 from sklearn.model_selection import ParameterGrid
 from tqdm.auto import tqdm
 
-from ._consensus import build_consensus_matrix
+from ._consensus import build_consensus_matrix, build_consensus_and_flip, build_contingency_entropy
 from ._misclassification import build_generalizability_array
 from ._pipeline import create_pipeline
 from ._utils import clustering_pipeline, subsample_indices, align_labels
@@ -23,6 +23,8 @@ ValidationReturn = Tuple[
     List[PipelineRecord],   # pipeline_records | TODO: check whether this type suggestion is correct
     List[np.ndarray],       # consensus_mats_raw
     List[np.ndarray],       # generalizability_arrs
+    # List[np.ndarray],       # instability_fields
+    # List[np.ndarray],       # contin_entropy_arr
 ]
 
 ResultTuple = Tuple[
@@ -56,6 +58,8 @@ def run_validation(
     pipeline_records = []
     cons_mats_raw = []
     generalizability_arrs = []
+    # contin_entropy_arr = []
+    # instability_fields = []
     
     total_configs = sum(len(list(ParameterGrid(g))) for _, g in model_grids)
     with tqdm(total=total_configs, desc="Grid configs", disable=not prog_bar) as pbar:
@@ -88,11 +92,28 @@ def run_validation(
                 aris_stab = [r[0] for r in results]
                 aris_pred = [r[1] for r in results]
                 
-                M = build_consensus_matrix(n=n, runs=[(r[6], r[2]) for r in results], return_counts=False)  # r[6]: P_1_idx, r[2]: labels_1
-                E = build_generalizability_array(n=n, runs=[(r[7], r[3], r[4]) for r in results])           # r[7]: P_test_idx, r[3]: labels_test, # r[4]: labels_pred
-
+                M = build_consensus_matrix(
+                    n=n, 
+                    runs=[(r[6], r[2]) for r in results],               # r[6]: P_1_idx, r[2]: labels_1
+                )
+                
+                # A, _, F = build_consensus_and_flip(
+                #     n=n, 
+                #     runs=[(r[6], r[8], r[2], r[5]) for r in results],   # r[6]: P_1_idx, r[8]: P_2_idx, r[2]: labels_1, r[2]: labels_5
+                # )
+                
+                # H = build_contingency_entropy(runs=[(r[6], r[8], r[2], r[5]) for r in results])
+                
+                E = build_generalizability_array(
+                    n=n, 
+                    runs=[(r[7], r[3], r[4]) for r in results]          # r[7]: P_test_idx, r[3]: labels_test, # r[4]: labels_pred
+                )                      
+                
                 cons_mats_raw.append(M)
                 generalizability_arrs.append(E)
+                
+                # instability_fields.append(F)
+                # contin_entropy_arr.append(H)
                 
                 model_records.append({
                     'estimator': est_class.__name__,
@@ -109,11 +130,12 @@ def run_validation(
                         'params': params, 
                         'results': results
                     })
-                    
+                   
+                # --- uncomment for debugging --- # 
                 # plot_cluster_stability(
                 #     X=X, 
                 #     results=results
-                # )  # for de-bugging
+                # )
                 
                 pbar.update(1)
                 

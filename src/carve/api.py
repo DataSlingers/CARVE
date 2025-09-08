@@ -9,7 +9,7 @@ from sklearn.base import ClusterMixin
 from .config import ValidatorConfig
 from .grids import default_model_grids, default_norm_options, default_dr_options
 from ._runner import run_validation
-from ._consensus import compute_consensus_metrics_batch
+from ._consensus import compute_consensus_metrics_batch, compute_flip_metric_batch
 from ._selection import select_best_estimator, select_best_row, select_best_row_1se, select_best_k, MEASURE_MAP
 from ._plotting import plot_measure_vs_k, plot_consensus_matrix, plot_clustering
 from ._utils import align_labels, ensure_array2d, wrangle_pipeline_records
@@ -49,7 +49,8 @@ class CARVE:
         
         (
             model_records, pipeline_records,
-            self.consensus_mats_raw, self.generalizability_arrs
+            self.consensus_mats_raw,
+            self.generalizability_arrs
         ) = run_validation(
             X=X,
             model_grids=model_grids,
@@ -67,13 +68,16 @@ class CARVE:
         self.model_df = pd.DataFrame.from_records(model_records)
         self.pipeline_df = None if not random_preprocess else wrangle_pipeline_records(pipeline_records)
 
-        # compute stability vectors from consensus matrices (pure, vectorized)
+        # compute stability vectors from consensus matrices
         gini_list, ce_list, pac_list = compute_consensus_metrics_batch(self.consensus_mats_raw)
 
         self.stab_gini_arr = np.vstack(gini_list)
         self.stab_ce_arr = np.vstack(ce_list)
+        
         self.model_df["consensus_pac_stability"] = pac_list
-    
+        self.model_df["consensus_gini_stability"] = np.array([np.mean(arr) for arr in self.stab_gini_arr])
+        self.model_df["consensus_ce_stability"] = np.array([np.mean(arr) for arr in self.stab_ce_arr])
+
     def get_optimal_labels(
         self,
         *,
