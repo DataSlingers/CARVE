@@ -11,7 +11,7 @@ from tqdm.auto import tqdm
 from ._consensus import build_consensus_matrix
 from ._misclassification import build_generalizability_array
 from ._pipeline import create_pipeline
-from ._utils import clustering_pipeline, subsample_indices, align_labels
+from ._utils import clustering_pipeline, subsample_indices
 from ._plotting import plot_cluster_stability
 
 
@@ -46,7 +46,6 @@ def run_validation(
     rho: float,
     norm_options: List[PreprocSpec],
     dr_options: List[PreprocSpec], 
-    ref_labels: np.ndarray,
     random_preprocess: bool = False, 
     n_jobs: int = 1, 
     random_state: int = None,
@@ -66,12 +65,6 @@ def run_validation(
         for est_class, grid in model_grids:
             for params in ParameterGrid(grid):
                 worker = delayed(validation_iter)
-                
-                if ref_labels is None:
-                    ref_clust = clustering_pipeline(X, est_class, random_state, **params)
-                else:
-                    ref_clust = ref_labels
-                
                 results = Parallel(n_jobs=n_jobs)(
                     worker(
                         X=X, 
@@ -79,7 +72,6 @@ def run_validation(
                         params=params, 
                         rho=rho, 
                         B=B, 
-                        ref_clust=ref_clust,
                         seed=b, 
                         norm_options=norm_options, 
                         dr_options=dr_options,
@@ -94,26 +86,16 @@ def run_validation(
                 
                 M = build_consensus_matrix(
                     n=n, 
-                    runs=[(r[6], r[2]) for r in results],               # r[6]: P_1_idx, r[2]: labels_1
+                    runs=[(r[6], r[2]) for r in results],        # r[6]: P_1_idx, r[2]: labels_1
                 )
-                
-                # A, _, F = build_consensus_and_flip(
-                #     n=n, 
-                #     runs=[(r[6], r[8], r[2], r[5]) for r in results],   # r[6]: P_1_idx, r[8]: P_2_idx, r[2]: labels_1, r[2]: labels_5
-                # )
-                
-                # H = build_contingency_entropy(runs=[(r[6], r[8], r[2], r[5]) for r in results])
                 
                 E = build_generalizability_array(
                     n=n, 
-                    runs=[(r[7], r[3], r[4]) for r in results]          # r[7]: P_test_idx, r[3]: labels_test, # r[4]: labels_pred
+                    runs=[(r[7], r[3], r[4]) for r in results]  # r[7]: P_test_idx, r[3]: labels_test, # r[4]: labels_pred
                 )                      
                 
                 cons_mats_raw.append(M)
                 generalizability_arrs.append(E)
-                
-                # instability_fields.append(F)
-                # contin_entropy_arr.append(H)
                 
                 model_records.append({
                     'estimator': est_class.__name__,
@@ -147,7 +129,6 @@ def validation_iter(
     params: Dict[str, Any],
     rho: float,
     B: int,
-    ref_clust: np.ndarray,
     seed: int,
     norm_options: List[PreprocSpec],
     dr_options: List[PreprocSpec],
@@ -169,14 +150,9 @@ def validation_iter(
     X_2 = pipeline.fit_transform(X[P_2_idx])
     
     # clustering 
-    labels_1_raw = clustering_pipeline(X_1, est_class, random_state=random_state0+seed, **params)
-    labels_test_raw = clustering_pipeline(X_test, est_class, random_state=random_state0+seed, **params)
-    labels_2_raw = clustering_pipeline(X_2, est_class, random_state=random_state0+seed, **params)
-    
-    # align to reference clustering
-    labels_1 = align_labels(ref_clust[P_1_idx], labels_1_raw)
-    labels_test = align_labels(ref_clust[P_test_idx], labels_test_raw)
-    labels_2 = align_labels(ref_clust[P_2_idx], labels_2_raw)
+    labels_1 = clustering_pipeline(X_1, est_class, random_state=random_state0+seed, **params)
+    labels_test = clustering_pipeline(X_test, est_class, random_state=random_state0+seed, **params)
+    labels_2 = clustering_pipeline(X_2, est_class, random_state=random_state0+seed, **params)
     
     # model-explorer ARI
     _, i_1, i_2 = np.intersect1d(P_1_idx, P_2_idx, return_indices=True)

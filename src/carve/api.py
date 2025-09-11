@@ -58,7 +58,6 @@ class CARVE:
             rho=self.config.rho,
             norm_options=norm_options,
             dr_options=dr_options,
-            ref_labels=self.config.ref_labels,
             random_preprocess=random_preprocess,
             n_jobs=self.config.n_jobs,
             random_state=random_state,
@@ -105,7 +104,7 @@ class CARVE:
             labels = getattr(estimator, "labels_")
 
         if self.config.ref_labels is None:
-            self.config = self.config.updated(ref_labels=labels)
+            self.config = self.config.update(ref_labels=labels)
         else:
             labels = align_labels(self.config.ref_labels, labels)
 
