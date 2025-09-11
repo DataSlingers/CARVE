@@ -24,12 +24,7 @@ MEASURE_MAP = {
     "consensus_gini_stability": "consensus_gini_stability",
     
     "ce": "consensus_ce_stability",
-    "consensus_ce_stability": "consensus_ce_stability",
-    
-    # "f": "flip_instability",
-    # "flip_stability": "flip_instability", 
-    
-    # "contin_entropy": "contin_entropy"
+    "consensus_ce_stability": "consensus_ce_stability"
 }
 
 def select_best_estimator(
