@@ -244,6 +244,9 @@ class CARVE:
             k=k
         )
         
+        n_clusters = row['n_clusters']
+        assert len(np.unique(labels)) == n_clusters, f"labels has {len(np.unique(labels))} clusters, expected {n_clusters}"
+        
         if MEASURE_MAP[measure] == "ari_stability":
             if stab_measure == "gini":
                 sample_level_measures = self.stab_gini_arr[idx]

@@ -154,6 +154,11 @@ def validation_iter(
     labels_test = clustering_pipeline(X_test, est_class, random_state=random_state0+seed, **params)
     labels_2 = clustering_pipeline(X_2, est_class, random_state=random_state0+seed, **params)
     
+    n_clusters = params.get('n_clusters')
+    assert len(np.unique(labels_1)) == n_clusters, f"labels_1 has {len(np.unique(labels_1))} clusters, expected {n_clusters}"
+    assert len(np.unique(labels_test)) == n_clusters, f"labels_test has {len(np.unique(labels_test))} clusters, expected {n_clusters}"
+    assert len(np.unique(labels_2)) == n_clusters, f"labels_2 has {len(np.unique(labels_2))} clusters, expected {n_clusters}"
+    
     # model-explorer ARI
     _, i_1, i_2 = np.intersect1d(P_1_idx, P_2_idx, return_indices=True)
     ari_stab = adjusted_rand_score(labels_1[i_1], labels_2[i_2])
