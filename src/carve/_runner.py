@@ -12,7 +12,7 @@ from ._consensus import build_consensus_matrix
 from ._misclassification import build_generalizability_array
 from ._pipeline import create_pipeline
 from ._utils import clustering_pipeline, subsample_indices
-from ._plotting import plot_cluster_stability
+from ._plotting import plot_cluster_stability, plot_ari_hist
 
 
 ModelRecord = Dict[str, Any]
@@ -116,6 +116,12 @@ def run_validation(
                 # --- uncomment for debugging --- # 
                 # plot_cluster_stability(
                 #     X=X, 
+                #     results=results
+                # )
+                
+                # --- uncomment for debugging --- #
+                # plot_ari_hist(
+                #     k=params.get('n_clusters'),
                 #     results=results
                 # )
                 

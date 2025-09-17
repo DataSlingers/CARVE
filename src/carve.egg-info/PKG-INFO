@@ -15,3 +15,6 @@ Requires-Dist: numba>=0.60
 Requires-Dist: llvmlite<0.44,>=0.43
 Requires-Dist: umap-learn==0.5.6
 Requires-Dist: ipywidgets>=8.1.7
+Requires-Dist: plotly>=6.3.0
+Requires-Dist: nbformat>=5.10.4
+Requires-Dist: anywidget>=0.9.18

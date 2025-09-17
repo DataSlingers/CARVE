@@ -9,6 +9,7 @@ src/carve/_runner.py
 src/carve/_selection.py
 src/carve/_utils.py
 src/carve/api.py
+src/carve/cluster.py
 src/carve/config.py
 src/carve/grids.py
 src/carve.egg-info/PKG-INFO

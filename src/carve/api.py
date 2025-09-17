@@ -11,7 +11,7 @@ from .grids import default_model_grids, default_norm_options, default_dr_options
 from ._runner import run_validation
 from ._consensus import compute_consensus_metrics_batch
 from ._selection import select_best_estimator, select_best_row, select_best_row_1se, select_best_k, MEASURE_MAP
-from ._plotting import plot_measure_vs_k, plot_consensus_matrix, plot_clustering
+from ._plotting import plot_measure_vs_k, plot_consensus_matrix, plot_clustering, plot_measure_vs_k_interactive, plot_clustering_interactive
 from ._utils import align_labels, ensure_array2d, wrangle_pipeline_records
 
 @dataclass
@@ -86,32 +86,28 @@ class CARVE:
         return_estimator: bool = False,
     ) -> Union[np.ndarray, Tuple[np.ndarray, ClusterMixin]]:
         model_grids = self.config.model_grids or default_model_grids(self.config.X, self.config.K)
-        
         if self.model_df is None:
             raise RuntimeError("Call fit() first.")
 
-        estimator = select_best_estimator(
-            self.model_df, 
-            model_grids=model_grids, 
-            measure=measure, rule=rule,
-            k=k
-        )
-        
+        estimator = select_best_estimator(self.model_df, model_grids=model_grids, measure=measure, rule=rule, k=k)
+
         if hasattr(estimator, "fit_predict"):
             labels = estimator.fit_predict(self.config.X)
         else:
             estimator.fit(self.config.X)
             labels = getattr(estimator, "labels_")
 
-        if self.config.ref_labels is None:
+        cur_k = int(np.unique(labels).size)
+        ref = self.config.ref_labels
+        ref_k = int(np.unique(ref).size) if ref is not None else None
+
+        if (ref is None) or (ref_k != cur_k):
+            # store a fresh reference for this k
             self.config = self.config.update(ref_labels=labels)
         else:
-            labels = align_labels(self.config.ref_labels, labels)
+            labels = align_labels(ref, labels)
 
-        if return_estimator:
-            return labels, estimator
-        
-        return labels
+        return (labels, estimator) if return_estimator else labels
     
     def get_optimal_k(
         self,
@@ -129,24 +125,71 @@ class CARVE:
         
         return k
     
+    # def plot_global(
+    #     self,
+    #     measure: str = "stability",
+    #     rule: str = "max",
+    #     figsize: Tuple[int, int] = (10, 8)
+    # ) -> None:
+    #     if self.model_df is None or self.model_df.empty:
+    #         warnings.warn("model_df is empty; nothing to plot. Run validate() first.", RuntimeWarning, stacklevel=2)
+    #         return
+    #     if measure not in MEASURE_MAP:
+    #         raise ValueError(f"Invalid measure {measure!r}. Options: {list(MEASURE_MAP)}")
+    #     if rule not in {"max", "1se"}:
+    #         raise ValueError("rule must be 'max' or '1se'")
+        
+    #     y_col = MEASURE_MAP[measure]
+    #     se_col = f"{y_col}_se"
+    #     has_se = se_col in self.model_df.columns
+        
+    #     if rule == "1se" and not has_se:
+    #         warnings.warn(
+    #             f"Column {se_col!r} not found; falling back to 'max' rule.",
+    #             RuntimeWarning,
+    #             stacklevel=2,
+    #         )
+    #         rule = "max"
+        
+    #     plot_measure_vs_k(
+    #         self.model_df,
+    #         measure=measure,
+    #         rule=rule,
+    #         figsize=figsize
+    #     )
+
     def plot_global(
         self,
         measure: str = "stability",
         rule: str = "max",
-        figsize: Tuple[int, int] = (10, 8)
+        figsize: Tuple[int, int] = (10, 8),
+        *,
+        interactive: bool = True,
+        width: int = 900,
+        height: int = 600
     ) -> None:
         if self.model_df is None or self.model_df.empty:
             warnings.warn("model_df is empty; nothing to plot. Run validate() first.", RuntimeWarning, stacklevel=2)
             return
-        if measure not in MEASURE_MAP:
-            raise ValueError(f"Invalid measure {measure!r}. Options: {list(MEASURE_MAP)}")
         if rule not in {"max", "1se"}:
             raise ValueError("rule must be 'max' or '1se'")
-        
+
+        if interactive:
+            fig = plot_measure_vs_k_interactive(
+                self.model_df,
+                measure=measure,   # basis for best-row selection (line + star)
+                rule=rule,         # initial rule; user can switch in the dropdown
+                width=width,
+                height=height
+            )
+            fig.show()
+            return
+
+        if measure not in MEASURE_MAP:
+            raise ValueError(f"Invalid measure {measure!r}. Options: {list(MEASURE_MAP)}")
         y_col = MEASURE_MAP[measure]
         se_col = f"{y_col}_se"
         has_se = se_col in self.model_df.columns
-        
         if rule == "1se" and not has_se:
             warnings.warn(
                 f"Column {se_col!r} not found; falling back to 'max' rule.",
@@ -154,13 +197,7 @@ class CARVE:
                 stacklevel=2,
             )
             rule = "max"
-        
-        plot_measure_vs_k(
-            self.model_df,
-            measure=measure,
-            rule=rule,
-            figsize=figsize
-        )
+        plot_measure_vs_k(self.model_df, measure=measure, rule=rule, figsize=figsize)
     
     def plot_consensus_matrix(
         self,
@@ -198,6 +235,79 @@ class CARVE:
             figsize=figsize
         )
     
+    # def plot_clustering(
+    #     self,
+    #     measure: str = "stability",
+    #     stab_measure: str = "gini",
+    #     rule: str = "max",
+    #     k: int = None,
+    #     figsize: Tuple[int, int] = (20, 8),
+    #     min_size: float = 20.0,
+    #     max_size: float = 180.0, 
+    #     min_alpha: float = 0.3, 
+    #     max_alpha: float = 1.0
+    # ) -> None:
+    #     if self.model_df is None or self.model_df.empty:
+    #         warnings.warn("model_df is empty; nothing to plot. Run validate() first.", RuntimeWarning, stacklevel=2)
+    #         return
+    #     if measure not in MEASURE_MAP:
+    #         raise ValueError(f"Invalid measure {measure!r}. Options: {list(MEASURE_MAP)}")
+    #     if rule not in {"max", "1se"}:
+    #         raise ValueError("rule must be 'max' or '1se'")
+        
+    #     y_col = MEASURE_MAP[measure]
+    #     se_col = f"{y_col}_se"
+    #     has_se = se_col in self.model_df.columns
+        
+    #     if rule == "1se" and not has_se:
+    #         warnings.warn(
+    #             f"Column {se_col!r} not found; falling back to 'max' rule.",
+    #             RuntimeWarning,
+    #             stacklevel=2,
+    #         )
+    #         rule = "max"
+        
+    #     model_df_copy = self.model_df.copy()
+    #     if k is not None:  # subset dataframe if k specified
+    #         model_df_copy = model_df_copy[model_df_copy['n_clusters'] == k]
+
+    #     # pick best method
+    #     idx = select_best_row(model_df_copy, measure=measure, return_idx=True) if rule == "max" else select_best_row_1se(model_df_copy, measure=measure, return_idx=True)
+    #     row = model_df_copy.loc[idx]
+    #     pos = model_df_copy.index.get_loc(idx)
+        
+    #     labels = self.get_optimal_labels(
+    #         measure=measure,
+    #         rule=rule,
+    #         k=k
+    #     )
+        
+    #     n_clusters = row['n_clusters']
+    #     assert len(np.unique(labels)) == n_clusters, f"labels has {len(np.unique(labels))} clusters, expected {n_clusters}"
+        
+    #     if MEASURE_MAP[measure] == "ari_stability":
+    #         if stab_measure == "gini":
+    #             sample_level_measures = self.stab_gini_arr[pos]
+    #         elif stab_measure == "ce":
+    #             sample_level_measures = self.stab_ce_arr[pos]
+    #         else:
+    #             raise ValueError("stab_measure must be 'gini' or 'ce'")
+    #     else:
+    #         sample_level_measures = self.generalizability_arrs[pos]
+
+    #     plot_clustering(
+    #         X=self.config.X,
+    #         row=row, 
+    #         labels=labels, 
+    #         sample_level_measures=sample_level_measures,
+    #         measure=measure, 
+    #         figsize=figsize, 
+    #         min_size=min_size,
+    #         max_size=max_size,
+    #         min_alpha=min_alpha,
+    #         max_alpha=max_alpha
+    #     )
+
     def plot_clustering(
         self,
         measure: str = "stability",
@@ -208,65 +318,96 @@ class CARVE:
         min_size: float = 20.0,
         max_size: float = 180.0, 
         min_alpha: float = 0.3, 
-        max_alpha: float = 1.0
+        max_alpha: float = 1.0,
+        *,
+        interactive: bool = True,
+        width: int = 1100,
+        height: int = 520
     ) -> None:
         if self.model_df is None or self.model_df.empty:
             warnings.warn("model_df is empty; nothing to plot. Run validate() first.", RuntimeWarning, stacklevel=2)
             return
+
         if measure not in MEASURE_MAP:
-            raise ValueError(f"Invalid measure {measure!r}. Options: {list(MEASURE_MAP)}")
+            raise ValueError(f"Invalid measure {measure!r}. Use 'stability' or 'generalizability'.")
+
         if rule not in {"max", "1se"}:
             raise ValueError("rule must be 'max' or '1se'")
-        
-        y_col = MEASURE_MAP[measure]
-        se_col = f"{y_col}_se"
-        has_se = se_col in self.model_df.columns
-        
-        if rule == "1se" and not has_se:
-            warnings.warn(
-                f"Column {se_col!r} not found; falling back to 'max' rule.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-            rule = "max"
-        
+
         model_df_copy = self.model_df.copy()
-        if k is not None:  # subset dataframe if k specified
+        if k is not None:
             model_df_copy = model_df_copy[model_df_copy['n_clusters'] == k]
 
-        # pick best method
-        idx = select_best_row(model_df_copy, measure=measure, return_idx=True) if rule == "max" else select_best_row_1se(model_df_copy, measure=measure, return_idx=True)
+        # if user asked for 1se but no *_se column exists, gracefully fall back
+        y_col = MEASURE_MAP[measure]
+        se_col = f"{y_col}_se"
+        if rule == "1se" and se_col not in model_df_copy.columns:
+            warnings.warn(f"{se_col!r} not found; falling back to 'max' rule.", RuntimeWarning, stacklevel=2)
+            rule = "max"
+
+        # pick best row
+        idx = (select_best_row(model_df_copy, measure=measure, return_idx=True)
+            if rule == "max" else
+            select_best_row_1se(model_df_copy, measure=measure, return_idx=True))
         row = model_df_copy.loc[idx]
-        
-        labels = self.get_optimal_labels(
-            measure=measure,
-            rule=rule,
-            k=k
-        )
-        
-        n_clusters = row['n_clusters']
-        assert len(np.unique(labels)) == n_clusters, f"labels has {len(np.unique(labels))} clusters, expected {n_clusters}"
-        
+
+        # CRITICAL: find position in the ORIGINAL df to index arrays aligned to self.model_df
+        pos = self.model_df.index.get_loc(idx)
+
+        # labels
+        labels = self.get_optimal_labels(measure=measure, rule=rule, k=k)
+        n_clusters = int(row['n_clusters'])
+        assert len(np.unique(labels)) == n_clusters, \
+            f"labels has {len(np.unique(labels))} clusters, expected {n_clusters}"
+
+        # sample-level vectors
         if MEASURE_MAP[measure] == "ari_stability":
             if stab_measure == "gini":
-                sample_level_measures = self.stab_gini_arr[idx]
+                sample_level_measures = self.stab_gini_arr[pos]
             elif stab_measure == "ce":
-                sample_level_measures = self.stab_ce_arr[idx]
+                sample_level_measures = self.stab_ce_arr[pos]
             else:
                 raise ValueError("stab_measure must be 'gini' or 'ce'")
         else:
-            sample_level_measures = self.generalizability_arrs[idx]
+            sample_level_measures = self.generalizability_arrs[pos]
 
-        plot_clustering(
+        if interactive:
+            # FigureWidget needs display(), not show()
+            fig = plot_clustering_interactive(
+                X=self.config.X,
+                row=row,
+                labels=labels,
+                stab_gini_vec=self.stab_gini_arr[pos],
+                stab_ce_vec=self.stab_ce_arr[pos],
+                gen_vec=self.generalizability_arrs[pos],
+                measure=measure,
+                width=width,
+                height=height,
+                min_size=min_size,
+                max_size=max_size,
+                min_alpha=min_alpha,
+                max_alpha=max_alpha,
+            )
+            try:
+                from IPython.display import display
+                display(fig)
+            except Exception:
+                # fallback: for non-notebook contexts
+                import plotly.io as pio
+                pio.show(fig)
+            return  # important: don't also run the static plot
+
+        # static fallback
+        from ._plotting import plot_clustering as _plot_clustering_static
+        _plot_clustering_static(
             X=self.config.X,
-            row=row, 
-            labels=labels, 
+            row=row,
+            labels=labels,
             sample_level_measures=sample_level_measures,
-            measure=measure, 
-            figsize=figsize, 
+            measure=measure,
+            figsize=figsize,
             min_size=min_size,
             max_size=max_size,
             min_alpha=min_alpha,
             max_alpha=max_alpha
         )
-
