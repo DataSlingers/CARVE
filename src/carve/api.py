@@ -11,7 +11,7 @@ from .grids import default_model_grids, default_norm_options, default_dr_options
 from ._runner import run_validation
 from ._consensus import compute_consensus_metrics_batch
 from ._selection import select_best_estimator, select_best_row, select_best_row_1se, select_best_k, MEASURE_MAP
-from ._plotting import plot_measure_vs_k, plot_consensus_matrix, plot_clustering, plot_measure_vs_k_interactive, plot_clustering_interactive
+from ._plotting import plot_measure_vs_k, plot_consensus_matrix, plot_measure_vs_k_interactive, plot_clustering_interactive
 from ._utils import align_labels, ensure_array2d, wrangle_pipeline_records
 
 @dataclass
