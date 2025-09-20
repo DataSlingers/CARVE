@@ -96,3 +96,33 @@ def _sample_cluster_sizes(
     probs = rng.dirichlet(a)
     sizes += rng.multinomial(remaining, probs)
     return sizes
+
+def _post_embed_scaling(
+    X: np.ndarray,
+    X_pre_embed: np.ndarray | None = None,
+    preserve_global_scale: bool = False,
+    post_embed_standardize: bool = False,
+    compactness: float = 1.0,
+) -> np.ndarray:
+    if post_embed_standardize:
+        mu = X.mean(axis=0, keepdims=True)
+        sd = X.std(axis=0, keepdims=True)
+        sd[sd == 0] = 1.0
+        X = (X - mu) / sd
+    if preserve_global_scale and X_pre_embed is not None:
+        # global RMS scatter (sqrt mean squared distance to mean) pre vs post
+        def _rms_scatter(Z):
+            Zc = Z - Z.mean(axis=0, keepdims=True)
+            return np.sqrt(np.mean(np.sum(Zc**2, axis=1)))
+        
+        s0 = _rms_scatter(X_pre_embed)
+        s1 = _rms_scatter(X)
+        
+        if s1 > 0:
+            X = X * (s0 / s1)
+            
+    if compactness != 1.0:
+        X *= compactness
+        
+    return X
+            

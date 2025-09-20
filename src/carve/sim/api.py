@@ -3,7 +3,7 @@ import numpy as np
 
 from ._outliers import _parse_outliers, _sample_outliers
 from ._centers import _sample_centers
-from ._sizes import _compute_cluster_sizes, _get_cluster_scales
+from ._sizes import _compute_cluster_sizes, _get_cluster_scales, _post_embed_scaling
 from ._covariance import _build_correlation_matrix, _cluster_covariances
 from ._distributions import _sample_cluster_points
 from ._embed import _apply_embedding
@@ -43,8 +43,12 @@ def simulate_clusters(
     centroid_method: Literal["none", "lhs", "best_candidate", "min_dist"] = "best_candidate",
     n_candidates: int = 64,
     min_center_dist: float | None = None,
+    preserve_global_scale: bool = False,
+    post_embed_standardize: bool = False,
+    compactness: float = 1.0,
+    embed_scale_by_dim: bool = True,
     plotting: bool = True,
-    random_state: int | None = None
+    random_state: int | None = None,
 ) -> Tuple[np.ndarray, np.ndarray, SimulationMeta]:
     """
     Generate synthetic clustered data with optional correlation, outliers, and embedding.
@@ -112,15 +116,26 @@ def simulate_clusters(
     X = np.vstack(X_parts) if X_parts else np.empty((0, p), dtype=float)
     y = np.concatenate(y_parts) if y_parts else np.empty((0,), dtype=int)
 
+    # Optional embedding
+    X_pre_embed = X
+    if nonlinear:
+        X = _apply_embedding(
+            X, method=embed_method, embed_dim=embed_dim,
+            embed_param=embed_param, scale_by_dim=embed_scale_by_dim, rng=rng
+        )
+        
+        if post_embed_standardize or preserve_global_scale or compactness != 1.0:
+            X = _post_embed_scaling(
+                X,
+                X_pre_embed=X_pre_embed,
+                preserve_global_scale=preserve_global_scale,
+                post_embed_standardize=post_embed_standardize,
+                compactness=compactness
+            )
+
     perm = rng.permutation(len(y))
     X = X[perm]
     y = y[perm]
-
-    # Optional embedding
-    X = _apply_embedding(
-        X, nonlinear=nonlinear, method=embed_method, embed_dim=embed_dim,
-        embed_param=embed_param, rng=rng
-    )
 
     # Optional plotting
     if plotting:
