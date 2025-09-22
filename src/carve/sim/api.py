@@ -8,6 +8,7 @@ from ._covariance import _build_correlation_matrix, _cluster_covariances
 from ._distributions import _sample_cluster_points
 from ._embed import _apply_embedding
 from ._plot import _plot_simulation
+from ._noise import _sample_noise
 
 class SimulationMeta(NamedTuple):
     centers: np.ndarray
@@ -16,6 +17,9 @@ class SimulationMeta(NamedTuple):
     correlation: np.ndarray
     covariances: list[np.ndarray]
     outliers: int
+    signal_dims: int
+    noise_dims: int
+    noise_mask: np.ndarray
 
 def simulate_clusters(
     n_total: int,
@@ -33,7 +37,7 @@ def simulate_clusters(
     outliers: int | float = 0,
     outlier_scale: float = 5.0,
     outlier_mode: Literal["far_gaussian", "uniform_box"] = "far_gaussian",
-    distribution: Literal["gaussian", "t", "uniform_ball"] = "gaussian",
+    distribution: str = "gaussian",
     t_df: int = 3,
     nonlinear: bool = False,
     embed_dim: int | None = None,
@@ -47,6 +51,9 @@ def simulate_clusters(
     post_embed_standardize: bool = False,
     compactness: float = 1.0,
     embed_scale_by_dim: bool = True,
+    noise_dims: int = 0,
+    noise_dist: Literal["gaussian", "uniform", "laplace", "t"] = "gaussian",
+    noise_scale: float | Literal["match"] = "match",
     plotting: bool = True,
     random_state: int | None = None,
 ) -> Tuple[np.ndarray, np.ndarray, SimulationMeta]:
@@ -112,7 +119,7 @@ def simulate_clusters(
         X_parts.append(X_out)
         y_parts.append(np.full(int(n_outliers), -1, dtype=int))
 
-    # Concatenate and shuffle
+    # Concatenate
     X = np.vstack(X_parts) if X_parts else np.empty((0, p), dtype=float)
     y = np.concatenate(y_parts) if y_parts else np.empty((0,), dtype=int)
 
@@ -133,6 +140,26 @@ def simulate_clusters(
                 compactness=compactness
             )
 
+    # Add noise dimensions
+    if noise_dims > 0:
+        if noise_scale == "match":
+            # match average per-feature std of current X to keep noise comparable
+            # (to avoid leaking structure: compute std over all rows regardless of cluster)
+            stds = X.std(axis=0, ddof=1)
+            base = float(np.nanmean(np.where(stds > 0, stds, np.nan))) if X.shape[1] > 0 else 1.0
+            if not np.isfinite(base) or base == 0.0:
+                base = 1.0
+            scale_val = base
+        else:
+            scale_val = float(noise_scale)
+
+        Z = _sample_noise(
+            rng=rng, n=X.shape[0], q=noise_dims,
+            dist=noise_dist, scale=scale_val, t_df=t_df
+        )
+        X = np.hstack([X, Z])
+
+    # Shuffle
     perm = rng.permutation(len(y))
     X = X[perm]
     y = y[perm]
@@ -141,8 +168,22 @@ def simulate_clusters(
     if plotting:
         _plot_simulation(X, y, random_state=random_state)
 
+    # build meta data
+    total_dims = X.shape[1]
+    sig_dims = (X_pre_embed.shape[1] if nonlinear else p)
+    # if noise added after embedding, signal dims == X.shape[1] - noise_dims
+    if noise_dims > 0:
+        sig_dims = total_dims - noise_dims
+        
+    noise_mask = np.zeros(total_dims, dtype=bool)
+    
+    if noise_dims > 0:
+        noise_mask[sig_dims: total_dims] = True
+
     meta = SimulationMeta(
         centers=centers, cluster_sizes=cluster_sizes, cluster_scales=scales,
-        correlation=R, covariances=covs, outliers=int(n_outliers)
+        correlation=R, covariances=covs, outliers=int(n_outliers),
+        signal_dims=sig_dims, noise_dims=int(noise_dims), noise_mask=noise_mask
     )
+    
     return X, y, meta
