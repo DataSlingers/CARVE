@@ -102,8 +102,12 @@ def run_validation(
                     **params,
                     'ari_stability': np.mean(aris_stab),
                     'ari_stability_se': np.std(aris_stab, ddof=1) / np.sqrt(B),
+                    'ari_stability_upper': np.quantile(aris_stab, 0.95),
+                    'ari_stability_lower': np.quantile(aris_stab, 0.05),
                     'ari_generalizability': np.mean(aris_pred),
-                    'ari_generalizability_se': np.std(aris_pred, ddof=1) / np.sqrt(B)
+                    'ari_generalizability_se': np.std(aris_pred, ddof=1) / np.sqrt(B),
+                    'ari_generalizability_upper': np.quantile(aris_pred, 0.95),
+                    'ari_generalizability_lower': np.quantile(aris_pred, 0.05)
                 })
                 
                 if random_preprocess:

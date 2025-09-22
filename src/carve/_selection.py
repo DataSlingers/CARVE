@@ -42,8 +42,10 @@ def select_best_estimator(
         row = select_best_row(model_df, measure=measure, return_idx=False)
     elif rule == '1se':
         row = select_best_row_1se(model_df, measure=measure, return_idx=False)
+    elif rule == 'quantile':
+        row = select_best_row_quantile(model_df, measure=measure, return_idx=False)
     else:
-        raise ValueError("Invalid rule. Options are 'max' or '1se'.")
+        raise ValueError("Invalid rule. Options are 'max', '1se', or 'quantile'.")
 
     # Reconstruct the best estimator
     estimator = instantiate_estimator(model_grids, row)
@@ -59,8 +61,10 @@ def select_best_k(
         row = select_best_row(model_df, measure=measure, return_idx=False)
     elif rule == '1se':
         row = select_best_row_1se(model_df, measure=measure, return_idx=False)
+    elif rule == 'quantile':
+        row = select_best_row_quantile(model_df, measure=measure, return_idx=False)
     else:
-        raise ValueError("Invalid rule. Options are 'max' or '1se'.")
+        raise ValueError("Invalid rule. Options are 'max', '1se', or 'quantile'.")
 
     # Reconstruct the best estimator
     return row['n_clusters']
@@ -102,6 +106,28 @@ def select_best_row_1se(
         return within_1se["n_clusters"].idxmax()
         
     return within_1se.loc[within_1se["n_clusters"].idxmax()]
+
+def select_best_row_quantile(
+    model_df: pd.DataFrame,
+    *,
+    measure: str = "stability",
+    return_idx: bool = False,
+) -> pd.Series:
+    if measure not in MEASURE_MAP:
+        raise ValueError(f"Invalid measure {measure!r}. Options: {list(MEASURE_MAP)}")
+    measure_col = MEASURE_MAP[measure]
+    
+    best_row = model_df.loc[model_df[measure_col].idxmax()]
+    threshold_upper = best_row[f"{measure_col}_upper"]
+    threshold_lower = best_row[f"{measure_col}_lower"]
+    
+    # Filter models within 1SE of best score
+    within_quantiles = model_df[(model_df[measure_col] >= threshold_lower) and (model_df[measure_col] <= threshold_upper)]
+    
+    if return_idx:
+        return within_quantiles["n_clusters"].idxmax()
+        
+    return within_quantiles.loc[within_quantiles["n_clusters"].idxmax()]
 
 def instantiate_estimator(
     model_grids: List[GridSpec], 

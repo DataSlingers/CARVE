@@ -21,13 +21,13 @@ if pio.renderers.default == "":
             break
 
 
-from ._selection import MEASURE_MAP, select_best_row, select_best_row_1se
+from ._selection import MEASURE_MAP, select_best_row, select_best_row_1se, select_best_row_quantile
 from ._consensus import order_consensus_matrix
 
 non_param_cols = {
     "n_clusters", 
-    "ari_stability", "ari_stability_se", 
-    "ari_generalizability", "ari_generalizability_se", 
+    "ari_stability", "ari_stability_se", "ari_stability_upper", "ari_stability_lower",
+    "ari_generalizability", "ari_generalizability_se", "ari_generalizability_upper", "ari_generalizability_lower",
     "consensus_pac_stability", "consensus_gini_stability", "consensus_ce_stability", 
     # "flip_instability", "contin_entropy"
 }
@@ -51,7 +51,14 @@ def plot_measure_vs_k(
     group_cols = [c for c in model_df.columns if c not in non_param_cols]
 
     # pick best row according to rule
-    best_row = select_best_row(model_df, measure=measure, return_idx=False) if rule == "max" else select_best_row_1se(model_df, measure=measure, return_idx=False)
+    if rule == "max":
+        best_row = select_best_row(model_df, measure=measure, return_idx=False)
+    elif rule == "1se":
+        best_row = select_best_row_1se(model_df, measure=measure, return_idx=False)
+    elif rule == "quantile":
+        best_row = select_best_row_quantile(model_df, measure=measure, return_idx=False)
+    else:
+        raise ValueError(f"Unknown rule: {rule}")
     best_k = best_row["n_clusters"]
 
     # normalize keys for robust comparison (since NaN != NaN)
@@ -117,7 +124,14 @@ def plot_consensus_matrix(
         model_df = model_df[model_df['n_clusters'] == k]
 
     # pick best method
-    best_idx = select_best_row(model_df, measure=measure, return_idx=True) if rule == "max" else select_best_row_1se(model_df, measure=measure, return_idx=True)
+    if rule == "max":
+        best_idx = select_best_row(model_df, measure=measure, return_idx=True)
+    elif rule == "1se":
+        best_idx = select_best_row_1se(model_df, measure=measure, return_idx=True)
+    elif rule == "quantile":
+        best_idx = select_best_row_quantile(model_df, measure=measure, return_idx=True)
+    else:
+        raise ValueError(f"Unknown rule: {rule}")
     best_row = model_df.loc[best_idx]
 
     # get consensus matrix
@@ -389,8 +403,6 @@ def plot_measure_vs_k_interactive(
         raise ValueError("model_df is empty; run validate() first.")
     if measure not in MEASURE_MAP:
         raise ValueError(f"Invalid measure {measure!r}. Options: {list(MEASURE_MAP)}")
-    if rule not in {"max", "1se"}:
-        raise ValueError("rule must be 'max' or '1se'")
 
     # available metric columns present in the DF
     available = {disp: col for disp, col in _display_name_map.items() if col in model_df.columns}
@@ -459,22 +471,60 @@ def plot_measure_vs_k_interactive(
     for disp in metric_names:
         col = available[disp]
         block = []
+        shade_block = []
         for _, g in df.groupby(group_cols, dropna=False):
             g = g.sort_values("n_clusters")
+            # Main line
             block.append(
                 go.Scatter(
                     x=g["n_clusters"],
                     y=g[col],
                     mode="lines+markers",
-                    name=g["_group_label"].iloc[0],   # same label as static
+                    name=g["_group_label"].iloc[0],
                     text=g["_hovertext"],
                     hovertemplate="%{text}<extra></extra>",
                     visible=False,
-                    showlegend=True   # << keep legend entries
+                    showlegend=True
                 )
             )
-        traces_per_metric.append(block)
-        fig.add_traces(block)
+            # Add quantile shading if available and for ARI metrics
+            if col in ("ari_stability", "ari_generalizability"):
+                lower = f"{col}_lower"
+                upper = f"{col}_upper"
+                if lower in g and upper in g:
+                    # Lower bound (invisible, for fill)
+                    shade_block.append(
+                        go.Scatter(
+                            x=g["n_clusters"],
+                            y=g[lower],
+                            mode="lines",
+                            line=dict(width=0),
+                            showlegend=False,
+                            hoverinfo="skip",
+                            visible=False,
+                            name=f"{g['_group_label'].iloc[0]} 5% CI",
+                        )
+                    )
+                    # Upper bound (shaded area)
+                    shade_block.append(
+                        go.Scatter(
+                            x=g["n_clusters"],
+                            y=g[upper],
+                            mode="lines",
+                            fill="tonexty",
+                            fillcolor="rgba(0,0,0,0.08)",  # adjust color as needed
+                            line=dict(width=0),
+                            showlegend=False,
+                            hoverinfo="skip",
+                            visible=False,
+                            name=f"{g['_group_label'].iloc[0]} 95% CI",
+                        )
+                    )
+                    
+        # Combine main and shading traces for this metric
+        all_traces = block + shade_block
+        traces_per_metric.append(all_traces)
+        fig.add_traces(all_traces)
 
     # which metric should be shown by default? -> the one tied to the given `measure`
     default_y_col = MEASURE_MAP[measure]
@@ -485,11 +535,14 @@ def plot_measure_vs_k_interactive(
         tr.visible = True
 
     # vertical dashed line at best k based on YOUR selection helpers (no re-calculation)
-    best_row = (
-        select_best_row(df, measure=measure, return_idx=False)
-        if rule == "max"
-        else select_best_row_1se(df, measure=measure, return_idx=False)
-    )
+    if rule == "max":
+        best_row = select_best_row(model_df, measure=measure, return_idx=False)
+    elif rule == "1se":
+        best_row = select_best_row_1se(model_df, measure=measure, return_idx=False)
+    elif rule == "quantile":
+        best_row = select_best_row_quantile(model_df, measure=measure, return_idx=False)
+    else:
+        raise ValueError(f"Unknown rule: {rule}")
     best_k = int(best_row["n_clusters"])
 
     fig.update_layout(
