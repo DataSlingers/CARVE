@@ -17,6 +17,16 @@ src/carve.egg-info/SOURCES.txt
 src/carve.egg-info/dependency_links.txt
 src/carve.egg-info/requires.txt
 src/carve.egg-info/top_level.txt
+src/carve/sim/__init__.py
+src/carve/sim/_centers.py
+src/carve/sim/_covariance.py
+src/carve/sim/_distributions.py
+src/carve/sim/_embed.py
+src/carve/sim/_noise.py
+src/carve/sim/_outliers.py
+src/carve/sim/_plot.py
+src/carve/sim/_sizes.py
+src/carve/sim/api.py
 tests/test_api.py
 tests/test_consensus.py
 tests/test_grids_.py

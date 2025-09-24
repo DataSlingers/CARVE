@@ -18,3 +18,4 @@ Requires-Dist: ipywidgets>=8.1.7
 Requires-Dist: plotly>=6.3.0
 Requires-Dist: nbformat>=5.10.4
 Requires-Dist: anywidget>=0.9.18
+Requires-Dist: rpy2>=3.6.3

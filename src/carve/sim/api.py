@@ -1,5 +1,15 @@
-from typing import Callable, Literal, NamedTuple, Tuple
+from typing import Callable, Literal, NamedTuple, Optional, Tuple
 import numpy as np
+import pandas as pd
+
+from scipy.sparse import csc_matrix
+
+from rpy2.robjects.methods import RS4
+from rpy2 import robjects as ro
+from rpy2.robjects import default_converter
+from rpy2.robjects.conversion import localconverter
+from rpy2.robjects import numpy2ri, pandas2ri
+from rpy2.robjects.packages import importr
 
 from ._outliers import _parse_outliers, _sample_outliers
 from ._centers import _sample_centers
@@ -187,3 +197,192 @@ def simulate_clusters(
     )
     
     return X, y, meta
+
+
+
+class ScDesign3Simulator:
+    def __init__(
+        self, 
+        reference_sce_rds: str, 
+        assay_use: str = "counts", 
+        label_col: Optional[str] = "cell_type", 
+        pseudotime_col: Optional[str] = None,
+        family: str = "nb",
+        copula: str = "gaussian",
+        prefit: bool = False, 
+        n_genes_fit: int = 3000,
+        min_detect_rate: float = 0.01,
+        n_cores: int = 1, 
+    ):
+        self.scdesign3 = importr("scDesign3")
+        self.base = importr("base")
+        self.sce = self.base.readRDS(reference_sce_rds)
+        self.assay_use = assay_use
+        self.label_col = label_col
+        self.pseudotime_col = pseudotime_col
+        self.family = family
+        self.copula = copula
+        self.n_genes_fit = int(n_genes_fit)
+        self.min_detect_rate = float(min_detect_rate)
+        self.n_cores = n_cores
+        self.prefit = prefit
+        self._fit_obj = None
+        self._subset_reference_genes()
+        
+        if prefit:  # placeholder, may implement later
+            pass  # see scDesign3 introduction vignette. :contentReference[oaicite:2]{index=2}
+        
+    def _subset_reference_genes(self):
+        Matrix = importr("Matrix")
+        SummExp = importr("SummarizedExperiment")
+        # try to use sparse rowVars if available (best for dgCMatrix)
+        try:
+            sparseMatrixStats = importr("sparseMatrixStats")
+            have_sparse = True
+        except Exception:
+            have_sparse = False
+            MatrixGenerics = importr("MatrixGenerics")
+
+        # R code to select genes
+        r = ro.r
+        r("set.seed(1)")
+        r.assign("sce", self.sce)
+        r.assign("assay_name", self.assay_use)
+        r.assign("min_rate", self.min_detect_rate)
+        r.assign("n_keep", self.n_genes_fit)
+
+        r("""
+        counts <- SummarizedExperiment::assay(sce, assay_name)
+        nc <- ncol(counts)
+        det <- Matrix::rowSums(counts > 0) / nc
+        keep <- det >= min_rate
+        # if too many, pick the top by variance when possible, otherwise random
+        if (sum(keep) > n_keep) {
+        idx_keep <- which(keep)
+        if ("sparseMatrixStats" %in% rownames(installed.packages())) {
+            vars <- sparseMatrixStats::rowVars(counts)
+            ord <- order(vars[idx_keep], decreasing = TRUE)
+            sel <- idx_keep[ ord[ seq_len(n_keep) ] ]
+        } else {
+            set.seed(1)
+            sel <- sample(idx_keep, n_keep)
+        }
+        sce <- sce[sel, ]
+        } else {
+        sce <- sce[keep, ]
+        }
+        """)
+        self.sce = r("sce")
+        
+    def _r_matrix_to_numpy(self, r_obj):
+        with localconverter(default_converter + numpy2ri.converter):
+            return ro.conversion.rpy2py(r_obj)
+
+    def _r_df_to_pandas(self, r_df):
+        with localconverter(default_converter + pandas2ri.converter):
+            return ro.conversion.rpy2py(r_df)
+        
+    def _rnull(self, x):
+        return ro.NULL if x is None else x
+    
+    def _counts_to_numpy(self, r_counts):
+        if isinstance(r_counts, RS4):
+            classes = set(map(str, r_counts.rclass))
+            if "dgCMatrix" in classes or "dCsparseMatrix" in classes:
+                i = np.asarray(r_counts.do_slot("i"),   dtype=np.int32)
+                p = np.asarray(r_counts.do_slot("p"),   dtype=np.int32)
+                x = np.asarray(r_counts.do_slot("x"),   dtype=np.float64)
+                dim = tuple(np.asarray(r_counts.do_slot("Dim"), dtype=np.int32))
+                return csc_matrix((x, i, p), shape=dim).toarray()
+        
+        with localconverter(default_converter + numpy2ri.converter): 
+            return ro.conversion.rpy2py(r_counts)
+        
+    def simulate(
+        self, 
+        *, 
+        k: int, 
+        seed: int,
+        n_total: int, 
+        p: int, 
+        noise_genes: float, 
+        plotting: bool = False
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        ro.r("set.seed")(seed)
+
+        res = self.scdesign3.scdesign3(
+            sce=self.sce,
+            assay_use=self.assay_use,
+            celltype=self._rnull(self.label_col),
+            pseudotime=self._rnull(self.pseudotime_col),
+            family_use=self.family,
+            ncell=int(n_total),
+
+            copula="gaussian",
+            correlation_function="coop",
+            if_sparse=True,    
+            fastmvn=True,   
+            important_feature=0.95, 
+            n_cores=int(self.n_cores), 
+            parallelization="pbmcmapply", 
+            DT=True,
+            usebam=True,
+
+            mu_formula="1", sigma_formula="1",
+            corr_formula="1",
+            other_covariates=ro.NULL,
+            pseudo_obs=False,
+            return_model=False
+        )
+
+        # counts: genes x cells (R matrix / dgCMatrix -> numpy)
+        r_counts = res.rx2("new_count")
+        counts = self._counts_to_numpy(r_counts)
+        X = counts.T.astype(float)
+        
+        lib = X.sum(axis=1, keepdims=True)
+        X = np.log1p(1e4 * X / np.maximum(lib, 1))
+
+        # covariates / labels
+        cov = None
+        if "new_covariate" in res.names:
+            r_cov = res.rx2("new_covariate")
+            
+            if not bool(ro.r("is.null")(r_cov)[0]):
+                cov = self._r_df_to_pandas(r_cov)
+
+        if cov is None:
+            SE = importr("SummarizedExperiment")
+            r_cold = SE.colData(self.sce)
+            
+            r_df = ro.r("as.data.frame")(r_cold)
+            cov = self._r_df_to_pandas(r_df)
+
+        if self.label_col and self.label_col in cov.columns:
+            y_raw = cov[self.label_col].astype(str).to_numpy()
+            # enforce exactly k types (optional)
+            top = pd.Series(y_raw).value_counts().index[:k]
+            keep = np.isin(y_raw, top)
+            X, y_raw = X[keep], y_raw[keep]
+            _, y = np.unique(y_raw, return_inverse=True)
+        elif self.pseudotime_col and self.pseudotime_col in cov.columns:
+            pt = cov[self.pseudotime_col].to_numpy().astype(float)
+            bins = np.quantile(pt, np.linspace(0, 1, k + 1))
+            y = np.clip(np.digitize(pt, bins[1:-1]), 0, k - 1)
+        else:
+            y = np.zeros(X.shape[0], dtype=int)
+
+        rng = np.random.default_rng(seed)
+        q = int(round(noise_genes * X.shape[1]))
+        if q > 0:
+            Z = rng.normal(0, X.std() * 0.2, size=(X.shape[0], q))
+            X = np.hstack([X, Z])
+
+        if X.shape[1] > p:
+            var = X.var(axis=0)
+            X = X[:, np.argsort(var)[-p:]]
+
+        if plotting:
+            _plot_simulation(X, y, random_state=None)
+
+        return X, y
