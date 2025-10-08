@@ -11,7 +11,7 @@ from .grids import default_model_grids, default_norm_options, default_dr_options
 from ._runner import run_validation
 from ._consensus import compute_consensus_metrics_batch
 from ._selection import select_best_estimator, select_best_row, select_best_row_1se, select_best_k, MEASURE_MAP
-from ._plotting import plot_measure_vs_k, plot_consensus_matrix, plot_measure_vs_k_interactive, plot_clustering_interactive
+from ._plotting import plot_measure_vs_k, plot_pipeline_global, plot_consensus_matrix, plot_measure_vs_k_interactive, plot_clustering_interactive
 from ._utils import align_labels, ensure_array2d, wrangle_pipeline_records
 
 @dataclass
@@ -207,6 +207,28 @@ class CARVE:
             )
             rule = "max"
         plot_measure_vs_k(self.model_df, measure=measure, rule=rule, figsize=figsize)
+        
+    def plot_preprocessing(
+        self,
+        measure: str = "stability",
+        rule: str = "max",
+        figsize: Tuple[int, int] = (10, 8),
+        *,
+        interactive: bool = True,
+    ) -> None:
+        if self.pipeline_df is None or self.pipeline_df.empty:
+            warnings.warn("pipeline_df is empty; nothing to plot. Run validate() with random pre-processing first.", RuntimeWarning, stacklevel=2)
+            return
+        
+        if rule not in {"max", "1se", "quantile"}:
+            raise ValueError("rule must be 'max', '1se', or 'quantile'")
+
+        fig = plot_pipeline_global(
+            self.pipeline_df,
+            measure=measure,
+            rule=rule,
+            figsize=figsize,
+        )
     
     def plot_consensus_matrix(
         self,

@@ -53,13 +53,13 @@ def simulate_clusters(
     embed_dim: int | None = None,
     embed_method: Literal["random_fourier", "poly", "rbf"] = "random_fourier",
     embed_param: float = 2.0,
-    center_box: float = 10.0,
+    center_box: float = 3.0,
     centroid_method: Literal["none", "lhs", "best_candidate", "min_dist"] = "best_candidate",
     n_candidates: int = 64,
     min_center_dist: float | None = None,
+    post_embed_standardize: bool = True,
     preserve_global_scale: bool = False,
-    post_embed_standardize: bool = False,
-    compactness: float = 1.0,
+    compactness: float = 0.65,
     embed_scale_by_dim: bool = True,
     noise_dims: int = 0,
     noise_dist: Literal["gaussian", "uniform", "laplace", "t"] = "gaussian",
@@ -153,8 +153,6 @@ def simulate_clusters(
     # Add noise dimensions
     if noise_dims > 0:
         if noise_scale == "match":
-            # match average per-feature std of current X to keep noise comparable
-            # (to avoid leaking structure: compute std over all rows regardless of cluster)
             stds = X.std(axis=0, ddof=1)
             base = float(np.nanmean(np.where(stds > 0, stds, np.nan))) if X.shape[1] > 0 else 1.0
             if not np.isfinite(base) or base == 0.0:
@@ -181,7 +179,8 @@ def simulate_clusters(
     # build meta data
     total_dims = X.shape[1]
     sig_dims = (X_pre_embed.shape[1] if nonlinear else p)
-    # if noise added after embedding, signal dims == X.shape[1] - noise_dims
+    noise_dims_int = int(np.floor(noise_dims + 0.5))
+    
     if noise_dims > 0:
         sig_dims = total_dims - noise_dims
         

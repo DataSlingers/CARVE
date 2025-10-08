@@ -29,7 +29,9 @@ def _sample_noise(
     
     elif dist == "t":
         # Student t scaled to roughly unit variance when df>2: Var = df/(df-2)
-        Z = rng.standard_t(df=t_df, size=(n, q))
+        q_int = int(np.floor(q + 0.5))
+        
+        Z = rng.standard_t(df=t_df, size=(n, q_int))
         if t_df > 2:
             Z = Z / np.sqrt(t_df / (t_df - 2))
             

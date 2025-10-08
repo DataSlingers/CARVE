@@ -31,8 +31,8 @@ def default_model_grids(
         (KMeans, {"n_clusters": ks}),
         (AgglomerativeClustering, {"n_clusters": ks, "linkage": ["ward", "complete", "average", "single"]}),
         # (SpectralClusteringCARVE, {"n_clusters": ks, "gamma": gamma_quantiles(X)}),
-        (SpectralClusteringCARVE, {"n_clusters": ks, "affinity": ['knn'], "n_neighbors": [5, 10, 15, 20]}),
-        # (SpectralClustering, {"n_clusters": ks, "gamma": gamma_quantiles(X)}),
+        # (SpectralClusteringCARVE, {"n_clusters": ks, "affinity": ['knn'], "n_neighbors": [5, 10, 15, 20]}),
+        (SpectralClustering, {"n_clusters": ks, "gamma": gamma_quantiles(X)}),
         # (SpectralClustering, {"n_clusters": ks, "affinity": ['nearest_neighbors'], "n_neighbors": [5, 10, 15, 20]}),
     ]
     

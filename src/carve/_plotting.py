@@ -4,6 +4,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
 from sklearn.decomposition import PCA
 import matplotlib.gridspec as gridspec
 from matplotlib.ticker import MaxNLocator
@@ -108,6 +109,31 @@ def plot_measure_vs_k(
     ax.set_title(title)
     ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
     ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+
+def plot_pipeline_global(
+    pipeline_df: pd.DataFrame,
+    *,
+    measure: str = "stability",
+    rule: str = "max",
+    figsize: Tuple[int, int] = (10, 8)
+):
+    plt.figure(figsize=figsize)
+    # Create a label for each pipeline
+    pipeline_df['pipeline'] = pipeline_df['norm__func'] + ' + ' + pipeline_df['dr__method']
+    # Plot
+    sns.lineplot(
+        data=pipeline_df,
+        x='n_clusters',
+        y=MEASURE_MAP[measure],
+        hue='pipeline',
+        marker='o'
+    )
+    plt.title(f'Clustering {measure} by Preprocessing Pipeline')
+    plt.xlabel('Number of clusters')
+    plt.ylabel(measure.replace('_', ' ').title())
+    plt.legend(title='Pipeline', bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.tight_layout()
     plt.show()
     
@@ -488,28 +514,61 @@ def plot_measure_vs_k_interactive(
                 )
             )
             # Add quantile shading if available and for ARI metrics
+            # if col in ("ari_stability", "ari_generalizability"):
+            #     lower = f"{col}_lower"
+            #     upper = f"{col}_upper"
+            #     if lower in g and upper in g:
+            #         # Lower bound (invisible, for fill)
+            #         shade_block.append(
+            #             go.Scatter(
+            #                 x=g["n_clusters"],
+            #                 y=g[lower],
+            #                 mode="lines",
+            #                 line=dict(width=0),
+            #                 showlegend=False,
+            #                 hoverinfo="skip",
+            #                 visible=False,
+            #                 name=f"{g['_group_label'].iloc[0]} 5% CI",
+            #             )
+            #         )
+            #         # Upper bound (shaded area)
+            #         shade_block.append(
+            #             go.Scatter(
+            #                 x=g["n_clusters"],
+            #                 y=g[upper],
+            #                 mode="lines",
+            #                 fill="tonexty",
+            #                 fillcolor="rgba(0,0,0,0.08)",  # adjust color as needed
+            #                 line=dict(width=0),
+            #                 showlegend=False,
+            #                 hoverinfo="skip",
+            #                 visible=False,
+            #                 name=f"{g['_group_label'].iloc[0]} 95% CI",
+            #             )
+            #         )
             if col in ("ari_stability", "ari_generalizability"):
-                lower = f"{col}_lower"
-                upper = f"{col}_upper"
-                if lower in g and upper in g:
+                se_col = f"{col}_se"
+                if se_col in g:
+                    lower = g[col] - g[se_col]
+                    upper = g[col] + g[se_col]
                     # Lower bound (invisible, for fill)
                     shade_block.append(
                         go.Scatter(
                             x=g["n_clusters"],
-                            y=g[lower],
+                            y=lower,
                             mode="lines",
                             line=dict(width=0),
                             showlegend=False,
                             hoverinfo="skip",
                             visible=False,
-                            name=f"{g['_group_label'].iloc[0]} 5% CI",
+                            name=f"{g['_group_label'].iloc[0]} -1 SE",
                         )
                     )
                     # Upper bound (shaded area)
                     shade_block.append(
                         go.Scatter(
                             x=g["n_clusters"],
-                            y=g[upper],
+                            y=upper,
                             mode="lines",
                             fill="tonexty",
                             fillcolor="rgba(0,0,0,0.08)",  # adjust color as needed
@@ -517,7 +576,7 @@ def plot_measure_vs_k_interactive(
                             showlegend=False,
                             hoverinfo="skip",
                             visible=False,
-                            name=f"{g['_group_label'].iloc[0]} 95% CI",
+                            name=f"{g['_group_label'].iloc[0]} +1 SE",
                         )
                     )
                     
@@ -534,7 +593,7 @@ def plot_measure_vs_k_interactive(
     for tr in traces_per_metric[default_idx]:
         tr.visible = True
 
-    # vertical dashed line at best k based on YOUR selection helpers (no re-calculation)
+    # vertical dashed line at best k based on selection helpers
     if rule == "max":
         best_row = select_best_row(model_df, measure=measure, return_idx=False)
     elif rule == "1se":

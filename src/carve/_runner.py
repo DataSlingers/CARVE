@@ -13,6 +13,7 @@ from ._misclassification import build_generalizability_array
 from ._pipeline import create_pipeline
 from ._utils import clustering_pipeline, subsample_indices
 from ._plotting import plot_cluster_stability, plot_ari_hist
+import warnings
 
 
 ModelRecord = Dict[str, Any]
@@ -165,9 +166,12 @@ def validation_iter(
     labels_2 = clustering_pipeline(X_2, est_class, random_state=random_state0+seed, **params)
     
     n_clusters = params.get('n_clusters')
-    assert len(np.unique(labels_1)) == n_clusters, f"labels_1 has {len(np.unique(labels_1))} clusters, expected {n_clusters}"
-    assert len(np.unique(labels_test)) == n_clusters, f"labels_test has {len(np.unique(labels_test))} clusters, expected {n_clusters}"
-    assert len(np.unique(labels_2)) == n_clusters, f"labels_2 has {len(np.unique(labels_2))} clusters, expected {n_clusters}"
+    if len(np.unique(labels_1)) != n_clusters:
+        warnings.warn(f"labels_1 has {len(np.unique(labels_1))} clusters, expected {n_clusters}")
+    if len(np.unique(labels_test)) != n_clusters:
+        warnings.warn(f"labels_test has {len(np.unique(labels_test))} clusters, expected {n_clusters}")
+    if len(np.unique(labels_2)) != n_clusters:
+        warnings.warn(f"labels_2 has {len(np.unique(labels_2))} clusters, expected {n_clusters}")
     
     # model-explorer ARI
     _, i_1, i_2 = np.intersect1d(P_1_idx, P_2_idx, return_indices=True)

@@ -13,13 +13,15 @@ def _apply_embedding(
         if embed_dim is None:
             raise ValueError("embed_dim must be provided for random_fourier")
         
-        freq_scale = 0.1
-        W = rng.normal(scale=freq_scale, size=(X.shape[1], embed_dim))
-        b = rng.uniform(0, 2 * np.pi, size=(embed_dim,))
-        Z = np.sin(X @ W + b)
+        embed_dim_f = int(round(embed_dim / 2))
+        
+        freq_scale = embed_param
+        W = rng.normal(scale=freq_scale, size=(X.shape[1], embed_dim_f))
+        b = rng.uniform(0, 2 * np.pi, size=(embed_dim_f,))
+        Z = np.hstack([np.sin(X @ W + b), np.cos(X @ W + b)])
     
         if scale_by_dim:
-            Z /= np.sqrt(embed_dim)
+            Z /= np.sqrt(embed_dim_f)
             
         return Z
 
