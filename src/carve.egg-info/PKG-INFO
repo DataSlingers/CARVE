@@ -21,6 +21,7 @@ Requires-Dist: rpy2>=3.6.3
 Requires-Dist: pyreadr>=0.5.3
 Requires-Dist: scanpy>=1.11.4
 Requires-Dist: scikit-misc>=0.5.1
+Requires-Dist: anywidget>=0.9.18
 Provides-Extra: dev
 Requires-Dist: ruff; extra == "dev"
 Requires-Dist: pytest; extra == "dev"
