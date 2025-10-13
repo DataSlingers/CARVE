@@ -1,612 +1,484 @@
 from __future__ import annotations
 import warnings
-from typing import Dict, List, Tuple
+
+from dataclasses import dataclass
+from typing import Any, Dict, Iterable, List, Literal, Mapping, Optional, Sequence, Tuple
+from IPython.display import display
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.decomposition import PCA
-import matplotlib.gridspec as gridspec
 from matplotlib.ticker import MaxNLocator
-import plotly.graph_objects as go
-from plotly.graph_objs import FigureWidget
-from plotly.subplots import make_subplots
+from sklearn.decomposition import PCA
 
-import plotly.io as pio
+try:
+    import plotly.graph_objects as go
+    from plotly.colors import qualitative as qual
+    from plotly.colors import hex_to_rgb
+    from plotly.graph_objs import FigureWidget
+    from plotly.subplots import make_subplots
+    _HAS_PLOTLY = True
+except Exception: 
+    _HAS_PLOTLY = False
 
-# pick a notebook-friendly renderer if none set
-if pio.renderers.default == "":
-    for cand in ("jupyterlab", "notebook", "vscode"):
-        if cand in pio.renderers:
-            pio.renderers.default = cand
-            break
+from ._selection import (
+    MEASURE_MAP,
+    select_best_row,
+    select_best_row_1se,
+    select_best_row_quantile,
+    _pick_best_row
+)
 
-
-from ._selection import MEASURE_MAP, select_best_row, select_best_row_1se, select_best_row_quantile
 from ._consensus import order_consensus_matrix
 
-non_param_cols = {
-    "n_clusters", 
-    "ari_stability", "ari_stability_se", "ari_stability_upper", "ari_stability_lower",
-    "ari_generalizability", "ari_generalizability_se", "ari_generalizability_upper", "ari_generalizability_lower",
-    "consensus_pac_stability", "consensus_gini_stability", "consensus_ce_stability", 
-    # "flip_instability", "contin_entropy"
+Measure = Literal[
+    "stability", "generalizability", "consensus_pac", "consensus_gini", "consensus_ce"
+]
+Rule = Literal["max", "1se", "quantile"]
+
+# Columns that are not hyper-parameters.
+NON_PARAM_COLS: frozenset[str] = frozenset(
+    {
+        "n_clusters",
+        "ari_stability", "ari_stability_se", "ari_stability_upper", "ari_stability_lower",
+        "ari_generalizability", "ari_generalizability_se", "ari_generalizability_upper", "ari_generalizability_lower",
+        "consensus_pac_stability", "consensus_gini_stability", "consensus_ce_stability",
+    }
+)
+
+Y_LABELS: Mapping[str, str] = {
+    "ari_stability": "ARI (stability)",
+    "ari_generalizability": "ARI (generalizability)",
+    "consensus_pac_stability": "Consensus PAC",
+    "consensus_gini_stability": "Consensus Gini",
+    "consensus_ce_stability": "Consensus CE",
 }
 
-def plot_measure_vs_k(
-    model_df: pd.DataFrame,
-    *,
-    measure: str = "stability",
-    rule: str = "max",
-    figsize: Tuple[int, int] = (10, 8)
-) -> None:    
-    y_col = MEASURE_MAP[measure]
-    se_col = f"{y_col}_se"
-    has_se = se_col in model_df.columns
-        
-    ylabel = "ARI (stability)" if measure == "stability" else "ARI (generalizability)"
-    title = f"{measure} per estimator vs. k"
-
-    _, ax = plt.subplots(figsize=figsize)
-
-    group_cols = [c for c in model_df.columns if c not in non_param_cols]
-
-    # pick best row according to rule
-    if rule == "max":
-        best_row = select_best_row(model_df, measure=measure, return_idx=False)
-    elif rule == "1se":
-        best_row = select_best_row_1se(model_df, measure=measure, return_idx=False)
-    elif rule == "quantile":
-        best_row = select_best_row_quantile(model_df, measure=measure, return_idx=False)
-    else:
-        raise ValueError(f"Unknown rule: {rule}")
-    best_k = best_row["n_clusters"]
-
-    # normalize keys for robust comparison (since NaN != NaN)
-    def norm_key(values):
-        return tuple(None if pd.isna(v) else v for v in values)
-
-    best_key = norm_key([best_row[col] for col in group_cols])
-
-    for keys, group in model_df.groupby(group_cols, dropna=False):
-        group = group.sort_values("n_clusters")
-        if not isinstance(keys, tuple):
-            keys = (keys,)
-
-        is_best_group = norm_key(keys) == best_key
-
-        # build clean label: estimator shown plain; other params as k=v; skip NaN/None; round nums
-        label_parts = []
-        for col, val in zip(group_cols, keys):
-            if pd.isna(val):
-                continue
-            if isinstance(val, (int, float)):
-                val = f"{val:.4f}"
-            if col == "estimator":
-                label_parts.append(f"{val}")
-            else:
-                label_parts.append(f"{col}={val}")
-
-        label = ", ".join(label_parts) if label_parts else "default"
-        if is_best_group:
-            label = f"{label} ★"   # star at the end
-
-        ax.plot(group["n_clusters"], group[y_col], marker="o", label=label)
-
-        if has_se:
-            ax.fill_between(
-                group["n_clusters"],
-                group[y_col] - group[se_col],
-                group[y_col] + group[se_col],
-                alpha=0.2,
-            )
-    
-    # vertical dashed line at best k
-    ax.axvline(x=best_k, linestyle="--", alpha=0.7)
-
-    ax.set_xlabel("n_clusters")
-    ax.set_ylabel(ylabel)
-    ax.set_title(title)
-    ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
-    ax.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.show()
-
-def plot_pipeline_global(
-    pipeline_df: pd.DataFrame,
-    *,
-    measure: str = "stability",
-    rule: str = "max",
-    figsize: Tuple[int, int] = (10, 8)
-):
-    plt.figure(figsize=figsize)
-    # Create a label for each pipeline
-    pipeline_df['pipeline'] = pipeline_df['norm__func'] + ' + ' + pipeline_df['dr__method']
-    # Plot
-    sns.lineplot(
-        data=pipeline_df,
-        x='n_clusters',
-        y=MEASURE_MAP[measure],
-        hue='pipeline',
-        marker='o'
-    )
-    plt.title(f'Clustering {measure} by Preprocessing Pipeline')
-    plt.xlabel('Number of clusters')
-    plt.ylabel(measure.replace('_', ' ').title())
-    plt.legend(title='Pipeline', bbox_to_anchor=(1.05, 1), loc='upper left')
-    plt.tight_layout()
-    plt.show()
-    
-def plot_consensus_matrix(
-    model_df: pd.DataFrame,
-    consensus_mats_raw: List[np.ndarray],
-    *,
-    measure: str = 'stability', 
-    rule: str = 'max',
-    k: int = None,
-    figsize: Tuple[int, int] = (10, 8)
-) -> None:
-    if k is not None:  # subset dataframe if k specified
-        model_df = model_df[model_df['n_clusters'] == k]
-
-    # pick best method
-    if rule == "max":
-        best_idx = select_best_row(model_df, measure=measure, return_idx=True)
-    elif rule == "1se":
-        best_idx = select_best_row_1se(model_df, measure=measure, return_idx=True)
-    elif rule == "quantile":
-        best_idx = select_best_row_quantile(model_df, measure=measure, return_idx=True)
-    else:
-        raise ValueError(f"Unknown rule: {rule}")
-    best_row = model_df.loc[best_idx]
-
-    # get consensus matrix
-    C = consensus_mats_raw[best_idx]
-    C_ordered = order_consensus_matrix(C)
-    
-    optimal_k = best_row['n_clusters']
-
-    # build title
-    params = {
-        key: best_row[key]
-        for key in best_row.index
-        if key not in (non_param_cols | {"estimator"}) and pd.notnull(best_row[key])
-    }
-    formatted_params = {}
-    for key, value in params.items():
-        if isinstance(value, (int, float)) and key != 'n_clusters':
-            formatted_params[key] = f"{value:.4f}"
-        else:
-            formatted_params[key] = value
-    param_str = ', '.join(f"{key} = {value}" for key, value in formatted_params.items())
-    title = f"{best_row['estimator']} | k = {optimal_k}" + (f", {param_str}" if param_str else "")
-
-    # plot
-    plt.figure(figsize=figsize)
-    plt.imshow(C_ordered, aspect='auto', interpolation='none')
-    plt.colorbar(label='consensus')
-    plt.title(title)
-    plt.xlabel('samples (ordered)')
-    plt.ylabel('samples (ordered)')
-    plt.show()
-    
-def plot_clustering(
-    X: np.ndarray,
-    row: pd.Series,
-    labels: np.ndarray,
-    sample_level_measures: np.ndarray,
-    *,
-    measure: str = 'stability', 
-    figsize: Tuple[int, int] = (20, 8),
-    min_size: float = 20.0,
-    max_size: float = 180.0, 
-    min_alpha: float = 0.3, 
-    max_alpha: float = 1.0
-) -> None:
-    if np.isclose(sample_level_measures.max(), sample_level_measures.min()):  # catch if all sample_level_measures are same
-        # set uniform dot sizes and opacities
-        sizes = np.full_like(sample_level_measures, np.mean([min_size, max_size]))
-        alpha_map = {c: np.mean([min_alpha, max_alpha]) for c in np.unique(labels)}
-    else:
-        # normalize dot sizes
-        sizes = min_size + (sample_level_measures - sample_level_measures.min()) / (sample_level_measures.max() - sample_level_measures.min()) * max_size
-        
-        # get cluster opacities
-        clu_var = {c: sample_level_measures[labels == c].mean() for c in np.unique(labels)}
-        v = np.array(list(clu_var.values()))
-        mn, mx = v.min(), v.max()
-        norm_var = {c: (clu_var[c] - mn) / (mx - mn + 1e-8) for c in clu_var}  # norm to [0, 1] 
-        alpha_map = {
-            c: min_alpha + norm_var[c] * (max_alpha - min_alpha)
-            for c in norm_var
-        }  # map to alpha in [min_alpha, max_alpha]
-    
-    pca = PCA(n_components=2)
-    X_pca = pca.fit_transform(X)
-
-    _, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
-
-    for c in np.unique(labels):
-        mask = labels == c
-        ax1.scatter(
-            X_pca[mask, 0], X_pca[mask, 1],
-            s=sizes[mask],
-            alpha=alpha_map[c],
-            label=f"cluster {c}"
-        )
-
-    optimal_k = row['n_clusters']
-    params = {}
-    for key, value in row.items():
-        if key in (non_param_cols | {"estimator"}) or pd.isna(value):
-            continue
-        if isinstance(value, (int, float)):
-            value = f"{value:.4f}"
-        params[key] = value
-
-    param_str = ', '.join(f"{k} = {v}" for k, v in params.items())
-
-    ax1.set_title(
-        f"{row['estimator']} | k = {optimal_k}" +
-        (f", {param_str}" if param_str else "")
-    )
-    ax1.set_xlabel("pc1")
-    ax1.set_ylabel("pc2")
-    ax1.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
-
-    data = [sample_level_measures[labels == c] for c in np.unique(labels)]
-    ax2.boxplot(data, labels=[str(c) for c in np.unique(labels)])
-    ax2.set_title("per-sample variance by cluster") if MEASURE_MAP[measure] == "ari_stability" else ax2.set_title("per-sample generalizability by cluster")
-    ax2.set_xlabel("cluster")
-    ax2.set_ylabel("sample variance") if MEASURE_MAP[measure] == "ari_stability" else ax2.set_ylabel("sample generalizability")
-
-    plt.tight_layout()
-    plt.show()    
-    
-    
-    # --- debugging plots --- #
-    
-    
-def plot_cluster_stability(
-    X: np.ndarray,
-    results: List[Tuple],
-    max_plots: int = 4,
-    figsize: Tuple[int, int] = (10, 20)
-) -> None:
-    n_runs = min(len(results), max_plots)
-    rng = np.random.RandomState()
-    
-    if len(results) > max_plots:
-        selected_indices = rng.choice(len(results), size=max_plots, replace=False)
-        selected_indices = sorted(selected_indices)
-    else:
-        selected_indices = range(len(results))
-        
-    fig = plt.figure(figsize=figsize)
-    gs = gridspec.GridSpec(n_runs, 2, figure=fig)
-    
-    for i, b in enumerate(selected_indices):
-        # Extract information from results
-        ari_stab = results[b][0]
-        labels_1 = results[b][2]
-        labels_2 = results[b][5]
-        P_1_idx = results[b][6]
-        P_2_idx = results[b][8]
-        
-        # Find intersection between P_1_idx and P_2_idx
-        _, i_1, i_2 = np.intersect1d(P_1_idx, P_2_idx, return_indices=True)
-        
-        # Extract data points for common samples
-        X_common_1 = X[P_1_idx[i_1]]
-        X_common_2 = X[P_2_idx[i_2]]
-        
-        # Apply PCA for visualization
-        pca = PCA(n_components=2)
-        X_common_1_pca = pca.fit_transform(X_common_1)
-        X_common_2_pca = pca.transform(X_common_2)
-        
-        # Get labels for common samples
-        labels_1_common = labels_1[i_1]
-        labels_2_common = labels_2[i_2]
-        
-        # Create subplots
-        ax1 = fig.add_subplot(gs[i, 0])
-        ax2 = fig.add_subplot(gs[i, 1])
-        
-        # Plot first dataset
-        ax1.scatter(
-            X_common_1_pca[:, 0], X_common_1_pca[:, 1], 
-            c=labels_1_common, cmap='tab10', alpha=0.7
-        )
-        ax1.set_title(f'Run {b+1}: X₁ Clustering')
-        ax1.set_xlabel('PCA 1')
-        ax1.set_ylabel('PCA 2')
-        
-        # Plot second dataset
-        ax2.scatter(
-            X_common_2_pca[:, 0], X_common_2_pca[:, 1], 
-            c=labels_2_common, cmap='tab10', alpha=0.7
-        )
-        ax2.set_title(f'Run {b+1}: X₂ Clustering')
-        ax2.set_xlabel('PCA 1')
-        ax2.set_ylabel('PCA 2')
-        
-        # Add ARI text
-        ax1.text(
-            0.05, 0.95, f'ARI: {ari_stab:.3f}', transform=ax1.transAxes,
-            verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8)
-        )
-    
-    plt.tight_layout()
-    plt.show()
-    
-def plot_ari_hist(
-    k: int,
-    results: list,
-    figsize: tuple = (8, 5),
-    show_rug: bool = True
-) -> None:
-    if not results:
-        raise ValueError("`results` is empty — nothing to plot.")
-
-    # extract ARIs; guard against bad/missing values
-    idx = np.arange(len(results))
-    aris = []
-    for i in idx:
-        try:
-            val = float(results[i][0])
-            if np.isfinite(val):
-                aris.append(val)
-        except Exception:
-            # skip malformed entries
-            continue
-    aris = np.asarray(aris, dtype=float)
-    if aris.size == 0:
-        raise ValueError("No finite ARI values found in the selected runs.")
-
-    mean = float(np.mean(aris))
-    median = float(np.median(aris))
-    std = float(np.std(aris, ddof=1)) if aris.size > 1 else 0.0
-
-    _, ax = plt.subplots(figsize=figsize)
-    ax.hist(aris, bins="auto", alpha=0.85, edgecolor="black")
-
-    # fix axis
-    ax.set_xlim(0, 1)
-    ax.set_xlabel("Adjusted Rand Index (ARI)")
-    ax.set_ylabel("Count")
-    ax.set_title(f"ARI across runs (n={aris.size}, k={k})")
-    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-
-    ax.axvline(mean, linestyle="--", linewidth=1.5, label=f"mean={mean:.3f}")
-    ax.axvline(median, linestyle="-.", linewidth=1.5, label=f"median={median:.3f}")
-
-    txt = (
-        f"mean = {mean:.3f}\n"
-        f"median = {median:.3f}\n"
-        f"std = {std:.3f}\n"
-        f"min/max = {aris.min():.3f} / {aris.max():.3f}"
-    )
-    ax.text(
-        0.98, 0.98, txt,
-        transform=ax.transAxes,
-        ha="right", va="top",
-        bbox=dict(boxstyle="round", facecolor="white", alpha=0.9)
-    )
-
-    if show_rug:
-        y0 = ax.get_ylim()[0]
-        jitter = (ax.get_ylim()[1] - y0) * 0.005
-        ax.vlines(aris, y0, y0 + jitter, linewidth=1)
-
-    ax.legend()
-    plt.tight_layout()
-    plt.show()
-    
-    
-    # --- interactive plots --- #
-
-
-_display_name_map = {
+DISPLAY_NAME: Mapping[str, str] = {
     "ARI (stability)": "ari_stability",
     "ARI (generalizability)": "ari_generalizability",
     "Consensus PAC": "consensus_pac_stability",
     "Consensus Gini": "consensus_gini_stability",
     "Consensus CE": "consensus_ce_stability",
 }
+INV_DISPLAY_NAME: Mapping[str, str] = {v: k for k, v in DISPLAY_NAME.items()}
 
-_inv_display_name_map = {v: k for k, v in _display_name_map.items()}
+ARI_COLS = {"ari_stability", "ari_generalizability"}
 
+RULES_FOR_COL = {
+    "ari_stability": ["max", "1se", "quantile"],
+    "ari_generalizability": ["max", "1se", "quantile"],
+    
+    "consensus_pac": ["max"],
+    "consensus_gini": ["max"],
+    "consensus_ce": ["max"],
+}
+
+
+@dataclass(frozen=True)
+class PlotConfig:
+    figsize: Tuple[int, int] = (10, 8)
+    decimals: int = 4
+    show_grid: bool = True
+    legend_outside: bool = True
+    
+def _require_columns(df: pd.DataFrame, cols: Iterable[str]) -> None:
+    missing = [c for c in cols if c not in df.columns]
+    if missing:
+        raise ValueError(f"DataFrame missing required columns: {missing}")
+    
+def _group_columns(df: pd.DataFrame) -> List[str]:
+    """All columns except NON_PARAM_COLS are considered parameter columns (incl. 'estimator')."""
+    return [c for c in df.columns if c not in NON_PARAM_COLS]
+
+def _fmt_float(x: float, decimals: int = 4) -> str:
+    return f"{float(x):.{decimals}f}"
+
+def _build_group_label(keys: Tuple, group_cols: Sequence[str], decimals: int) -> str:
+    if not isinstance(keys, tuple):
+        keys = (keys,)
+    
+    parts: List[str] = []
+
+    for col, val in zip(group_cols, keys):
+        if pd.isna(val):
+            continue
+        if isinstance(val, (int, float)):
+            sval = _fmt_float(val, decimals)
+        else:
+            sval = str(val)
+
+        if col == "estimator":
+            parts.append(f"{sval}")
+        else:
+            parts.append(f"{col}={sval}")
+
+    return ", ".join(parts) if parts else "default"
+
+# ––––– Regular Plotting Functions ––––– 
+def plot_measure_vs_k(
+    model_df: pd.DataFrame,
+    measure: Measure = "stability",
+    rule: Rule = "max",
+    config: PlotConfig = PlotConfig()
+) -> None:
+    cfg = config or PlotConfig()
+    y_col = MEASURE_MAP[measure]
+    _require_columns(model_df, ["n_clusters", y_col])
+    
+    group_cols = _group_columns(model_df)
+    best_row = _pick_best_row(model_df, measure, rule)
+    best_k = int(best_row["n_clusters"]) if pd.notna(best_row.get("n_clusters")) else None
+    
+    fig, ax = plt.subplots(figsize=cfg.figsize)
+    
+    for keys, group in model_df.groupby(group_cols, dropna=False):
+        g = group.sort_values("n_clusters")
+        label = _build_group_label(keys, group_cols, cfg.decimals)
+        ax.plot(g["n_clusters"], g[y_col], marker="o", label=label)
+
+        se_col = f"{y_col}_se"
+        if se_col in g.columns:
+            ax.fill_between(
+                g["n_clusters"],
+                g[y_col] - g[se_col],
+                g[y_col] + g[se_col],
+                alpha=0.2
+            )
+        
+    if best_k is not None:
+        ax.axvline(best_k, linestyle="--", alpha=0.7)
+
+    ax.set_xlabel("Number of Clusters (k)")
+    ax.set_ylabel(Y_LABELS.get(y_col, y_col))
+    ax.set_title(f"{measure} per estimator vs. k")
+    
+    if cfg.legend_outside:
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    else:
+        ax.legend()
+    ax.grid(cfg.show_grid, alpha=0.3)
+    
+    fig.tight_layout()
+    plt.show()
+
+def plot_pipeline_vs_k(
+    pipeline_df: pd.DataFrame,
+    *,
+    measure: Measure = "stability",
+    config: PlotConfig | None = None
+) -> None:
+    config = config or PlotConfig()
+    y_col = MEASURE_MAP[measure]
+    _require_columns(pipeline_df, ["norm__func", "dr__method", "n_clusters", y_col])
+    
+    df = pipeline_df.assign(pipeline=lambda d: d["norm__func"] + " + " + d["dr__method"])
+    
+    fig, ax = plt.subplots(figsize=config.figsize)
+    for name, g in df.groupby("pipeline"):
+        g = g.sort_values("n_clusters")
+        ax.plot(g["n_clusters"], g[y_col], marker="o", label=str(name))
+        
+    ax.set_title(f"Clustering {measure} by Preprocessing Pipeline")
+    ax.set_xlabel("Number of clusters")
+    ax.set_ylabel(Y_LABELS.get(y_col, y_col))
+    
+    if config.legend_outside:
+        ax.legend(title="Pipeline", bbox_to_anchor=(1.05, 1), loc="upper left")
+    else:
+        ax.legend(title="Pipeline")
+    ax.grid(config.show_grid, alpha=0.3)
+    
+    fig.tight_layout()
+    plt.show()
+
+def plot_consensus_matrix(
+    model_df: pd.DataFrame, 
+    consensus_mats_raw: Sequence[np.ndarray], 
+    *, 
+    measure: Measure = "stability", 
+    rule: Rule = "max", 
+    k: Optional[int] = None, 
+    config: PlotConfig | None = None
+) -> None:
+    cfg = config or PlotConfig()
+
+    df = model_df if k is None else model_df[model_df["n_clusters"] == k]
+    if df.empty:
+        raise ValueError("No rows available for the given k filter.")
+    
+    best_idx = _pick_best_row(df, measure, rule, return_idx=True)
+    
+    best_row = df.loc[int(best_idx)]
+    
+    C = consensus_mats_raw[int(best_idx)]
+    C_ordered = order_consensus_matrix(C)
+    
+    params: Dict[str, str] = {}
+    for key, value in best_row.items():
+        if key in NON_PARAM_COLS or pd.isna(value) or key == "estimator":
+            continue
+        
+        if isinstance(value, float):
+            params[key] = _fmt_float(value, cfg.decimals)
+        else:
+            params[key] = str(value)
+    
+    est = str(best_row.get("estimator", ""))
+    k_val = best_row.get("n_clusters", "")
+    param_str = ", ".join(f"{k}={v}" for k, v in params.items())
+    title = f"{est} | k={k_val}" + (f", {param_str}" if param_str else "")
+
+    fig, ax = plt.subplots(figsize=cfg.figsize)
+    im = ax.imshow(C_ordered, aspect="auto", interpolation="none")
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label("consensus")
+    ax.set_title(title)
+    ax.set_xlabel("samples (ordered)")
+    ax.set_ylabel("samples (ordered)")
+    
+    fig.tight_layout()
+    plt.show()
+    
+def plot_clustering(
+    X: np.ndarray,
+    row: pd.Series, 
+    labels: np.ndarray,
+    sample_level_measures: np.ndarray,
+    *,
+    measure: Measure = "stability",
+    config: PlotConfig | None = None,
+    min_size: float = 20.0,
+    max_size: float = 180.0,
+    min_alpha: float = 0.30,
+    max_alpha: float = 1.00,
+) -> None:
+    cfg = config or PlotConfig()
+    
+    n = X.shape[0]
+    if labels.shape[0] != n or sample_level_measures.shape[0] != n:
+        raise ValueError("Shapes must align: len(labels) == len(sample_level_measures) == X.shape[0]")
+
+    vmin, vmax = float(np.min(sample_level_measures)), float(np.max(sample_level_measures))
+    if np.isclose(vmin, vmax):  # if consensus matrix is very clean, all samples will have similar values
+        sizes = np.full(n, 0.5 * (min_size + max_size))
+        alpha_map = {c: 0.5 * (min_alpha + max_alpha) for c in np.unique(labels)}
+    
+    else:  # usual case
+        norm = (sample_level_measures - vmin)
+        sizes = min_size + norm * (max_size - min_size)
+        
+        means = {c: float(np.mean(sample_level_measures[labels == c])) for c in np.unique(labels)}
+        mvals = np.array(list(means.values()))
+        mmin, mmax = float(mvals.min()), float(mvals.max())
+        alpha_map = {
+            c: (0.5 * (min_alpha + max_alpha) if np.isclose(mmin, mmax)  # if cluster means are close
+                else min_alpha + (means[c] - mmin) / (mmax - mmin) * (max_alpha - min_alpha))  # usual case
+            for c in means
+        }
+
+    X_pca = PCA(n_components=2).fit_transform(X)
+    
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=cfg.figsize)
+    
+    # scatterplot by cluster
+    unique_clusters = np.unique(labels)
+    cluster_colors = plt.cm.tab10(np.linspace(0, 1, len(unique_clusters)))
+    
+    for i, c in enumerate(unique_clusters):
+        mask = (labels == c)
+        ax1.scatter(
+            X_pca[mask, 0], X_pca[mask, 1],
+            s=sizes[mask],
+            alpha=alpha_map[c],
+            color=cluster_colors[i],
+            label=f"cluster {i+1}"
+        )
+        
+    # title/params
+    params: Dict[str, str] = {}
+    for key, value in row.items():
+        if key in NON_PARAM_COLS or pd.isna(value) or key == "estimator":
+            continue
+        params[key] = _fmt_float(value, cfg.decimals) if isinstance(value, float) else str(value)
+    
+    handles, labels_ = ax1.get_legend_handles_labels()
+        
+    est = str(row.get("estimator", ""))
+    k_val = row.get("n_clusters", "")
+    param_str = ", ".join(f"{k}={v}" for k, v in params.items())
+    
+    ax1.set_title(f"{est} | k={k_val}" + (f", {param_str}" if param_str else ""))
+    ax1.set_xlabel("pc1")
+    ax1.set_ylabel("pc2")
+        
+    # right panel boxplot
+    data = [sample_level_measures[labels == c] for c in unique_clusters]
+    
+    bp = ax2.boxplot(data, patch_artist=True, labels=[str(int(i+1)) for i in range(len(unique_clusters))])
+    for patch, color in zip(bp['boxes'], cluster_colors):
+        patch.set_facecolor(color)
+
+    ax2.set_title(
+        "per-sample generalizability by cluster"
+        if MEASURE_MAP[measure] == "ari_generalizability"
+        else "per-sample stability by cluster"
+    )
+    ax2.set_xlabel("cluster")
+    ax2.set_ylabel("per-sample value")
+    
+    if cfg.legend_outside:
+        ax2.legend(
+            handles, labels_,
+            bbox_to_anchor=(1.02, 0.5),
+            loc="upper left",
+            borderaxespad=0.0,
+            frameon=False,
+            title="clusters"
+        )
+    else:
+        ax1.legend()
+
+    fig.tight_layout()
+    plt.show()
+
+# ––––– Interactive Plotting Functions ––––– 
 def plot_measure_vs_k_interactive(
     model_df: pd.DataFrame,
     *,
-    measure: str = "stability",   # << keep parity with your static API
-    rule: str = "max",
-    width: int = 900,
-    height: int = 600
-) -> go.Figure:
-    if model_df is None or model_df.empty:
-        raise ValueError("model_df is empty; run validate() first.")
-    if measure not in MEASURE_MAP:
-        raise ValueError(f"Invalid measure {measure!r}. Options: {list(MEASURE_MAP)}")
+    measure: Measure = "stability",
+    rule: Rule = "max",
+    width: int = 1000,
+    height: int = 800,
+) -> None:
+    if not _HAS_PLOTLY:
+        raise RuntimeError("plotly is not available. Install plotly to use interactive plots.")
+    
+    available = {pretty: col for pretty, col in DISPLAY_NAME.items() if col in model_df.columns}
+    metric_names = list(available.keys())
 
-    # available metric columns present in the DF
-    available = {disp: col for disp, col in _display_name_map.items() if col in model_df.columns}
     if not available:
-        raise ValueError("No global metrics found to plot.")
-
-    # group columns as in your static function
-    group_cols = [c for c in model_df.columns if c not in non_param_cols]
-
+        raise ValueError("No recognizable global metrics present in model_df.")  # should really never happen
+    
+    # 1) build group labels
+    group_cols = _group_columns(model_df)
     df = model_df.copy()
-
-    # assign legend/label per group (same formatting as your static plot)
-    def _build_group_label(keys, group_cols):
-        if not isinstance(keys, tuple):
-            keys = (keys,)
-        parts = []
-        for col, val in zip(group_cols, keys):
-            if pd.isna(val):
-                continue
-            if isinstance(val, (int, float)):
-                val = f"{val:.4f}"
-            if col == "estimator":
-                parts.append(f"{val}")
-            else:
-                parts.append(f"{col}={val}")
-        return ", ".join(parts) if parts else "default"
-
-    df["_group_label"] = ""
+    df['_group_label'] = ''
     for keys, g in df.groupby(group_cols, dropna=False):
-        df.loc[g.index, "_group_label"] = _build_group_label(keys, group_cols)
+        df.loc[g.index, '_group_label'] = _build_group_label(keys, group_cols, decimals=4)
 
-    # build hover text: label + hyperparams + ALL global metrics
+    # 2) hover text builder
     def _hovertext(row: pd.Series) -> str:
-        # metrics block
         metrics_lines = []
-        for disp, col in available.items():
+        for pretty, col in available.items():  # iterate all available metrics and, if present/not NaN, add a formatted line
             val = row.get(col, np.nan)
+            
             if pd.notna(val):
-                metrics_lines.append(f"{disp}: {float(val):.4f}")
+                metrics_lines.append(f"{pretty}: {_fmt_float(float(val), 4)}")
+                
         metrics_block = "<br>".join(metrics_lines)
-
-        # hyper-params (exclude non-params & helper cols; estimator already in label)
+        
         parts = []
-        for k, v in row.items():
-            if k in (non_param_cols | {"_group_label"}) or pd.isna(v):
+        for k, v in row.items():  # collect model hyperparameters from the row for display
+            if k in (NON_PARAM_COLS | {'_group_label'}) or pd.isna(v) or k == "estimator":
                 continue
-            if k == "estimator":
-                continue
-            if isinstance(v, (int, float)):
-                v = f"{v:.4f}"
-            parts.append(f"{k}={v}")
+            parts.append(f"{k}={_fmt_float(v) if isinstance(v, (int,float)) else v}")
+            
         param_str = ", ".join(parts)
-
+        
         base = row["_group_label"]
-        if param_str:
+        if param_str:  # start with group label; if there is parameter string, add it on smaller gray line
             base = f"{base}<br><span style='font-size:0.9em; color:#666;'>({param_str})</span>"
+            
         return f"{base}<br><br>{metrics_block}"
 
     df["_hovertext"] = df.apply(_hovertext, axis=1)
-
-    # --- traces grouped by METRIC so dropdown can toggle visibility
+        
+    # 3) set default visible metric and display
+    default_y_col = MEASURE_MAP[measure]
+    default_pretty = INV_DISPLAY_NAME.get(default_y_col, metric_names[0])
+    default_idx = metric_names.index(default_pretty) if default_pretty in metric_names else 0
+    
+    # 4.1) create traces lines per metric & per group
     fig = go.Figure()
-    metric_names = list(available.keys())
-    traces_per_metric = []
-
-    for disp in metric_names:
-        col = available[disp]
-        block = []
-        shade_block = []
+    trace_blocks = []
+    
+    for m_idx, pretty in enumerate(metric_names):
+        col = available[pretty]
+        show_now = (m_idx == default_idx)
+        
+        start_idx = len(fig.data)
         for _, g in df.groupby(group_cols, dropna=False):
             g = g.sort_values("n_clusters")
-            # Main line
-            block.append(
-                go.Scatter(
-                    x=g["n_clusters"],
-                    y=g[col],
-                    mode="lines+markers",
-                    name=g["_group_label"].iloc[0],
-                    text=g["_hovertext"],
-                    hovertemplate="%{text}<extra></extra>",
-                    visible=False,
-                    showlegend=True
-                )
-            )
-            # Add quantile shading if available and for ARI metrics
-            # if col in ("ari_stability", "ari_generalizability"):
-            #     lower = f"{col}_lower"
-            #     upper = f"{col}_upper"
-            #     if lower in g and upper in g:
-            #         # Lower bound (invisible, for fill)
-            #         shade_block.append(
-            #             go.Scatter(
-            #                 x=g["n_clusters"],
-            #                 y=g[lower],
-            #                 mode="lines",
-            #                 line=dict(width=0),
-            #                 showlegend=False,
-            #                 hoverinfo="skip",
-            #                 visible=False,
-            #                 name=f"{g['_group_label'].iloc[0]} 5% CI",
-            #             )
-            #         )
-            #         # Upper bound (shaded area)
-            #         shade_block.append(
-            #             go.Scatter(
-            #                 x=g["n_clusters"],
-            #                 y=g[upper],
-            #                 mode="lines",
-            #                 fill="tonexty",
-            #                 fillcolor="rgba(0,0,0,0.08)",  # adjust color as needed
-            #                 line=dict(width=0),
-            #                 showlegend=False,
-            #                 hoverinfo="skip",
-            #                 visible=False,
-            #                 name=f"{g['_group_label'].iloc[0]} 95% CI",
-            #             )
-            #         )
+            fig.add_trace(go.Scatter(
+                x=g["n_clusters"], y=g[col],
+                mode="lines+markers",
+                name=g["_group_label"].iloc[0],
+                text=g["_hovertext"],
+                hovertemplate="%{text}<extra></extra>",
+                visible=show_now,
+                showlegend=True,
+            ))
+            
             if col in ("ari_stability", "ari_generalizability"):
                 se_col = f"{col}_se"
-                if se_col in g:
+                if se_col in g.columns:
                     lower = g[col] - g[se_col]
                     upper = g[col] + g[se_col]
-                    # Lower bound (invisible, for fill)
-                    shade_block.append(
-                        go.Scatter(
-                            x=g["n_clusters"],
-                            y=lower,
-                            mode="lines",
-                            line=dict(width=0),
-                            showlegend=False,
-                            hoverinfo="skip",
-                            visible=False,
-                            name=f"{g['_group_label'].iloc[0]} -1 SE",
-                        )
-                    )
-                    # Upper bound (shaded area)
-                    shade_block.append(
-                        go.Scatter(
-                            x=g["n_clusters"],
-                            y=upper,
-                            mode="lines",
-                            fill="tonexty",
-                            fillcolor="rgba(0,0,0,0.08)",  # adjust color as needed
-                            line=dict(width=0),
-                            showlegend=False,
-                            hoverinfo="skip",
-                            visible=False,
-                            name=f"{g['_group_label'].iloc[0]} +1 SE",
-                        )
-                    )
                     
-        # Combine main and shading traces for this metric
-        all_traces = block + shade_block
-        traces_per_metric.append(all_traces)
-        fig.add_traces(all_traces)
+                    fig.add_trace(go.Scatter(
+                        x=g["n_clusters"], y=lower,
+                        mode="lines",
+                        line=dict(width=0),
+                        showlegend=False, hoverinfo="skip",
+                        visible=show_now,
+                    ))
+                    
+                    fig.add_trace(go.Scatter(
+                        x=g["n_clusters"], y=upper,
+                        mode="lines",
+                        fill="tonexty", fillcolor="rgba(0,0,0,0.08)",
+                        line=dict(width=0),
+                        showlegend=False, hoverinfo="skip",
+                        visible=show_now,
+                    ))
+                    
+        end_idx = len(fig.data) 
+        trace_blocks.append((pretty, start_idx, end_idx))
+    
+    # 4.2) build flat list of all metric trace indices, and per-metric slice into flat list
+    metric_blocks = trace_blocks[:]
+    all_metric_idxs: list[int] = []
+    metric_slices: dict[str, tuple[int, int]] = {}
 
-    # which metric should be shown by default? -> the one tied to the given `measure`
-    default_y_col = MEASURE_MAP[measure]
-    default_disp = _inv_display_name_map.get(default_y_col, metric_names[0])
-    default_idx = metric_names.index(default_disp) if default_disp in metric_names else 0
+    for pretty, start_idx, end_idx in metric_blocks:
+        block = list(range(start_idx, end_idx))
+        s = len(all_metric_idxs)
+        all_metric_idxs.extend(block)
+        e = len(all_metric_idxs)
+        metric_slices[pretty] = (s, e)
+    
+    # 5) get and mark best k
+    MEASURE_INV_MAP = {v: k for k, v in MEASURE_MAP.items()}
+    best_k_map: dict[tuple[str, str], int | None] = {}
+    
+    for pretty in metric_names:
+        col = available[pretty]
+        measure_key = MEASURE_INV_MAP.get(col)
+        if measure_key is None:
+            continue
+        for r in RULES_FOR_COL.get(col, ["max"]):
+            row = _pick_best_row(model_df, measure_key, r)
+            k = int(row["n_clusters"]) if pd.notna(row.get("n_clusters")) else None
+            best_k_map[(pretty, r)] = k
 
-    for tr in traces_per_metric[default_idx]:
-        tr.visible = True
-
-    # vertical dashed line at best k based on selection helpers
-    if rule == "max":
-        best_row = select_best_row(model_df, measure=measure, return_idx=False)
-    elif rule == "1se":
-        best_row = select_best_row_1se(model_df, measure=measure, return_idx=False)
-    elif rule == "quantile":
-        best_row = select_best_row_quantile(model_df, measure=measure, return_idx=False)
-    else:
-        raise ValueError(f"Unknown rule: {rule}")
-    best_k = int(best_row["n_clusters"])
-
+    # 6) build base layout
+    k0 = best_k_map.get((default_pretty, rule), None)
+    
     fig.update_layout(
-        width=width, height=height,
-        title="Global metrics vs. k (interactive)",
+        width=width,
+        height=height,
+        title="Global metrics vs. k",
         xaxis_title="n_clusters",
         yaxis_title=metric_names[default_idx],
         legend_title="Model (estimator + params)",
@@ -614,73 +486,85 @@ def plot_measure_vs_k_interactive(
             "type": "line",
             "xref": "x",
             "yref": "paper",
-            "x0": best_k,
-            "x1": best_k,
-            "y0": 0,
-            "y1": 1,
-            "line": {"dash": "dash"}
+            "x0": k0, "x1": k0,
+            "y0": 0, "y1": 1,
+            "line": {"dash": "dash"},
+            "layer": "above",
         }],
-        updatemenus=[dict(
-            type="dropdown",
-            x=1.0, xanchor="right",
-            y=1.2, yanchor="top",
-            buttons=[
-                dict(
-                    label=disp,
-                    method="update",
-                    args=[
-                        # toggle trace visibility block-wise
-                        {
-                            "visible": [
-                                (cum <= i < cum + len(traces_per_metric[j]))
-                                for j in range(len(traces_per_metric))
-                                for i, cum in enumerate(
-                                    np.repeat([0], sum(len(b) for b in traces_per_metric))
-                                )
-                            ]  # we'll override properly below
-                        },
-                        {"yaxis": {"title": disp}}
-                    ]
-                ) for disp in metric_names
-            ]
-        )]
-    )
-
-    # The quick way to build the visibility masks (one block on at a time):
-    counts = [len(b) for b in traces_per_metric]
-    cum = np.cumsum([0] + counts)
-    n_total = cum[-1]
-
-    buttons = []
-    for i, disp in enumerate(metric_names):
-        vis = [False] * n_total
-        vis[cum[i]:cum[i+1]] = [True] * counts[i]
-        buttons.append(dict(
-            label=disp,
-            method="update",
-            args=[{"visible": vis}, {"yaxis": {"title": disp}}]
-        ))
-
-    fig.update_layout(
-        updatemenus=[dict(
-            type="dropdown",
-            x=1.0, xanchor="right",
-            y=1.2, yanchor="top",
-            buttons=buttons
-        )]
     )
     
+    # 7a) metric dropdown (controls traces)
+    n_metric_traces = len(all_metric_idxs)
+    buttons = []
+    for pretty in metric_names:
+        s, e = metric_slices[pretty]
+        vis = [False] * n_metric_traces
+        for i in range(s, e):
+            vis[i] = True
+        buttons.append(dict(
+            label=pretty,
+            method="update",
+            args=[
+                {"visible": vis}, 
+                {"yaxis": {"title": pretty, "autorange": True}},
+                all_metric_idxs,
+            ],
+        ))
+    
     fig.update_layout(
-        legend=dict(
-            x=1.02, y=1,
-            xanchor="left", yanchor="top",
-            bgcolor="rgba(255,255,255,0.6)"
-        )
+        updatemenus=[dict(
+            type="dropdown",
+            x=1.0, xanchor="right",
+            y=1.2, yanchor="top",
+            buttons=buttons,
+            showactive=True,
+            active=default_idx,
+        )]
     )
+        
+    # 7b) rule dropdown (controls best_k vertical line)
+    rule_buttons = []
+    active_rule_index = 0
+    
+    def _pretty_rule_label(pretty_metric: str, rule_key: str) -> str:
+        col = available[pretty_metric]
+        return f"{pretty_metric} — {rule_key}" if col in ARI_COLS else f"{pretty_metric}"
 
+    for (pretty_i, rules_i) in [(pm, RULES_FOR_COL.get(available[pm], ["max"])) for pm in metric_names]:
+        for r in rules_i:
+            k = best_k_map.get((pretty_i, r))
+            label = _pretty_rule_label(pretty_i, r)
+            if pretty_i == default_pretty and r == rule:
+                active_rule_index = len(rule_buttons)
+
+            rule_buttons.append(dict(
+                label=label,
+                method="relayout",
+                args=[{
+                    "shapes[0].x0": k,
+                    "shapes[0].x1": k,
+                }],
+            ))
+        
+    # 8) attach dropdown, style legend & grids, return
+    menus = fig.layout.updatemenus or []
+    menus = list(menus)
+    menus.append(dict(
+        type="dropdown",
+        x=0.0, xanchor="left",
+        y=1.2, yanchor="top",
+        direction="down",
+        buttons=rule_buttons,
+        showactive=True,
+        active=active_rule_index,
+    ))
+    fig.update_layout(updatemenus=menus)
+    fig.update_layout(uirevision="static")
+    fig.update_layout(legend=dict(x=1.02, y=1, xanchor="left", yanchor="top", bgcolor="rgba(255,255,255,0.6)"))
     fig.update_xaxes(showgrid=True)
     fig.update_yaxes(showgrid=True)
-    return fig
+    
+    fig.show()
 
 def plot_clustering_interactive(
     X: np.ndarray,
@@ -690,174 +574,181 @@ def plot_clustering_interactive(
     stab_gini_vec: np.ndarray,
     stab_ce_vec: np.ndarray,
     gen_vec: np.ndarray,
-    measure: str = "stability",
-    width: int = 1100,
-    height: int = 520,
-    min_size: float = 20.0,     # matplotlib-style areas (pt^2)
-    max_size: float = 180.0,    # matplotlib-style areas (pt^2)
+    measure: Measure = "stability",
+    width: int = 1000,
+    height: int = 800,
+    min_size: float = 20.0,
+    max_size: float = 180.0,
     min_alpha: float = 0.30,
     max_alpha: float = 1.00,
-) -> go.Figure:
-
-    scatter_measure_map = {
-        "stability": "Stability (Gini)",
-        "generalizability": "Generalizability",
-        "stability_ce": "Stability (CE)",
-    }
-
+    auto_display: bool = True
+) -> "go.Figure":
+    if not _HAS_PLOTLY:
+        raise RuntimeError("plotly is not available. Install plotly to use interactive plots.")
+    
     n = X.shape[0]
-    assert labels.shape[0] == n
+    if any(arr.shape[0] != n for arr in (labels, stab_gini_vec, stab_ce_vec, gen_vec)):
+        raise ValueError("All vectors must have length X.shape[0]")
 
-    hover_tmpl_scatter = (
-        "sample %{customdata[0]}<br>"
-        "cluster %{customdata[1]}<br>"
-        "stability (gini): %{customdata[2]:.4f}<br>"
-        "stability (ce): %{customdata[3]:.4f}<br>"
-        "generalizability: %{customdata[4]:.4f}<extra></extra>"
-    )
-    hover_tmpl_strip = (
-        "cluster %{x}<br>"
-        "sample %{customdata[0]}<br>"
-        "value %{y:.4f}<br><br>"
-        "<b>all metrics</b><br>"
-        "stability (gini): %{customdata[2]:.4f}<br>"
-        "stability (ce): %{customdata[3]:.4f}<br>"
-        "generalizability: %{customdata[4]:.4f}<extra></extra>"
-    )
-
-    # --- PCA (fixed)
-    X_pca = PCA(n_components=2).fit_transform(X)
-    x_min, x_max = float(X_pca[:, 0].min()), float(X_pca[:, 0].max())
-    y_min, y_max = float(X_pca[:, 1].min()), float(X_pca[:, 1].max())
+    X_pca = PCA(n_components=2).fit_transform(X)  # PCA for left panel
+    x_min, x_max = float(np.nanmin(X_pca[:, 0])), float(np.nanmax(X_pca[:, 0]))
+    y_min, y_max = float(np.nanmin(X_pca[:, 1])), float(np.nanmax(X_pca[:, 1]))
     dx = (x_max - x_min) or 1.0
     dy = (y_max - y_min) or 1.0
     x_rng = [x_min - 0.05 * dx, x_max + 0.05 * dx]
     y_rng = [y_min - 0.05 * dy, y_max + 0.05 * dy]
 
-    # --- customdata: [sample_idx, cluster, gini, ce, gen]
-    sample_idx = np.arange(n, dtype=int)
-    customdata_all = np.column_stack([sample_idx, labels, stab_gini_vec, stab_ce_vec, gen_vec])
+    sample_idx = np.arange(n, dtype=int)  # per sample meta data for hover
+    display_labels = (labels.astype(int) + 1).astype(int)  # display labels are 1-based
+    customdata_all = np.column_stack([sample_idx, labels, display_labels, stab_gini_vec, stab_ce_vec, gen_vec])
 
-    # --- metrics
     metric_names = ["Stability (Gini)", "Stability (CE)", "Generalizability"]
-    metric_arrays = {
+    metric_arrays: Dict[str, np.ndarray] = {
         "Stability (Gini)": np.asarray(stab_gini_vec, float),
-        "Stability (CE)":   np.asarray(stab_ce_vec,   float),
-        "Generalizability": np.asarray(gen_vec,       float),
+        "Stability (CE)": np.asarray(stab_ce_vec, float),
+        "Generalizability": np.asarray(gen_vec, float),
     }
-    default_metric = scatter_measure_map.get(measure, "Stability (Gini)")
+    default_metric = {
+        "stability": "Stability (Gini)",
+        "generalizability": "Generalizability",
+        "consensus_pac": "Stability (Gini)",
+        "consensus_gini": "Stability (Gini)",
+        "consensus_ce": "Stability (CE)",
+    }.get(measure, "Stability (Gini)")
 
-    # optional: lock the right y-axis range across metrics for visual comparability
-    all_vals = np.concatenate([metric_arrays[m] for m in metric_names])
-    y2_pad = 0.04 * (all_vals.max() - all_vals.min() or 1.0)
-    y2_range = [float(all_vals.min() - y2_pad), float(all_vals.max() + y2_pad)]
-
-    # --- helpers
-    def _sizes_from_metric(values, pt2_min, pt2_max):
-        v = np.asarray(values, float)
-        vmin, vmax = float(v.min()), float(v.max())
-        if np.isclose(vmin, vmax):
-            pt2 = np.full_like(v, np.mean([pt2_min, pt2_max]))
+    # helper functions & compute sizes and alphas
+    def _sizes_from_metric(values: np.ndarray, pt2_min: float, pt2_max: float) -> np.ndarray:
+        vmin, vmax = float(np.nanmin(values)), float(np.nanmax(values))
+        
+        if (not np.isfinite(vmin)) or (not np.isfinite(vmax)) or np.isclose(vmin, vmax):
+            pt2 = np.full_like(values, 0.5 * (pt2_min + pt2_max), dtype=float)
         else:
-            pt2 = pt2_min + (v - vmin) / (vmax - vmin) * (pt2_max - pt2_min)
-        # plotly marker.size is a diameter-ish pixel value; map from area via sqrt
-        px = np.sqrt(pt2)
-        return np.clip(px, 4.0, 36.0)
+            pt2 = pt2_min + (values - vmin) / (vmax - vmin) * (pt2_max - pt2_min)
+        
+        return np.clip(np.sqrt(pt2), 4.0, 36.0)
 
-    def _cluster_opacity_from_metric(values, labels, a_min, a_max):
-        clus = np.unique(labels)
-        means = {c: float(np.mean(values[labels == c])) for c in clus}
-        vv = np.array([means[c] for c in clus], float)
-        vmin, vmax = float(vv.min()), float(vv.max())
-        if np.isclose(vmin, vmax):
-            return {c: np.mean([a_min, a_max]) for c in clus}
-        return {c: a_min + (means[c] - vmin) / (vmax - vmin) * (a_max - a_min) for c in clus}
+    def _cluster_opacity_from_metric(values: np.ndarray, lbls: np.ndarray, a_min: float, a_max: float) -> Dict[int, float]:
+        clus = np.unique(lbls)
+        means = {int(c): float(np.nanmean(values[lbls == c])) for c in clus}
+        vv = np.array(list(means.values()), dtype=float)
+        vmin, vmax = float(np.nanmin(vv)), float(np.nanmax(vv))
+        
+        if (not np.isfinite(vmin)) or (not np.isfinite(vmax)) or np.isclose(vmin, vmax):
+            return {int(c): 0.5 * (a_min + a_max) for c in clus}
+        
+        return {int(c): a_min + (means[int(c)] - vmin) / (vmax - vmin) * (a_max - a_min) for c in clus}
 
-    size_by_metric  = {m: _sizes_from_metric(metric_arrays[m], min_size, max_size) for m in metric_names}
-    alpha_by_metric = {m: _cluster_opacity_from_metric(metric_arrays[m], labels, min_alpha, max_alpha)
-                       for m in metric_names}
-
-    # --- figure & traces
-    base = make_subplots(rows=1, cols=2, specs=[[{"type": "xy"}, {"type": "xy"}]], horizontal_spacing=0.08)
-    fig = FigureWidget(base)
-
+    size_by_metric = {m: _sizes_from_metric(metric_arrays[m], min_size, max_size) for m in metric_names}
+    alpha_by_metric = {m: _cluster_opacity_from_metric(metric_arrays[m], labels, min_alpha, max_alpha) for m in metric_names}
+    
+    # 1) figure scaffolding
+    base = make_subplots(
+        rows=1, cols=2, 
+        specs=[[{"type": "xy"}, {"type": "xy"}]],
+        horizontal_spacing=0.08
+    )
+    fig = FigureWidget(base)  # callbacks only work in Jupyter; guarding use
+    is_widget = isinstance(fig, FigureWidget)
+    
     clus = np.unique(labels)
-    left_trace_ids = []
-    orig_sizes = []  # keep initial sizes to reuse for non-updated traces in buttons
+    _palette = qual.Plotly  # handle colors
+    colors_for_clusters = {int(c): _palette[i % len(_palette)] for i, c in enumerate(clus)}
 
-    # LEFT panel: one scatter per cluster
+    def _rgba(hex_color: str, a: float) -> str:
+        r, g, b = hex_to_rgb(hex_color)
+        return f"rgba({r},{g},{b},{a})"
+
+    # 2.1) left panel, scatter by cluster
+    left_trace_ids: List[int] = []
+    left_tid_to_cluster: Dict[int, int] = {}
+    
     for c in clus:
         mask = (labels == c)
+        
         tr = go.Scatter(
             x=X_pca[mask, 0],
             y=X_pca[mask, 1],
             mode="markers",
-            name=f"cluster {c}",
-            legendgroup=f"cluster-{c}",
+            name=f"cluster {int(c)+1}",
+            legendgroup=f"cluster-{int(c)}",
             showlegend=True,
             customdata=customdata_all[mask],
-            hovertemplate=hover_tmpl_scatter,
-            marker=dict(
-                size=size_by_metric[default_metric][mask],
-                opacity=alpha_by_metric[default_metric][c],
-                line=dict(width=0),
+            hovertemplate=(
+                "sample %{customdata[0]}<br>"
+                "cluster %{customdata[2]}<br>"
+                "Gini: %{customdata[3]:.4f}<br>"
+                "CE: %{customdata[4]:.4f}<br>"
+                "Generalizability: %{customdata[5]:.4f}"
+                "<extra></extra>"
             ),
+            marker=dict(
+                color=colors_for_clusters[int(c)],
+                size=size_by_metric[default_metric][mask],
+                opacity=alpha_by_metric[default_metric][int(c)],
+                line=dict(width=1.0, color="black"), 
+            )
         )
-        left_trace_ids.append(len(fig.data))
-        orig_sizes.append(tr.marker.size)
+        
         fig.add_trace(tr, row=1, col=1)
+        idx = len(fig.data) - 1
+        left_trace_ids.append(idx)
+        left_tid_to_cluster[idx] = int(c)
 
-    # RIGHT panel — prebuild PER METRIC, then toggle visibility
-    right_ids_by_metric = {m: {"box": [], "strip": []} for m in metric_names}
-    cat_labels = [str(int(c)) for c in clus]
-
+    # 2.2) right panel, per-cluster boxplots
+    right_ids_by_metric: Dict[str, Dict[str, List[int]]] = {m: {"box": [], "strip": []} for m in metric_names}
+    cat_labels = [str(int(c)+1) for c in clus]
+    
     for m in metric_names:
         vals_m = metric_arrays[m]
+        
         for c in clus:
             mask = (labels == c)
-            cat = str(int(c))
+            cat = str(int(c)+1)
 
             tr_box = go.Box(
-                x=[cat] * int(mask.sum()),
-                y=vals_m[mask],
-                name=f"cluster {c}",
-                legendgroup=f"cluster-{c}-{m}",
+                x=[cat] * int(mask.sum()), y=vals_m[mask],
+                name=f"cluster {int(c)}",
+                legendgroup=f"cluster-{int(c)+1}-{m}",
                 showlegend=False,
                 boxpoints=False,
                 hoverinfo="skip",
                 offsetgroup=cat,
                 visible=(m == default_metric),
                 width=0.6,
+                line=dict(color=colors_for_clusters[int(c)], width=1.5),
+                fillcolor=_rgba(colors_for_clusters[int(c)], 0.25)
             )
-            right_ids_by_metric[m]["box"].append(len(fig.data))
             fig.add_trace(tr_box, row=1, col=2)
-
+            right_ids_by_metric[m]["box"].append(len(fig.data) - 1)
+            
             tr_pts = go.Scatter(
-                x=[cat] * int(mask.sum()),
-                y=vals_m[mask],
+                x=[cat] * int(mask.sum()), y=vals_m[mask],
                 mode="markers",
-                name=f"points {c}",
-                legendgroup=f"cluster-{c}-{m}",
+                name=f"points {int(c)+1}",
+                legendgroup=f"cluster-{int(c)+1}-{m}",
                 showlegend=False,
                 customdata=customdata_all[mask],
-                hovertemplate=hover_tmpl_strip,
-                marker=dict(size=9, opacity=0.9, line=dict(width=0)),
+                hovertemplate=(
+                    "cluster %{x}<br>"
+                    "sample %{customdata[0]}<br>"
+                    "Gini: %{customdata[3]:.4f}<br>"
+                    "CE: %{customdata[4]:.4f}<br>"
+                    "Generalizability: %{customdata[5]:.4f}"
+                    "<extra></extra>"
+                ),
+                marker=dict(
+                    color=colors_for_clusters[int(c)],
+                    size=9,
+                    opacity=0.9,
+                    line=dict(width=0.8, color="black")
+                ),
                 offsetgroup=cat,
                 visible=(m == default_metric),
             )
-            right_ids_by_metric[m]["strip"].append(len(fig.data))
             fig.add_trace(tr_pts, row=1, col=2)
-
-    # make the right x-axis categorical with a fixed order
-    fig.update_xaxes(
-        title_text="cluster",
-        type="category",
-        categoryorder="array",
-        categoryarray=cat_labels,
-        row=1, col=2
-    )
-
-    # overlay highlight trace on LEFT
+            right_ids_by_metric[m]["strip"].append(len(fig.data) - 1)
+    
+    # 2.3) left highlight for hover from right panel
     highlight_trace_index = len(fig.data)
     fig.add_trace(
         go.Scatter(
@@ -865,158 +756,158 @@ def plot_clustering_interactive(
             mode="markers",
             showlegend=False,
             marker=dict(size=14, color="rgba(0,0,0,0)", line=dict(color="white", width=3)),
-        ),
+        ), 
         row=1, col=1
     )
-
-    # layout
+    
+    # 3) layout, axes, titles
     fig.update_layout(
         uirevision="carve-clustering-v1",
         width=width, height=height,
         margin=dict(l=40, r=20, t=40, b=40),
-        legend=dict(x=1.02, y=1, xanchor="left", yanchor="top", bgcolor="rgba(255,255,255,0.6)")
+        legend=dict(x=1.02, y=1, xanchor="left", yanchor="top", bgcolor="rgba(255,255,255,0.6)"),
     )
-    fig.update_xaxes(title_text="pc1", range=x_rng, row=1, col=1)
-    fig.update_yaxes(title_text="pc2", range=y_rng, row=1, col=1)
-    fig.update_xaxes(title_text="cluster", row=1, col=2)
-    fig.update_yaxes(
-        title_text=("per-sample generalizability" if default_metric == "Generalizability" else "per-sample value"),
-        range=y2_range,
+    fig.update_xaxes(title_text="PC1", range=x_rng, row=1, col=1)
+    fig.update_yaxes(title_text="PC2", range=y_rng, row=1, col=1)
+    fig.update_xaxes(
+        title_text="cluster", type="category",
+        categoryorder="array", categoryarray=cat_labels,
         row=1, col=2
     )
+    fig.update_yaxes(
+        title_text=("per-sample generalizability" if default_metric == "Generalizability" else "per-sample stability"),
+        autorange=True,
+        row=1, col=2
+    )
+    fig.update_yaxes(side="left",  row=1, col=1)
+    fig.update_yaxes(side="left", row=1, col=2)
+    
+    # 4) hover callbacks if in widget context
+    if is_widget:
+        per_cluster_abs_ids = {int(c): sample_idx[labels == c] for c in clus}
 
-    all_trace_count = len(fig.data)
+        def _mk_hover_cb(trace_index: int):
+            def _on_hover(trace, points, state):
+                if points.point_inds:
+                    local_idx = points.point_inds[0]
+                    
+                    c = int(fig.data[trace_index].customdata[local_idx, 1])  # Read cluster from the hovered right-trace's customdata
+                    abs_id = int(per_cluster_abs_ids[c][local_idx])
+                    xy = X_pca[abs_id]
+                    
+                    with fig.batch_update():
+                        fig.data[highlight_trace_index].x = [xy[0]]
+                        fig.data[highlight_trace_index].y = [xy[1]]
+                        
+            return _on_hover
 
-    # --- button helpers
-    def _visible_mask_for_metric(metric_label: str):
-        vis = [True] * all_trace_count
+        def _mk_unhover_cb(_trace_index: int):
+            def _on_unhover(trace, points, state):
+                with fig.batch_update():
+                    fig.data[highlight_trace_index].x = []
+                    fig.data[highlight_trace_index].y = []
+                    
+            return _on_unhover
+
         for m in metric_names:
-            turn_on = (m == metric_label)
-            for tid in (right_ids_by_metric[m]["box"] + right_ids_by_metric[m]["strip"]):
-                vis[tid] = turn_on
-        vis[highlight_trace_index] = True
+            for tidx in right_ids_by_metric[m]["strip"]:
+                fig.data[tidx].on_hover(_mk_hover_cb(tidx))
+                fig.data[tidx].on_unhover(_mk_unhover_cb(tidx))
+                
+    # 5) helpers for dropdown switching
+    right_ids_all = []
+    for m in metric_names:
+        right_ids_all.extend(right_ids_by_metric[m]["box"])
+        right_ids_all.extend(right_ids_by_metric[m]["strip"])
+    
+    right_ids_all = set(right_ids_all)
+
+    def _visible_mask_for_metric(metric_label: str) -> List[bool]:
+        total = len(fig.data)
+        vis = [True] * total
+        
+        for tid in right_ids_all:  # hide all right-panel traces, then enable only chosen metric's right traces
+            vis[tid] = False
+        for tid in (right_ids_by_metric[metric_label]["box"] + right_ids_by_metric[metric_label]["strip"]):
+            vis[tid] = True
+        
+        vis[highlight_trace_index] = True  # always keep the left highlight trace visible
         return vis
 
-    # build per-trace style lists WITHOUT touching x/y for any trace
-    def _style_for_metric(metric_label: str):
-        sizes  = size_by_metric[metric_label]
-        alphas = alpha_by_metric[metric_label]
-
-        marker_size_list   = []
-        marker_opacity_list = []
-
-        # iterate over all traces; only left traces get new per-point sizes/alpha
-        for tidx in range(all_trace_count):
-            if tidx in left_trace_ids:
-                c = clus[left_trace_ids.index(tidx)]
+    def _style_for_metric(metric_label: str) -> Dict[str, Any]:
+        sizes = _sizes_from_metric(metric_arrays[metric_label], min_size, max_size)
+        alphas = _cluster_opacity_from_metric(metric_arrays[metric_label], labels, min_alpha, max_alpha)
+        updates = {"marker.size": [], "marker.opacity": [], "visible": _visible_mask_for_metric(metric_label)}
+        
+        for tidx, tr in enumerate(fig.data):
+            if tidx in left_tid_to_cluster:
+                c = left_tid_to_cluster[tidx]
                 mask = (labels == c)
-                marker_size_list.append(sizes[mask])
-                marker_opacity_list.append(alphas[c])
+                updates["marker.size"].append(sizes[mask])  # per-point vector for that cluster
+                updates["marker.opacity"].append(alphas[c])  # scalar per cluster
+            
             else:
-                # keep whatever they currently have (avoid sending None)
-                tr = fig.data[tidx]
-                marker_size_list.append(getattr(tr.marker, "size", None))
-                marker_opacity_list.append(getattr(tr.marker, "opacity", None))
+                ms = getattr(getattr(tr, "marker", None), "size", None)  # keep existing for non-left traces
+                mo = getattr(getattr(tr, "marker", None), "opacity", None)
+                updates["marker.size"].append(ms)
+                updates["marker.opacity"].append(mo)
+                
+        return updates
 
-        return {
-            "marker.size": marker_size_list,
-            "marker.opacity": marker_opacity_list,
-            # also set visibility here for all traces
-            "visible": _visible_mask_for_metric(metric_label),
-        }
-
-    # hover callbacks for strip traces (all metrics)
-    per_cluster_abs_ids = {int(c): sample_idx[labels == c] for c in clus}
-
-    def _mk_hover_cb(trace_index):
-        def _on_hover(trace, points, state):
-            if points.point_inds:
-                local_idx = points.point_inds[0]
-                c = int(fig.data[trace_index].customdata[local_idx, 1])
-                abs_id = int(per_cluster_abs_ids[c][local_idx])
-                xy = X_pca[abs_id]
-                with fig.batch_update():
-                    fig.data[highlight_trace_index].x = [xy[0]]
-                    fig.data[highlight_trace_index].y = [xy[1]]
-        return _on_hover
-
-    def _mk_unhover_cb(_trace_index):
-        def _on_unhover(trace, points, state):
-            with fig.batch_update():
-                fig.data[highlight_trace_index].x = []
-                fig.data[highlight_trace_index].y = []
-        return _on_unhover
-
-    # attach to all strip traces so it keeps working after metric switches
-    for m in metric_names:
-        for tidx in right_ids_by_metric[m]["strip"]:
-            fig.data[tidx].on_hover(_mk_hover_cb(tidx))
-            fig.data[tidx].on_unhover(_mk_unhover_cb(tidx))
-
-    # buttons
-    def _yaxis2_title(metric_label: str):
+    def _y2_title(metric_label: str) -> str:
         return "per-sample generalizability" if metric_label == "Generalizability" else "per-sample value"
 
-    buttons = []
-    for m in metric_names:
-        buttons.append(dict(
+    # 6) dropdown: metric switcher (updates styles + right y-axis)
+    buttons = [
+        dict(
             label=m,
             method="update",
             args=[
-                _style_for_metric(m),     # restyle across all traces (no x/y!)
-                {"yaxis2": {"title": _yaxis2_title(m), "range": y2_range}},
+                _style_for_metric(m),  # trace updates (sizes/alphas/visibility)
+                {"yaxis2": {"title": _y2_title(m), "autorange": True}},  # layout updates for right axis
             ],
-        ))
-
+        )
+        for m in metric_names
+    ]
     fig.update_layout(updatemenus=[dict(
-        type="dropdown", x=0.99, xanchor="right", y=1.18, yanchor="top", buttons=buttons
+        type="dropdown",
+        x=0.99, xanchor="right",
+        y=1.18, yanchor="top",
+        buttons=buttons
     )])
+    
+    # 7) dynamic title from row params
+    params: Dict[str, str] = {}
+    for key, value in row.items():
+        if key in NON_PARAM_COLS or pd.isna(value):
+            continue
+        
+        params[key] = _fmt_float(value) if isinstance(value, float) else str(value)
+        
+    est = str(row.get("estimator", ""))
+    k_val = row.get("n_clusters", "")
+    param_str = ", ".join(f"{k}={v}" for k, v in params.items())
+    title = f"{est} | k={k_val}" + (f", {param_str}" if param_str else "")
+    
+    if len(title) > 220:
+        title = title[:219] + "…"
+        
+    fig.update_layout(title_text=title, title_x=0.5, title_font=dict(size=14))
 
-    # build title
-    def _is_scalar_like(v):
-        import numpy as _np
-        from numpy import floating, integer
-        return isinstance(v, (bool, int, float, str, _np.generic, floating, integer))
-
-    def _to_python(v):
+    if auto_display:
         try:
-            # numpy scalars -> python
-            return v.item() if hasattr(v, "item") else v
+            display(fig)
+            return
         except Exception:
-            return v
-
-    # build param dict
-    params = {
-        key: _to_python(row[key])
-        for key in row.index
-        if key not in non_param_cols and pd.notna(row[key]) and _is_scalar_like(row[key])
-    }
-
-    # format values
-    formatted_params = {}
-    for key, value in params.items():
-        if isinstance(value, float):
-            formatted_params[key] = f"{value:.4f}"
-        else:
-            formatted_params[key] = str(value)
-
-    param_str = ", ".join(f"{k} = {v}" for k, v in formatted_params.items())
-
-    # base title
-    est = str(_to_python(row.get("estimator", "")))
-    k_val = _to_python(row.get("n_clusters", ""))
-    title = f"{est} | k = {k_val}" + (f", {param_str}" if param_str else "")
-
-    # cap to avoid massive titles wrecking layout
-    MAX_TITLE_CHARS = 220
-    if len(title) > MAX_TITLE_CHARS:
-        title = title[:MAX_TITLE_CHARS - 1] + "…"
-
-    # attach to layout (simple form)
-    fig.update_layout(
-        title_text=title,
-        title_x=0.5,
-        title_font=dict(size=14)
-    )
-
+            pass
+        
     return fig
+
+# ––––– Debugging Plotting Functions ––––– 
+def plot_ari_hist():
+    ...
+    pass
+
+def plot_cluster_stability():
+    ...
+    pass

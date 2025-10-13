@@ -1,10 +1,15 @@
 import inspect
-from typing import Any, Dict, List, Optional, Tuple, Type
+import warnings
+from typing import Any, Dict, List, Literal, Optional, Tuple, Type
 import pandas as pd
 import numpy as np 
 from sklearn.base import ClusterMixin
 
 GridSpec = Tuple[Type[ClusterMixin], Dict[str, List[Any]]]
+Measure = Literal[
+    "stability", "generalizability", "consensus_pac", "consensus_gini", "consensus_ce"
+]
+Rule = Literal["max", "1se", "quantile"]
 
 MEASURE_MAP = {
     "s": "ari_stability",
@@ -26,6 +31,37 @@ MEASURE_MAP = {
     "ce": "consensus_ce_stability",
     "consensus_ce_stability": "consensus_ce_stability"
 }
+
+def _pick_best_row(model_df: pd.DataFrame, measure: Measure, rule: Rule, return_idx: bool = False) -> pd.Series:
+    y_col = MEASURE_MAP[measure]
+    se_col = f"{y_col}_se"
+    has_se = se_col in model_df.columns
+    quant_col = f"{y_col}_upper"
+    has_quant = quant_col in model_df.columns
+    
+    if rule == "1se" and not has_se:
+        warnings.warn(
+            f"Column {se_col!r} not found; falling back to 'max' rule.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        rule = "max"
+    elif rule == "quantile" and not has_quant:
+        warnings.warn(
+            f"Column {quant_col!r} not found; falling back to 'max' rule.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        rule = "max"
+            
+    if rule == "max":
+        return select_best_row(model_df, measure=measure, return_idx=return_idx)
+    if rule == "1se":
+        return select_best_row_1se(model_df, measure=measure, return_idx=return_idx)
+    if rule == "quantile":
+        return select_best_row_quantile(model_df, measure=measure, return_idx=return_idx)
+
+    raise ValueError(f"Unknown rule: {rule}")
 
 def select_best_estimator(
     model_df: pd.DataFrame,
@@ -122,7 +158,9 @@ def select_best_row_quantile(
     threshold_lower = best_row[f"{measure_col}_lower"]
     
     # Filter models within 1SE of best score
-    within_quantiles = model_df[(model_df[measure_col] >= threshold_lower) and (model_df[measure_col] <= threshold_upper)]
+    within_quantiles = model_df.loc[
+        (model_df[measure_col] >= threshold_lower) & (model_df[measure_col] <= threshold_upper)
+    ]
     
     if return_idx:
         return within_quantiles["n_clusters"].idxmax()
