@@ -162,6 +162,13 @@ def select_best_row_quantile(
         (model_df[measure_col] >= threshold_lower) & (model_df[measure_col] <= threshold_upper)
     ]
     
+    # Fallback if no rows are found
+    if within_quantiles.empty:
+        warnings.warn("No models within quantile thresholds; falling back to max.", RuntimeWarning, stacklevel=2)
+        if return_idx:
+            return model_df[measure_col].idxmax()
+        return model_df.loc[model_df[measure_col].idxmax()]
+    
     if return_idx:
         return within_quantiles["n_clusters"].idxmax()
         
