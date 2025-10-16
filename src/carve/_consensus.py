@@ -39,13 +39,13 @@ def order_consensus_matrix(
     raw_cons_mat: np.ndarray, 
     *,
     fill_nan_for_order: float = 0.0
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray]:
     M_for_order = np.nan_to_num(raw_cons_mat, nan=fill_nan_for_order)
     dists = squareform(1.0 - M_for_order, checks=False)
     Z = linkage(dists, method='average')
     order = leaves_list(Z)
     
-    return raw_cons_mat[np.ix_(order, order)]
+    return raw_cons_mat[np.ix_(order, order)], order
     
 def compute_consensus_metrics_batch(
     cons_mats_raw: List[np.ndarray]

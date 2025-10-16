@@ -11,7 +11,7 @@ from .grids import default_model_grids, default_norm_options, default_dr_options
 from ._runner import run_validation
 from ._consensus import compute_consensus_metrics_batch
 from ._selection import select_best_estimator, select_best_row, select_best_row_1se, select_best_row_quantile, select_best_k, _pick_best_row, MEASURE_MAP
-from ._plotting import PlotConfig, plot_measure_vs_k, plot_measure_vs_k_interactive, plot_pipeline_vs_k, plot_consensus_matrix, plot_clustering, plot_clustering_interactive
+from ._plotting import PlotConfig, plot_measure_vs_k, plot_measure_vs_k_interactive, plot_pipeline_vs_k, plot_consensus_matrix, plot_clustering, plot_clustering_interactive, plot_consensus_clustering
 from ._utils import align_labels, ensure_array2d, wrangle_pipeline_records
 
 @dataclass
@@ -330,3 +330,80 @@ class CARVE:
                 min_alpha=min_alpha,
                 max_alpha=max_alpha
             )
+    
+    def plot_consensus_clustering(
+        self,
+        measure: str = "stability",
+        sample_metric: str = "gini",
+        *,
+        k: Optional[int] = None,
+        rule: str = "max",
+        figsize: Tuple[int, int] = (10, 8),
+        decimals: int = 4,
+        show_grid: bool = True,
+        legend_outside: bool = True,
+        min_size: float = 20.0,
+        max_size: float = 180.0,
+        min_alpha: float = 0.30,
+        max_alpha: float = 1.00
+    ) -> None:
+        if self.model_df is None or self.model_df.empty:
+            warnings.warn("model_df is empty; nothing to plot. Run validate() first.", RuntimeWarning, stacklevel=2)
+            return
+        
+        if rule not in {"max", "1se", "quantile"}:
+            raise ValueError("rule must be 'max', '1se', or 'quantile'")
+        
+        config = PlotConfig(
+            figsize=figsize,
+            decimals=decimals,
+            show_grid=show_grid,
+            legend_outside=legend_outside
+        )
+        
+        model_df_copy = self.model_df.copy()
+        if k is not None:
+            model_df_copy = model_df_copy[model_df_copy['n_clusters'] == k]
+
+        y_col = MEASURE_MAP[measure]
+        se_col = f"{y_col}_se"
+        if rule == "1se" and se_col not in model_df_copy.columns:
+            warnings.warn(f"{se_col!r} not found; falling back to 'max' rule.", RuntimeWarning, stacklevel=2)
+            rule = "max"
+
+        # pick best row
+        idx = _pick_best_row(model_df_copy, measure=measure, rule=rule, return_idx=True)
+        row = model_df_copy.loc[idx]
+
+        pos = self.model_df.index.get_loc(idx)
+
+        # labels
+        labels = self.get_optimal_labels(measure=measure, rule=rule, k=k)
+        n_clusters = int(row['n_clusters'])
+        assert len(np.unique(labels)) == n_clusters, \
+            f"labels has {len(np.unique(labels))} clusters, expected {n_clusters}"
+
+        # sample-level vectors
+        if MEASURE_MAP[measure] == "ari_stability":
+            if sample_metric == "gini":
+                sample_level_measures = self.stab_gini_arr[pos]
+            elif sample_metric == "ce":
+                sample_level_measures = self.stab_ce_arr[pos]
+            else:
+                raise ValueError("stab_measure must be 'gini' or 'ce'")
+        else:
+            sample_level_measures = self.generalizability_arrs[pos]
+        
+        plot_consensus_clustering(
+                X=self.config.X, 
+                row=row,
+                labels=labels,
+                sample_level_measures=sample_level_measures,
+                consensus_mat_raw=self.consensus_mats_raw[pos],
+                measure=measure,
+                config=config,
+                min_size=min_size,
+                max_size=max_size,
+                min_alpha=min_alpha,
+                max_alpha=max_alpha
+        )    

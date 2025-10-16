@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
+from matplotlib import gridspec
 from sklearn.decomposition import PCA
 
 try:
@@ -212,7 +213,7 @@ def plot_consensus_matrix(
     best_row = df.loc[int(best_idx)]
     
     C = consensus_mats_raw[int(best_idx)]
-    C_ordered = order_consensus_matrix(C)
+    C_ordered, _ = order_consensus_matrix(C)
     
     params: Dict[str, str] = {}
     for key, value in best_row.items():
@@ -340,6 +341,137 @@ def plot_clustering(
         ax1.legend()
 
     fig.tight_layout()
+    plt.show()
+    
+def plot_consensus_clustering(
+    X: np.ndarray,
+    row: pd.Series, 
+    labels: np.ndarray,
+    sample_level_measures: np.ndarray,
+    consensus_mat_raw: np.ndarray, 
+    *,
+    measure: Measure = "stability",
+    config: PlotConfig | None = None,
+    min_size: float = 20.0,
+    max_size: float = 180.0,
+    min_alpha: float = 0.30,
+    max_alpha: float = 1.00,
+) -> None:
+    cfg = config or PlotConfig()
+    
+    n = X.shape[0]
+    if labels.shape[0] != n or sample_level_measures.shape[0] != n:
+        raise ValueError("Shapes must align: len(labels) == len(sample_level_measures) == X.shape[0]")
+
+    vmin, vmax = float(np.min(sample_level_measures)), float(np.max(sample_level_measures))
+    if np.isclose(vmin, vmax):  # if consensus matrix is very clean, all samples will have similar values
+        sizes = np.full(n, 0.5 * (min_size + max_size))
+        alpha_map = {c: 0.5 * (min_alpha + max_alpha) for c in np.unique(labels)}
+    
+    else:  # usual case
+        norm = (sample_level_measures - vmin)
+        sizes = min_size + norm * (max_size - min_size)
+        
+        means = {c: float(np.mean(sample_level_measures[labels == c])) for c in np.unique(labels)}
+        mvals = np.array(list(means.values()))
+        mmin, mmax = float(mvals.min()), float(mvals.max())
+        alpha_map = {
+            c: (0.5 * (min_alpha + max_alpha) if np.isclose(mmin, mmax)  # if cluster means are close
+                else min_alpha + (means[c] - mmin) / (mmax - mmin) * (max_alpha - min_alpha))  # usual case
+            for c in means
+        }
+
+    X_pca = PCA(n_components=2).fit_transform(X)
+    
+    # layout
+    fig = plt.figure(figsize=cfg.figsize)
+    gs = gridspec.GridSpec(
+        2, 2, figure=fig,
+        width_ratios=[1.0, 1.1],
+        height_ratios=[0.05, 0.95],
+        wspace=0.1, hspace=0.02
+    )
+
+    ax1 = fig.add_subplot(gs[1, 0])
+    ax2 = fig.add_subplot(gs[1, 1])
+    axbar = fig.add_subplot(gs[0, 1])
+    
+    # left panel: scatter
+    codes, uniques = pd.factorize(labels)
+    k = len(uniques)
+    cmap = plt.cm.tab20 if k > 10 else plt.cm.tab10
+    palette = cmap(np.linspace(0, 1, k))
+    
+    for code in range(k):
+        mask = (codes == code)
+        ax1.scatter(
+            X_pca[mask, 0], X_pca[mask, 1],
+            s=sizes[mask],
+            alpha=alpha_map.get(uniques[code], 0.9),
+            color=palette[code],
+            label=f"cluster {code+1}",
+            edgecolors="black",
+            linewidths=1.0
+        )
+        
+    # title/params
+    params: Dict[str, str] = {}
+    for key, value in row.items():
+        if key in NON_PARAM_COLS or pd.isna(value) or key == "estimator":
+            continue
+        params[key] = _fmt_float(value, cfg.decimals) if isinstance(value, float) else str(value)
+    
+    handles, labels_ = ax1.get_legend_handles_labels()
+        
+    est = str(row.get("estimator", ""))
+    k_val = row.get("n_clusters", "")
+    param_str = ", ".join(f"{k}={v}" for k, v in params.items())
+    
+    ax1.set_title(f"{est} | k={k_val}" + (f", {param_str}" if param_str else ""))
+    # ax1.set_xlabel("pc1")
+    # ax1.set_ylabel("pc2")
+        
+    # right panel: consensus matrix
+    C_ordered, order = order_consensus_matrix(consensus_mat_raw)
+    ax2.imshow(C_ordered, aspect="auto", interpolation="none")
+    
+    # top color strip
+    sample_colors = palette[codes]
+    bar_rgba = sample_colors[order][None, :, :]
+    axbar.set_xlim(0, consensus_mat_raw.shape[0])
+    
+    fig.canvas.draw()
+    bar_pos = ax2.get_position()
+    bar_height = 0.04
+
+    axbar.set_position([
+        bar_pos.x0 + 0.0005,
+        bar_pos.y1,
+        bar_pos.width,
+        bar_height
+    ])
+
+    axbar.imshow(bar_rgba, aspect="auto", interpolation="none")
+    axbar.set_axis_off()
+    axbar.set_title("Consensus Matrix by Cluster", pad=8, fontsize=12)
+    
+    ax2.set_xticks([]); ax2.set_yticks([])
+    ax2.set_xlabel("")
+
+    # legend + rest of figure
+    if cfg.legend_outside:
+        ax2.legend(
+            handles, labels_,
+            bbox_to_anchor=(1.02, 0.5),
+            loc="upper left",
+            borderaxespad=0.0,
+            frameon=False,
+            title="clusters"
+        )
+    else:
+        ax1.legend()
+
+    fig.tight_layout(rect=[0, 0, 1, 1])
     plt.show()
 
 # ––––– Interactive Plotting Functions ––––– 
