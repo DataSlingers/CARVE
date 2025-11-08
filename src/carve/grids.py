@@ -55,17 +55,26 @@ def default_dr_options(
     dr_options = [
         (FunctionTransformer, {}),                      # identity
         (PCA, {
-            'n_components': list(range(2, min(min_n, p) + 1))
+            'n_components': list(range(2, min(min_n, p)))
         }),
         (TSNE, {
-            'n_components': [2, 3], 
+            'n_components': [2], 
             'perplexity': list(range(5, min(min_n, 51)))
         }),
         (UMAP, {
-            'n_components': list(range(2, min(min_n, p) + 1)),
+            'n_components': list(range(2, min(min_n, p))),
             'n_neighbors': list(range(5, 51)), 
             'min_dist': [0.1]
         }),
+        # (TSNE, {
+        #     'n_components': [2, 3], 
+        #     'perplexity': list(range(5, min(min_n, 51)))
+        # }),
+        # (UMAP, {
+        #     'n_components': list(range(2, min(min_n, p) + 1)),
+        #     'n_neighbors': list(range(5, 51)), 
+        #     'min_dist': [0.1]
+        # }),
     ]
 
     return dr_options

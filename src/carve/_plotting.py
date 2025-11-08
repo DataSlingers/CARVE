@@ -731,6 +731,8 @@ def plot_clustering_interactive(
     y_rng = [y_min - 0.05 * dy, y_max + 0.05 * dy]
 
     sample_idx = np.arange(n, dtype=int)  # per sample meta data for hover
+    if not np.issubdtype(labels.dtype, np.integer):
+        labels = pd.Categorical(labels).codes
     display_labels = (labels.astype(int) + 1).astype(int)  # display labels are 1-based
     customdata_all = np.column_stack([sample_idx, labels, display_labels, stab_gini_vec, stab_ce_vec, gen_vec])
 

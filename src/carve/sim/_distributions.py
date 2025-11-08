@@ -73,13 +73,13 @@ def _sample_cluster_points(
 
         phi = rng.uniform(0.0, 2.0 * np.pi)
         c, s = np.cos(phi), np.sin(phi)
-        R2 = np.array(
+        R = np.array(
             [[c, -s],
              [s,  c]]
         )
         if rng.random() < 0.5:
-            R2[0, :] *= -1
-        Z2 = Z2 @ R2.T
+            R[0, :] *= -1
+        Z2 = Z2 @ R.T
 
         axes = rng.choice(p, size=2, replace=False)
         Z = np.zeros((size, p), dtype=float)
@@ -97,6 +97,7 @@ def _sample_cluster_points(
     elif distribution == "swiss_roll":
         if p < 2:
             raise ValueError("`swiss_roll` requires p >= 2.")
+        
         t = rng.uniform(0.6 * np.pi, 4.5 * np.pi, size=size)
         a, b, band = 0.3, 0.15, 0.06
         r = a + b * t + rng.normal(scale=band, size=size)
@@ -106,8 +107,10 @@ def _sample_cluster_points(
 
         phi = rng.uniform(0, 2*np.pi)
         c, s = np.cos(phi), np.sin(phi)
-        R = np.array([[c, -s],
-                      [s,  c]])
+        R = np.array(
+            [[c, -s],
+             [s,  c]]
+        )
         if rng.random() < 0.5:
             R[0, :] *= -1
         Z2 = Z2 @ R.T

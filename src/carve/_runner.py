@@ -58,8 +58,6 @@ def run_validation(
     pipeline_records = []
     cons_mats_raw = []
     generalizability_arrs = []
-    # contin_entropy_arr = []
-    # instability_fields = []
     
     total_configs = sum(len(list(ParameterGrid(g))) for _, g in model_grids)
     with tqdm(total=total_configs, desc="Grid configs", disable=not prog_bar) as pbar:

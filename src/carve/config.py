@@ -1,12 +1,16 @@
 from __future__ import annotations
 from dataclasses import dataclass, field, replace
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Type, Union
 import multiprocessing as mp
 import numpy as np
+import pandas as pd
 from sklearn.base import ClusterMixin, TransformerMixin
 
 GridSpec = Tuple[Type[ClusterMixin], Dict[str, List[Any]]]
-PreprocSpec = Tuple[Callable[..., TransformerMixin], Dict[str, List[Any]]]
+PreprocSpec = Union[
+    Tuple[Callable, Dict[str, Any]],        # (Method, params)
+    Tuple[Callable, str, Dict[str, Any]],   # (Method, name, params)
+]
 
 @dataclass(frozen=True)
 class ValidatorConfig:

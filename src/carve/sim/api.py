@@ -76,6 +76,8 @@ def simulate_clusters(
       - meta: SimulationMeta with centers, sizes, scales, correlation, covariances, outliers
     """
     rng = np.random.default_rng(seed=random_state)
+    p = int(np.floor(p + 0.5))
+    n_total = int(np.floor(n_total + 0.5))
 
     # Outliers
     n_outliers = _parse_outliers(outliers, n_total)
