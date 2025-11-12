@@ -22,3 +22,9 @@ def build_generalizability_array(
     valid = total > 0
     out[valid] = (correct[valid] / total[valid])
     return out
+
+def compute_global_misclassification_arrays(
+    generalizability_arrs: List[np.ndarray]
+) -> List[float]:
+    avg_misclassification = [np.mean(arr) for arr in generalizability_arrs]
+    return avg_misclassification

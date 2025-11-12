@@ -12,7 +12,6 @@ from ._consensus import build_consensus_matrix
 from ._misclassification import build_generalizability_array
 from ._pipeline import create_pipeline
 from ._utils import clustering_pipeline, subsample_indices
-from ._plotting import plot_cluster_stability, plot_ari_hist
 import warnings
 
 
@@ -79,7 +78,8 @@ def run_validation(
                 )
                 
                 aris_stab = [r[0] for r in results]
-                aris_pred = [r[1] for r in results]
+                aris_gen = [r[1] for r in results]
+                aris_avg = [(r[0] + r[1]) / 2 for r in results]
                 
                 M = build_consensus_matrix(
                     n=n, 
@@ -101,10 +101,14 @@ def run_validation(
                     'ari_stability_se': np.std(aris_stab, ddof=1) / np.sqrt(B),
                     'ari_stability_upper': np.quantile(aris_stab, 0.95),
                     'ari_stability_lower': np.quantile(aris_stab, 0.05),
-                    'ari_generalizability': np.mean(aris_pred),
-                    'ari_generalizability_se': np.std(aris_pred, ddof=1) / np.sqrt(B),
-                    'ari_generalizability_upper': np.quantile(aris_pred, 0.95),
-                    'ari_generalizability_lower': np.quantile(aris_pred, 0.05)
+                    'ari_generalizability': np.mean(aris_gen),
+                    'ari_generalizability_se': np.std(aris_gen, ddof=1) / np.sqrt(B),
+                    'ari_generalizability_upper': np.quantile(aris_gen, 0.95),
+                    'ari_generalizability_lower': np.quantile(aris_gen, 0.05),
+                    'ari_average': np.mean(aris_avg),
+                    'ari_average_se': np.std(aris_avg, ddof=1) / np.sqrt(B),
+                    'ari_average_upper': np.quantile(aris_avg, 0.95),
+                    'ari_average_lower': np.quantile(aris_avg, 0.05)
                 })
                 
                 if random_preprocess:
@@ -113,18 +117,6 @@ def run_validation(
                         'params': params, 
                         'results': results
                     })
-                   
-                # --- uncomment for debugging --- # 
-                # plot_cluster_stability(
-                #     X=X, 
-                #     results=results
-                # )
-                
-                # --- uncomment for debugging --- #
-                # plot_ari_hist(
-                #     k=params.get('n_clusters'),
-                #     results=results
-                # )
                 
                 pbar.update(1)
                 

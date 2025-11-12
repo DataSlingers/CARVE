@@ -27,7 +27,7 @@ from ._selection import (
     select_best_row,
     select_best_row_1se,
     select_best_row_quantile,
-    _pick_best_row
+    get_best_row
 )
 
 from ._consensus import order_consensus_matrix
@@ -128,7 +128,7 @@ def plot_measure_vs_k(
     _require_columns(model_df, ["n_clusters", y_col])
     
     group_cols = _group_columns(model_df)
-    best_row = _pick_best_row(model_df, measure, rule)
+    best_row = get_best_row(model_df, measure, rule)
     best_k = int(best_row["n_clusters"]) if pd.notna(best_row.get("n_clusters")) else None
     
     fig, ax = plt.subplots(figsize=cfg.figsize)
@@ -208,7 +208,7 @@ def plot_consensus_matrix(
     if df.empty:
         raise ValueError("No rows available for the given k filter.")
     
-    best_idx = _pick_best_row(df, measure, rule, return_idx=True)
+    best_idx = get_best_row(df, measure, rule, return_idx=True)
     
     best_row = df.loc[int(best_idx)]
     
@@ -600,7 +600,7 @@ def plot_measure_vs_k_interactive(
         if measure_key is None:
             continue
         for r in RULES_FOR_COL.get(col, ["max"]):
-            row = _pick_best_row(model_df, measure_key, r)
+            row = get_best_row(model_df, measure_key, r)
             k = int(row["n_clusters"]) if pd.notna(row.get("n_clusters")) else None
             best_k_map[(pretty, r)] = k
 

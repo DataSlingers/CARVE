@@ -7,8 +7,38 @@ from sklearn.base import ClusterMixin
 
 GridSpec = Tuple[Type[ClusterMixin], Dict[str, List[Any]]]
 Measure = Literal[
-    "stability", "generalizability", "consensus_pac", "consensus_gini", "consensus_ce"
+    "s",
+    "stab",
+    "stability",
+    "ari_stability",
+    
+    "g",
+    "gen",
+    "generalizability",
+    "ari_generalizability",
+    
+    "avg",
+    "average",
+    "ari_average",
+    
+    "pac",
+    "consensus_pac_stability",
+    "consensus_pac_stability",
+
+    "gini",
+    "consensus_gini_stability",
+    "consensus_gini_stability",
+
+    "ce",
+    "consensus_ce_stability",
+    "consensus_ce_stability",
+
+    "misclass",
+    "misclassification",
+    "misclassification_generalizability",
+    "misclassification_generalizability",
 ]
+
 Rule = Literal["max", "1se", "quantile"]
 
 MEASURE_MAP = {
@@ -22,6 +52,10 @@ MEASURE_MAP = {
     "generalizability": "ari_generalizability",
     "ari_generalizability": "ari_generalizability",
     
+    "avg": "ari_average",
+    "average": "ari_average",
+    "ari_average": "ari_average",
+    
     "pac": "consensus_pac_stability",
     "consensus_pac_stability": "consensus_pac_stability",
     
@@ -29,10 +63,20 @@ MEASURE_MAP = {
     "consensus_gini_stability": "consensus_gini_stability",
     
     "ce": "consensus_ce_stability",
-    "consensus_ce_stability": "consensus_ce_stability"
+    "consensus_ce_stability": "consensus_ce_stability",
+    
+    "misclass": "misclassification_generalizability",
+    "misclassification": "misclassification_generalizability",
+    "misclassification_generalizability": "misclassification_generalizability",
 }
 
-def _pick_best_row(model_df: pd.DataFrame, measure: Measure, rule: Rule, return_idx: bool = False) -> pd.Series:
+
+def get_best_row(
+    model_df: pd.DataFrame, 
+    measure: Measure, 
+    rule: Rule, 
+    return_idx: bool = False
+) -> pd.Series:
     y_col = MEASURE_MAP[measure]
     se_col = f"{y_col}_se"
     has_se = se_col in model_df.columns
@@ -66,7 +110,7 @@ def _pick_best_row(model_df: pd.DataFrame, measure: Measure, rule: Rule, return_
 def select_best_estimator(
     model_df: pd.DataFrame,
     model_grids: List[GridSpec],
-    measure: str = "stability",
+    measure: Measure = "stability",
     rule: str = "max",
     k: Optional[int] = None,
 ) -> ClusterMixin:
@@ -74,14 +118,7 @@ def select_best_estimator(
         model_df = model_df[model_df['n_clusters'] == k]
     
     # Select the row with the highest value for the specified measure
-    if rule == 'max':
-        row = select_best_row(model_df, measure=measure, return_idx=False)
-    elif rule == '1se':
-        row = select_best_row_1se(model_df, measure=measure, return_idx=False)
-    elif rule == 'quantile':
-        row = select_best_row_quantile(model_df, measure=measure, return_idx=False)
-    else:
-        raise ValueError("Invalid rule. Options are 'max', '1se', or 'quantile'.")
+    row = get_best_row(model_df, measure=measure, rule=rule, return_idx=False)
 
     # Reconstruct the best estimator
     estimator = instantiate_estimator(model_grids, row)
@@ -89,18 +126,11 @@ def select_best_estimator(
 
 def select_best_k(
     model_df: pd.DataFrame,
-    measure: str = "stability",
+    measure: Measure = "stability",
     rule: str = "max"
 ) -> ClusterMixin:
     # Select the row with the highest value for the specified measure
-    if rule == 'max':
-        row = select_best_row(model_df, measure=measure, return_idx=False)
-    elif rule == '1se':
-        row = select_best_row_1se(model_df, measure=measure, return_idx=False)
-    elif rule == 'quantile':
-        row = select_best_row_quantile(model_df, measure=measure, return_idx=False)
-    else:
-        raise ValueError("Invalid rule. Options are 'max', '1se', or 'quantile'.")
+    row = get_best_row(model_df, measure=measure, rule=rule, return_idx=False)
 
     # Reconstruct the best estimator
     return row['n_clusters']
@@ -108,7 +138,7 @@ def select_best_k(
 def select_best_row(
     model_df: pd.DataFrame,
     *,
-    measure: str = "stability",
+    measure: Measure = "stability",
     return_idx: bool = False,
 ) -> pd.Series:
     measure_col = MEASURE_MAP[measure]
@@ -121,7 +151,7 @@ def select_best_row(
 def select_best_row_1se(
     model_df: pd.DataFrame,
     *,
-    measure: str = "stability",
+    measure: Measure = "stability",
     return_idx: bool = False,
 ) -> pd.Series:
     if measure not in MEASURE_MAP:
@@ -146,7 +176,7 @@ def select_best_row_1se(
 def select_best_row_quantile(
     model_df: pd.DataFrame,
     *,
-    measure: str = "stability",
+    measure: Measure = "stability",
     return_idx: bool = False,
 ) -> pd.Series:
     if measure not in MEASURE_MAP:

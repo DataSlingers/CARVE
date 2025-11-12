@@ -10,7 +10,8 @@ from .config import ValidatorConfig
 from .grids import default_model_grids, default_norm_options, default_dr_options
 from ._runner import run_validation
 from ._consensus import compute_consensus_metrics_batch
-from ._selection import select_best_estimator, select_best_row, select_best_row_1se, select_best_row_quantile, select_best_k, _pick_best_row, MEASURE_MAP
+from ._misclassification import compute_global_misclassification_arrays
+from ._selection import select_best_estimator, select_best_k, get_best_row, MEASURE_MAP
 from ._plotting import PlotConfig, plot_measure_vs_k, plot_measure_vs_k_interactive, plot_pipeline_vs_k, plot_consensus_matrix, plot_clustering, plot_clustering_interactive, plot_consensus_clustering
 from ._utils import align_labels, ensure_array2d, wrangle_pipeline_records
 
@@ -69,6 +70,7 @@ class CARVE:
 
         # compute stability vectors from consensus matrices
         gini_list, ce_list, pac_list = compute_consensus_metrics_batch(self.consensus_mats_raw)
+        misclassification_arrs = compute_global_misclassification_arrays(self.generalizability_arrs)
 
         self.stab_gini_arr = np.vstack(gini_list)
         self.stab_ce_arr = np.vstack(ce_list)
@@ -76,6 +78,8 @@ class CARVE:
         self.model_df["consensus_pac_stability"] = pac_list
         self.model_df["consensus_gini_stability"] = np.array([np.mean(arr) for arr in self.stab_gini_arr])
         self.model_df["consensus_ce_stability"] = np.array([np.mean(arr) for arr in self.stab_ce_arr])
+        
+        self.model_df["misclassification_generalizability"] = misclassification_arrs
 
     def get_optimal_labels(
         self,
@@ -276,7 +280,7 @@ class CARVE:
             rule = "max"
 
         # pick best row
-        idx = _pick_best_row(model_df_copy, measure=measure, rule=rule, return_idx=True)
+        idx = get_best_row(model_df_copy, measure=measure, rule=rule, return_idx=True)
         row = model_df_copy.loc[idx]
 
         pos = self.model_df.index.get_loc(idx)
@@ -372,7 +376,7 @@ class CARVE:
             rule = "max"
 
         # pick best row
-        idx = _pick_best_row(model_df_copy, measure=measure, rule=rule, return_idx=True)
+        idx = get_best_row(model_df_copy, measure=measure, rule=rule, return_idx=True)
         row = model_df_copy.loc[idx]
 
         pos = self.model_df.index.get_loc(idx)
