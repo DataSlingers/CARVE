@@ -12,12 +12,12 @@ PreprocOption = Union[PreprocSpec, PreprocSpecWithName, Dict[str, Any]]
 
 
 def create_pipeline(
-    random_preproc: bool, 
+    random_preprocess: bool, 
     norm_options: List[PreprocSpec], 
     dr_options: List[PreprocSpec], 
     seed: int
 ) -> Tuple[Pipeline, Dict[str, Any], Dict[str, Any], str, str]:
-    if random_preproc:
+    if random_preprocess:
         pipeline, norm_params, dr_params, norm_name, dr_name = draw_random_pipeline(norm_options, dr_options, seed)
     else:
         pipeline = Pipeline([('id', FunctionTransformer(lambda x: x))])

@@ -24,8 +24,6 @@ ValidationReturn = Tuple[
     List[PipelineRecord],   # pipeline_records | TODO: check whether this type suggestion is correct
     List[np.ndarray],       # consensus_mats_raw
     List[np.ndarray],       # generalizability_arrs
-    # List[np.ndarray],       # instability_fields
-    # List[np.ndarray],       # contin_entropy_arr
 ]
 
 ResultTuple = Tuple[
@@ -151,12 +149,17 @@ def validation_iter(
     P_2_idx, _ = subsample_indices(n_samples, ratio=rho, random_state=random_state0+seed+B)
     
     pipeline, norm_params, dr_params, norm_name, dr_name = create_pipeline(
-        random_preprocess, norm_options, dr_options, random_state0 + seed
+        random_preprocess=random_preprocess, 
+        norm_options=norm_options, 
+        dr_options=dr_options, 
+        seed=random_state0 + seed
     )
+    
+    X_prepocessed = pipeline.fit_transform(X)
 
-    X_1 = pipeline.fit_transform(X[P_1_idx])
-    X_test = pipeline.fit_transform(X[P_test_idx])
-    X_2 = pipeline.fit_transform(X[P_2_idx])
+    X_1 = X_prepocessed[P_1_idx]
+    X_test = X_prepocessed[P_test_idx]
+    X_2 = X_prepocessed[P_2_idx]
     
     # clustering 
     labels_1 = clustering_pipeline(X_1, est_class, random_state=random_state0+seed, **params)
