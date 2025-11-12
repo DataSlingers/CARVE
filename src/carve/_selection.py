@@ -111,7 +111,7 @@ def select_best_estimator(
     model_df: pd.DataFrame,
     model_grids: List[GridSpec],
     measure: Measure = "stability",
-    rule: str = "max",
+    rule: Rule = "max",
     k: Optional[int] = None,
 ) -> ClusterMixin:
     if k is not None:  # subset dataframe if k specified
@@ -127,7 +127,7 @@ def select_best_estimator(
 def select_best_k(
     model_df: pd.DataFrame,
     measure: Measure = "stability",
-    rule: str = "max"
+    rule: Rule = "max"
 ) -> ClusterMixin:
     # Select the row with the highest value for the specified measure
     row = get_best_row(model_df, measure=measure, rule=rule, return_idx=False)
