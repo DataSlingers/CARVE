@@ -6,38 +6,6 @@ import numpy as np
 from sklearn.base import ClusterMixin
 
 GridSpec = Tuple[Type[ClusterMixin], Dict[str, List[Any]]]
-Measure = Literal[
-    "s",
-    "stab",
-    "stability",
-    "ari_stability",
-    
-    "g",
-    "gen",
-    "generalizability",
-    "ari_generalizability",
-    
-    "avg",
-    "average",
-    "ari_average",
-    
-    "pac",
-    "consensus_pac_stability",
-    "consensus_pac_stability",
-
-    "gini",
-    "consensus_gini_stability",
-    "consensus_gini_stability",
-
-    "ce",
-    "consensus_ce_stability",
-    "consensus_ce_stability",
-
-    "misclass",
-    "misclassification",
-    "misclassification_generalizability",
-    "misclassification_generalizability",
-]
 
 Rule = Literal["max", "1se", "quantile"]
 
@@ -69,6 +37,8 @@ MEASURE_MAP = {
     "misclassification": "misclassification_generalizability",
     "misclassification_generalizability": "misclassification_generalizability",
 }
+
+Measure = Literal[tuple(MEASURE_MAP.keys())]
 
 
 def get_best_row(
