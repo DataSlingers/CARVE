@@ -6,15 +6,14 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer
 
 PreprocSpec = Tuple[Callable[..., TransformerMixin], Dict[str, List[Any]]]
-# Also allow: Tuple[Callable[..., TransformerMixin], str, Dict[str, List[Any]]]
 PreprocSpecWithName = Tuple[Callable[..., TransformerMixin], str, Dict[str, List[Any]]]
-PreprocOption = Union[PreprocSpec, PreprocSpecWithName, Dict[str, Any]]
+PreprocOption = Union[PreprocSpec, PreprocSpecWithName]
 
 
 def create_pipeline(
     random_preprocess: bool, 
-    norm_options: List[PreprocSpec], 
-    dr_options: List[PreprocSpec], 
+    norm_options: List[PreprocOption], 
+    dr_options: List[PreprocOption], 
     seed: int
 ) -> Tuple[Pipeline, Dict[str, Any], Dict[str, Any], str, str]:
     if random_preprocess:
