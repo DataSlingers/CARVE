@@ -29,7 +29,8 @@ jobs:
 
       - name: Add repo root to PYTHONPATH
         run: |
-          echo "PYTHONPATH=$PWD" >> $GITHUB_ENV
+          echo "GITHUB_WORKSPACE is: $GITHUB_WORKSPACE"
+          echo "PYTHONPATH=$GITHUB_WORKSPACE/src" >> $GITHUB_ENV
 
       - name: Install Jupyter kernel spec
         run: |
