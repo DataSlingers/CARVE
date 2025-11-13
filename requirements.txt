@@ -13,9 +13,7 @@ umap-learn
 scipy
 scanpy
 
-pyreadr
 pynndescent
-
 anywidget
 numba
 nbconvert
