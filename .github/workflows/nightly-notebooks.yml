@@ -27,6 +27,10 @@ jobs:
             pip install jupyter nbconvert
           fi
 
+      - name: Add repo root to PYTHONPATH
+        run: |
+          echo "PYTHONPATH=$PWD" >> $GITHUB_ENV
+
       - name: Install Jupyter kernel spec
         run: |
           python -m ipykernel install --user --name python3 --display-name "Python 3"
