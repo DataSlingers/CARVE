@@ -27,6 +27,10 @@ jobs:
             pip install jupyter nbconvert
           fi
 
+      - name: Install Jupyter kernel spec
+        run: |
+          python -m ipykernel install --user --name python3 --display-name "Python 3"
+
       - name: Run all notebooks
         env:
             CARVE_N_JOBS: 10
@@ -47,7 +51,7 @@ jobs:
           for nb in "${NOTEBOOKS[@]}"; do
             base=$(basename "$nb")
             echo "Running $nb..."
-            jupyter nbconvert \
+            python -m nbconvert \
               --to notebook \
               --execute "$nb" \
               --output "executed/${base%.ipynb}-executed.ipynb" \
