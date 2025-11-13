@@ -40,7 +40,7 @@ jobs:
 
       - name: Run all notebooks
         env:
-            CARVE_N_JOBS: 10
+            CARVE_N_JOBS: 2
             OMP_NUM_THREADS: 1
             MKL_NUM_THREADS: 1
         
