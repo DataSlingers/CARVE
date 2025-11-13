@@ -1,11 +1,26 @@
 numpy
 pandas
+
 matplotlib
+plotly
 
 joblib
 tqdm
 
 scikit-learn
+scikit-misc
+umap-learn
+scipy
+scanpy
 
+rpy2
+pyreadr
+pynndescent
+
+anywidget
+numba
 nbconvert
 ipykernel
+ipywidgets
+jupyterlab
+llvmlite
