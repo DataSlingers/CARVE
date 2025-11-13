@@ -27,13 +27,6 @@ jobs:
           
           # ensure these are present even if requirements.txt is weird
           python -m pip install nbconvert ipykernel umap-learn
-        
-          python -m nbconvert \
-            --to notebook \
-            --execute notebooks/Benchmarking.ipynb \
-            --output executed/Benchmarking-executed.ipynb \
-            --ExecutePreprocessor.timeout=-1 \
-            --ExecutePreprocessor.iopub_timeout=-1
 
       - name: Add repo root to PYTHONPATH
         run: |
@@ -68,7 +61,9 @@ jobs:
               --to notebook \
               --execute "$nb" \
               --output "executed/${base%.ipynb}-executed.ipynb" \
-              --ExecutePreprocessor.timeout=3600
+              --ExecutePreprocessor.timeout=3600 \ 
+              --ExecutePreprocessor.timeout=-1 \
+              --ExecutePreprocessor.iopub_timeout=-1
           done
 
       - name: Upload executed notebooks
