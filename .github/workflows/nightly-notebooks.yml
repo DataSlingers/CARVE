@@ -26,6 +26,8 @@ jobs:
           else
             pip install jupyter nbconvert
           fi
+          # ensure these are present even if requirements.txt is weird
+          python -m pip install nbconvert ipykernel umap-learn
 
       - name: Add repo root to PYTHONPATH
         run: |
