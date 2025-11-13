@@ -28,6 +28,11 @@ jobs:
           fi
 
       - name: Run all notebooks
+        env:
+            CARVE_N_JOBS: 10
+            OMP_NUM_THREADS: 1
+            MKL_NUM_THREADS: 1
+        
         run: |
           set -e
           NOTEBOOKS=(
