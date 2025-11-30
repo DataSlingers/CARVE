@@ -22,6 +22,8 @@ Requires-Dist: pyreadr>=0.5.3
 Requires-Dist: scanpy>=1.11.4
 Requires-Dist: scikit-misc>=0.5.1
 Requires-Dist: anywidget>=0.9.18
+Requires-Dist: igraph>=1.0.0
+Requires-Dist: leidenalg>=0.11.0
 Provides-Extra: dev
 Requires-Dist: ruff; extra == "dev"
 Requires-Dist: pytest; extra == "dev"

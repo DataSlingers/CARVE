@@ -30,15 +30,33 @@ def clustering_pipeline(
 ) -> np.ndarray:
     try:
         estimator = est_cls(random_state=random_state, **params)
-    
     except Exception:
         estimator = est_cls(**params)
 
+    # estimator implements fit_predict
     if hasattr(estimator, "fit_predict"):
         return estimator.fit_predict(X)
-    
+
+    # otherwise: fit first
     estimator.fit(X)
-    return getattr(estimator, "labels_")
+
+    # standard sklearn behavior: labels_ attribute
+    try:
+        return estimator.labels_
+    except Exception:
+        return estimator.predict(X)  # fallback: predict(X) if available
+    
+    # if hasattr(estimator, "labels_"):
+    #     return estimator.labels_
+
+    # # fallback: predict(X) if available
+    # if hasattr(estimator, "predict"):
+    #     return estimator.predict(X)
+
+    raise TypeError(
+        f"estimator of type {type(estimator)} has no fit_predict, "
+        f"no labels_ and no predict; cannot extract cluster labels."
+    )
 
 def wrangle_pipeline_records(
     pipeline_records: List[Dict[str, Any]]

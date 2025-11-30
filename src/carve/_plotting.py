@@ -43,36 +43,44 @@ NON_PARAM_COLS: frozenset[str] = frozenset(
         "n_clusters",
         "ari_stability", "ari_stability_se", "ari_stability_upper", "ari_stability_lower",
         "ari_generalizability", "ari_generalizability_se", "ari_generalizability_upper", "ari_generalizability_lower",
+        "ari_average", "ari_average_se", "ari_average_upper", "ari_average_lower",
         "consensus_pac_stability", "consensus_gini_stability", "consensus_ce_stability",
+        "misclassification_generalizability"
     }
 )
 
 Y_LABELS: Mapping[str, str] = {
     "ari_stability": "ARI (stability)",
     "ari_generalizability": "ARI (generalizability)",
+    "ari_average": "ARI (average)",
     "consensus_pac_stability": "Consensus PAC",
     "consensus_gini_stability": "Consensus Gini",
     "consensus_ce_stability": "Consensus CE",
+    "misclassification_generalizability": "Global Misclassification",
 }
 
 DISPLAY_NAME: Mapping[str, str] = {
     "ARI (stability)": "ari_stability",
     "ARI (generalizability)": "ari_generalizability",
+    "ARI (average)": "ari_average",
     "Consensus PAC": "consensus_pac_stability",
     "Consensus Gini": "consensus_gini_stability",
     "Consensus CE": "consensus_ce_stability",
+    "Global Misclassification": "misclassification_generalizability",
 }
 INV_DISPLAY_NAME: Mapping[str, str] = {v: k for k, v in DISPLAY_NAME.items()}
 
-ARI_COLS = {"ari_stability", "ari_generalizability"}
+ARI_COLS = {"ari_stability", "ari_generalizability", "ari_average"}
 
 RULES_FOR_COL = {
     "ari_stability": ["max", "1se", "quantile"],
     "ari_generalizability": ["max", "1se", "quantile"],
+    "ari_average": ["max", "1se", "quantile"],
     
     "consensus_pac": ["max"],
     "consensus_gini": ["max"],
     "consensus_ce": ["max"],
+    "misclassification_generalizability": ["max"],
 }
 
 

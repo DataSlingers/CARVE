@@ -18,6 +18,8 @@ pyreadr>=0.5.3
 scanpy>=1.11.4
 scikit-misc>=0.5.1
 anywidget>=0.9.18
+igraph>=1.0.0
+leidenalg>=0.11.0
 
 [dev]
 ruff

@@ -13,7 +13,7 @@ from ._consensus import compute_consensus_metrics_batch
 from ._misclassification import compute_global_misclassification_arrays
 from ._selection import select_best_estimator, select_best_k, get_best_row, MEASURE_MAP
 from ._plotting import PlotConfig, plot_measure_vs_k, plot_measure_vs_k_interactive, plot_pipeline_vs_k, plot_consensus_matrix, plot_clustering, plot_clustering_interactive, plot_consensus_clustering
-from ._utils import align_labels, ensure_array2d, wrangle_pipeline_records
+from ._utils import align_labels, ensure_array2d, wrangle_pipeline_records, clustering_pipeline
 
 @dataclass
 class CARVE:
@@ -94,12 +94,8 @@ class CARVE:
             raise RuntimeError("Call fit() first.")
 
         estimator = select_best_estimator(self.model_df, model_grids=model_grids, measure=measure, rule=rule, k=k)
-
-        if hasattr(estimator, "fit_predict"):
-            labels = estimator.fit_predict(self.config.X)
-        else:
-            estimator.fit(self.config.X)
-            labels = getattr(estimator, "labels_")
+        
+        labels = clustering_pipeline(self.config.X, type(estimator), **estimator.get_params())
 
         cur_k = int(np.unique(labels).size)
         ref = self.config.ref_labels
