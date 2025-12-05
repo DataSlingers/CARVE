@@ -8,6 +8,7 @@ from sklearn.metrics import adjusted_rand_score
 from sklearn.model_selection import ParameterGrid
 from tqdm.auto import tqdm
 
+from ._output import _log_config_progress
 from ._consensus import build_consensus_matrix
 from ._misclassification import build_generalizability_array
 from ._pipeline import create_pipeline
@@ -47,19 +48,28 @@ def run_validation(
     random_preprocess: bool = False, 
     n_jobs: int = 1, 
     random_state: int = None,
-    prog_bar: bool = True
+    prog_bar: bool = False,
+    verbose: int = 1
 ) -> ValidationReturn:
     n = X.shape[0]
-    
-    model_records = []
-    pipeline_records = []
-    cons_mats_raw = []
-    generalizability_arrs = []
+
+    model_records: List[ModelRecord] = []
+    pipeline_records: List[PipelineRecord] = []
+    cons_mats_raw: List[np.ndarray] = []
+    generalizability_arrs: List[np.ndarray] = []
     
     total_configs = sum(len(list(ParameterGrid(g))) for _, g in model_grids)
-    with tqdm(total=total_configs, desc="Grid configs", disable=not prog_bar) as pbar:
+    
+    config_idx = 0
+    with tqdm(
+        total=total_configs, 
+        desc="Grid configs", 
+        disable=not prog_bar
+    ) as pbar:
         for est_class, grid in model_grids:
             for params in ParameterGrid(grid):
+                config_idx += 1
+                
                 worker = delayed(validation_iter)
                 results = Parallel(n_jobs=n_jobs)(
                     worker(
@@ -93,23 +103,24 @@ def run_validation(
                 
                 cons_mats_raw.append(M)
                 generalizability_arrs.append(E)
-                
-                model_records.append({
-                    'estimator': est_class.__name__,
+
+                record: ModelRecord = {
+                    "estimator": est_class.__name__,
                     **params,
-                    'ari_stability': np.mean(aris_stab),
-                    'ari_stability_se': np.std(aris_stab, ddof=1) / np.sqrt(B),
-                    'ari_stability_upper': np.quantile(aris_stab, 0.95),
-                    'ari_stability_lower': np.quantile(aris_stab, 0.05),
-                    'ari_generalizability': np.mean(aris_gen),
-                    'ari_generalizability_se': np.std(aris_gen, ddof=1) / np.sqrt(B),
-                    'ari_generalizability_upper': np.quantile(aris_gen, 0.95),
-                    'ari_generalizability_lower': np.quantile(aris_gen, 0.05),
-                    'ari_average': np.mean(aris_avg),
-                    'ari_average_se': np.std(aris_avg, ddof=1) / np.sqrt(B),
-                    'ari_average_upper': np.quantile(aris_avg, 0.95),
-                    'ari_average_lower': np.quantile(aris_avg, 0.05)
-                })
+                    "ari_stability": float(np.mean(aris_stab)),
+                    "ari_stability_se": float(np.std(aris_stab, ddof=1) / np.sqrt(B)),
+                    "ari_stability_upper": float(np.quantile(aris_stab, 0.95)),
+                    "ari_stability_lower": float(np.quantile(aris_stab, 0.05)),
+                    "ari_generalizability": float(np.mean(aris_gen)),
+                    "ari_generalizability_se": float(np.std(aris_gen, ddof=1) / np.sqrt(B)),
+                    "ari_generalizability_upper": float(np.quantile(aris_gen, 0.95)),
+                    "ari_generalizability_lower": float(np.quantile(aris_gen, 0.05)),
+                    "ari_average": float(np.mean(aris_avg)),
+                    "ari_average_se": float(np.std(aris_avg, ddof=1) / np.sqrt(B)),
+                    "ari_average_upper": float(np.quantile(aris_avg, 0.95)),
+                    "ari_average_lower": float(np.quantile(aris_avg, 0.05)),
+                }
+                model_records.append(record)
                 
                 if random_preprocess:
                     pipeline_records.append({
@@ -117,6 +128,16 @@ def run_validation(
                         'params': params, 
                         'results': results
                     })
+                    
+                _log_config_progress(
+                    config_idx=config_idx,
+                    total_configs=total_configs,
+                    est_class=est_class,
+                    params=params,
+                    record=record,
+                    pbar_obj=pbar if prog_bar else None,
+                    verbose=verbose
+                )
                 
                 pbar.update(1)
                 

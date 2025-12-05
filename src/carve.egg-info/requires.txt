@@ -20,6 +20,8 @@ scikit-misc>=0.5.1
 anywidget>=0.9.18
 igraph>=1.0.0
 leidenalg>=0.11.0
+pyteomics>=4.7.5
+lxml>=6.0.2
 
 [dev]
 ruff
