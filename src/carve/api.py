@@ -43,7 +43,7 @@ class CARVE(BaseEstimator):
     dr_options : list of dimensionality reduction specs, optional
     ref_labels : array-like of shape (n_samples,), optional
         Reference labels for consistent plots.
-    n_jobs : int, default=cpu_count() - 1
+    n_jobs : int, default=1
         Parallelism.
     random_state : int, optional
         RNG seed.
@@ -55,7 +55,7 @@ class CARVE(BaseEstimator):
     norm_options: Optional[List[PreprocSpec]] = None
     dr_options: Optional[List[PreprocSpec]] = None
     ref_labels: Optional[np.ndarray] = None
-    n_jobs: int = field(default_factory=lambda: max(1, mp.cpu_count() - 1))
+    n_jobs: int = 1
     random_state: Optional[int] = None
     verbose: int = 1
 
