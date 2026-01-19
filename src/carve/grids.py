@@ -6,6 +6,7 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.metrics import pairwise_distances
 from sklearn.preprocessing import FunctionTransformer, StandardScaler
+from sklearn.utils import check_random_state
 from umap import UMAP
 
 from .cluster import SpectralClusteringCARVE
@@ -17,10 +18,22 @@ def default_model_grids(
     X: np.ndarray, 
     K: Union[int, np.ndarray] = 10
 ) -> List[GridSpec]:
-    def gamma_quantiles(X, qs=(0.05, 0.10, 0.25, 0.50)):
-        D2 = pairwise_distances(X, metric='sqeuclidean')
+    def gamma_quantiles_approx(
+        X: np.ndarray,
+        qs: Tuple[float, ...] = (0.05, 0.10, 0.25, 0.50),
+        max_points: int = 500,
+        random_state: int = 0,
+    ) -> List[float]:
+        rng = check_random_state(random_state)
+        n = X.shape[0]
+        Xs = X[rng.choice(n, size=max_points, replace=False)] if n > max_points else X
+
+        D2 = pairwise_distances(Xs, metric="sqeuclidean")
         d2 = D2[np.triu_indices_from(D2, k=1)]
-        return [1.0 / (2.0 * np.quantile(d2, q)) for q in qs]
+        d2 = d2[np.isfinite(d2)]
+        if d2.size == 0:
+            return [1.0 for _ in qs]
+        return [float(1.0 / (2.0 * np.quantile(d2, q))) for q in qs]
     
     if isinstance(K, int):
         ks = list(range(2, K + 1))
@@ -28,9 +41,9 @@ def default_model_grids(
         ks = list(np.asarray(K).tolist())
         
     return [
-        (KMeans, {"n_clusters": ks}),
+        (KMeans, {"n_clusters": ks, "n_init": [10]}),
         (AgglomerativeClustering, {"n_clusters": ks, "linkage": ["ward", "complete", "average", "single"]}),
-        (SpectralClustering, {"n_clusters": ks, "gamma": gamma_quantiles(X)}),
+        (SpectralClustering, {"n_clusters": ks, "gamma": gamma_quantiles_approx(X)}),
         # (SpectralClustering, {"n_clusters": ks, "affinity": ['nearest_neighbors'], "n_neighbors": [5, 10, 15, 20]}),
         # (SpectralClusteringCARVE, {"n_clusters": ks, "gamma": gamma_quantiles(X)}),
         # (SpectralClusteringCARVE, {"n_clusters": ks, "affinity": ['knn'], "n_neighbors": [5, 10, 15, 20]}),

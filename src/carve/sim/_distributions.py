@@ -43,21 +43,23 @@ def _sample_cluster_points(
     elif distribution == "circles":
         if p < 2:
             raise ValueError("`circles` distribution requires p >= 2.")
+        
         theta = rng.uniform(0.0, 2.0 * np.pi, size=size)
         thickness = 0.08
         r = 1.0 + rng.normal(scale=thickness, size=size)
         Z2 = np.stack([r * np.cos(theta), r * np.sin(theta)], axis=1)
-
-        Z = np.zeros((size, p), dtype=float)
-        axes = rng.choice(p, size=2, replace=False)
-        Z[:, axes] = Z2
+        
+        A = rng.standard_normal((p, 2))
+        Q, _ = np.linalg.qr(A) 
+        Z = Z2 @ Q.T 
 
         mu = Z.mean(axis=0, keepdims=True)
-        sd = Z.std(axis=0, keepdims=True); sd[sd == 0] = 1.0
+        sd = Z.std(axis=0, keepdims=True)
+        sd[sd == 0] = 1.0
         Z = (Z - mu) / sd
-
-        L_sub = _chol_spd(cov[np.ix_(axes, axes)])
-        Z[:, axes] = Z[:, axes] @ L_sub.T
+        
+        L = _chol_spd(cov)
+        Z = Z @ L.T
 
         return mean + Z
 
@@ -70,27 +72,18 @@ def _sample_cluster_points(
         x = r * np.cos(theta) + 0.4
         y = r * np.sin(theta) + rng.normal(scale=0.04, size=size)
         Z2 = np.stack([x, y], axis=1)
-
-        phi = rng.uniform(0.0, 2.0 * np.pi)
-        c, s = np.cos(phi), np.sin(phi)
-        R = np.array(
-            [[c, -s],
-             [s,  c]]
-        )
-        if rng.random() < 0.5:
-            R[0, :] *= -1
-        Z2 = Z2 @ R.T
-
-        axes = rng.choice(p, size=2, replace=False)
-        Z = np.zeros((size, p), dtype=float)
-        Z[:, axes] = Z2
+        
+        A = rng.standard_normal((p, 2))
+        Q, _ = np.linalg.qr(A) 
+        Z = Z2 @ Q.T 
 
         mu = Z.mean(axis=0, keepdims=True)
-        sd = Z.std(axis=0, keepdims=True); sd[sd == 0] = 1.0
+        sd = Z.std(axis=0, keepdims=True)
+        sd[sd == 0] = 1.0
         Z = (Z - mu) / sd
-
-        L_sub = _chol_spd(cov[np.ix_(axes, axes)])
-        Z[:, axes] = Z[:, axes] @ L_sub.T
+        
+        L = _chol_spd(cov)
+        Z = Z @ L.T
 
         return mean + Z
 
@@ -104,23 +97,18 @@ def _sample_cluster_points(
         x = r * np.cos(t)
         y = r * np.sin(t)
         Z2 = np.stack([x, y], axis=1)
-
-        phi = rng.uniform(0, 2*np.pi)
-        c, s = np.cos(phi), np.sin(phi)
-        R = np.array(
-            [[c, -s],
-             [s,  c]]
-        )
-        if rng.random() < 0.5:
-            R[0, :] *= -1
-        Z2 = Z2 @ R.T
-
-        axes = rng.choice(p, size=2, replace=False)
-        Z = np.zeros((size, p), dtype=float)
-        Z[:, axes] = Z2
-
-        L_sub = _chol_spd(cov[np.ix_(axes, axes)])
-        Z[:, axes] = Z[:, axes] @ L_sub.T
+        
+        A = rng.standard_normal((p, 2))
+        Q, _ = np.linalg.qr(A) 
+        Z = Z2 @ Q.T 
+        
+        mu = Z.mean(axis=0, keepdims=True)
+        sd = Z.std(axis=0, keepdims=True)
+        sd[sd == 0] = 1.0
+        Z = (Z - mu) / sd
+        
+        L = _chol_spd(cov)
+        Z = Z @ L.T
 
         return mean + Z
 
