@@ -51,7 +51,7 @@ def simulate_clusters(
     post_embed_standardize: bool = True,
     preserve_global_scale: bool = False,
     compactness: float = 0.65,
-    embed_scale_by_dim: bool = True,
+    embed_standardize: bool = True,
     noise_dims: int = 0,
     noise_dist: Literal["gaussian", "uniform", "laplace", "t"] = "gaussian",
     noise_scale: float | Literal["match"] = "match",
@@ -131,7 +131,7 @@ def simulate_clusters(
     if nonlinear:
         X = _apply_embedding(
             X, method=embed_method, embed_dim=embed_dim,
-            embed_param=embed_param, scale_by_dim=embed_scale_by_dim, rng=rng
+            embed_param=embed_param, standardize=embed_standardize, rng=rng
         )
         
         if post_embed_standardize or preserve_global_scale or compactness != 1.0:

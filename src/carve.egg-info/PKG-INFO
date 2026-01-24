@@ -26,6 +26,7 @@ Requires-Dist: igraph>=1.0.0
 Requires-Dist: leidenalg>=0.11.0
 Requires-Dist: pyteomics>=4.7.5
 Requires-Dist: lxml>=6.0.2
+Requires-Dist: scvi>=0.6.8
 Provides-Extra: dev
 Requires-Dist: ruff; extra == "dev"
 Requires-Dist: pytest; extra == "dev"

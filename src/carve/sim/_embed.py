@@ -7,22 +7,31 @@ def _apply_embedding(
     embed_dim: int | None, 
     embed_param: float, 
     rng: np.random.Generator,
-    scale_by_dim: bool = True
+    standardize: bool = True
 ) -> np.ndarray:
+    """
+    Random Fourier Features for the Gaussian/RBF kernel.
+    sigma: kernel lengthscale (bigger = smoother/less nonlinear).
+    Output: Z shape (n, embed_dim).
+    """
     if method in ("random_fourier", "fourier"):
         if embed_dim is None:
             raise ValueError("embed_dim must be provided for random_fourier")
         
-        embed_dim_f = int(round(embed_dim / 2))
-        
-        freq_scale = embed_param
-        W = rng.normal(scale=freq_scale, size=(X.shape[1], embed_dim_f))
-        b = rng.uniform(0, 2 * np.pi, size=(embed_dim_f,))
-        Z = np.hstack([np.sin(X @ W + b), np.cos(X @ W + b)])
-    
-        if scale_by_dim:
-            Z /= np.sqrt(embed_dim_f)
-            
+        X = np.asarray(X)
+
+        if standardize:
+            X = (X - X.mean(axis=0, keepdims=True)) / (X.std(axis=0, keepdims=True) + 1e-12)
+
+        D = int(embed_dim)
+        if D <= 0:
+            raise ValueError("embed_dim must be positive")
+
+        # For k(x,y)=exp(-||x-y||^2/(2*sigma^2)), sample w ~ N(0, sigma^{-2} I)
+        W = rng.normal(size=(X.shape[1], D)) / embed_param
+        b = rng.uniform(0.0, 2.0 * np.pi, size=(D,))
+
+        Z = np.sqrt(2.0 / D) * np.cos(X @ W + b)
         return Z
 
     elif method == "poly":

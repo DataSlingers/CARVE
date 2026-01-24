@@ -22,6 +22,7 @@ igraph>=1.0.0
 leidenalg>=0.11.0
 pyteomics>=4.7.5
 lxml>=6.0.2
+scvi>=0.6.8
 
 [dev]
 ruff
