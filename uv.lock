@@ -186,6 +186,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "anywidget" },
+    { name = "cmap" },
     { name = "igraph" },
     { name = "ipykernel" },
     { name = "ipywidgets" },
@@ -221,6 +222,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anywidget", specifier = ">=0.9.18" },
+    { name = "cmap", specifier = ">=0.7.0" },
     { name = "igraph", specifier = ">=1.0.0" },
     { name = "ipykernel", specifier = ">=6.29,<7" },
     { name = "ipywidgets", specifier = ">=8.1.7" },
@@ -300,6 +302,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/50/ee/f4704bad8201de513fdc8aac1cabc87e38c5818c93857140e06e772b5892/charset_normalizer-3.4.3-cp312-cp312-win32.whl", hash = "sha256:fb6fecfd65564f208cbf0fba07f107fb661bcd1a7c389edbced3f7a493f70e37", size = 99822, upload-time = "2025-08-09T07:56:21.551Z" },
     { url = "https://files.pythonhosted.org/packages/39/f5/3b3836ca6064d0992c58c7561c6b6eee1b3892e9665d650c803bd5614522/charset_normalizer-3.4.3-cp312-cp312-win_amd64.whl", hash = "sha256:86df271bf921c2ee3818f0522e9a5b8092ca2ad8b065ece5d7d9d0e9f4849bcc", size = 107543, upload-time = "2025-08-09T07:56:23.115Z" },
     { url = "https://files.pythonhosted.org/packages/8a/1f/f041989e93b001bc4e44bb1669ccdcf54d3f00e628229a85b08d330615c5/charset_normalizer-3.4.3-py3-none-any.whl", hash = "sha256:ce571ab16d890d23b5c278547ba694193a45011ff86a9162a71307ed9f86759a", size = 53175, upload-time = "2025-08-09T07:57:26.864Z" },
+]
+
+[[package]]
+name = "cmap"
+version = "0.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/81/dc/7f22f008c90ff1211d34be6390cc4170c96304df8ce4ea04c61ad13238d3/cmap-0.7.0.tar.gz", hash = "sha256:8cab93661f1e6dd6d06435105fed744836ecb5ce266ecc14ab1e0657ca8fcda4", size = 936032, upload-time = "2026-01-05T18:14:54.031Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d1/3e/870754d98645a915dabbe61a10182b88695c035e53925d3aa9899b5d9e5a/cmap-0.7.0-py3-none-any.whl", hash = "sha256:70a278bf70d0b10427cc1b40cc2866a59e8f31f1ab3e7b6a87c652acd32677a4", size = 985164, upload-time = "2026-01-05T18:14:52.43Z" },
 ]
 
 [[package]]

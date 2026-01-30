@@ -20,7 +20,7 @@ def default_model_grids(
 ) -> List[GridSpec]:
     def gamma_quantiles_approx(
         X: np.ndarray,
-        qs: Tuple[float, ...] = (0.05, 0.10, 0.25, 0.50),
+        qs: Tuple[float, ...] = (0.05, 0.10, 0.50),
         max_points: int = 500,
         random_state: int = 0,
     ) -> List[float]:
@@ -41,8 +41,8 @@ def default_model_grids(
         ks = list(np.asarray(K).tolist())
         
     return [
-        (KMeans, {"n_clusters": ks, "n_init": [10]}),
-        (AgglomerativeClustering, {"n_clusters": ks, "linkage": ["ward", "complete", "average", "single"]}),
+        (KMeans, {"n_clusters": ks}),
+        (AgglomerativeClustering, {"n_clusters": ks, "linkage": ["ward", "average", "single"]}),
         (SpectralClustering, {"n_clusters": ks, "gamma": gamma_quantiles_approx(X)}),
         # (SpectralClustering, {"n_clusters": ks, "affinity": ['nearest_neighbors'], "n_neighbors": [5, 10, 15, 20]}),
         # (SpectralClusteringCARVE, {"n_clusters": ks, "gamma": gamma_quantiles(X)}),

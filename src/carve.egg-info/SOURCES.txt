@@ -18,6 +18,7 @@ src/carve.egg-info/SOURCES.txt
 src/carve.egg-info/dependency_links.txt
 src/carve.egg-info/requires.txt
 src/carve.egg-info/top_level.txt
+src/carve/legacy/_plotting.py
 src/carve/sim/__init__.py
 src/carve/sim/_centers.py
 src/carve/sim/_covariance.py

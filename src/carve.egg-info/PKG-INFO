@@ -27,6 +27,7 @@ Requires-Dist: leidenalg>=0.11.0
 Requires-Dist: pyteomics>=4.7.5
 Requires-Dist: lxml>=6.0.2
 Requires-Dist: scvi>=0.6.8
+Requires-Dist: cmap>=0.7.0
 Provides-Extra: dev
 Requires-Dist: ruff; extra == "dev"
 Requires-Dist: pytest; extra == "dev"

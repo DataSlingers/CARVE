@@ -32,6 +32,7 @@ dependencies = [
   "pyteomics>=4.7.5",
   "lxml>=6.0.2",
   "scvi>=0.6.8",
+  "cmap>=0.7.0",
 ]
 
 [project.optional-dependencies]
