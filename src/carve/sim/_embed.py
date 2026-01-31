@@ -10,13 +10,24 @@ def _apply_embedding(
     standardize: bool = True
 ) -> np.ndarray:
     """
-    Random Fourier Features for the Gaussian/RBF kernel.
-    sigma: kernel lengthscale (bigger = smoother/less nonlinear).
-    Output: Z shape (n, embed_dim).
+    Apply a nonlinear embedding to the data.
+
+    Parameters:
+        - `X`: input array of shape (n, p).
+        - `method`: "random_fourier", "poly", or "rbf".
+        - `embed_dim`: output dimension for random Fourier features (required for random_fourier).
+        - `embed_param`: kernel lengthscale for random_fourier/rbf or degree for poly.
+        - `rng`: NumPy random generator.
+        - `standardize`: standardize input before random Fourier features.
+
+    Returns:
+        - Embedded array of shape (n, d) where d depends on `method`.
     """
-    if method in ("random_fourier", "fourier"):
+    if method == "random_fourier":
         if embed_dim is None:
             raise ValueError("embed_dim must be provided for random_fourier")
+        if not np.isfinite(embed_param) or embed_param <= 0:
+            raise ValueError("`embed_param` must be positive for random_fourier (kernel lengthscale).")
         
         X = np.asarray(X)
 
@@ -35,7 +46,13 @@ def _apply_embedding(
         return Z
 
     elif method == "poly":
-        d = embed_param
+        if not np.isfinite(embed_param):
+            raise ValueError("`embed_param` must be finite for poly.")
+        d = int(round(embed_param))
+        if not np.isclose(d, embed_param):
+            raise ValueError("`embed_param` must be an integer degree for poly embedding.")
+        if d <= 0:
+            raise ValueError("`embed_param` must be a positive integer for poly embedding.")
 
         cols = [X, X**d]
         if X.shape[1] >= 2:
@@ -45,7 +62,11 @@ def _apply_embedding(
 
     elif method == "rbf":
         sigma_rbf = embed_param
+        if not np.isfinite(sigma_rbf) or sigma_rbf <= 0:
+            raise ValueError("`embed_param` must be positive for rbf.")
         m = min(50, len(X))
+        if m == 0:
+            return np.empty((len(X), 0), dtype=float)
         prototypes = X[rng.choice(len(X), size=m, replace=False)]
         gamma = 1.0 / (2.0 * sigma_rbf**2)
         

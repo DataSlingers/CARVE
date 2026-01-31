@@ -1,6 +1,5 @@
-from typing import Callable, Literal, NamedTuple, Optional, Tuple
+from typing import Callable, Literal, NamedTuple, Tuple
 import numpy as np
-import pandas as pd
 
 from ._outliers import _parse_outliers, _sample_outliers
 from ._centers import _sample_centers
@@ -12,15 +11,29 @@ from ._plot import _plot_simulation
 from ._noise import _sample_noise
 
 class SimulationMeta(NamedTuple):
-    centers: np.ndarray
-    cluster_sizes: np.ndarray
-    cluster_scales: list[float]
-    correlation: np.ndarray
-    covariances: list[np.ndarray]
-    outliers: int
-    signal_dims: int
-    noise_dims: int
-    noise_mask: np.ndarray
+        """
+        Metadata for a simulated dataset.
+
+        Fields:
+            - `centers`: (k, p) cluster centers in the original signal space.
+            - `cluster_sizes`: (k,) integer sizes per cluster.
+            - `cluster_scales`: list of per-cluster scales (std-devs).
+            - `correlation`: (p, p) base correlation matrix.
+            - `covariances`: list of (p, p) covariance matrices per cluster.
+            - `outliers`: integer number of outliers sampled.
+            - `signal_dims`: number of signal dimensions (post-embedding, pre-noise).
+            - `noise_dims`: number of appended noise dimensions.
+            - `noise_mask`: boolean mask over final dimensions indicating noise features.
+        """
+        centers: np.ndarray
+        cluster_sizes: np.ndarray
+        cluster_scales: list[float]
+        correlation: np.ndarray
+        covariances: list[np.ndarray]
+        outliers: int
+        signal_dims: int
+        noise_dims: int
+        noise_mask: np.ndarray
 
 def simulate_clusters(
     n_total: int,
@@ -28,9 +41,9 @@ def simulate_clusters(
     k: int,
     cluster_scale: float | list[float] | Callable[[], float] = 1.0,
     balanced: bool = True,
-    cluster_sizes_frac: list[float] | None = None,
+    cluster_size_frac: list[float] | None = None,
     min_cluster_size_abs: int = 5,
-    min_cluster_size_frac: float = 0.1,
+    min_cluster_size_floor_frac: float = 0.1,
     cluster_size_dirichlet_alpha: float | np.ndarray = 0.3,
     corr_type: Literal["none", "ar1", "block"] = "none",
     corr_strength: float = 1.0,
@@ -38,7 +51,7 @@ def simulate_clusters(
     outliers: int | float = 0,
     outlier_scale: float = 5.0,
     outlier_mode: Literal["far_gaussian", "uniform_box"] = "far_gaussian",
-    distribution: str = "gaussian",
+    distribution: Literal["gaussian", "t", "uniform_ball", "circles", "moons", "swiss_roll"] = "gaussian",
     t_df: int = 3,
     nonlinear: bool = False,
     embed_dim: int | None = None,
@@ -47,19 +60,72 @@ def simulate_clusters(
     center_box: float = 3.0,
     centroid_method: Literal["none", "lhs", "best_candidate", "min_dist"] = "best_candidate",
     n_candidates: int = 64,
-    min_center_dist: float | None = None,
-    post_embed_standardize: bool = True,
-    preserve_global_scale: bool = False,
-    compactness: float = 0.65,
     embed_standardize: bool = True,
+    post_embed_mode: Literal["none", "standardize", "preserve_global", "standardize_preserve"] = "standardize",
+    post_embed_scale: float = 1.0,
     noise_dims: int = 0,
     noise_dist: Literal["gaussian", "uniform", "laplace", "t"] = "gaussian",
     noise_scale: float | Literal["match"] = "match",
-    plotting: bool = True,
+    plotting: bool = False,
     random_state: int | None = None,
 ) -> Tuple[np.ndarray, np.ndarray, SimulationMeta]:
     """
     Generate synthetic clustered data with optional correlation, outliers, and embedding.
+
+        Parameter legend (grouped):
+            Core:
+                - `n_total`: total samples (clusters + outliers).
+                - `p`: base feature count before embedding/noise.
+                - `k`: number of clusters.
+
+            Cluster sizes:
+                - `cluster_size_frac`: explicit per-cluster proportions (length k, sums to 1).
+                - `balanced`: if True, equal sizes when `cluster_size_frac` is None.
+                - `min_cluster_size_abs`: floor in absolute counts (unbalanced only).
+                - `min_cluster_size_floor_frac`: floor as fraction of n_total (unbalanced only).
+                - `cluster_size_dirichlet_alpha`: Dirichlet concentration for unbalanced sizes.
+
+            Cluster shapes:
+                - `cluster_scale`: per-cluster scale (std-dev); covariances are scale^2 * correlation.
+                - `corr_type`: "none", "ar1", or "block" correlation structure.
+                - `corr_strength`: correlation strength for ar1/block.
+                - `block_size`: block size for block correlation.
+
+            Center layout:
+                - `center_box`: half-width of the hypercube for center placement.
+                - `centroid_method`: "none", "lhs", "best_candidate", "min_dist".
+                - `n_candidates`: candidates for best-candidate center selection.
+
+            Distributions:
+                - `distribution`: point distribution inside each cluster.
+                - `t_df`: degrees of freedom for t distributions.
+
+            Outliers:
+                - `outliers`: integer count or fraction in (0,1).
+                - `outlier_mode`: "far_gaussian" or "uniform_box".
+                - `outlier_scale`: multiplier for outlier distance/box size.
+
+            Nonlinear embedding:
+                - `nonlinear`: apply embedding to generated clusters.
+                - `embed_method`: "random_fourier", "poly", or "rbf".
+                - `embed_dim`: output dimension for random Fourier features.
+                - `embed_param`: kernel lengthscale or polynomial degree.
+                - `embed_standardize`: standardize before embedding (random_fourier only).
+                - `post_embed_mode`: "none", "standardize", "preserve_global", "standardize_preserve".
+                - `post_embed_scale`: global scale multiplier after embedding.
+
+            Noise:
+                - `noise_dims`: number of extra noise dimensions.
+                - `noise_dist`: noise distribution.
+                - `noise_scale`: noise scale or "match" to signal std.
+
+            Misc:
+                - `plotting`: show PCA plot of the simulated data.
+                - `random_state`: RNG seed.
+
+        Precedence rules:
+            - If `cluster_size_frac` is set, it overrides `balanced` and the Dirichlet settings.
+            - Post-embedding transforms apply only when `nonlinear=True`.
 
     Returns: (X, y, meta)
       - X: (n_total, p) array
@@ -69,6 +135,27 @@ def simulate_clusters(
     rng = np.random.default_rng(seed=random_state)
     p = int(np.floor(p + 0.5))
     n_total = int(np.floor(n_total + 0.5))
+    k = int(np.floor(k + 0.5))
+    noise_dims = int(np.floor(noise_dims + 0.5))
+    if p <= 0:
+        raise ValueError("`p` must be positive.")
+    if n_total <= 0:
+        raise ValueError("`n_total` must be positive.")
+    if k <= 0:
+        raise ValueError("`k` must be positive.")
+    if min_cluster_size_abs < 0:
+        raise ValueError("`min_cluster_size_abs` must be nonnegative.")
+    if min_cluster_size_floor_frac < 0:
+        raise ValueError("`min_cluster_size_floor_frac` must be nonnegative.")
+    if not np.isfinite(corr_strength):
+        raise ValueError("`corr_strength` must be finite.")
+    if not np.isfinite(embed_param):
+        raise ValueError("`embed_param` must be finite.")
+    if (distribution == "t" or noise_dist == "t") and t_df <= 0:
+        raise ValueError("`t_df` must be positive for t distributions.")
+    noise_dims = int(np.floor(noise_dims + 0.5))
+    if noise_dims < 0:
+        raise ValueError("`noise_dims` must be nonnegative.")
 
     # Outliers
     n_outliers = _parse_outliers(outliers, n_total)
@@ -81,10 +168,10 @@ def simulate_clusters(
         n_total_clusters=n_total_clusters,
         k=k,
         balanced=balanced,
-        cluster_sizes_frac=cluster_sizes_frac,
+        cluster_size_frac=cluster_size_frac,
         rng=rng,
         min_abs=min_cluster_size_abs,
-        min_frac=min_cluster_size_frac,
+        min_frac=min_cluster_size_floor_frac,
         alpha=cluster_size_dirichlet_alpha
     )
     assert int(cluster_sizes.sum()) == n_total_clusters
@@ -92,7 +179,7 @@ def simulate_clusters(
     # Centers and covariances
     centers = _sample_centers(
         k=k, p=p, center_box=center_box, rng=rng,
-        method=centroid_method, n_candidates=n_candidates, min_center_dist=min_center_dist
+        method=centroid_method, n_candidates=n_candidates
     )
     scales = _get_cluster_scales(cluster_scale, k)
     R = _build_correlation_matrix(p=p, corr_type=corr_type, corr_strength=corr_strength, block_size=block_size)
@@ -134,14 +221,12 @@ def simulate_clusters(
             embed_param=embed_param, standardize=embed_standardize, rng=rng
         )
         
-        if post_embed_standardize or preserve_global_scale or compactness != 1.0:
-            X = _post_embed_scaling(
-                X,
-                X_pre_embed=X_pre_embed,
-                preserve_global_scale=preserve_global_scale,
-                post_embed_standardize=post_embed_standardize,
-                compactness=compactness
-            )
+        X = _post_embed_scaling(
+            X,
+            X_pre_embed=X_pre_embed,
+            mode=post_embed_mode,
+            scale=post_embed_scale
+        )
 
     # Add noise dimensions
     if noise_dims > 0:
@@ -171,21 +256,17 @@ def simulate_clusters(
 
     # build meta data
     total_dims = X.shape[1]
-    sig_dims = (X_pre_embed.shape[1] if nonlinear else p)
-    noise_dims_int = int(np.floor(noise_dims + 0.5))
-    
-    if noise_dims > 0:
-        sig_dims = total_dims - noise_dims
-        
+    noise_dims_int = int(noise_dims)
+    sig_dims = total_dims - noise_dims_int if noise_dims_int > 0 else total_dims
     noise_mask = np.zeros(total_dims, dtype=bool)
     
-    if noise_dims > 0:
+    if noise_dims_int > 0:
         noise_mask[sig_dims: total_dims] = True
 
     meta = SimulationMeta(
         centers=centers, cluster_sizes=cluster_sizes, cluster_scales=scales,
         correlation=R, covariances=covs, outliers=int(n_outliers),
-        signal_dims=sig_dims, noise_dims=int(noise_dims), noise_mask=noise_mask
+        signal_dims=sig_dims, noise_dims=noise_dims_int, noise_mask=noise_mask
     )
     
     return X, y, meta

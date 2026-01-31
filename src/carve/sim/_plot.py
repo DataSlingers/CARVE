@@ -1,9 +1,24 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import warnings
 from sklearn.decomposition import PCA
 
 
 def _plot_simulation(X: np.ndarray, y: np.ndarray, *, random_state: int | None):
+        """
+        Plot a 2D PCA projection of the simulated dataset.
+
+        Parameters:
+            - `X`: data matrix (n, p).
+            - `y`: labels array (n,), cluster labels or -1 for outliers.
+            - `random_state`: RNG seed used for PCA initialization.
+
+        Returns:
+            - None (displays a matplotlib figure).
+        """
+    if X.shape[0] < 2 or X.shape[1] < 2:
+        warnings.warn("Skipping plot: need at least 2 samples and 2 features for PCA.")
+        return
     pca = PCA(n_components=2, random_state=random_state)
     X_pca = pca.fit_transform(X)
     
