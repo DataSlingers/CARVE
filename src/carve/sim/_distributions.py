@@ -1,16 +1,22 @@
+"""Sampling routines for synthetic cluster distributions."""
+
 import numpy as np
 from typing import Literal
 
 def _chol_spd(A: np.ndarray, eps: float = 1e-10) -> np.ndarray:
-    """
-    Robust Cholesky factorization for symmetric positive semi-definite matrices.
+    """Compute a robust Cholesky factorization for PSD matrices.
 
-    Parameters:
-        - `A`: covariance matrix.
-        - `eps`: diagonal jitter added when standard Cholesky fails.
+    Parameters
+    ----------
+    A : ndarray
+        Covariance matrix.
+    eps : float, default=1e-10
+        Diagonal jitter added when standard Cholesky fails.
 
-    Returns:
-        - Lower-triangular Cholesky factor L such that L @ L.T ≈ A.
+    Returns
+    -------
+    L : ndarray
+        Lower-triangular factor such that ``L @ L.T ≈ A``.
     """
     try:
         return np.linalg.cholesky(A)
@@ -18,14 +24,17 @@ def _chol_spd(A: np.ndarray, eps: float = 1e-10) -> np.ndarray:
         return np.linalg.cholesky(A + eps * np.eye(A.shape[0], dtype=A.dtype))
 
 def _standardize(Z: np.ndarray) -> np.ndarray:
-    """
-    Standardize each column to zero mean and unit variance.
+    """Standardize columns to zero mean and unit variance.
 
-    Parameters:
-        - `Z`: input array (n, d).
+    Parameters
+    ----------
+    Z : ndarray of shape (n_samples, n_features)
+        Input array.
 
-    Returns:
-        - Standardized array of shape (n, d).
+    Returns
+    -------
+    Z_std : ndarray of shape (n_samples, n_features)
+        Standardized array.
     """
     mu = Z.mean(axis=0, keepdims=True)
     sd = Z.std(axis=0, keepdims=True)
@@ -33,17 +42,23 @@ def _standardize(Z: np.ndarray) -> np.ndarray:
     return (Z - mu) / sd
 
 def _project_and_shape(Z2: np.ndarray, p: int, cov: np.ndarray, rng: np.random.Generator) -> np.ndarray:
-    """
-    Project 2D manifold points into p dimensions, standardize, and apply covariance.
+    """Project 2D manifold points into p dimensions and apply covariance.
 
-    Parameters:
-        - `Z2`: 2D base manifold points (n, 2).
-        - `p`: target dimension.
-        - `cov`: target covariance matrix.
-        - `rng`: NumPy random generator.
+    Parameters
+    ----------
+    Z2 : ndarray of shape (n_samples, 2)
+        2D base manifold points.
+    p : int
+        Target dimension.
+    cov : ndarray of shape (p, p)
+        Target covariance matrix.
+    rng : numpy.random.Generator
+        Random generator.
 
-    Returns:
-        - Transformed points in R^p with covariance structure applied.
+    Returns
+    -------
+    Z : ndarray of shape (n_samples, p)
+        Transformed points with covariance structure applied.
     """
     A = rng.standard_normal((p, 2))
     Q, _ = np.linalg.qr(A)
@@ -57,19 +72,27 @@ def _sample_cluster_points(
     distribution: Literal["gaussian", "t", "uniform_ball", "circles", "moons", "swiss_roll"],
     t_df: int
 ) -> np.ndarray:
-    """
-    Sample points for a single cluster under a specified distribution.
+    """Sample points for a single cluster.
 
-    Parameters:
-        - `rng`: NumPy random generator.
-        - `size`: number of points to sample.
-        - `mean`: cluster mean vector (p,).
-        - `cov`: cluster covariance matrix (p, p).
-        - `distribution`: one of "gaussian", "t", "uniform_ball", "circles", "moons", "swiss_roll".
-        - `t_df`: degrees of freedom for t-distributed samples.
+    Parameters
+    ----------
+    rng : numpy.random.Generator
+        Random generator.
+    size : int
+        Number of points to sample.
+    mean : ndarray of shape (p,)
+        Cluster mean.
+    cov : ndarray of shape (p, p)
+        Cluster covariance.
+    distribution : {"gaussian", "t", "uniform_ball", "circles", "moons", "swiss_roll"}
+        Sampling distribution.
+    t_df : int
+        Degrees of freedom for t-distributed samples.
 
-    Returns:
-        - (size, p) array of sampled points.
+    Returns
+    -------
+    X : ndarray of shape (size, p)
+        Sampled points.
     """
     p = mean.shape[0]
     if size == 0:

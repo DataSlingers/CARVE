@@ -1,3 +1,5 @@
+"""Nonlinear embedding helpers for simulations."""
+
 import numpy as np
 from typing import Literal
 
@@ -9,19 +11,27 @@ def _apply_embedding(
     rng: np.random.Generator,
     standardize: bool = True
 ) -> np.ndarray:
-    """
-    Apply a nonlinear embedding to the data.
+    """Apply a nonlinear embedding to the data.
 
-    Parameters:
-        - `X`: input array of shape (n, p).
-        - `method`: "random_fourier", "poly", or "rbf".
-        - `embed_dim`: output dimension for random Fourier features (required for random_fourier).
-        - `embed_param`: kernel lengthscale for random_fourier/rbf or degree for poly.
-        - `rng`: NumPy random generator.
-        - `standardize`: standardize input before random Fourier features.
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        Input array.
+    method : {"random_fourier", "poly", "rbf"}
+        Embedding method.
+    embed_dim : int or None
+        Output dimension for random Fourier features (required for random_fourier).
+    embed_param : float
+        Kernel lengthscale for random_fourier/rbf or degree for poly.
+    rng : numpy.random.Generator
+        Random generator.
+    standardize : bool, default=True
+        Standardize input before random Fourier features.
 
-    Returns:
-        - Embedded array of shape (n, d) where d depends on `method`.
+    Returns
+    -------
+    Z : ndarray of shape (n_samples, d)
+        Embedded array, where d depends on ``method``.
     """
     if method == "random_fourier":
         if embed_dim is None:

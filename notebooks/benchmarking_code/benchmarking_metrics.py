@@ -6,7 +6,7 @@ from sklearn.base import ClusterMixin
 from sklearn.cluster import KMeans
 from sklearn.metrics import calinski_harabasz_score, davies_bouldin_score, pairwise_distances, silhouette_score
 
-from benchmarking_utils import _build_estimator
+from .benchmarking_utils import _build_estimator
 
 
 def compute_dispersion(X: np.ndarray, labels: np.ndarray, metric: str = 'euclidean') -> float:
@@ -57,9 +57,9 @@ def gap_statistic(
     X: np.ndarray,
     labels: np.ndarray,
     metric: str = "euclidean",
-    n_refs: int = 10,
-    algorithm: Type[ClusterMixin] = KMeans,
-    algorithm_params: dict | None = None,
+    n_reference_datasets: int = 10,
+    estimator_cls: Type[ClusterMixin] = KMeans,
+    estimator_params: dict | None = None,
     random_state: int = 0,
 ) -> float:
     """
@@ -72,9 +72,9 @@ def gap_statistic(
         - X (np.ndarray): Data matrix with samples as rows and features as columns.
         - labels (np.ndarray): Cluster labels for each observation.
         - metric (str): Distance metric for within-cluster dispersion (default: 'euclidean').
-        - n_refs (int): Number of reference datasets to generate (default: 10).
-        - algorithm (Type[ClusterMixin]): Clustering estimator class for reference clustering.
-        - algorithm_params (dict | None): Parameters for the estimator (default: None).
+        - n_reference_datasets (int): Number of reference datasets to generate (default: 10).
+        - estimator_cls (Type[ClusterMixin]): Clustering estimator class for reference clustering.
+        - estimator_params (dict | None): Parameters for the estimator (default: None).
         - random_state (int): Seed for reproducible reference sampling (default: 0).
 
     Returns:
@@ -88,12 +88,12 @@ def gap_statistic(
 
     k = int(np.unique(labels).size)
 
-    ref_log_disps = np.empty(n_refs, dtype=float)
-    for b in range(n_refs):
+    ref_log_disps = np.empty(n_reference_datasets, dtype=float)
+    for b in range(n_reference_datasets):
         X_ref = gen_null_box(X, rng)
         seed_b = int(rng.integers(0, 2**32 - 1))
 
-        est = _build_estimator(algorithm, k, algorithm_params, seed_b)
+        est = _build_estimator(estimator_cls, k, estimator_params, seed_b)
         ref_labels = est.fit_predict(X_ref)
 
         W_ref = compute_dispersion(X_ref, ref_labels, metric)
@@ -121,8 +121,8 @@ def calculate_metric(
     X: np.ndarray,
     labels: np.ndarray,
     metric: str,
-    model: Type[ClusterMixin],
-    model_params: dict | None = None,
+    estimator_cls: Type[ClusterMixin],
+    estimator_params: dict | None = None,
     random_state: int = 0,
 ) -> float:
     """
@@ -132,18 +132,20 @@ def calculate_metric(
         - X (np.ndarray): Data matrix with samples as rows and features as columns.
         - labels (np.ndarray): Cluster labels for each observation.
         - metric (str): Metric to compute ('gap', 'silhouette', 'davies_bouldin', 'DB', 'calinski_harabasz', 'CH').
-        - model (Type[ClusterMixin]): Clustering estimator class (used for Gap Statistic reference clustering).
-        - model_params (dict | None): Parameters for the estimator (default: None).
+        - estimator_cls (Type[ClusterMixin]): Clustering estimator class (used for Gap Statistic reference clustering).
+        - estimator_params (dict | None): Parameters for the estimator (default: None).
         - random_state (int): Seed for reproducible reference sampling (default: 0).
 
     Returns:
         float: Value of the requested clustering metric.
     """
     if metric == 'gap':
-        return gap_statistic(X, labels,
-            algorithm=model,
-            algorithm_params=model_params,
-            random_state=random_state
+        return gap_statistic(
+            X,
+            labels,
+            estimator_cls=estimator_cls,
+            estimator_params=estimator_params,
+            random_state=random_state,
         )
 
     elif metric == 'silhouette':

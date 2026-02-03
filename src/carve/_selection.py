@@ -1,3 +1,5 @@
+"""Model selection utilities for CARVE results."""
+
 import inspect
 import warnings
 from typing import Any, Dict, List, Literal, Optional, Tuple, Type
@@ -71,17 +73,35 @@ MEASURE_MAP = {
 }
 
 
-def get_best_row(
-    model_df: pd.DataFrame, 
+def select_best_row_by_rule(
+    results_df: pd.DataFrame, 
     measure: Measure, 
     rule: Rule, 
     return_idx: bool = False
 ) -> pd.Series:
+    """Select the best row according to a selection rule.
+
+    Parameters
+    ----------
+    results_df : pandas.DataFrame
+        Results table with metric columns.
+    measure : Measure
+        Metric key (see ``MEASURE_MAP``).
+    rule : Rule
+        Selection rule: "max", "1se", or "quantile".
+    return_idx : bool, default=False
+        If True, return the selected row index instead of the row itself.
+
+    Returns
+    -------
+    row : pandas.Series or int
+        Selected row (or row index if ``return_idx=True``).
+    """
     y_col = MEASURE_MAP[measure]
     se_col = f"{y_col}_se"
-    has_se = se_col in model_df.columns
+    has_se = se_col in results_df.columns
     quant_col = f"{y_col}_upper"
-    has_quant = quant_col in model_df.columns
+    has_quant = quant_col in results_df.columns
     
     if rule == "1se" and not has_se:
         warnings.warn(
@@ -99,66 +119,134 @@ def get_best_row(
         rule = "max"
             
     if rule == "max":
-        return select_best_row(model_df, measure=measure, return_idx=return_idx)
+        return select_best_row_max(results_df, measure=measure, return_idx=return_idx)
     if rule == "1se":
-        return select_best_row_1se(model_df, measure=measure, return_idx=return_idx)
+        return select_best_row_1se(results_df, measure=measure, return_idx=return_idx)
     if rule == "quantile":
-        return select_best_row_quantile(model_df, measure=measure, return_idx=return_idx)
+        return select_best_row_quantile(results_df, measure=measure, return_idx=return_idx)
 
     raise ValueError(f"Unknown rule: {rule}")
 
 def select_best_estimator(
-    model_df: pd.DataFrame,
-    model_grids: List[GridSpec],
+    results_df: pd.DataFrame,
+    estimator_param_grids: List[GridSpec],
     measure: Measure = "stability",
     rule: Rule = "max",
     k: Optional[int] = None,
 ) -> ClusterMixin:
+    """Reconstruct the best estimator from a results table.
+
+    Parameters
+    ----------
+    results_df : pandas.DataFrame
+        Results table.
+    estimator_param_grids : list of tuple
+        Estimator classes and parameter grids.
+    measure : Measure, default="stability"
+        Metric key used for selection.
+    rule : Rule, default="max"
+        Selection rule.
+    k : int or None, default=None
+        Optional fixed number of clusters to filter by.
+
+    Returns
+    -------
+    estimator : ClusterMixin
+        Instantiated estimator with parameters from the selected row.
+    """
     if k is not None:  # subset dataframe if k specified
-        model_df = model_df[model_df['n_clusters'] == k]
+        results_df = results_df[results_df['n_clusters'] == k]
     
     # Select the row with the highest value for the specified measure
-    row = get_best_row(model_df, measure=measure, rule=rule, return_idx=False)
+    row = select_best_row_by_rule(results_df, measure=measure, rule=rule, return_idx=False)
 
     # Reconstruct the best estimator
-    estimator = instantiate_estimator(model_grids, row)
+    estimator = build_estimator_from_row(estimator_param_grids, row)
     return estimator
 
 def select_best_k(
-    model_df: pd.DataFrame,
+    results_df: pd.DataFrame,
     measure: Measure = "stability",
     rule: Rule = "max"
 ) -> ClusterMixin:
+    """Select the best number of clusters from results.
+
+    Parameters
+    ----------
+    results_df : pandas.DataFrame
+        Results table.
+    measure : Measure, default="stability"
+        Metric key used for selection.
+    rule : Rule, default="max"
+        Selection rule.
+
+    Returns
+    -------
+    k : int
+        Selected number of clusters.
+    """
     # Select the row with the highest value for the specified measure
-    row = get_best_row(model_df, measure=measure, rule=rule, return_idx=False)
+    row = select_best_row_by_rule(results_df, measure=measure, rule=rule, return_idx=False)
 
     # Reconstruct the best estimator
     return row['n_clusters']
 
-def select_best_row(
-    model_df: pd.DataFrame,
+def select_best_row_max(
+    results_df: pd.DataFrame,
     *,
     measure: Measure = "stability",
     return_idx: bool = False,
 ) -> pd.Series:
+    """Select the row with the maximum score for a measure.
+
+    Parameters
+    ----------
+    results_df : pandas.DataFrame
+        Results table.
+    measure : Measure, default="stability"
+        Metric key.
+    return_idx : bool, default=False
+        If True, return the row index instead of the row.
+
+    Returns
+    -------
+    row : pandas.Series or int
+        Selected row (or row index if ``return_idx=True``).
+    """
     measure_col = MEASURE_MAP[measure]
     
     if return_idx:
-        return model_df[measure_col].idxmax()
+        return results_df[measure_col].idxmax()
     
-    return model_df.loc[model_df[measure_col].idxmax()]
+    return results_df.loc[results_df[measure_col].idxmax()]
 
 def select_best_row_1se(
-    model_df: pd.DataFrame,
+    results_df: pd.DataFrame,
     *,
     measure: Measure = "stability",
     return_idx: bool = False,
 ) -> pd.Series:
+    """Select the simplest model within 1 SE of the best score.
+
+    Parameters
+    ----------
+    results_df : pandas.DataFrame
+        Results table.
+    measure : Measure, default="stability"
+        Metric key.
+    return_idx : bool, default=False
+        If True, return the row index instead of the row.
+
+    Returns
+    -------
+    row : pandas.Series or int
+        Selected row (or row index if ``return_idx=True``).
+    """
     if measure not in MEASURE_MAP:
         raise ValueError(f"Invalid measure {measure!r}. Options: {list(MEASURE_MAP)}")
     measure_col = MEASURE_MAP[measure]
     
-    best_row = model_df.loc[model_df[measure_col].idxmax()]
+    best_row = results_df.loc[results_df[measure_col].idxmax()]
     best_score = best_row[measure_col]
     se = best_row[f"{measure_col}_se"]  # Standard error column for the measure
     
@@ -166,7 +254,7 @@ def select_best_row_1se(
     threshold = best_score - se
     
     # Filter models within 1SE of best score
-    within_1se = model_df[model_df[measure_col] >= threshold]
+    within_1se = results_df[results_df[measure_col] >= threshold]
     
     if return_idx:
         return within_1se["n_clusters"].idxmax()
@@ -174,50 +262,92 @@ def select_best_row_1se(
     return within_1se.loc[within_1se["n_clusters"].idxmax()]
 
 def select_best_row_quantile(
-    model_df: pd.DataFrame,
+    results_df: pd.DataFrame,
     *,
     measure: Measure = "stability",
     return_idx: bool = False,
 ) -> pd.Series:
+    """Select a row within the best score's quantile bounds.
+
+    Parameters
+    ----------
+    results_df : pandas.DataFrame
+        Results table.
+    measure : Measure, default="stability"
+        Metric key.
+    return_idx : bool, default=False
+        If True, return the row index instead of the row.
+
+    Returns
+    -------
+    row : pandas.Series or int
+        Selected row (or row index if ``return_idx=True``).
+    """
     if measure not in MEASURE_MAP:
         raise ValueError(f"Invalid measure {measure!r}. Options: {list(MEASURE_MAP)}")
     measure_col = MEASURE_MAP[measure]
     
-    best_row = model_df.loc[model_df[measure_col].idxmax()]
+    best_row = results_df.loc[results_df[measure_col].idxmax()]
     threshold_upper = best_row[f"{measure_col}_upper"]
     threshold_lower = best_row[f"{measure_col}_lower"]
     
     # Filter models within 1SE of best score
-    within_quantiles = model_df.loc[
-        (model_df[measure_col] >= threshold_lower) & (model_df[measure_col] <= threshold_upper)
+    within_quantiles = results_df.loc[
+        (results_df[measure_col] >= threshold_lower) & (results_df[measure_col] <= threshold_upper)
     ]
     
     # Fallback if no rows are found
     if within_quantiles.empty:
-        warnings.warn("No models within quantile thresholds; falling back to max.", RuntimeWarning, stacklevel=2)
+        warnings.warn("No estimators within quantile thresholds; falling back to max.", RuntimeWarning, stacklevel=2)
         if return_idx:
-            return model_df[measure_col].idxmax()
-        return model_df.loc[model_df[measure_col].idxmax()]
+            return results_df[measure_col].idxmax()
+        return results_df.loc[results_df[measure_col].idxmax()]
     
     if return_idx:
         return within_quantiles["n_clusters"].idxmax()
         
     return within_quantiles.loc[within_quantiles["n_clusters"].idxmax()]
 
-def instantiate_estimator(
-    model_grids: List[GridSpec], 
+def build_estimator_from_row(
+    estimator_param_grids: List[GridSpec], 
     row: pd.Series,
 ) -> ClusterMixin:
+    """Instantiate an estimator from a results table row.
+
+    Parameters
+    ----------
+    estimator_param_grids : list of tuple
+        Estimator classes and parameter grids.
+    row : pandas.Series
+        Selected configuration row.
+
+    Returns
+    -------
+    estimator : ClusterMixin
+        Instantiated estimator.
+    """
     est_name = row["estimator"]
     
-    est_class = next(cls for cls, _ in model_grids if cls.__name__ == est_name)
+    est_class = next(cls for cls, _ in estimator_param_grids if cls.__name__ == est_name)
     
-    valid_keys = valid_param_names(est_class)
-    params = row_to_params(row, valid_keys)
+    valid_keys = get_estimator_param_names(est_class)
+    params = row_to_estimator_params(row, valid_keys)
 
     return est_class(**params)
 
-def valid_param_names(est_class: Type[ClusterMixin]) -> List[str]:
+def get_estimator_param_names(est_class: Type[ClusterMixin]) -> List[str]:
+    """Return valid parameter names for an estimator class.
+
+    Parameters
+    ----------
+    est_class : type
+        Estimator class.
+
+    Returns
+    -------
+    names : list of str
+        Valid parameter names.
+    """
     try:
         est = est_class()
         return set(est.get_params(deep=False).keys())
@@ -237,10 +367,24 @@ def valid_param_names(est_class: Type[ClusterMixin]) -> List[str]:
         
         return names
     
-def row_to_params(
+def row_to_estimator_params(
     row: pd.Series, 
     valid_keys: List[str]
 ) -> Dict[str, Any]:
+    """Extract estimator parameters from a results row.
+
+    Parameters
+    ----------
+    row : pandas.Series
+        Selected configuration row.
+    valid_keys : list of str
+        Parameter names allowed for the estimator.
+
+    Returns
+    -------
+    params : dict
+        Parameter dictionary with None/NaN filtered out.
+    """
     params = {}
     
     for k in valid_keys:

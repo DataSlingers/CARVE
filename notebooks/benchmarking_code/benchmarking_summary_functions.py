@@ -72,16 +72,16 @@ def set_paper_style():
 
 
 # io – read all benchmark csvs
-def _coerce_bool(s: pd.Series) -> pd.Series:
-    if s.dtype == bool:
-        return s
-    if pd.api.types.is_numeric_dtype(s):
-        return s.fillna(0).astype(int).astype(bool)
+def _coerce_bool(series: pd.Series) -> pd.Series:
+    if series.dtype == bool:
+        return series
+    if pd.api.types.is_numeric_dtype(series):
+        return series.fillna(0).astype(int).astype(bool)
     # strings / objects
-    x = s.astype(str).str.strip().str.lower()
+    x = series.astype(str).str.strip().str.lower()
     true_vals = {"true", "t", "1", "yes", "y"}
     false_vals = {"false", "f", "0", "no", "n"}
-    out = pd.Series(np.nan, index=s.index, dtype="float")
+    out = pd.Series(np.nan, index=series.index, dtype="float")
     out[x.isin(true_vals)] = 1.0
     out[x.isin(false_vals)] = 0.0
     return out.fillna(0.0).astype(int).astype(bool)
@@ -115,11 +115,11 @@ def load_benchmark_csvs(results_dir: str | Path, pattern: str = "results_*.csv")
 
     return out
 
-def instance_key_cols(df: pd.DataFrame) -> list[str]:
+def instance_key_cols(results_df: pd.DataFrame) -> list[str]:
     base = ["benchmark", "metric_name", "dataset_id", "true_k"]
     condition_cols = []
     for c in ["difficulty", "p", "n_samples"]: 
-        if c in df.columns and df[c].notna().any():
+        if c in results_df.columns and results_df[c].notna().any():
             condition_cols.append(c)
     return base + condition_cols
 

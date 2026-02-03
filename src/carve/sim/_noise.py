@@ -1,3 +1,5 @@
+"""Noise feature generation for simulations."""
+
 import numpy as np
 from typing import Literal
 
@@ -6,19 +8,27 @@ def _sample_noise(
     dist: Literal["gaussian", "uniform", "laplace", "t"] = "gaussian",
     scale: float = 1.0, t_df: int = 3
 ) -> np.ndarray:
-    """
-    Sample independent noise features.
+    """Sample independent noise features.
 
-    Parameters:
-        - `rng`: NumPy random generator.
-        - `n`: number of samples.
-        - `q`: number of noise dimensions (rounded to nearest int).
-        - `dist`: noise distribution ("gaussian", "uniform", "laplace", "t").
-        - `scale`: multiplicative scale for noise.
-        - `t_df`: degrees of freedom for t noise.
+    Parameters
+    ----------
+    rng : numpy.random.Generator
+        Random generator.
+    n : int
+        Number of samples.
+    q : int
+        Number of noise dimensions (rounded to nearest int).
+    dist : {"gaussian", "uniform", "laplace", "t"}, default="gaussian"
+        Noise distribution.
+    scale : float, default=1.0
+        Multiplicative scale for noise.
+    t_df : int, default=3
+        Degrees of freedom for t noise.
 
-    Returns:
-        - (n, q) array of noise features.
+    Returns
+    -------
+    Z : ndarray of shape (n_samples, q)
+        Noise feature matrix.
     """
     q_int = int(np.floor(q + 0.5))
     if q_int <= 0:

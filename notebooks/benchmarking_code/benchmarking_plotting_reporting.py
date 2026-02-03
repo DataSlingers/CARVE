@@ -1,120 +1,121 @@
-from typing import Dict, List, Tuple, Optional
+from __future__ import annotations
+from dataclasses import dataclass
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+from matplotlib.collections import LineCollection
 
 from sklearn.cluster import AgglomerativeClustering, KMeans, SpectralClustering
 from sklearn.decomposition import PCA
 from sklearn.metrics import adjusted_rand_score
+from sklearn.preprocessing import StandardScaler
 
 from carve.sim import simulate_clusters
 
-from benchmarking_simulation_helpers import simulate_scaling
-from benchmarking_utils import gamma_quantile_approx
+from .benchmarking_simulation_helpers import simulate_scaling
+from .benchmarking_utils import gamma_quantile_approx, _wilson_ci, _summary_stats
 
 
-def plot_scaling_examples(
-    regime: Dict,
-    x_name: str,
-    ks: np.ndarray = np.array([3, 4, 5, 6]),
-    B: int = 10,
-    random_state: int = 0,
-    estimator_type: str = 'hierarchical',
-    spectral_quant: float = 0.5,
-    name_of_ex: str = 'Scaling Benchmark'
-) -> None:
-    """
-    Visualizes scaling examples across cluster counts and a chosen scaling axis.
+# --- Setup and basic handlers ---
+OKABE_ITO = [
+    "#E69F00", "#56B4E9", "#009E73", 
+    "#F0E442", "#0072B2", "#D55E00", "#CC79A7"
+]
 
-    Args:
-        - regime (Dict): Simulation regime settings keyed by k.
-        - x_name (str): Scaling axis name ('n_total', 'p', or 'embed_dim').
-        - ks (np.ndarray): Array of cluster counts to visualize.
-        - B (int): Number of replicates for baseline ARI estimation.
-        - random_state (int): Seed for reproducible simulation and clustering.
-        - estimator_type (str): Clustering algorithm type ('hierarchical', 'kmeans', or 'spectral').
-        - spectral_quant (float): Quantile used for spectral gamma estimation (default: 0.5).
-        - name_of_ex (str): Title for the figure.
 
-    Returns:
-        None. Displays the matplotlib figure.
-    """
-    if x_name == "n_total":
-        x_values = [int(x) for x in np.logspace(np.log10(100), np.log10(10000), num=3)]
-    elif x_name == "p":
-        x_values = [int(x) for x in np.logspace(np.log10(10), np.log10(2500), num=3)]
-    elif x_name == "embed_dim":
-        x_values = [int(x) for x in np.logspace(np.log10(128), np.log10(2048), num=3)]
+# --- Utils ---
+def _get_color_mapping(k: int) -> List[Any]:
+    """okabe-ito for k<=7, tab20 for 8..20, hsv fallback."""
+    if k <= 7:
+        cols = [mpl.colors.to_rgba(OKABE_ITO[i]) for i in range(k)]
+    elif k <= 20:
+        tab20 = plt.get_cmap("tab20")
+        cols = [tab20(i) for i in range(k)]
     else:
-        raise ValueError("x_name must be 'n_total', 'p', or 'embed_dim'.")
+        hsv = plt.get_cmap("hsv")
+        cols = [hsv(i / max(k - 1, 1)) for i in range(k)]
+        
+    return cols
 
-    _, axes = plt.subplots(len(ks), len(x_values), figsize=(3 * len(x_values), 3 * len(ks)))
-    for i, k in enumerate(ks):
-        for j, x_value in enumerate(x_values):
-            # Simulate dataset to be displayed
-            X, y = simulate_scaling(
-                regime=regime[k],
-                true_k=k,
-                x_name=x_name,
-                x_value=x_value,
-                seed=1 * 10 + j,
-                base_random_state=random_state
-            )
+def _cluster_color_map(labels: np.ndarray) -> dict[int, Any]:
+    """
+    okabe-ito for k<=7, tab20 for 8..20, hsv fallback.
+    returns mapping of cluster id -> color
+    """
+    labs = np.asarray(labels)
+    uniq = sorted(int(x) for x in np.unique(labs) if x != -1)
+    k = len(uniq)
 
-            # Compute baseline ARI over B replicates
-            ari_arr = []
-            for b in range(B):
-                X_val, y_val = simulate_scaling(
-                    regime=regime[k],
-                    true_k=k,
-                    x_name=x_name,
-                    x_value=x_value,
-                    seed=i * 100 + j * 10 + b,
-                    base_random_state=random_state
-                )
+    cols = _get_color_mapping(k)
 
-                if estimator_type == 'hierarchical':
-                    estimator = AgglomerativeClustering(n_clusters=k)
-                elif estimator_type == 'kmeans':
-                    estimator = KMeans(n_clusters=k, random_state=random_state)
-                elif estimator_type == 'spectral':
-                    gamma = gamma_quantile_approx(X_val, q=spectral_quant)
-                    estimator = SpectralClustering(n_clusters=k, affinity='rbf', gamma=gamma, random_state=random_state)
-                else:
-                    raise ValueError("estimator_type must be 'hierarchical' or 'spectral'")
+    return {cid: cols[i] for i, cid in enumerate(uniq)}
 
-                y_hat_val = estimator.fit_predict(X_val)
-                ari = adjusted_rand_score(y_val, y_hat_val)
-                ari_arr.append(ari)
+def _metric_color_map(metric_names: Iterable[str]) -> dict[str, Any]:
+    """
+    okabe-ito for m<=7, tab20 for 8..20, hsv fallback.
+    returns mapping of metric name -> color
+    """
+    names = list(metric_names)
+    m = len(names)
 
-            ari_mean = np.mean(ari_arr)
+    cols = _get_color_mapping(m)
 
-            # Plot PCA of dataset
-            X_pca = PCA(n_components=2, random_state=0).fit_transform(X)
-            ax = axes[i, j]
-            ax.scatter(
-                X_pca[:, 0], X_pca[:, 1],
-                c=y, cmap="tab10", s=20, alpha=0.8, edgecolors="k"
-            )
-            ax.set_title(f"k={k}, {x_name}={x_value} | ARI={ari_mean:.3f}")
-            ax.set_xticks([]); ax.set_yticks([])
-
-    plt.suptitle(f"Scaling Benchmark: {name_of_ex}", fontsize=16)
-    plt.tight_layout(); plt.show()
+    return {name: cols[i] for i, name in enumerate(names)}
 
 
+def _scatter_clusters(ax, Z: np.ndarray, labels: np.ndarray, title: str, subtitle: str = ""):
+    labels = np.asarray(labels)
+    cmap = _cluster_color_map(labels)
+
+    # stable ordering for legend (optional)
+    uniq = sorted(int(x) for x in np.unique(labels) if x != -1)
+
+    for cid in uniq:
+        m = labels == cid
+        ax.scatter(Z[m, 0], Z[m, 1], s=12, alpha=0.90, c=[cmap[cid]], linewidths=0)
+
+    ax.set_title(title, fontsize=10)
+    if subtitle:
+        ax.text(0.02, 0.02, subtitle, transform=ax.transAxes, fontsize=9)
+
+    # equal aspect
+    ax.set_aspect("equal", adjustable="datalim")
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_alpha(0.2)
+
+
+def _pretty_metric_name(metric: str) -> str:
+    # tune freely
+    pretty = {
+        "ari_stability_1se": "CARVE Stability (1se)",
+        "ari_generalizability_1se": "CARVE Generalizability (1se)",
+        "silhouette": "Silhouette",
+        "gap": "Gap Statistic",
+        "davies_bouldin": "Davies–Bouldin",
+        "calinski_harabasz": "Calinski–Harabasz",
+        "misclassification_generalizability": "Misclassification (Global)",
+    }
+    return pretty.get(metric, metric)
+
+
+# --- Main plotting functions ---
 def plot_examples(
-    settings_by_k: Dict, 
-    other_settings: Dict, 
-    ks: np.ndarray = np.array([3, 4, 5, 6]), 
-    anchors: List[str] = ['easy', 'medium', 'difficult'], 
-    B: int = 10, 
-    estimator_type: str = 'kmeans', 
+    settings_by_k: Dict,
+    other_settings: Dict,
+    true_cluster_counts: np.ndarray = np.array([3, 4, 5, 6]),
+    difficulty_levels: List[str] = ['easy', 'medium', 'hard'],
+    n_seeds_per_dataset: int = 20,
+    estimator_type: str = 'kmeans',
     spectral_quant: float = 0.5,
-    name_of_ex: str = 'Uncorrelated Gaussians'
+    example_title: str = 'Gaussian Mixtures', 
+    random_state: int = 0
 ) -> None:
     """
     Visualizes example clustering datasets for different cluster counts and difficulty levels,
@@ -123,57 +124,53 @@ def plot_examples(
     Args:
         - settings_by_k (Dict): Simulation parameters for each k and difficulty anchor.
         - other_settings (Dict): Shared/global simulation parameters.
-        - ks (np.ndarray): Array of cluster counts to visualize.
-        - anchors (List[str]): List of difficulty levels.
-        - B (int): Number of replicates for baseline ARI estimation.
+        - true_cluster_counts (np.ndarray): Array of cluster counts to visualize.
+        - difficulty_levels (List[str]): List of difficulty levels.
+        - n_seeds_per_dataset (int): Number of replicates for baseline ARI estimation.
         - estimator_type (str): Clustering algorithm type ('kmeans', 'agglomerative' or 'spectral').
         - spectral_quant (float): Quantile used for spectral gamma estimation (default: 0.5).
-        - name_of_ex (str): Title for the figure.
+        - example_title (str): Title for the figure.
+        - random_state (int): Seed for reproducibility.
 
     Returns:
         None. Displays the matplotlib figure.
     """
+    _, axes = plt.subplots(len(true_cluster_counts), len(difficulty_levels), figsize=(12, 14))
     
-    _, axes = plt.subplots(len(ks), len(anchors), figsize=(12, 14))
-    for i, k in enumerate(ks):
-        for j, a in enumerate(anchors):
-            
-            # simulate dataset to be displayed
-            X, y, _ = simulate_clusters(
-                k=k,
-                plotting=False,
-                random_state=1*10 + j,
-                **settings_by_k[k][a],
-                **other_settings
-            )
+    for j, difficulty_level in enumerate(difficulty_levels):
+        for i, true_k in enumerate(true_cluster_counts): 
             
             # compute baseline ARI over B replicates
             ari_arr = []
-            for b in range(B):
-                X_val, y_val, _ = simulate_clusters(
-                    k=k,
+            for seed in range(n_seeds_per_dataset):
+                difficulty_level_seed = {"medium": 4, "hard": 9}.get(difficulty_level, 0)
+                benchmark_seed = seed + ((true_k - min(true_cluster_counts)) * 100) + (difficulty_level_seed * 10000) + random_state
+                
+                X_val, y_val = simulate_clusters(
+                    k=true_k,
                     plotting=False,
-                    random_state=1*100 + j*10 + b,
-                    **settings_by_k[k][a],
+                    random_state=benchmark_seed,
+                    **settings_by_k[true_k][difficulty_level],
                     **other_settings
                 )
                 
                 if estimator_type == 'agglomerative':
                     estimator = AgglomerativeClustering(
-                        n_clusters=k
+                        n_clusters=true_k
                     )
                 elif estimator_type == 'spectral':
-                    gamma = gamma_quantile_approx(X_val, q=spectral_quant)
+                    gamma = gamma_quantile_approx(X_val, q=spectral_quant, random_state=benchmark_seed)
                     estimator = SpectralClustering(
-                        n_clusters=k,
+                        n_clusters=true_k,
                         affinity='rbf',
                         gamma=gamma,
-                        random_state=0
+                        random_state=benchmark_seed
                     )
                 else:
                     estimator = KMeans(
-                        n_clusters=k,
-                        random_state=0
+                        n_clusters=true_k,
+                        n_init=10,
+                        random_state=benchmark_seed
                     )
                 
                 y_hat_val = estimator.fit_predict(X_val)
@@ -183,331 +180,734 @@ def plot_examples(
             ari_mean = np.mean(ari_arr)
 
             # plot PCA of dataset
-            X_pca = PCA(n_components=2, random_state=0).fit_transform(X)
+            X_pca = PCA(n_components=2, random_state=0).fit_transform(X_val)
             ax = axes[i, j]
             ax.scatter(
                 X_pca[:, 0], X_pca[:, 1],
-                c=y, cmap="tab10", s=20, alpha=0.8, edgecolors="k"
+                c=y_val, cmap="tab10", s=20, alpha=0.8, edgecolors="k"
             )
-            ax.set_title(f"k={k}, difficulty={a} | Baseline ARI={ari_mean:.3f}")
+            ax.set_title(f"k={true_k}, difficulty={difficulty_level} | Baseline ARI={ari_mean:.3f}")
             ax.set_xticks([]); ax.set_yticks([])
             
-    plt.suptitle(f"Example datasets: {name_of_ex}", fontsize=16)
+    plt.suptitle(f"Example datasets: {example_title}", fontsize=16)
     plt.tight_layout(); plt.show()
-    
-    
-def plot_accuracy_vs_difficulty(
-    results_df: pd.DataFrame, 
-    show_se: bool = False
-) -> None:
+
+
+def plot_benchmark_snapshot(
+    *,
+    X: np.ndarray,
+    results_df: pd.DataFrame,
+    plotting_dict: Mapping[str, Mapping[str, Any]],
+    true_labels: np.ndarray,
+    baseline_labels: np.ndarray,
+    baseline_ari: float,
+    panel_metrics: Sequence[str] = (
+        "ari_stability_1se",
+        "ari_generalizability_1se",
+        "silhouette",
+        "davies_bouldin",
+    ),
+    figsize_pca: tuple[float, float] = (10.5, 6.8),
+    figsize_summary: tuple[float, float] = (10.5, 3.6),
+) -> tuple[mpl.figure.Figure, mpl.figure.Figure]:
     """
-    Plots the accuracy of clustering metrics as a function of problem difficulty.
+    returns (fig_pca, fig_summary)
+
+    expected plotting_dict entries:
+      plotting_dict[key] = {"k": int, "labels": array, "ari": float, ...}
+    """
+    X = np.asarray(X)
+    y = np.asarray(true_labels)
+    base_lab = np.asarray(baseline_labels)
+    metric_keys = list(panel_metrics)
+
+    # PCA projection
+    Z = PCA(n_components=2, random_state=0).fit_transform(X)
+
+    # Build 2x3 PCA panel figure
+    fig_pca, axs = plt.subplots(2, 3, figsize=figsize_pca, constrained_layout=True)
+    axs = np.asarray(axs).reshape(2, 3)
+
+    k_true = len(np.unique(y))
+    _scatter_clusters(
+        axs[0, 0], Z, y,
+        title="true labels",
+        subtitle=f"k={k_true}"
+    )
+
+    _scatter_clusters(
+        axs[0, 1], Z, base_lab,
+        title="baseline",
+        subtitle=f"ari={baseline_ari:.3f}  |  k={len(np.unique(base_lab))}"
+    )
+
+    targets = [
+        (axs[0, 2], metric_keys[0]),
+        (axs[1, 0], metric_keys[1]),
+        (axs[1, 1], metric_keys[2]),
+        (axs[1, 2], metric_keys[3]),
+    ]
+
+    for ax, key in targets:
+        info = plotting_dict.get(key, None)
+        if info is None:
+            ax.axis("off")
+            ax.set_title(f"missing: {key}", fontsize=10)
+            continue
+
+        labs = np.asarray(info["labels"])
+        k_sel = int(info.get("k", len(np.unique(labs))))
+        ari_sel = float(info.get("ari", np.nan))
+
+        _scatter_clusters(
+            ax, Z, labs,
+            title=_pretty_metric_name(key),
+            subtitle=f"k={k_sel}  |  ari={ari_sel:.3f}"
+        )
+
+    # --- Summary figure: accuracy+wilson + ari boxplots
+    needed = {"metric_name", "is_optimal", "is_correct", "metric_ari", "baseline_ari"}
+    missing = sorted(c for c in needed if c not in results_df.columns)
+    if missing:
+        raise ValueError(f"results_df missing columns: {missing}")
+
+    df_opt = results_df.loc[results_df["is_optimal"]].copy()
+
+    # Order: CARVE metrics > externals
+    accuracy_metrics = [
+        "ari_stability_1se", "ari_generalizability_1se", 
+        "silhouette", "gap", "davies_bouldin", "calinski_harabasz",
+    ]
+
+    # Accuracy + wilson
+    rows = []
+    for m in accuracy_metrics:
+        sub = df_opt.loc[df_opt["metric_name"] == m]
+        n = int(len(sub))
+        k_succ = int(sub["is_correct"].sum())
+        acc = k_succ / n if n > 0 else np.nan
+        lo, hi = _wilson_ci(k_succ, n) if n > 0 else (np.nan, np.nan)
+        rows.append((m, acc, lo, hi, n))
+
+    acc_df = pd.DataFrame(rows, columns=["metric", "acc", "lo", "hi", "n"])
+
+    # Baseline ARI distribution: one per dataset instance (dedupe)
+    dedupe_cols = [c for c in ["difficulty_level", "dataset_iteration", "true_k"] if c in results_df.columns]
+    if dedupe_cols:
+        base_ari = results_df.drop_duplicates(dedupe_cols)["baseline_ari"].astype(float).values
+    else:
+        base_ari = results_df["baseline_ari"].dropna().astype(float).unique()
+
+    # ARI-by-metric distribution (optimal only)
+    ari_data = [df_opt.loc[df_opt["metric_name"] == m, "metric_ari"].astype(float).values for m in accuracy_metrics]
+    ari_labels = [_pretty_metric_name(m) for m in accuracy_metrics]
+
+    # Include baseline as first box
+    ari_data = [base_ari] + ari_data
+    ari_labels = ["baseline"] + ari_labels
+
+    fig_sum, ax = plt.subplots(1, 2, figsize=figsize_summary, constrained_layout=True)
+
+    # Left: accuracy points + wilson intervals
+    x = np.arange(len(acc_df))
+    ax0 = ax[0]
+    ax0.vlines(x, acc_df["lo"], acc_df["hi"], linewidth=2)
+    ax0.scatter(x, acc_df["acc"], s=35)
+    ax0.set_ylim(-0.02, 1.02)
+    ax0.set_xticks(x)
+    ax0.set_xticklabels([_pretty_metric_name(m) for m in acc_df["metric"]], rotation=35, ha="right")
+    ax0.set_ylabel("p(k^hat = k*)")
+    ax0.set_title("k* Recovery (Wilson 95% CI)")
+
+    # Right: boxplot of ari for selected solutions
+    ax1 = ax[1]
+    ax1.boxplot(ari_data, showfliers=False)
+    ax1.set_xticks(np.arange(1, len(ari_labels) + 1))
+    ax1.set_xticklabels(ari_labels, rotation=35, ha="right")
+    ax1.set_ylabel("ARI(y, y^hat)")
+    ax1.set_title("ARI : true labels (for k^hat)")
+
+    return fig_pca, fig_sum
+
+
+def plot_ari_over_difficulty(
+    results_df: pd.DataFrame,
+    *,
+    metrics=("ari_stability_1se", "ari_generalizability_1se", "silhouette", "gap", "davies_bouldin", "calinski_harabasz"),
+    center: str = "mean",
+    band: tuple = (0.05, 0.95),
+    show_band_for=("baseline", "ari_stability_1se", "ari_generalizability_1se"),
+    title: str | None = None,
+    figsize: tuple = (12, 10),
+    ax=None,
+    ylim=(0.0, 1.02),
+):
+    """
+    Plots ARI vs. difficulty level for selected metrics.
 
     Args:
-        - results_df (pd.DataFrame): DataFrame containing benchmarking results with columns
-          ['difficulty', 'metric_name', 'is_optimal', 'is_correct', 'dataset_id'].
-        - show_se (bool): If True, displays standard error bands around the mean accuracy.
-
-    Returns:
-        None. Displays a line plot of accuracy vs. difficulty for each metric.
+        - results_df (pd.DataFrame): DataFrame with benchmarking results.
+        - metrics (tuple): Metrics to plot.
+        - center (str): Central tendency measure ('mean' or 'median').
+        - band (tuple): Quantiles for uncertainty band.
+        - show_band_for (tuple): Metrics for which to show uncertainty band.
+        - title (str | None): Plot title.
+        - ax: Matplotlib axis.
+        - ylim (tuple): Y-axis limits.
     """
-    accuracy_df = (
-        results_df[results_df['is_optimal']]
-            .groupby(['difficulty', 'metric_name', 'dataset_id'])
-            .agg({'is_correct': 'mean'})
-            .reset_index()
-            .groupby(['difficulty', 'metric_name'])
-            .agg({'is_correct': ['mean', 'std']})
-            .reset_index()
-    )
+    needed = {"difficulty_level", "metric_name", "is_optimal", "metric_ari", "baseline_ari"}
+    missing = sorted(c for c in needed if c not in results_df.columns)
+    if missing:
+        raise ValueError(f"results_df missing columns: {missing}")
     
-    # Plot
-    plt.figure(figsize=(12, 8))
-    for metric in accuracy_df['metric_name'].unique():
-        subset = accuracy_df[accuracy_df['metric_name'] == metric]
-        plt.plot(subset['difficulty'], subset[('is_correct', 'mean')], marker='o', label=metric)
-        if show_se:
-            plt.fill_between(
-                subset['difficulty'],
-                subset[('is_correct', 'mean')] - subset[('is_correct', 'std')],
-                subset[('is_correct', 'mean')] + subset[('is_correct', 'std')],
-                alpha=0.2
+    present = [m for m in metrics if (results_df["metric_name"] == m).any()]
+    if len(present) == 0:
+        raise ValueError("none of the requested metrics were found in results_df")
+
+    # --- 1) Filter to one row per (dataset instance, metric): selected "optimal" k --- 
+    df_opt = results_df.loc[results_df["is_optimal"] == True].copy()
+    
+    # --- 2) Baseline: dedupe per dataset instance (we only want one per (dataset instance, true_k, difficulty_level)) --- 
+    dedupe_cols = ["difficulty_level", "dataset_iteration", "true_k"]
+    base = results_df.drop_duplicates(dedupe_cols)[["difficulty_level", "baseline_ari"]].copy()
+
+    # Helper to get quantiles and average/median
+    def _summarize(y: pd.Series):
+        y = y.astype(float).dropna().values
+        if y.size == 0:
+            return np.nan, np.nan, np.nan
+        lo = np.quantile(y, band[0])
+        hi = np.quantile(y, band[1])
+        mid = np.mean(y) if center == "mean" else np.median(y)
+        return mid, lo, hi
+    
+    # --- 3) Build summary tables ---
+    base_sum = (
+        base.groupby("difficulty_level")["baseline_ari"].apply(lambda s: pd.Series(_summarize(s), index=["mid", "lo", "hi"]))
+        .unstack()
+        .reset_index()
+        .sort_values("difficulty_level")
+    )  # cols: difficulty_level, mid, lo, hi
+    
+    sums = []
+    for m in metrics:
+        sub = df_opt.loc[df_opt["metric_name"] == m]
+        s = (
+            sub.groupby("difficulty_level")["metric_ari"]
+            .apply(lambda s: pd.Series(_summarize(s), index=["mid", "lo", "hi"]))
+            .unstack()
+            .reset_index()
+            .sort_values("difficulty_level")
+        )
+        s["metric_name"] = m
+        sums.append(s)
+        
+    sum_df = pd.concat(sums, ignore_index=True) if sums else pd.DataFrame()  # cols: difficulty_level, mid, lo, hi, metric_name
+    
+    # --- 4) Plot ---
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=figsize, constrained_layout=True)
+    else:
+        fig = ax.figure
+        
+    x = base_sum["difficulty_level"].astype(int).values
+    
+    # Plot baseline line and (optional) CI band
+    baseline_color = (0.35, 0.35, 0.35, 1.0)
+    
+    # print("base_sum columns:", base_sum.columns.tolist())
+    
+    ax.plot(x, base_sum['mid'].values, color=baseline_color, linestyle='--', linewidth=2.6, label='Baseline (Oracle k*)')
+    if "baseline" in show_band_for:
+        ax.fill_between(x, base_sum["lo"].values, base_sum["hi"].values, color=baseline_color, alpha=0.15)
+        
+    # Ensure metrics are actually present 
+    present_metrics = []
+    for m in metrics:
+        if (sum_df["metric_name"] == m).any():
+            present_metrics.append(m)
+
+    color_map = _metric_color_map(present_metrics)
+        
+    # Plot metrics
+    for m in metrics:
+        s = sum_df.loc[sum_df["metric_name"] == m]  # Subset df to metric
+        if s.empty:
+            continue
+            
+        # Get values
+        xx = s['difficulty_level'].astype(int).values
+        yy = s['mid'].values
+        
+        # Plot line and (optional) band
+        color = color_map[m]
+        ax.plot(xx, yy, color=color, linewidth=2.2 if 'ari_' in m else 1.6, label=_pretty_metric_name(m))
+        if m in show_band_for:
+            ax.fill_between(xx, s["lo"].values, s["hi"].values, color=color, alpha=0.12)
+            
+    ax.set_xlabel("Difficulty Ladder")
+    ax.set_ylabel("ARI (selected k^hat vs. true labels)")
+    ax.set_xlim(x.min(), x.max())
+    ax.set_ylim(ylim)
+    ax.set_xticks(np.unique(x))
+    if title is not None:
+        ax.set_title(title)
+
+    # keeLegend
+    ax.legend(frameon=False, fontsize=9, ncol=2)
+
+    return fig
+
+
+def plot_baseline_vs_metric_ari_grid(
+    results_df: pd.DataFrame,
+    *,
+    metrics=("ari_stability_1se", "ari_generalizability_1se", "silhouette", "gap", "davies_bouldin", "calinski_harabasz"),
+    ncols: int = 3,
+    figsize=(12, 10),
+    center: str = "mean",
+    point_alpha: float = 0.33,
+    point_size: float = 12.0,
+    rasterize_points: bool = True,
+    color_by_difficulty: bool = True,
+    difficulty_cmap: str = "cividis",
+    show_difficulty_colorbar: bool = True,
+    invert_x: bool = True,
+    xlim=(0.0, 1.02),
+    ylim=(0.0, 1.02),
+):
+    """
+    Plots baseline ARI vs. metric ARI scatter plots in a grid layout.
+
+    Args:
+        - results_df (pd.DataFrame): DataFrame with benchmarking results.
+        - metrics (tuple): Metrics to plot.
+        - ncols (int): Number of columns in the grid.
+        - figsize (tuple): Figure size.
+        - center (str): Central tendency measure ('mean' or 'median').
+        - point_alpha (float): Transparency of scatter points.
+        - point_size (float): Size of scatter points.
+        - rasterize_points (bool): Whether to rasterize scatter points.
+        - xlim (tuple): X-axis limits.
+        - ylim (tuple): Y-axis limits.
+    """
+    needed = {"metric_name", "is_optimal", "metric_ari", "baseline_ari"}
+    missing = sorted(c for c in needed if c not in results_df.columns)
+    if missing:
+        raise ValueError(f"results_df missing columns: {missing}")
+    
+    present = [m for m in metrics if (results_df["metric_name"] == m).any()]
+    if len(present) == 0:
+        raise ValueError("none of the requested metrics were found in results_df")
+
+    color_map = _metric_color_map(present)  # Get colors
+    
+    # --- 1) Filter to one row per (dataset instance, metric): selected "optimal" k --- 
+    df_opt = results_df.loc[results_df["is_optimal"] == True].copy()
+    
+    # Difficulty color mapping
+    difficulty_levels = None
+    diff_color = None
+    diff_cmap = None
+    diff_norm = None
+    if color_by_difficulty and "difficulty_level" in df_opt.columns:
+        difficulty_levels = sorted(df_opt["difficulty_level"].dropna().unique())
+        diff_cmap = plt.get_cmap(difficulty_cmap, len(difficulty_levels))
+        diff_color = {lvl: diff_cmap(i) for i, lvl in enumerate(difficulty_levels)}
+        diff_norm = mpl.colors.BoundaryNorm(
+            boundaries=np.arange(-0.5, len(difficulty_levels) + 0.5, 1.0),
+            ncolors=len(difficulty_levels),
         )
     
-    plt.xlabel('Difficulty (difficulty)')
-    plt.ylabel('Accuracy')
-    plt.title('Metric Accuracy vs. Problem Difficulty')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.show()
+    # --- 2) Setup grid ---
+    n = len(present)  # Compute grid dims
+    nrows = int(np.ceil(n / ncols))
     
+    fig, axes = plt.subplots(
+        nrows=nrows,
+        ncols=ncols,
+        figsize=figsize,
+        sharex=True,
+        sharey=True,
+        constrained_layout=True
+    )
+    axes = np.asarray(axes).flatten()
     
-def plot_metric_lineplots_grid(
-    results_df: pd.DataFrame,
-    difficulties: List[float],
-    metrics_to_display: Optional[List[str]] = None,
-    show_majority_votes: bool = True,
-    figsize: Optional[Tuple[float, float]] = None
-) -> None:
-    """
-    Plots a grid of line plots for clustering metrics across different difficulties and true_k values.
-
-    Args:
-        - results_df (pd.DataFrame): DataFrame containing clustering results with columns:
-          ['true_k', 'k', 'difficulty', 'metric_name', 'metric_value', ...].
-        - difficulties (List[float]): List of difficulty values to anchor the grid columns.
-        - metrics_to_display (Optional[List[str]]): List of metric names to plot. If None, all available metrics are used.
-        - show_majority_votes (bool): If True, displays majority vote markers (diamond, star, cross) for optimal k selection.
-        - figsize (Optional[Tuple[float, float]]): Figure size for the plot. If None, size is determined automatically.
-
-    Returns:
-        None. Displays the matplotlib figure.
-    """
-    PAIRED = {
-        "ari_stability_1se": "ari_stability",
-        "ari_generalizability_1se": "ari_generalizability",
-    }
+    baseline_color = (0.35, 0.35, 0.35, 1.0)
+    diag_x = np.array([xlim[0], xlim[1]])  # Diagonal reference line
     
-    BASE_WITH_PAIR = set(PAIRED.values())  # metrics that have a 1se partner
-
-    # numeric safety
-    results_df = results_df.copy()
-    if 'is_optimal' in results_df.columns:
-        results_df['is_optimal'] = results_df['is_optimal'].astype(int)
-
-    anchors = [difficulties[0], difficulties[len(difficulties)//2], difficulties[-1]]
-
-    all_metrics = sorted(results_df['metric_name'].unique())
-    if metrics_to_display is not None:
-        metrics = [m for m in metrics_to_display if (m in all_metrics) and (m not in PAIRED.keys())]
-        if not metrics:
-            raise ValueError(f"None of the provided metrics {metrics_to_display} found in data")
-    else:
-        metrics = [m for m in all_metrics if m not in PAIRED.keys()]
-
-    true_ks = sorted(results_df['true_k'].unique())
-
-    if figsize is None:
-        figsize = (3.5*len(anchors), 2.5*len(true_ks))
-
-    fig, axes = plt.subplots(len(true_ks), len(anchors), figsize=figsize)
-
-    if len(true_ks) == 1:
-        axes = np.array([axes])
-    if len(anchors) == 1:
-        axes = np.array([axes]).T
-
-    def difficulty_mask(series, a):
-        return np.isclose(series.to_numpy(dtype=float), float(a), rtol=1e-6, atol=1e-8)
-
-    for i, true_k in enumerate(true_ks):
-        for j, difficulty in enumerate(anchors):
-            ax = axes[i, j]
-            line_y = {}
-
-            # plot each (base) metric line
-            for metric in metrics:
-                subset_mask = (
-                    (results_df['true_k'] == true_k) &
-                    (results_df['metric_name'] == metric) &
-                    difficulty_mask(results_df['difficulty'], difficulty)
-                )
-                subset = results_df.loc[subset_mask]
-                if subset.empty:
+    # --- 3) Plot ---
+    for i, m in enumerate(present):
+        ax = axes[i]
+        sub = df_opt.loc[df_opt["metric_name"] == m]  # Subset df to metric
+        
+        # 1) Scatter actual ARIs (Baseline ARI : Metric ARI)
+        if color_by_difficulty and diff_color is not None:
+            for lvl in difficulty_levels:
+                pts = sub.loc[sub["difficulty_level"] == lvl]
+                if pts.empty:
                     continue
-
-                avg_df = (
-                    subset.groupby('k')['metric_value']
-                        .agg(mean='mean', std='std')
-                        .reset_index()
+                ax.scatter(
+                    pts["baseline_ari"].astype(float).values,
+                    pts["metric_ari"].astype(float).values,
+                    s=point_size,
+                    alpha=point_alpha,
+                    rasterized=rasterize_points,
+                    color=diff_color[lvl], 
+                    linewidths=0,
                 )
-                mean_values = avg_df['mean'].to_numpy()
+        else:
+            ax.scatter(
+                sub["baseline_ari"].astype(float).values,
+                sub["metric_ari"].astype(float).values,
+                s=point_size,
+                alpha=point_alpha,
+                rasterized=rasterize_points,
+                color=baseline_color, 
+                linewidths=0,
+            )
+
+        # 2) Diagonal reference line
+        ax.plot(diag_x, diag_x, linestyle="--", linewidth=1.0, color=baseline_color)
+    
+        # 3) Difficulty path overlay (median/mean per difficulty, connected)
+        if "difficulty_level" in sub.columns:
+            g = sub.groupby("difficulty_level")[["baseline_ari", "metric_ari"]]
+            if center == "mean":
+                path = g.mean()
+            elif center == "median":
+                path = g.median()
+            else:
+                raise ValueError("center must be 'mean' or 'median'")
+
+            # Enforce consistent ordering of difficulty steps
+            path = path.reindex(difficulty_levels).dropna()
+
+            xy = path[["baseline_ari", "metric_ari"]].values
+            lvls = list(path.index)
+
+            if color_by_difficulty and diff_color is not None and len(xy) >= 2:  # Colored segments (for difficulty)
+                segments = np.stack([xy[:-1], xy[1:]], axis=1)  # (n-1, 2, 2)
+                seg_colors = [diff_color[lvl] for lvl in lvls[:-1]]
+                lc = LineCollection(segments, colors=seg_colors, linewidths=2.2, zorder=3)
+                ax.add_collection(lc)
                 
-                min_val = np.min(mean_values)
-                max_val = np.max(mean_values)
-                mean_values = (mean_values - min_val) / (max_val - min_val)
+                ax.scatter(  # Colored markers at each difficulty point
+                    xy[:, 0], xy[:, 1],
+                    s=40,
+                    color=[diff_color[lvl] for lvl in lvls],
+                    edgecolor="none",
+                    zorder=4,
+                )
+            else:
+                # Fallback: single-color overlay
+                ax.plot(
+                    xy[:, 0], xy[:, 1],
+                    marker="o",
+                    linewidth=2.2,
+                    color=color_map[m],
+                    zorder=3,
+                )
+            
+        # 4) Compact panel annotation: median loss to oracle
+        if center == "mean":
+            loss = (sub["baseline_ari"].astype(float) - sub["metric_ari"].astype(float)).mean()
+        else:
+            loss = (sub["baseline_ari"].astype(float) - sub["metric_ari"].astype(float)).median()
+        ax.set_title(f"{_pretty_metric_name(m)}  ({center} Δ={loss:.3f})", fontsize=10)
 
-                ax.plot(avg_df['k'], mean_values, marker='o', label=metric)
-                line_y[metric] = dict(zip(avg_df['k'].to_numpy(), mean_values))
+        # Handle axes
+        if invert_x:
+            ax.set_xlim(xlim[1], xlim[0])
+        else:
+            ax.set_xlim(*xlim)
+        ax.set_ylim(*ylim)
+        ax.set_aspect("equal", adjustable="box")
 
-                if show_majority_votes and 'is_optimal' in subset.columns and metric not in BASE_WITH_PAIR:
-                    votes = subset.groupby('k')['is_optimal'].sum().sort_values(ascending=False)
-                    if not votes.empty:
-                        k_base_vote = int(votes[votes == votes.iloc[0]].index.max())  # if tie, then largest k
-                        if k_base_vote in line_y[metric]:
-                            y_on_curve = float(line_y[metric][k_base_vote])
-                            ax.scatter(
-                                [k_base_vote], [y_on_curve], marker='D', s=70,
-                                edgecolors='black', facecolors='white',
-                                zorder=5, label=None
-                            )
+    # Remove unused axes
+    for j in range(n, len(axes)):
+        axes[j].axis("off")
 
-            # handle paired markers with agreement logic
-            if show_majority_votes:
-                for excl_metric, base_metric in PAIRED.items():
-                    excl_mask = (
-                        (results_df['true_k'] == true_k) &
-                        (results_df['metric_name'] == excl_metric) &
-                        difficulty_mask(results_df['difficulty'], difficulty)
-                    )
-                    base_mask = (
-                        (results_df['true_k'] == true_k) &
-                        (results_df['metric_name'] == base_metric) &
-                        difficulty_mask(results_df['difficulty'], difficulty)
-                    )
-                    excl_subset = results_df.loc[excl_mask]
-                    base_subset = results_df.loc[base_mask]
-                    if excl_subset.empty or base_subset.empty:
-                        continue
-                    if 'is_optimal' not in excl_subset.columns or 'is_optimal' not in base_subset.columns:
-                        continue
+    # Labels
+    for ax in axes[:n]:
+        ax.label_outer()
+        
+    # Difficulty colorbar
+    if color_by_difficulty and show_difficulty_colorbar and diff_cmap is not None:
+        sm = mpl.cm.ScalarMappable(cmap=diff_cmap, norm=diff_norm)
+        sm.set_array([])
+        cbar = fig.colorbar(
+            sm,
+            ax=axes[:n],
+            fraction=0.03,
+            pad=0.02,
+        )
+        cbar.set_label("difficulty ladder", rotation=90)
+        tick_pos = np.arange(len(difficulty_levels))
+        cbar.set_ticks(tick_pos)
+        cbar.set_ticklabels([str(lvl) for lvl in difficulty_levels])
 
-                    # votes (consistent tie rule: largest k)
-                    excl_votes = excl_subset.groupby('k')['is_optimal'].sum().sort_values(ascending=False)
-                    base_votes = base_subset.groupby('k')['is_optimal'].sum().sort_values(ascending=False)
-                    if excl_votes.empty or base_votes.empty:
-                        continue
+    fig.supxlabel("Baseline ARI (Oracle k*)")
+    fig.supylabel("ARI (selected k^hat)")
 
-                    k_excl_vote = int(excl_votes[excl_votes == excl_votes.iloc[0]].index.max())
-                    k_base_vote = int(base_votes[base_votes == base_votes.iloc[0]].index.max())
-
-                    # y anchors from the base metric curve
-                    y_map = line_y.get(base_metric, {})
-                    if not y_map:
-                        continue
-                    # require the y for at least the locations we will plot
-                    if (k_base_vote not in y_map) and (k_excl_vote not in y_map):
-                        continue
-
-                    if k_base_vote == k_excl_vote:
-                        y_star = float(y_map.get(k_base_vote, list(y_map.values())[0]))
-                        y_star += 0.02
-                        ax.scatter([k_base_vote], [y_star], marker='*', s=220,
-                                   facecolors='none', edgecolors='black',
-                                   linewidths=2.0, zorder=8, label=None)
-                    else:
-                        # draw ◇ at base vote
-                        if k_base_vote in y_map:
-                            y_d = float(y_map[k_base_vote])
-                            ax.scatter(
-                                [k_base_vote], [y_d], marker='D', s=70,
-                                edgecolors='black', facecolors='white',
-                                zorder=6, label=None
-                            )
-
-                        if k_excl_vote in y_map:
-                            y_x = float(y_map[k_excl_vote]) + 0.025
-                            ax.scatter(
-                                [k_excl_vote], [y_x], marker='x', s=90,
-                                color='black', linewidths=2, zorder=7, label=None
-                            )
-
-            # guides / labels
-            ax.axvline(true_k, color='gray', linestyle='--', alpha=0.5)
-            if i == 0:
-                ax.set_title(f'α = {difficulty:.3f}')
-            if j == 0:
-                ax.set_ylabel(f'true_k = {true_k}')
-            ax.set_xlabel('k')
-            ax.grid(True, alpha=0.3)
-
-            k_values = results_df['k'].unique()
-            ax.set_xlim(min(k_values) - 0.5, max(k_values) + 0.5)
-
-    # legend
-    handles, labels = axes[0, 0].get_legend_handles_labels()
-    if show_majority_votes:
-        handles += [
-            Line2D(
-                [0],[0], marker='D', linestyle='None',
-                markerfacecolor='white', markeredgecolor='black', label='max rule (vote)'
-            ),
-            Line2D(
-                [0],[0], marker='x', linestyle='None',
-                color='black', label='1se rule (vote)'
-            ),
-            Line2D(
-                [0],[0], marker='*', linestyle='None',
-                markerfacecolor='none', markeredgecolor='black', label='agree (vote)'
-            ),
-        ]
-        labels += ['max rule (vote)', '1se rule (vote)', 'agree (vote)']
-
-    fig.legend(
-        handles, labels, loc='upper center', bbox_to_anchor=(0.5, 0.02),
-        fancybox=True, shadow=True, ncol=min(5, max(1, len(metrics)))
-    )
-
-    plt.tight_layout(rect=[0, 0.05, 1, 0.97])
-    plt.subplots_adjust(wspace=0.3, hspace=0.3)
-    plt.show()
+    return fig
 
 
-def print_summary_stats(
+def summarize_benchmark_regime(
     results_df: pd.DataFrame,
-    group_col: str = "difficulty"
-) -> None:
+    *,
+    metrics: tuple[str, ...] | None = None,
+    center: str = "median",
+    decimals: int = 3,
+    group_cols: tuple[str, ...] = ("difficulty_level", "true_k"),
+) -> dict[str, pd.DataFrame]:
     """
-    Prints a summary table of clustering metric accuracy statistics,
-    reporting mean, standard deviation (SD), and standard error (SE) per metric and group_col.
+    Return paper/SI-ready summary tables (no plots) for a benchmarking regime.
 
-    Args:
-        - results_df (pd.DataFrame): DataFrame with columns [group_col, 'metric_name', 'is_optimal', 'is_correct', ...].
-        - group_col (str): Column to group by (e.g., 'difficulty', 'p', 'n_total', 'embed_dim').
+    Expected schema:
+      - metric_name, is_optimal, metric_ari, baseline_ari, is_correct, k, true_k
+      - optional but recommended: difficulty_level, dataset_iteration (or dataset_id)
 
-    Returns:
-        None. Displays formatted accuracy statistics per metric and group_col, and overall ranking.
+    Returns dict of DataFrames:
+      - overall_numeric: baseline + per-metric numeric summaries
+      - overall_formatted: manuscript-friendly formatted columns
+      - by_difficulty_numeric: per-metric summaries stratified by difficulty_level (if present)
+      - by_true_k_numeric: per-metric summaries stratified by true_k
     """
-    if group_col not in results_df.columns:
-        raise ValueError(f"Column '{group_col}' not found in results_df.")
+    needed = {"metric_name", "is_optimal", "metric_ari", "baseline_ari", "is_correct", "k", "true_k"}
+    missing = sorted(c for c in needed if c not in results_df.columns)
+    if missing:
+        raise ValueError(f"results_df missing columns: {missing}")
 
-    df = results_df.loc[results_df['is_optimal']].copy()
+    df = results_df.copy()
 
-    # Per-(group_col, metric) stats
-    g = (
-        df.groupby([group_col, 'metric_name'])['is_correct']
-            .agg(mean='mean', std='std', n='count')
-            .reset_index()
-    )
-    g['std'] = g['std'].fillna(0.0)
-    g['se'] = g['std'] / g['n'].clip(lower=1).pow(0.5)
+    # identify dataset id cols (for deduping baseline / counts)
+    id_cols = []
+    for c in ["difficulty_level", "true_k", "dataset_iteration", "dataset_id"]:
+        if c in df.columns:
+            id_cols.append(c)
 
-    # Mark best per group_col
-    stars = (
-        g.loc[g.groupby(group_col)['mean'].idxmax(), [group_col, 'metric_name']]
-        .set_index([group_col, 'metric_name'])
-        .assign(star='*')
-    )
+    # keep only selected-k rows per (dataset, metric)
+    df_sel = df.loc[df["is_optimal"] == True].copy()
 
-    # Format: mean (SD, SE)[*]
-    def _fmt(row):
-        key = (row[group_col], row['metric_name'])
-        star = stars.loc[key, 'star'] if key in stars.index else ''
-        return f"{row['mean']:.3f} ({row['std']:.3f}, {row['se']:.3f}){star}"
+    # restrict metrics if requested
+    if metrics is None:
+        metrics = tuple(sorted(df_sel["metric_name"].unique()))
+    present = [m for m in metrics if (df_sel["metric_name"] == m).any()]
+    if not present:
+        raise ValueError("none of the requested metrics were found after filtering to is_optimal rows")
 
-    g['cell'] = g.apply(_fmt, axis=1)
-    groups = sorted(g[group_col].unique())
+    # baseline (oracle) distribution: dedupe so it is one per dataset instance
+    if id_cols:
+        base = df.drop_duplicates(id_cols)[["baseline_ari"]].copy()
+    else:
+        base = df[["baseline_ari"]].drop_duplicates().copy()
 
-    # Compact grid
-    grid = (
-        g.pivot(index='metric_name', columns=group_col, values='cell')
-         .reindex(columns=groups)
-    )
+    # ----- overall per-metric summary -----
+    rows = []
+    for m in present:
+        sub = df_sel.loc[df_sel["metric_name"] == m].copy()
+        n = int(len(sub))
 
-    # Overall stats
-    overall = (
-        df.groupby('metric_name')['is_correct']
-            .agg(mean='mean', std='std', n='count')
-    )
-    overall['std'] = overall['std'].fillna(0.0)
-    overall['se'] = overall['std'] / overall['n'].clip(lower=1).pow(0.5)
+        # ARI(selected)
+        ari_stats = _summary_stats(sub["metric_ari"])
 
-    # Print
-    print(f"\n=== Accuracy (mean (SD, SE)) by {group_col} ===")
-    with pd.option_context('display.max_columns', None, 'display.width', 120):
-        print(grid.fillna('').sort_index())
+        # delta to oracle
+        delta = pd.to_numeric(sub["baseline_ari"], errors="coerce") - pd.to_numeric(sub["metric_ari"], errors="coerce")
+        delta_stats = _summary_stats(delta)
 
-    print(f"\n======= Overall ranking (aggregated over all {group_col} & k) ========")
-    ranked = overall.sort_values('mean', ascending=False)
-    for i, (metric, r) in enumerate(ranked.iterrows(), start=1):
-        print(f"{i:>2}. {metric:<35} {r['mean']:.3f} ({r['std']:.3f}, {r['se']:.3f})  (n={int(r['n'])})")
+        # k recovery (as stored: is_correct)
+        k_success = int(pd.to_numeric(sub["is_correct"], errors="coerce").fillna(0).astype(int).sum())
+        k_lo, k_hi = _wilson_ci(k_success, n)
+
+        # k bias (k_hat - k_true)
+        k_hat = pd.to_numeric(sub["k"], errors="coerce")
+        k_true = pd.to_numeric(sub["true_k"], errors="coerce")
+        kbias = (k_hat - k_true)
+        kbias_stats = _summary_stats(kbias)
+
+        under = float((kbias < 0).mean()) if n else np.nan
+        over = float((kbias > 0).mean()) if n else np.nan
+
+        rows.append({
+            "metric": m,
+            "n": n,
+
+            "ari_mean": ari_stats["mean"],
+            "ari_sd": ari_stats["sd"],
+            "ari_median": ari_stats["median"],
+            "ari_q25": ari_stats["q25"],
+            "ari_q75": ari_stats["q75"],
+            "ari_q05": ari_stats["q05"],
+            "ari_q95": ari_stats["q95"],
+
+            "delta_mean": delta_stats["mean"],
+            "delta_sd": delta_stats["sd"],
+            "delta_median": delta_stats["median"],
+            "delta_q25": delta_stats["q25"],
+            "delta_q75": delta_stats["q75"],
+            "delta_q05": delta_stats["q05"],
+            "delta_q95": delta_stats["q95"],
+
+            "k_recovery": (k_success / n) if n else np.nan,
+            "k_rec_lo95": k_lo,
+            "k_rec_hi95": k_hi,
+            "k_rec_num": float(k_success),
+            "k_rec_den": float(n),
+
+            "kbias_mean": kbias_stats["mean"],
+            "kbias_median": kbias_stats["median"],
+            "p_under": under,
+            "p_over": over,
+        })
+
+    overall = pd.DataFrame(rows)
+
+    # baseline summary row (context)
+    base_stats = _summary_stats(base["baseline_ari"])
+    baseline_row = pd.DataFrame([{
+        "metric": "baseline_oracle",
+        "n": int(len(base)),
+        "ari_mean": base_stats["mean"],
+        "ari_sd": base_stats["sd"],
+        "ari_median": base_stats["median"],
+        "ari_q25": base_stats["q25"],
+        "ari_q75": base_stats["q75"],
+        "ari_q05": base_stats["q05"],
+        "ari_q95": base_stats["q95"],
+
+        # fields that don’t apply for baseline
+        "delta_mean": np.nan,
+        "delta_sd": np.nan,
+        "delta_median": np.nan,
+        "delta_q25": np.nan,
+        "delta_q75": np.nan,
+        "delta_q05": np.nan,
+        "delta_q95": np.nan,
+        "k_recovery": np.nan,
+        "k_rec_lo95": np.nan,
+        "k_rec_hi95": np.nan,
+        "k_rec_num": np.nan,
+        "k_rec_den": np.nan,
+        "kbias_mean": np.nan,
+        "kbias_median": np.nan,
+        "p_under": np.nan,
+        "p_over": np.nan,
+    }])
+
+    overall = pd.concat([baseline_row, overall], ignore_index=True)
+    
+    # ----- ordering: keep baseline first, then sort methods by ARI mean -----
+    if "ari_mean" in overall.columns:
+        base_mask = overall["metric"].eq("baseline_oracle")
+        overall_base = overall.loc[base_mask]
+        overall_methods = overall.loc[~base_mask].sort_values("ari_mean", ascending=False)
+        overall = pd.concat([overall_base, overall_methods], ignore_index=True)
+
+    # ----- stratified summaries (SI-friendly) -----
+    def _group_summary(df_in: pd.DataFrame, by: str) -> pd.DataFrame:
+        if by not in df_in.columns:
+            return pd.DataFrame()
+
+        out_rows = []
+        for (m, gval), sub in df_in.groupby(["metric_name", by], dropna=False):
+            n = int(len(sub))
+
+            ari_stats = _summary_stats(sub["metric_ari"])
+            delta = pd.to_numeric(sub["baseline_ari"], errors="coerce") - pd.to_numeric(sub["metric_ari"], errors="coerce")
+            delta_stats = _summary_stats(delta)
+
+            k_success = int(pd.to_numeric(sub["is_correct"], errors="coerce").fillna(0).astype(int).sum())
+            k_lo, k_hi = _wilson_ci(k_success, n)
+
+            out_rows.append({
+                "metric": m,
+                by: gval,
+                "n": n,
+                "ari_mean": ari_stats["mean"],
+                "ari_median": ari_stats["median"],
+                "ari_q25": ari_stats["q25"],
+                "ari_q75": ari_stats["q75"],
+                "ari_q05": ari_stats["q05"],
+                "ari_q95": ari_stats["q95"],
+                "delta_mean": delta_stats["mean"],
+                "delta_median": delta_stats["median"],
+                "delta_q25": delta_stats["q25"],
+                "delta_q75": delta_stats["q75"],
+                "k_recovery": (k_success / n) if n else np.nan,
+                "k_rec_lo95": k_lo,
+                "k_rec_hi95": k_hi,
+                "k_rec_num": float(k_success),
+                "k_rec_den": float(n),
+            })
+
+        return pd.DataFrame(out_rows).sort_values(["metric", by])
+
+    by_difficulty = _group_summary(df_sel, "difficulty_level")
+    by_true_k = _group_summary(df_sel, "true_k")
+
+    # ----- formatted view (manuscript-ready) -----
+    def _fmt_pm(mean: float, sd: float) -> str:
+        if not np.isfinite(mean) or not np.isfinite(sd):
+            return ""
+        return f"{mean:.{decimals}f} (sd {sd:.{decimals}f})"
+
+    def _fmt_med_iqr(med: float, q25: float, q75: float) -> str:
+        if not all(np.isfinite([med, q25, q75])):
+            return ""
+        return f"{med:.{decimals}f} [{q25:.{decimals}f}, {q75:.{decimals}f}]"
+
+    def _fmt_prop(p: float, lo: float, hi: float, num: float, den: float) -> str:
+        # critical fix: don’t cast NaN to int
+        if not all(np.isfinite([p, lo, hi, num, den])) or den <= 0:
+            return ""
+        return f"{p:.{decimals}f} ({lo:.{decimals}f}, {hi:.{decimals}f}); {int(num)}/{int(den)}"
+
+    formatted = overall.copy()
+    formatted["ARI mean (sd)"] = [
+        _fmt_pm(m, s) for m, s in zip(formatted["ari_mean"], formatted["ari_sd"])
+    ]
+    formatted["ARI median [q25, q75]"] = [
+        _fmt_med_iqr(med, q25, q75)
+        for med, q25, q75 in zip(formatted["ari_median"], formatted["ari_q25"], formatted["ari_q75"])
+    ]
+    formatted["Δ mean (sd)"] = [
+        _fmt_pm(m, s) for m, s in zip(formatted["delta_mean"], formatted["delta_sd"])
+    ]
+    formatted["k recovery (95% CI); num/den"] = [
+        _fmt_prop(p, lo, hi, num, den)
+        for p, lo, hi, num, den in zip(
+            formatted["k_recovery"],
+            formatted["k_rec_lo95"],
+            formatted["k_rec_hi95"],
+            formatted["k_rec_num"],
+            formatted["k_rec_den"],
+        )
+    ]
+
+    formatted = formatted[
+        [
+            "metric",
+            "n",
+            "ARI mean (sd)",
+            "ARI median [q25, q75]",
+            "Δ mean (sd)",
+            "k recovery (95% CI); num/den",
+            "kbias_mean",
+            "kbias_median",
+            "p_under",
+            "p_over",
+        ]
+    ]
+    
+    for c in ["kbias_mean", "kbias_median", "p_under", "p_over"]:
+        formatted[c] = formatted[c].apply(
+            lambda v: "" if not np.isfinite(v) else f"{float(v):.{decimals}f}"
+        )
+
+    return {
+        "overall_numeric": overall,
+        "overall_formatted": formatted,
+        "by_difficulty_numeric": by_difficulty,
+        "by_true_k_numeric": by_true_k,
+    }

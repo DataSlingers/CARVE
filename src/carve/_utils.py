@@ -1,3 +1,5 @@
+"""Shared utility helpers for CARVE."""
+
 from typing import Any, Dict, List, Tuple, Type
 import numpy as np
 import pandas as pd
@@ -6,32 +8,79 @@ from sklearn.base import ClusterMixin
 from sklearn.metrics.cluster import contingency_matrix
 from numpy.typing import ArrayLike
 
-def subsample_indices(
+def split_subsample_indices(
     n_samples: int, 
     *,
-    ratio: float = 0.6, 
+    subsample_ratio: float = 0.8, 
     random_state: int = None
 ) -> Tuple[np.ndarray, np.ndarray]:
+    """Split indices into a random subsample and its complement.
+
+    Parameters
+    ----------
+    n_samples : int
+        Total number of samples.
+    subsample_ratio : float, default=0.8
+        Proportion of samples in the subsample.
+    random_state : int or None, default=None
+        Random seed for reproducibility.
+
+    Returns
+    -------
+    train_idx : ndarray
+        Indices for the subsample.
+    test_idx : ndarray
+        Indices for the remaining samples.
+    """
     rng = np.random.RandomState(random_state)
     all_idx = np.arange(n_samples)
-    train_size = int(np.float64(ratio * n_samples))
+    train_size = int(np.float64(subsample_ratio * n_samples))
     
     train_idx = rng.choice(all_idx, size=train_size, replace=False)
     test_idx = np.setdiff1d(all_idx, train_idx)
     
     return train_idx, test_idx
 
-def clustering_pipeline(
+def cluster_labels(
     X: np.ndarray,
-    est_cls: Type[ClusterMixin],
+    estimator_cls: Type[ClusterMixin],
     *,
     random_state: int = None,
     **params: Any
 ) -> np.ndarray:
+    """Fit a clustering estimator and return labels.
+
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        Input data.
+    estimator_cls : type
+        Estimator class implementing clustering.
+    random_state : int or None, default=None
+        Random seed passed to the estimator if supported.
+    **params : dict
+        Estimator parameters.
+
+    Returns
+    -------
+    labels : ndarray of shape (n_samples,)
+        Cluster labels.
+
+    Raises
+    ------
+    TypeError
+        If the estimator provides no valid way to extract labels.
+    """
     try:
-        estimator = est_cls(random_state=random_state, **params)
+        estimator = estimator_cls(random_state=random_state, **params)
     except Exception:
-        estimator = est_cls(**params)
+        if 'random_state' in params:
+            estimator = estimator_cls(**params)
+        elif 'random_state' in estimator_cls.__init__.__code__.co_varnames:
+            estimator = estimator_cls(random_state=random_state, **params)
+        else:
+            estimator = estimator_cls(**params)
+
 
     # estimator implements fit_predict
     if hasattr(estimator, "fit_predict"):
@@ -44,7 +93,8 @@ def clustering_pipeline(
     try:
         return estimator.labels_
     except Exception:
-        return estimator.predict(X)  # fallback: predict(X) if available
+        # fallback: predict(X) if available
+        return estimator.predict(X)  
     
     # if hasattr(estimator, "labels_"):
     #     return estimator.labels_
@@ -53,18 +103,30 @@ def clustering_pipeline(
     # if hasattr(estimator, "predict"):
     #     return estimator.predict(X)
 
-    raise TypeError(
-        f"estimator of type {type(estimator)} has no fit_predict, "
-        f"no labels_ and no predict; cannot extract cluster labels."
-    )
+    # raise TypeError(
+    #     f"estimator of type {type(estimator)} has no fit_predict, "
+    #     f"no labels_ and no predict; cannot extract cluster labels."
+    # )
 
-def wrangle_pipeline_records(
+def summarize_preprocessing_records(
     pipeline_records: List[Dict[str, Any]]
 ) -> pd.DataFrame:
+    """Summarize randomized preprocessing records.
+
+    Parameters
+    ----------
+    pipeline_records : list of dict
+        Records from randomized preprocessing runs.
+
+    Returns
+    -------
+    summary : pandas.DataFrame
+        Mean ARI metrics grouped by normalization, DR, and k.
+    """
     rows = []
     for record in pipeline_records:
         params = record['params']
-        k = params['n_clusters']
+        n_clusters = params['n_clusters']
         
         for r in record['results']:
             ari_s, ari_g, *_, norm_p, dr_p, norm_name, dr_name = r
@@ -82,7 +144,7 @@ def wrangle_pipeline_records(
                 dr_label = func.__name__ if func is not None else 'identity'
                 
             rows.append({
-                'n_clusters': k, 
+                'n_clusters': n_clusters, 
                 'norm__func': norm_label,
                 'dr__method': dr_label, 
                 'ari_stability': ari_s, 
@@ -97,18 +159,32 @@ def wrangle_pipeline_records(
         .mean()
     )
     
-def align_labels(
-    ref_labels: np.ndarray, 
+def align_cluster_labels(
+    reference_labels: np.ndarray, 
     labels: np.ndarray
 ) -> np.ndarray:
+    """Align labels to reference labels using Hungarian assignment.
+
+    Parameters
+    ----------
+    reference_labels : ndarray of shape (n_samples,)
+        Reference clustering labels.
+    labels : ndarray of shape (n_samples,)
+        Labels to align.
+
+    Returns
+    -------
+    aligned : ndarray of shape (n_samples,)
+        Aligned labels with best matching permutation.
+    """
     # get contingency matrix
-    cont = contingency_matrix(ref_labels, labels)
+    cont = contingency_matrix(reference_labels, labels)
     
     # solve assignment on -cont to max matches
     row_ind, col_ind = linear_sum_assignment(-cont)
     
     # align order
-    true_classes = np.unique(ref_labels)
+    true_classes = np.unique(reference_labels)
     pred_classes = np.unique(labels)
     
     # build mapping
@@ -121,10 +197,27 @@ def align_labels(
         mapping.setdefault(pc, pc)
 
     # apply mapping
-    aligned = np.array([mapping[lbl] for lbl in labels], dtype=ref_labels.dtype)
+    aligned = np.array([mapping[lbl] for lbl in labels], dtype=reference_labels.dtype)
     return aligned
 
-def ensure_array2d(X: ArrayLike) -> np.ndarray:
+def ensure_2d_array(X: ArrayLike) -> np.ndarray:
+    """Ensure input is a 2D NumPy array.
+
+    Parameters
+    ----------
+    X : array-like
+        Input data.
+
+    Returns
+    -------
+    array : ndarray of shape (n_samples, n_features)
+        2D NumPy array representation.
+
+    Raises
+    ------
+    ValueError
+        If the input cannot be converted to a 2D array.
+    """
     if isinstance(X, pd.DataFrame):     # Convert Pandas DataFrame to NumPy array
         return X.values
     elif isinstance(X, np.ndarray):     # Ensure the array is 2D

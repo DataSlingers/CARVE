@@ -1,3 +1,5 @@
+"""Cluster center sampling utilities for simulations."""
+
 import numpy as np
 from typing import Literal
 
@@ -6,20 +8,28 @@ def _sample_centers(
     method: Literal["none", "lhs", "best_candidate", "min_dist"] = "best_candidate",
     n_candidates: int
 ) -> np.ndarray:
-    """
-    Sample cluster centers within a hypercube using a specified layout strategy.
+    """Sample cluster centers within a hypercube.
 
-    Parameters:
-      - `k`: number of centers to sample.
-      - `p`: dimension of each center (feature count).
-      - `center_box`: half-width of the sampling hypercube; centers lie in [-center_box, +center_box]^p.
-      - `rng`: NumPy random generator for reproducibility.
-      - `method`: center placement strategy: "none" (uniform), "lhs" (Latin hypercube),
-        "best_candidate" (farthest-of-candidates), or "min_dist" (minimum spacing).
-      - `n_candidates`: number of candidates evaluated per center for "best_candidate".
+    Parameters
+    ----------
+    k : int
+        Number of centers to sample.
+    p : int
+        Dimension of each center (feature count).
+    center_box : float
+        Half-width of the sampling hypercube; centers lie in
+        [-center_box, +center_box]^p.
+    rng : numpy.random.Generator
+        Random generator for reproducibility.
+    method : {"none", "lhs", "best_candidate", "min_dist"}, default="best_candidate"
+        Center placement strategy.
+    n_candidates : int
+        Number of candidates evaluated per center for "best_candidate".
 
-    Returns:
-      - (k, p) array of center coordinates.
+    Returns
+    -------
+    centers : ndarray of shape (k, p)
+        Center coordinates.
     """
     center_box = _validate_center_box(center_box)
     if method == "none":
@@ -39,14 +49,17 @@ def _sample_centers(
     raise ValueError(f"unknown centroid_method: {method}")
 
 def _validate_center_box(center_box: float) -> float:
-    """
-    Validate and normalize the center_box parameter.
+    """Validate and normalize the center_box parameter.
 
-    Parameters:
-      - `center_box`: half-width of the sampling hypercube.
+    Parameters
+    ----------
+    center_box : float
+            Half-width of the sampling hypercube.
 
-    Returns:
-      - Positive, finite center_box as float.
+    Returns
+    -------
+    center_box : float
+            Positive, finite center_box.
     """
     if not np.isfinite(center_box):
         raise ValueError("`center_box` must be finite.")
@@ -61,18 +74,25 @@ def _best_candidate_centers(
     rng: np.random.Generator,
     n_candidates: int = 64
 ) -> np.ndarray:
-    """
-    Sample centers via the "best candidate" heuristic to maximize spacing.
+    """Sample centers via the best-candidate heuristic.
 
-    Parameters:
-      - `k`: number of centers.
-      - `p`: dimension of each center.
-      - `center_box`: half-width of the sampling hypercube.
-      - `rng`: NumPy random generator.
-      - `n_candidates`: number of candidate points considered for each new center.
+    Parameters
+    ----------
+    k : int
+        Number of centers.
+    p : int
+        Dimension of each center.
+    center_box : float
+        Half-width of the sampling hypercube.
+    rng : numpy.random.Generator
+        Random generator.
+    n_candidates : int, default=64
+        Number of candidate points considered per new center.
 
-    Returns:
-      - (k, p) array of center coordinates.
+    Returns
+    -------
+    centers : ndarray of shape (k, p)
+        Center coordinates.
     """
     if n_candidates <= 0:
         raise ValueError("`n_candidates` must be positive.")
@@ -91,17 +111,23 @@ def _best_candidate_centers(
     return centers
 
 def _lhs_centers(k: int, p: int, center_box: float, rng: np.random.Generator) -> np.ndarray:
-    """
-    Sample centers with Latin hypercube stratification per dimension.
+    """Sample centers using Latin hypercube stratification.
 
-    Parameters:
-      - `k`: number of centers.
-      - `p`: dimension of each center.
-      - `center_box`: half-width of the sampling hypercube.
-      - `rng`: NumPy random generator.
+    Parameters
+    ----------
+    k : int
+        Number of centers.
+    p : int
+        Dimension of each center.
+    center_box : float
+        Half-width of the sampling hypercube.
+    rng : numpy.random.Generator
+        Random generator.
 
-    Returns:
-      - (k, p) array of center coordinates.
+    Returns
+    -------
+    centers : ndarray of shape (k, p)
+        Center coordinates.
     """
     # latin hypercube: each dim gets a random permutation of k bins, with jitter inside each bin
     X = np.empty((k, p), dtype=float)
@@ -121,19 +147,27 @@ def _min_dist_centers(
     min_center_dist: float,
     max_tries: int = 200000
 ) -> np.ndarray:
-    """
-    Sample centers by rejection sampling with a minimum spacing constraint.
+    """Sample centers with a minimum spacing constraint.
 
-    Parameters:
-      - `k`: number of centers.
-      - `p`: dimension of each center.
-      - `center_box`: half-width of the sampling hypercube.
-      - `rng`: NumPy random generator.
-      - `min_center_dist`: minimum Euclidean distance between any pair of centers.
-      - `max_tries`: maximum random draws before giving up.
+    Parameters
+    ----------
+    k : int
+        Number of centers.
+    p : int
+        Dimension of each center.
+    center_box : float
+        Half-width of the sampling hypercube.
+    rng : numpy.random.Generator
+        Random generator.
+    min_center_dist : float
+        Minimum Euclidean distance between any pair of centers.
+    max_tries : int, default=200000
+        Maximum random draws before giving up.
 
-    Returns:
-      - (k, p) array of center coordinates.
+    Returns
+    -------
+    centers : ndarray of shape (k, p)
+        Center coordinates.
     """
     centers = []
     tries = 0

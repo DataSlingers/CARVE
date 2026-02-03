@@ -1,62 +1,129 @@
+"""Consensus matrix utilities and stability metrics.
+
+This module builds consensus matrices from repeated clustering runs and
+derives stability statistics such as Gini, cross-entropy, and PAC.
+"""
+
 from typing import List, Tuple, Union
 import numpy as np
 from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import squareform
 
-IndexLabels = Tuple[np.ndarray, np.ndarray]     # (P_1_idx, labels_1)
+SampledLabels = Tuple[np.ndarray, np.ndarray]     # (sample_indices, labels)
 # IndexLabelsIntersect = Tuple[
 #     np.ndarray, np.ndarray,                     # P_1_idx, P_2_idx
 #     np.ndarray, np.ndarray                      # labels_1, labels_2
 # ]
 
-def build_consensus_matrix(
-    n: int,
-    runs: List[IndexLabels], 
+
+def compute_consensus_matrix(
+    n_samples: int,
+    runs: List[SampledLabels], 
     *,
     return_counts: bool = False
 ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray, np.ndarray]]:
-    M_sum = np.zeros((n, n), dtype=float)
-    I_sum = np.zeros((n, n), dtype=float)
+    """Compute a consensus matrix from resampled clustering runs.
+
+    Parameters
+    ----------
+    n_samples : int
+        Total number of samples in the original dataset.
+    runs : list of tuple of (ndarray, ndarray)
+        Each run is (sample_indices, labels), where ``sample_indices`` are
+        integer indices into the original dataset and ``labels`` are cluster
+        assignments for those indices.
+    return_counts : bool, default=False
+        If True, also return raw co-cluster and co-sample counts.
+
+    Returns
+    -------
+    consensus_matrix : ndarray of shape (n_samples, n_samples)
+        Fraction of times each sample pair co-clustered when co-sampled.
+        Pairs never co-sampled are set to NaN.
+    co_cluster_counts : ndarray of shape (n_samples, n_samples)
+        Raw counts of co-clustering across runs (only if ``return_counts``).
+    co_sample_counts : ndarray of shape (n_samples, n_samples)
+        Raw counts of co-sampling across runs (only if ``return_counts``).
+    """
+    co_cluster_counts = np.zeros((n_samples, n_samples), dtype=float)
+    co_sample_counts = np.zeros((n_samples, n_samples), dtype=float)
     
-    for idx, labels in runs:
-        I_sum[np.ix_(idx, idx)] += 1        # count which pairs were ever co-sampled
+    for sample_idx, labels in runs:
+        # Count which pairs were ever co-sampled.
+        co_sample_counts[np.ix_(sample_idx, sample_idx)] += 1
         
-        for lab in np.unique(labels):
-            pts = idx[labels == lab]
-            M_sum[np.ix_(pts, pts)] += 1    # increment same-cluster counts
+        for label in np.unique(labels):
+            label_idx = sample_idx[labels == label]
+            # Increment same-cluster counts for pairs assigned to the same label.
+            co_cluster_counts[np.ix_(label_idx, label_idx)] += 1
         
-    # build consensus fraction
+    # Build consensus fraction.
     with np.errstate(divide='ignore', invalid='ignore'):
-        M = M_sum / I_sum
-    M[I_sum == 0] = np.nan                  # set never-sampled pairs to np.nan
+        consensus_matrix = co_cluster_counts / co_sample_counts
+    # Set never-sampled pairs to NaN.
+    consensus_matrix[co_sample_counts == 0] = np.nan
 
     if return_counts:
-        return M, M_sum, I_sum
+        return consensus_matrix, co_cluster_counts, co_sample_counts
     else:
-        return M
+        return consensus_matrix
     
-def order_consensus_matrix(
-    raw_cons_mat: np.ndarray, 
+    
+def reorder_consensus_matrix(
+    consensus_matrix: np.ndarray, 
     *,
     fill_nan_for_order: float = 0.0
 ) -> tuple[np.ndarray, np.ndarray]:
-    M_for_order = np.nan_to_num(raw_cons_mat, nan=fill_nan_for_order)
-    dists = squareform(1.0 - M_for_order, checks=False)
-    Z = linkage(dists, method='average')
-    order = leaves_list(Z)
+    """Reorder a consensus matrix by hierarchical clustering of distances.
+
+    Parameters
+    ----------
+    consensus_matrix : ndarray of shape (n_samples, n_samples)
+        Consensus matrix with values in [0, 1] and NaNs for never-sampled pairs.
+    fill_nan_for_order : float, default=0.0
+        Value used to replace NaNs when computing the clustering order only.
+
+    Returns
+    -------
+    reordered : ndarray of shape (n_samples, n_samples)
+        Consensus matrix reordered by dendrogram leaves.
+    order : ndarray of shape (n_samples,)
+        The permutation of indices applied to rows and columns.
+    """
+    matrix_for_order = np.nan_to_num(consensus_matrix, nan=fill_nan_for_order)
+    distances = squareform(1.0 - matrix_for_order, checks=False)
+    linkage_matrix = linkage(distances, method='average')
+    order = leaves_list(linkage_matrix)
     
-    return raw_cons_mat[np.ix_(order, order)], order
+    return consensus_matrix[np.ix_(order, order)], order
+  
     
-def compute_consensus_metrics_batch(
-    cons_mats_raw: List[np.ndarray]
+def compute_consensus_metrics(
+    consensus_matrices: List[np.ndarray]
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float]]:
+    """Compute stability metrics for multiple consensus matrices.
+
+    Parameters
+    ----------
+    consensus_matrices : list of ndarray
+        Consensus matrices to evaluate.
+
+    Returns
+    -------
+    gini_list : list of ndarray
+        Per-sample stability scores based on the Gini-style statistic.
+    ce_list : list of ndarray
+        Per-sample stability scores based on cross-entropy.
+    pac_list : list of float
+        Global PAC-based stability scores (1 - PAC).
+    """
     gini_list = []
     ce_list = []
     pac_list = []
     
-    for M in cons_mats_raw:
-        s_gini, s_ce = stab_from_consensus(M)
-        pac = consensus_pac(M)
+    for consensus_matrix in consensus_matrices:
+        s_gini, s_ce = stability_from_consensus(consensus_matrix)
+        pac = compute_consensus_pac(consensus_matrix)
         
         gini_list.append(s_gini)
         ce_list.append(s_ce)
@@ -64,170 +131,72 @@ def compute_consensus_metrics_batch(
         
     return gini_list, ce_list, pac_list
 
-def stab_from_consensus(M: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    P = np.array(M, dtype=float, copy=True)
-    np.fill_diagonal(P, np.nan)
+
+def stability_from_consensus(consensus_matrix: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Compute per-sample stability scores from a consensus matrix.
+
+    Parameters
+    ----------
+    consensus_matrix : ndarray of shape (n_samples, n_samples)
+        Consensus matrix with values in [0, 1] and NaNs for never-sampled pairs.
+
+    Returns
+    -------
+    s_gini : ndarray of shape (n_samples,)
+        Gini-based stability score per sample in [0, 1].
+    s_ce : ndarray of shape (n_samples,)
+        Cross-entropy-based stability score per sample in [0, 1].
+    """
+    consensus_probs = np.array(consensus_matrix, dtype=float, copy=True)
+    np.fill_diagonal(consensus_probs, np.nan)
     
-    term = P * (1.0 - P)
+    term = consensus_probs * (1.0 - consensus_probs)
     
-    S = np.clip(P, 1e-12, 1.0 - 1e-12)
-    H = -(S * np.log(S) + (1.0 - S) * np.log(1.0 - S))
+    clipped = np.clip(consensus_probs, 1e-12, 1.0 - 1e-12)
+    entropy = -(clipped * np.log(clipped) + (1.0 - clipped) * np.log(1.0 - clipped))
 
     u_gini = 2.0 * np.nanmean(term, axis=1)     # [0, 0.5]           
-    u_ce = np.nanmean(H, axis=1)                # [0, log2]
+    u_ce = np.nanmean(entropy, axis=1)          # [0, log2]
 
     s_gini = 1.0 - np.clip(2.0 * u_gini, 0.0, 1.0)
     s_ce = 1.0 - np.clip(u_ce / np.log(2.0), 0.0, 1.0)
     
     return s_gini, s_ce
     
-def consensus_pac(
-    M: np.ndarray, 
+    
+def compute_consensus_pac(
+    consensus_matrix: np.ndarray, 
     *, 
     tau: float = 0.05, 
 ) -> float:
-    P = np.array(M, dtype=float, copy=True)
-    n = P.shape[0]
-    mask = ~np.eye(n, dtype=bool)
-    V = P[mask]
-    V = V[~np.isnan(V)]
+    """Compute PAC-based stability score from a consensus matrix.
+
+    PAC measures the proportion of ambiguous consensus values in
+    $(\tau, 1-\tau)$. This function returns $1 - \text{PAC}$ so that larger
+    values indicate greater stability.
+
+    Parameters
+    ----------
+    consensus_matrix : ndarray of shape (n_samples, n_samples)
+        Consensus matrix with values in [0, 1] and NaNs for never-sampled pairs.
+    tau : float, default=0.05
+        Ambiguity threshold defining the PAC interval.
+
+    Returns
+    -------
+    score : float
+        Stability score in [0, 1], or NaN if no valid pairs exist.
+    """
+    consensus_probs = np.array(consensus_matrix, dtype=float, copy=True)
+    n_samples = consensus_probs.shape[0]
+    mask = ~np.eye(n_samples, dtype=bool)
+    values = consensus_probs[mask]
+    values = values[~np.isnan(values)]
     
-    if V.size == 0:
+    if values.size == 0:
         return np.nan
     
-    amb = ((V > tau) & (V < (1 - tau))).sum()
-    pac = amb / V.size
+    ambiguous = ((values > tau) & (values < (1 - tau))).sum()
+    pac = ambiguous / values.size
     return 1.0 - pac
 
-# def build_consensus_and_flip(
-#     n: int,
-#     runs: List[IndexLabelsIntersect], 
-#     *,
-#     return_counts: bool = False
-# ):
-#     M_sum = np.zeros((n,n), float)  # AND
-#     F_sum = np.zeros((n,n), float)  # XOR
-#     U_sum = np.zeros((n,n), float)  # OR = AND + XOR
-#     I_sum = np.zeros((n,n), float)  # co-observed (overlap)
-
-#     for idx1, idx2, l1, l2 in runs:
-#         O, i1, i2 = np.intersect1d(idx1, idx2, return_indices=True)
-#         if O.size == 0:
-#             continue
-#         a1 = l1[i1]
-#         a2 = l2[i2]
-
-#         # build per-cluster blocks once per partition
-#         # A^(1): union over clusters of rows x rows; A^(2): same for cols x cols (both on O)
-#         A1 = np.zeros((O.size, O.size), dtype=bool)
-#         A2 = np.zeros((O.size, O.size), dtype=bool)
-#         for labs, A in ((a1, A1), (a2, A2)):
-#             u, inv = np.unique(labs, return_inverse=True)
-#             for k in range(u.size):
-#                 m = (inv == k)
-#                 if m.sum() > 1:
-#                     A[np.ix_(m, m)] = True
-#                 else:
-#                     A[m, m] = True  # keep diagonals consistent
-
-#         # update counts on the overlap block
-#         S_block = A1 & A2               # AND
-#         U_block = A1 | A2               # OR
-#         F_block = U_block ^ S_block     # XOR
-
-#         I_sum[np.ix_(O, O)] += 1
-#         M_sum[np.ix_(O, O)] += S_block
-#         U_sum[np.ix_(O, O)] += U_block
-#         F_sum[np.ix_(O, O)] += F_block
-
-#     with np.errstate(divide='ignore', invalid='ignore'):
-#         M = M_sum / I_sum
-#         U = U_sum / I_sum
-#         F = F_sum / I_sum
-    
-#     for A in (M, U, F):
-#         A[I_sum == 0] = np.nan
-
-#     if return_counts:
-#         return (M, U, F, M_sum, U_sum, F_sum, I_sum)
-#     return (M, U, F)
-
-# def build_contingency_entropy(
-#     runs: List[IndexLabelsIntersect],
-#     *,
-#     return_counts: bool = False
-# ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray, np.ndarray]]:
-#     R = len(runs)
-#     H_weighted = np.full(R, np.nan, dtype=float)
-#     H_unweighted = np.full(R, np.nan, dtype=float)
-#     overlap_sizes = np.zeros(R, dtype=int)
-
-#     for r, (idx1, idx2, l1, l2) in enumerate(runs):
-#         # overlap and alignment of labels on the overlap
-#         O, i1, i2 = np.intersect1d(idx1, idx2, return_indices=True)
-#         m = O.size
-#         overlap_sizes[r] = m
-#         if m <= 1:
-#             # empty or singleton overlap: no uncertainty measurable
-#             H_weighted[r] = np.nan
-#             H_unweighted[r] = np.nan
-#             continue
-
-#         a = l1[i1].astype(int)
-#         b = l2[i2].astype(int)
-
-#         # relabel to compact 0..k-1 indices per side (only labels present on O)
-#         au, a_inv = np.unique(a, return_inverse=True)   # k1 present rows
-#         bu, b_inv = np.unique(b, return_inverse=True)   # k2 present cols
-#         k1, k2 = au.size, bu.size
-
-#         # build contingency N (k1 x k2)
-#         N = np.zeros((k1, k2), dtype=float)
-#         np.add.at(N, (a_inv, b_inv), 1.0)
-
-#         # row sums and row-normalized probabilities
-#         row_sum = N.sum(axis=1, keepdims=True)  # shape (k1,1)
-#         # rows with at least one item:
-#         valid_rows = (row_sum[:, 0] > 0)
-
-#         P = np.divide(N, row_sum, out=np.zeros_like(N), where=row_sum > 0)
-
-#         # row entropies: -∑ p log p (0*log0 := 0)
-#         with np.errstate(divide='ignore', invalid='ignore'):
-#             logP = np.where(P > 0, np.log(P), 0.0)
-#         H_rows = -np.sum(P * logP, axis=1)  # shape (k1,)
-
-#         # normalize to [0,1] by log(k2) (max entropy occurs at uniform over k2)
-#         if k2 >= 2:
-#             norm = np.log(k2)
-#             H_rows_norm = H_rows / norm
-#         else:
-#             # if C2 has only one label on O, the mapping is degenerate -> entropy 0
-#             H_rows_norm = np.zeros_like(H_rows)
-
-#         # size-weighted average across rows (weights = row sizes)
-#         weights = row_sum[:, 0]
-#         if valid_rows.any():
-#             w = weights[valid_rows]
-#             h = H_rows_norm[valid_rows]
-#             H_weighted[r] = (h @ w) / w.sum()
-#             H_unweighted[r] = h.mean()
-#         else:
-#             H_weighted[r] = np.nan
-#             H_unweighted[r] = np.nan
-
-#     if return_counts:
-#         return np.mean(H_weighted), H_unweighted, overlap_sizes
-#     return np.mean(H_weighted)
-    
-# def compute_flip_metric_batch(
-#     n: int,
-#     instability_fields: List[np.ndarray]
-# ) -> Tuple[List[float]]:
-#     flip_stability_list = []
-    
-#     for F in instability_fields:
-#         flip_rate = np.nanmean(F[~np.eye(n, dtype=bool)])
-#         flip_stability_list.append(flip_rate)
-        
-#     return flip_stability_list

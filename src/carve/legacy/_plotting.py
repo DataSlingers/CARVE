@@ -1,3 +1,5 @@
+"""Legacy plotting utilities for CARVE (static and interactive)."""
+
 from __future__ import annotations
 import warnings
 
@@ -24,13 +26,13 @@ except Exception:
 
 from ._selection import (
     MEASURE_MAP,
-    select_best_row,
+    select_best_row_max,
     select_best_row_1se,
     select_best_row_quantile,
-    get_best_row
+    select_best_row_by_rule
 )
 
-from ._consensus import order_consensus_matrix
+from ._consensus import reorder_consensus_matrix
 
 Measure = Literal[
     "stability", "generalizability", "consensus_pac", "consensus_gini", "consensus_ce"
@@ -86,24 +88,92 @@ RULES_FOR_COL = {
 
 @dataclass(frozen=True)
 class PlotConfig:
+    """Configuration for legacy plotting functions.
+
+    Attributes
+    ----------
+    figsize : tuple of int
+        Figure size in inches.
+    decimals : int
+        Decimal precision for labels.
+    show_grid : bool
+        Whether to show grid lines.
+    legend_outside : bool
+        Whether to place legend outside the axes.
+    """
     figsize: Tuple[int, int] = (10, 8)
     decimals: int = 4
     show_grid: bool = True
     legend_outside: bool = True
     
 def _require_columns(df: pd.DataFrame, cols: Iterable[str]) -> None:
+    """Raise if required columns are missing.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Results table.
+    cols : iterable of str
+        Required column names.
+
+    Raises
+    ------
+    ValueError
+        If any required columns are missing.
+    """
     missing = [c for c in cols if c not in df.columns]
     if missing:
         raise ValueError(f"DataFrame missing required columns: {missing}")
     
 def _group_columns(df: pd.DataFrame) -> List[str]:
-    """All columns except NON_PARAM_COLS are considered parameter columns (incl. 'estimator')."""
+    """Return parameter columns used to group configurations.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Results table.
+
+    Returns
+    -------
+    cols : list of str
+        Columns excluding ``NON_PARAM_COLS``.
+    """
     return [c for c in df.columns if c not in NON_PARAM_COLS]
 
 def _fmt_float(x: float, decimals: int = 4) -> str:
+    """Format a float with fixed precision.
+
+    Parameters
+    ----------
+    x : float
+        Value to format.
+    decimals : int, default=4
+        Decimal precision.
+
+    Returns
+    -------
+    text : str
+        Formatted value.
+    """
     return f"{float(x):.{decimals}f}"
 
 def _build_group_label(keys: Tuple, group_cols: Sequence[str], decimals: int) -> str:
+    """Build a group label from grouped column keys.
+
+    Parameters
+    ----------
+    keys : tuple
+        Group key values.
+    group_cols : sequence of str
+        Group column names.
+    decimals : int
+        Decimal precision for floats.
+
+    Returns
+    -------
+    label : str
+        Human-readable label.
+    """
     if not isinstance(keys, tuple):
         keys = (keys,)
     
@@ -131,12 +201,25 @@ def plot_measure_vs_k(
     rule: Rule = "max",
     config: PlotConfig = PlotConfig()
 ) -> None:
+    """Plot a global measure versus k for each configuration.
+
+    Parameters
+    ----------
+    model_df : pandas.DataFrame
+        Results table.
+    measure : Measure, default="stability"
+        Metric key to plot.
+    rule : Rule, default="max"
+        Selection rule for highlighting the best k.
+    config : PlotConfig, default=PlotConfig()
+        Plot configuration.
+    """
     cfg = config or PlotConfig()
     y_col = MEASURE_MAP[measure]
     _require_columns(model_df, ["n_clusters", y_col])
     
     group_cols = _group_columns(model_df)
-    best_row = get_best_row(model_df, measure, rule)
+    best_row = select_best_row_by_rule(model_df, measure, rule)
     best_k = int(best_row["n_clusters"]) if pd.notna(best_row.get("n_clusters")) else None
     
     fig, ax = plt.subplots(figsize=cfg.figsize)
@@ -177,6 +260,17 @@ def plot_pipeline_vs_k(
     measure: Measure = "stability",
     config: PlotConfig | None = None
 ) -> None:
+    """Plot a measure over k for preprocessing pipelines.
+
+    Parameters
+    ----------
+    pipeline_df : pandas.DataFrame
+        Preprocessing results table.
+    measure : Measure, default="stability"
+        Metric key to plot.
+    config : PlotConfig or None, default=None
+        Plot configuration.
+    """
     config = config or PlotConfig()
     y_col = MEASURE_MAP[measure]
     _require_columns(pipeline_df, ["norm__func", "dr__method", "n_clusters", y_col])
@@ -210,18 +304,35 @@ def plot_consensus_matrix(
     k: Optional[int] = None, 
     config: PlotConfig | None = None
 ) -> None:
+    """Plot the consensus matrix for the selected configuration.
+
+    Parameters
+    ----------
+    model_df : pandas.DataFrame
+        Results table.
+    consensus_mats_raw : sequence of ndarray
+        Consensus matrices aligned with ``model_df`` rows.
+    measure : Measure, default="stability"
+        Metric key used for selection.
+    rule : Rule, default="max"
+        Selection rule.
+    k : int or None, default=None
+        Optional fixed number of clusters.
+    config : PlotConfig or None, default=None
+        Plot configuration.
+    """
     cfg = config or PlotConfig()
 
     df = model_df if k is None else model_df[model_df["n_clusters"] == k]
     if df.empty:
         raise ValueError("No rows available for the given k filter.")
     
-    best_idx = get_best_row(df, measure, rule, return_idx=True)
+    best_idx = select_best_row_by_rule(df, measure, rule, return_idx=True)
     
     best_row = df.loc[int(best_idx)]
     
     C = consensus_mats_raw[int(best_idx)]
-    C_ordered, _ = order_consensus_matrix(C)
+    C_ordered, _ = reorder_consensus_matrix(C)
     
     params: Dict[str, str] = {}
     for key, value in best_row.items():
@@ -262,6 +373,31 @@ def plot_clustering(
     min_alpha: float = 0.30,
     max_alpha: float = 1.00,
 ) -> None:
+    """Plot clustering scatter with sample-level encodings.
+
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        Input data.
+    row : pandas.Series
+        Selected results row.
+    labels : ndarray of shape (n_samples,)
+        Cluster labels.
+    sample_level_measures : ndarray of shape (n_samples,)
+        Per-sample metric values.
+    measure : Measure, default="stability"
+        Metric key used for labels/annotation.
+    config : PlotConfig or None, default=None
+        Plot configuration.
+    min_size : float, default=20.0
+        Minimum point size.
+    max_size : float, default=180.0
+        Maximum point size.
+    min_alpha : float, default=0.30
+        Minimum point alpha.
+    max_alpha : float, default=1.00
+        Maximum point alpha.
+    """
     cfg = config or PlotConfig()
     
     n = X.shape[0]
@@ -365,6 +501,33 @@ def plot_consensus_clustering(
     min_alpha: float = 0.30,
     max_alpha: float = 1.00,
 ) -> None:
+    """Plot clustering scatter, boxplot, and consensus matrix.
+
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        Input data.
+    row : pandas.Series
+        Selected results row.
+    labels : ndarray of shape (n_samples,)
+        Cluster labels.
+    sample_level_measures : ndarray of shape (n_samples,)
+        Per-sample metric values.
+    consensus_mat_raw : ndarray of shape (n_samples, n_samples)
+        Raw consensus matrix.
+    measure : Measure, default="stability"
+        Metric key used for labels/annotation.
+    config : PlotConfig or None, default=None
+        Plot configuration.
+    min_size : float, default=20.0
+        Minimum point size.
+    max_size : float, default=180.0
+        Maximum point size.
+    min_alpha : float, default=0.30
+        Minimum point alpha.
+    max_alpha : float, default=1.00
+        Maximum point alpha.
+    """
     cfg = config or PlotConfig()
     
     n = X.shape[0]
@@ -440,7 +603,7 @@ def plot_consensus_clustering(
     # ax1.set_ylabel("pc2")
         
     # right panel: consensus matrix
-    C_ordered, order = order_consensus_matrix(consensus_mat_raw)
+    C_ordered, order = reorder_consensus_matrix(consensus_mat_raw)
     ax2.imshow(C_ordered, aspect="auto", interpolation="none")
     
     # top color strip
@@ -491,6 +654,21 @@ def plot_measure_vs_k_interactive(
     width: int = 1000,
     height: int = 800,
 ) -> None:
+    """Plot global metrics vs k using Plotly (interactive).
+
+    Parameters
+    ----------
+    model_df : pandas.DataFrame
+        Results table.
+    measure : Measure, default="stability"
+        Metric key to plot by default.
+    rule : Rule, default="max"
+        Selection rule for highlighting the best k.
+    width : int, default=1000
+        Figure width in pixels.
+    height : int, default=800
+        Figure height in pixels.
+    """
     if not _HAS_PLOTLY:
         raise RuntimeError("plotly is not available. Install plotly to use interactive plots.")
     
@@ -608,7 +786,7 @@ def plot_measure_vs_k_interactive(
         if measure_key is None:
             continue
         for r in RULES_FOR_COL.get(col, ["max"]):
-            row = get_best_row(model_df, measure_key, r)
+            row = select_best_row_by_rule(model_df, measure_key, r)
             k = int(row["n_clusters"]) if pd.notna(row.get("n_clusters")) else None
             best_k_map[(pretty, r)] = k
 
@@ -723,6 +901,44 @@ def plot_clustering_interactive(
     max_alpha: float = 1.00,
     auto_display: bool = True
 ) -> "go.Figure":
+    """Plot interactive clustering scatter and boxplots with Plotly.
+
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        Input data.
+    row : pandas.Series
+        Selected results row.
+    labels : ndarray of shape (n_samples,)
+        Cluster labels.
+    stab_gini_vec : ndarray of shape (n_samples,)
+        Per-sample Gini stability scores.
+    stab_ce_vec : ndarray of shape (n_samples,)
+        Per-sample cross-entropy stability scores.
+    gen_vec : ndarray of shape (n_samples,)
+        Per-sample generalizability scores.
+    measure : Measure, default="stability"
+        Metric key used to select the default display.
+    width : int, default=1000
+        Figure width in pixels.
+    height : int, default=800
+        Figure height in pixels.
+    min_size : float, default=20.0
+        Minimum marker size.
+    max_size : float, default=180.0
+        Maximum marker size.
+    min_alpha : float, default=0.30
+        Minimum marker alpha.
+    max_alpha : float, default=1.00
+        Maximum marker alpha.
+    auto_display : bool, default=True
+        If True, display the figure immediately.
+
+    Returns
+    -------
+    fig : plotly.graph_objects.Figure
+        Plotly figure instance.
+    """
     if not _HAS_PLOTLY:
         raise RuntimeError("plotly is not available. Install plotly to use interactive plots.")
     
@@ -1047,9 +1263,11 @@ def plot_clustering_interactive(
 
 # ––––– Debugging Plotting Functions ––––– 
 def plot_ari_hist():
+    """Placeholder for ARI histogram plotting."""
     ...
     pass
 
 def plot_cluster_stability():
+    """Placeholder for cluster stability plotting."""
     ...
     pass

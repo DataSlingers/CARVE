@@ -1,3 +1,5 @@
+"""Plotting utilities and figure configuration for CARVE."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -15,7 +17,7 @@ from matplotlib.ticker import MaxNLocator
 from cmap import Colormap
 
 
-from ._selection import get_best_row, MEASURE_MAP, Measure, Rule
+from ._selection import select_best_row_by_rule, MEASURE_MAP, Measure, Rule
 
 
 PlotMode = Literal["screen", "plos"]
@@ -52,12 +54,50 @@ OKABE_ITO = [
 
 
 def _pt_to_in(pt: float) -> float:
+    """Convert points to inches.
+
+    Parameters
+    ----------
+    pt : float
+        Value in points.
+
+    Returns
+    -------
+    inches : float
+        Value converted to inches.
+    """
     return float(pt) / 72.0
 
 
 @dataclass(frozen=True)
 class PlotSpec:
-    """Central plot configuration shared by all plotting functions."""
+    """Central plot configuration shared by all plotting functions.
+
+    Attributes
+    ----------
+    mode : {"screen", "plos"}
+        Plotting mode that controls defaults and export behavior.
+    width_in : float
+        Figure width in inches.
+    height_in : float
+        Figure height in inches.
+    font_family : str
+        Font family for text elements.
+    base_fontsize : float
+        Base font size for labels and ticks.
+    axes_linewidth : float
+        Axes line width.
+    tick_width : float
+        Tick line width.
+    tick_length : float
+        Tick length in points.
+    dpi : int
+        Resolution in dots per inch.
+    file_format : {"png", "tiff", "eps", "pdf"}
+        Default export file format.
+    constrained_layout : bool
+        Whether to use Matplotlib constrained layout.
+    """
     mode: PlotMode = "screen"
 
     # Figure geometry (in inches)
@@ -89,9 +129,25 @@ def plos_spec(
     font_family: Literal["Arial", "Times New Roman", "Symbol"] | str = "Arial",
     base_fontsize: float = 9.0,
 ) -> PlotSpec:
-    """
-    Convenience spec aimed at PLOS Comp Bio.
-    We cap dpi into [300, 600] as recommended by PLOS.
+    """Create a PlotSpec tailored to PLOS Comp Bio guidelines.
+
+    Parameters
+    ----------
+    width_in : float, default=PLOS_COLUMN_W_IN
+        Figure width in inches.
+    height_in : float or None, default=None
+        Figure height in inches. If None, a safe aspect ratio is chosen.
+    dpi : int, default=600
+        Resolution in dots per inch (clipped to [300, 600]).
+    font_family : str, default="Arial"
+        Font family (PLOS-allowed fonts recommended).
+    base_fontsize : float, default=9.0
+        Base font size.
+
+    Returns
+    -------
+    spec : PlotSpec
+        Plot specification suitable for PLOS export.
     """
     dpi = int(np.clip(dpi, PLOS_DPI_MIN, PLOS_DPI_MAX))
 
@@ -138,6 +194,26 @@ def screen_spec(
     base_fontsize: float = 11.0,
     font_family: str = "DejaVu Sans",
 ) -> PlotSpec:
+    """Create a PlotSpec for screen display.
+
+    Parameters
+    ----------
+    width_in : float, default=8.0
+        Figure width in inches.
+    height_in : float, default=5.0
+        Figure height in inches.
+    dpi : int, default=120
+        Resolution in dots per inch.
+    base_fontsize : float, default=11.0
+        Base font size.
+    font_family : str, default="DejaVu Sans"
+        Font family.
+
+    Returns
+    -------
+    spec : PlotSpec
+        Plot specification for screen output.
+    """
     return PlotSpec(
         mode="screen",
         width_in=float(width_in),
@@ -151,14 +227,17 @@ def screen_spec(
 
 
 def _rcparams_for(spec: PlotSpec) -> dict[str, Any]:
-    """
-    Matplotlib rcParams tuned for either screen use or PLOS export.
+    """Return Matplotlib rcParams tuned for a PlotSpec.
 
-    For PLOS we try to:
-    - use Arial/Times/Symbol (matplotlib falls back if missing)
-    - keep text 8–12 pt
-    - keep line widths readable after downscaling
-    - embed TrueType fonts in PDF/PS outputs
+    Parameters
+    ----------
+    spec : PlotSpec
+        Plot specification.
+
+    Returns
+    -------
+    rcparams : dict
+        Dictionary of rcParams values.
     """
     font_list = [spec.font_family]
     if spec.mode == "plos":
@@ -193,23 +272,30 @@ def _rcparams_for(spec: PlotSpec) -> dict[str, Any]:
 
 
 class plotting_context:
-    """
-    Context manager that applies CARVE plotting defaults.
+    """Context manager that applies CARVE plotting defaults.
 
-    Example:
-        with plotting_context(plos_spec()):
-            fig, ax = new_figure()
-            ...
-            save_figure(fig, "Fig1.tiff", spec=plos_spec())
+    Parameters
+    ----------
+    spec : PlotSpec
+        Plot specification to apply within the context.
+
+    Examples
+    --------
+    >>> with plotting_context(plos_spec()):
+    ...     fig, ax = new_figure(spec=plos_spec())
+    ...     save_figure(fig, "Fig1.tiff", spec=plos_spec())
     """
     def __init__(self, spec: PlotSpec):
+        """Initialize the context manager."""
         self.spec = spec
         self._ctx = mpl.rc_context(_rcparams_for(spec))
 
     def __enter__(self):
+        """Enter the context and apply rcParams."""
         return self._ctx.__enter__()
 
     def __exit__(self, exc_type, exc, tb):
+        """Exit the context and restore rcParams."""
         return self._ctx.__exit__(exc_type, exc, tb)
 
 
@@ -221,9 +307,27 @@ def new_figure(
     sharex: bool | str = False,
     sharey: bool | str = False,
 ) -> tuple[mpl.figure.Figure, Any]:
-    """
-    Create a figure sized according to spec.
-    Returns (fig, ax) where ax is an ndarray for grids, or Axes for 1×1.
+    """Create a new Matplotlib figure sized according to spec.
+
+    Parameters
+    ----------
+    spec : PlotSpec
+        Plot specification.
+    nrows : int, default=1
+        Number of subplot rows.
+    ncols : int, default=1
+        Number of subplot columns.
+    sharex : bool or str, default=False
+        Matplotlib sharex setting.
+    sharey : bool or str, default=False
+        Matplotlib sharey setting.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure object.
+    ax : matplotlib.axes.Axes or ndarray
+        Axes object(s); an array if using a grid of subplots.
     """
     fig, ax = plt.subplots(
         nrows=nrows,
@@ -243,13 +347,18 @@ def save_figure(
     spec: PlotSpec,
     transparent: bool = False,
 ) -> None:
-    """
-    Save figure with mode-aware defaults.
+    """Save a figure with mode-aware defaults.
 
-    Notes for PLOS:
-    - recommended resolution 300–600 dpi
-    - TIFF/EPS accepted
-    - recommended 2-pt border
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        Figure to save.
+    path : str
+        Output path.
+    spec : PlotSpec
+        Plot specification controlling export settings.
+    transparent : bool, default=False
+        Whether to save with a transparent background.
     """
     kwargs: dict[str, Any] = {}
 
@@ -300,11 +409,17 @@ _BOX_YLABELS: Mapping[str, str] = {
 
 
 def infer_metric_cols(df: pd.DataFrame) -> set[str]:
-    """
-    Infer “metric-like” columns to exclude from hyperparameter grouping.
-    We exclude:
-      - known metric bases
-      - any col that matches base+suffix for common suffixes
+    """Infer metric-like columns to exclude from parameter grouping.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Results table.
+
+    Returns
+    -------
+    cols : set of str
+        Column names treated as metrics.
     """
     cols = set(df.columns)
     out: set[str] = set()
@@ -319,9 +434,17 @@ def infer_metric_cols(df: pd.DataFrame) -> set[str]:
 
 
 def infer_param_cols(df: pd.DataFrame) -> list[str]:
-    """
-    Columns that define a method configuration, excluding n_clusters and metric outputs.
-    Unique identifiers: estimator + hyperparams (except n_clusters).
+    """Infer parameter columns that identify a configuration.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Results table.
+
+    Returns
+    -------
+    cols : list of str
+        Columns used to define a unique method configuration.
     """
     metric_cols = infer_metric_cols(df)
     exclude = {"n_clusters"} | metric_cols
@@ -333,6 +456,20 @@ def infer_param_cols(df: pd.DataFrame) -> list[str]:
 
 
 def _fmt_param(v: Any, decimals: int = 4) -> str:
+    """Format a parameter value for display.
+
+    Parameters
+    ----------
+    v : Any
+        Value to format.
+    decimals : int, default=4
+        Decimal precision for float formatting.
+
+    Returns
+    -------
+    text : str
+        Formatted value.
+    """
     if pd.isna(v):
         return "NA"
     if isinstance(v, (float, np.floating)):
@@ -341,9 +478,21 @@ def _fmt_param(v: Any, decimals: int = 4) -> str:
 
 
 def build_method_id(row: pd.Series, *, param_cols: Sequence[str], decimals: int = 4) -> str:
-    """
-    Stable ID: 'Estimator|p1=v1|p2=v2|...'
-    Excludes n_clusters by construction – param_cols should already exclude it.
+    """Build a stable method ID from a results row.
+
+    Parameters
+    ----------
+    row : pandas.Series
+        Row from a results table.
+    param_cols : sequence of str
+        Parameter columns to include in the identifier.
+    decimals : int, default=4
+        Decimal precision for floats.
+
+    Returns
+    -------
+    method_id : str
+        Identifier in the form ``Estimator|p1=v1|p2=v2|...``.
     """
     parts: list[str] = []
     for c in param_cols:
@@ -352,9 +501,21 @@ def build_method_id(row: pd.Series, *, param_cols: Sequence[str], decimals: int 
 
 
 def build_method_label(row: pd.Series, *, param_cols: Sequence[str], decimals: int = 3) -> str:
-    """
-    Human label for legends. Tries to stay compact.
-    Format: 'Estimator (p1=v1, p2=v2)'
+    """Build a human-readable method label for legends.
+
+    Parameters
+    ----------
+    row : pandas.Series
+        Row from a results table.
+    param_cols : sequence of str
+        Parameter columns to include in the label.
+    decimals : int, default=3
+        Decimal precision for floats.
+
+    Returns
+    -------
+    label : str
+        Label in the form ``Estimator (p1=v1, p2=v2)``.
     """
     est = _fmt_param(row.get("estimator"), decimals)
     params = []
@@ -376,10 +537,21 @@ def add_method_columns(
     param_cols: Sequence[str] | None = None,
     decimals: int = 4,
 ) -> pd.DataFrame:
-    """
-    Returns a copy with:
-      - _method_id
-      - _method_label
+    """Add method identifier and label columns to a DataFrame.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Results table.
+    param_cols : sequence of str or None, default=None
+        Columns to use for method identifiers. If None, inferred automatically.
+    decimals : int, default=4
+        Decimal precision for float formatting.
+
+    Returns
+    -------
+    out : pandas.DataFrame
+        Copy of the input with ``_method_id`` and ``_method_label`` columns.
     """
     if param_cols is None:
         param_cols = infer_param_cols(df)
@@ -391,6 +563,20 @@ def add_method_columns(
 
 
 def require_columns(df: pd.DataFrame, cols: Iterable[str]) -> None:
+    """Raise if required columns are missing.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Results table.
+    cols : iterable of str
+        Required column names.
+
+    Raises
+    ------
+    ValueError
+        If any required columns are missing.
+    """
     missing = [c for c in cols if c not in df.columns]
     if missing:
         raise ValueError(f"missing required columns: {missing}")
@@ -401,6 +587,15 @@ def require_columns(df: pd.DataFrame, cols: Iterable[str]) -> None:
 # ---------------------------------------------------------------------
 
 def legend_outside_right(ax: mpl.axes.Axes, *, title: str | None = None) -> None:
+    """Place the legend outside the right side of an axis.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Target axes.
+    title : str or None, default=None
+        Optional legend title.
+    """
     ax.legend(
         loc="upper left",
         bbox_to_anchor=(1.02, 1.0),
@@ -411,6 +606,22 @@ def legend_outside_right(ax: mpl.axes.Axes, *, title: str | None = None) -> None
 
 
 def compute_1se_band(y: np.ndarray, se: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Compute the 1-SE band around a curve.
+
+    Parameters
+    ----------
+    y : ndarray
+        Central values.
+    se : ndarray
+        Standard errors.
+
+    Returns
+    -------
+    lower : ndarray
+        Lower band (y - se).
+    upper : ndarray
+        Upper band (y + se).
+    """
     y = np.asarray(y, float)
     se = np.asarray(se, float)
     return y - se, y + se
@@ -422,15 +633,44 @@ DRFunc = Callable[[np.ndarray], np.ndarray]
 
 
 def default_dr_pca(X: np.ndarray) -> np.ndarray:
-    # local import so sklearn is only required if DR is used
+    """Project data to 2D using PCA.
+
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        Input data.
+
+    Returns
+    -------
+    Z : ndarray of shape (n_samples, 2)
+        2D PCA projection.
+    """
+    # Local import so sklearn is only required if DR is used.
     from sklearn.decomposition import PCA
     return PCA(n_components=2).fit_transform(X)
 
 
 def project_2d(X: np.ndarray, *, dr: DRFunc | None = None) -> np.ndarray:
-    """
-    Returns an (n,2) projection. If dr returns >2 dims, we take the first two.
-    Accepts either a callable or a transformer object with .fit_transform.
+    """Project data to 2D using a DR function or transformer.
+
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        Input data.
+    dr : callable or transformer, optional
+        Dimensionality reduction function or object with ``fit_transform``.
+
+    Returns
+    -------
+    Z : ndarray of shape (n_samples, 2)
+        2D projection of ``X``.
+
+    Raises
+    ------
+    TypeError
+        If ``dr`` is neither callable nor a transformer with ``fit_transform``.
+    ValueError
+        If the projection does not have shape (n_samples, >=2).
     """
     if dr is None:
         Z = default_dr_pca(X)
@@ -451,12 +691,17 @@ def project_2d(X: np.ndarray, *, dr: DRFunc | None = None) -> np.ndarray:
 # -------------- cluster palette + ordering helpers --------------
 
 def cluster_colors(labels: np.ndarray) -> dict[int, tuple[float, float, float, float]]:
-    """
-    Map integer cluster labels -> RGBA using:
-      - OKABE_ITO palette for <=7 clusters,
-      - tab20 for 8–20 clusters,
-      - a continuous colormap (hsv) for >20 clusters.
-    Keeps a stable order by sorted(unique(labels)).
+    """Map cluster labels to RGBA colors with a stable palette.
+
+    Parameters
+    ----------
+    labels : ndarray of shape (n_samples,)
+        Cluster labels.
+
+    Returns
+    -------
+    colors : dict
+        Mapping from cluster id to RGBA color.
     """
     labs = np.asarray(labels)
     uniq = np.unique(labs)
@@ -475,9 +720,17 @@ def cluster_colors(labels: np.ndarray) -> dict[int, tuple[float, float, float, f
 
 
 def cluster_boundaries(labels_ordered: np.ndarray) -> np.ndarray:
-    """
-    Given labels in the display order (e.g., consensus ordering), return boundary indices
-    where cluster changes (useful for drawing black separators).
+    """Return indices where cluster labels change.
+
+    Parameters
+    ----------
+    labels_ordered : ndarray of shape (n_samples,)
+        Labels in display order.
+
+    Returns
+    -------
+    boundaries : ndarray
+        Indices where cluster transitions occur.
     """
     lab = np.asarray(labels_ordered)
     if lab.ndim != 1:
@@ -492,7 +745,22 @@ def _values_by_cluster(
     *,
     cluster_ids: Sequence[int],
 ) -> list[np.ndarray]:
-    """Split a per-sample vector into a list of arrays (one array per cluster)."""
+    """Split a vector into arrays grouped by cluster.
+
+    Parameters
+    ----------
+    values : ndarray of shape (n_samples,)
+        Per-sample values.
+    labels : ndarray of shape (n_samples,)
+        Cluster labels.
+    cluster_ids : sequence of int
+        Cluster IDs defining the output order.
+
+    Returns
+    -------
+    grouped : list of ndarray
+        One array per cluster.
+    """
     v = np.asarray(values, float)
     y = np.asarray(labels)
 
@@ -510,7 +778,18 @@ def _values_by_cluster(
 
 
 def _cluster_id_order(labels: np.ndarray) -> list[int]:
-    """Stable cluster ordering for display."""
+    """Return a stable ordering of cluster IDs for display.
+
+    Parameters
+    ----------
+    labels : ndarray of shape (n_samples,)
+        Cluster labels.
+
+    Returns
+    -------
+    order : list of int
+        Sorted cluster IDs (excluding outliers).
+    """
     labs = np.asarray(labels)
     uniq = np.unique(labs)
     # Remove outlier label if you use one (e.g., -1 or 'outlier')
@@ -524,7 +803,7 @@ def _cluster_id_order(labels: np.ndarray) -> list[int]:
 # ---------------------------------------------------------------------
 
 def plot_global_metric_over_k(
-    model_df: pd.DataFrame,
+    estimator_df: pd.DataFrame,
     *,
     measure: Measure = "average",
     rule: Rule = "1se",
@@ -547,8 +826,53 @@ def plot_global_metric_over_k(
     x_label: str = "Number of Clusters (k)",
     annotate_selection: bool = True,
 ) -> dict[str, Any]:
-    """
-    Plot a global metric vs k for each method configuration (estimator + hyperparams).
+    """Plot a global metric vs. k for each estimator configuration.
+
+    Parameters
+    ----------
+    estimator_df : pandas.DataFrame
+        Results table containing metrics and hyperparameters.
+    measure : Measure, default="average"
+        Metric to plot.
+    rule : Rule, default="1se"
+        Selection rule for highlighting the best configuration.
+    spec : PlotSpec or None, default=None
+        Plot specification. If None, uses ``screen_spec``.
+    ax : matplotlib.axes.Axes or None, default=None
+        Optional axes to draw into.
+    show_1se : bool, default=True
+        Show 1-SE bands if standard errors are available.
+    show_quant : bool, default=False
+        Show quantile bands if available (ignored when ``show_1se=True``).
+    show_legend_panel : bool or "auto", default="auto"
+        Whether to render a legend panel or annotate endpoints.
+    max_full_annotation : int, default=7
+        Max methods for full annotations before switching to legend.
+    key_label_wrap : int, default=20
+        Wrap width for method labels.
+    marker : str, default="o"
+        Marker style for points.
+    linewidth : float, default=1.6
+        Line width for non-selected methods.
+    alpha_band : float, default=0.18
+        Alpha value for uncertainty bands.
+    highlight_linewidth : float, default=2.8
+        Line width for the selected method.
+    grid_alpha : float, default=0.22
+        Grid line opacity.
+    title : str or None, default=None
+        Plot title.
+    y_label : str or None, default=None
+        Y-axis label (auto-filled if None).
+    x_label : str, default="Number of Clusters (k)"
+        X-axis label.
+    annotate_selection : bool, default=True
+        Whether to annotate the selected configuration.
+
+    Returns
+    -------
+    out : dict
+        Dictionary with figure, axes, and selection metadata.
     """
     spec = spec or screen_spec()
 
@@ -557,10 +881,10 @@ def plot_global_metric_over_k(
         raise ValueError(f"Unknown measure {measure!r}. Valid options: {list(MEASURE_MAP)}")
     y_col = MEASURE_MAP[measure]
 
-    require_columns(model_df, ["n_clusters", y_col])
+    require_columns(estimator_df, ["n_clusters", y_col])
 
     # build method ids/labels (stable grouping)
-    df = model_df
+    df = estimator_df
     if "_method_id" not in df.columns or "_method_label" not in df.columns:
         df = add_method_columns(df)
 
@@ -578,8 +902,8 @@ def plot_global_metric_over_k(
         show_legend = False
 
     # --- selection ---
-    # note: selection expects full model_df shape; extra cols are fine
-    best_row = get_best_row(df, measure=measure, rule=rule, return_idx=False)
+    # note: selection expects full estimator_df shape; extra cols are fine
+    best_row = select_best_row_by_rule(df, measure=measure, rule=rule, return_idx=False)
     best_k = int(best_row["n_clusters"])
     best_method_id = str(best_row["_method_id"])
 
@@ -694,7 +1018,7 @@ def plot_global_metric_over_k(
 
         # declutter strategy: legend or key panel + endpoint labels
         if show_legend:
-            legend_outside_right(ax_main, title="model")
+            legend_outside_right(ax_main, title="estimator")
         else:
             # endpoint code labels with simple collision-avoidance
             ymin, ymax = ax_main.get_ylim()
@@ -739,10 +1063,12 @@ def plot_global_metric_over_k(
 
 
 def plot_consensus_matrix(*args: Any, **kwargs: Any) -> Any:
+    """Placeholder for consensus matrix plotting."""
     raise NotImplementedError("phase 3")
 
 
 def plot_consensus_clustering(*args: Any, **kwargs: Any) -> Any:
+    """Placeholder for consensus-based clustering plot."""
     raise NotImplementedError("phase 4")
 
 
@@ -766,21 +1092,49 @@ def plot_clustering(
     show_boxplot_axes: bool = False,
     annotate_selection: bool = True,
 ) -> dict[str, Any]:
-    """
-    Scatter (left): 2D projection of X using user-provided DR (default PCA).
-    Boxplot (right): cluster-wise distribution of `values`, colored by cluster.
+    """Plot clustering scatter + cluster-wise boxplots for CARVE outputs.
 
-    Selection pathway:
-      - If `carve` is provided and labels/values are None, we:
-        1) select the best row via get_best_row(model_df_, measure, rule)
-        2) get labels via carve.get_optimal_labels(measure, rule, k=...)
-        3) pick per-sample vectors from carve.{stab_gini_arrs_, stab_ce_arrs_, misclassification_arrs_}
+    Parameters
+    ----------
+    carve : object or None, default=None
+        Fitted CARVE instance providing data, labels, and per-sample scores.
+    measure : Measure, default="stability"
+        Metric used to select the best configuration.
+    rule : Rule, default="1se"
+        Selection rule for the best configuration.
+    k : int or None, default=None
+        Optional fixed number of clusters to select.
+    cluster_metric : {"gini", "ce", "misclassification"}, default="gini"
+        Per-sample metric to display in boxplots.
+    dr : callable or transformer, optional
+        Dimensionality reduction function or object with ``fit_transform``.
+    spec : PlotSpec or None, default=None
+        Plot specification. If None, uses ``screen_spec``.
+    title : str or None, default=None
+        Figure title.
+    point_size : float, default=40.0
+        Base point size for scatter.
+    min_point_size : float, default=10.0
+        Minimum point size in scatter.
+    point_alpha : float, default=0.85
+        Maximum point alpha for scatter.
+    min_point_alpha : float, default=0.35
+        Minimum point alpha for scatter.
+    grid_alpha : float, default=0.15
+        Grid line opacity.
+    show_scatter_grid : bool, default=False
+        Whether to show grid lines on the boxplot axis.
+    show_scatter_axes : bool, default=False
+        Whether to show axes on the scatter plot.
+    show_boxplot_axes : bool, default=False
+        Whether to show full axes on the boxplot.
+    annotate_selection : bool, default=True
+        Whether to annotate the selected configuration.
 
-    Boxplot stats:
-      - whiskers: 5th/95th percentiles
-      - box: 25th/75th percentiles
-      - median line + mean line
-      - no fliers (clean)
+    Returns
+    -------
+    out : dict
+        Dictionary with figure, axes, and selection metadata.
     """
     spec = spec or screen_spec()
 
@@ -799,44 +1153,44 @@ def plot_clustering(
     if X is None:
         raise ValueError("X is required. Did you forget to provide to run fit()?")
 
-    model_df = getattr(carve, "model_df_", None)
-    if model_df is None or getattr(model_df, "empty", True):
-        raise ValueError("carve.model_df_ is empty. Did you forget to provide to run fit()?")
+    estimator_df = getattr(carve, "estimator_results_", None)
+    if estimator_df is None or getattr(estimator_df, "empty", True):
+        raise ValueError("carve.estimator_results_ is empty. Did you forget to provide to run fit()?")
 
-    df_sel = model_df.copy()
+    df_sel = estimator_df.copy()
     if k is not None:
         df_sel = df_sel[df_sel["n_clusters"] == int(k)]
         if df_sel.empty:
-            raise ValueError(f"No rows found in model_df_ with n_clusters={k}")
+            raise ValueError(f"No rows found in estimator_results_ with n_clusters={k}")
 
     # choose best row under the unified selection rules
-    selected_idx = get_best_row(df_sel, measure=measure, rule=rule, return_idx=True) 
+    selected_idx = select_best_row_by_rule(df_sel, measure=measure, rule=rule, return_idx=True) 
     selected_row = df_sel.loc[selected_idx]
     selected_k = int(selected_row["n_clusters"])
 
     # labels from CARVE (aligned / consistent with your pipeline)
-    labels = carve.get_optimal_labels(measure=str(measure), rule=str(rule), k=k)
+    labels = carve.get_best_labels(measure=str(measure), rule=str(rule), k=k)
 
     # find "pos" (row position in original model_df_) for per-sample arrays
-    pos = model_df.index.get_loc(selected_idx)
+    pos = estimator_df.index.get_loc(selected_idx)
 
     # pick per-sample values for boxplots
     if cluster_metric == "gini":
-        arrs = getattr(carve, "stab_gini_arrs_", None)
+        arrs = getattr(carve, "stability_gini_scores_", None)
         if arrs is None:
-            raise ValueError("carve.stab_gini_arrs_ not found; cannot plot gini stability.")
+            raise ValueError("carve.stability_gini_scores_ not found; cannot plot gini stability.")
         values = np.asarray(arrs)[pos]
         # selected_method_label = "stability (gini)"
     elif cluster_metric == "ce":
-        arrs = getattr(carve, "stab_ce_arrs_", None)
+        arrs = getattr(carve, "stability_ce_scores_", None)
         if arrs is None:
-            raise ValueError("carve.stab_ce_arrs_ not found; cannot plot ce stability.")
+            raise ValueError("carve.stability_ce_scores_ not found; cannot plot ce stability.")
         values = np.asarray(arrs)[pos]
         # selected_method_label = "stability (ce)"
     elif cluster_metric == "misclassification":
-        arrs = getattr(carve, "misclassification_arrs_", None)
+        arrs = getattr(carve, "generalizability_scores_", None)
         if arrs is None:
-            raise ValueError("carve.misclassification_arrs_ not found; cannot plot generalizability.")
+            raise ValueError("carve.generalizability_scores_ not found; cannot plot generalizability.")
         values = np.asarray(arrs)[pos]
         # selected_method_label = "misclassification"
     else:
@@ -1010,14 +1364,14 @@ def plot_clustering(
 
         # selection annotation
         if annotate_selection and (selected_k is not None):
-            model_df = getattr(carve, "model_df_", None)
-            if model_df is None or getattr(model_df, "empty", True):
-                raise ValueError("carve.model_df_ is empty. Did you forget to provide to run fit()?")
+            estimator_df = getattr(carve, "estimator_results_", None)
+            if estimator_df is None or getattr(estimator_df, "empty", True):
+                raise ValueError("carve.estimator_results_ is empty. Did you forget to provide to run fit()?")
 
-            if "_method_label" not in model_df.columns or "_method_id" not in model_df.columns:
-                model_df = add_method_columns(model_df)
+            if "_method_label" not in estimator_df.columns or "_method_id" not in estimator_df.columns:
+                estimator_df = add_method_columns(estimator_df)
 
-            selected_row_dup = model_df.loc[selected_idx]
+            selected_row_dup = estimator_df.loc[selected_idx]
             best_label = str(selected_row_dup["_method_label"])
             wrapped_label = textwrap.fill(best_label, width=20, break_long_words=False, break_on_hyphens=False)
             msg = f"Selected: k*={selected_k}\n{wrapped_label}"

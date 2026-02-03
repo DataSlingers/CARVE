@@ -1,20 +1,28 @@
+"""Correlation and covariance helpers for simulations."""
+
 import numpy as np
 from typing import Literal
 
 def _build_correlation_matrix(
     *, p: int, corr_type: Literal["none", "ar1", "block"], corr_strength: float, block_size: int | None
 ) -> np.ndarray:
-    """
-    Construct a correlation matrix for the specified correlation structure.
+    """Construct a correlation matrix for the specified structure.
 
-    Parameters:
-        - `p`: number of dimensions.
-        - `corr_type`: "none" (identity), "ar1" (toeplitz), or "block" (block-constant).
-        - `corr_strength`: correlation strength (constraints depend on `corr_type`).
-        - `block_size`: block size for block correlation (required when corr_type="block").
+    Parameters
+    ----------
+    p : int
+        Number of dimensions.
+    corr_type : {"none", "ar1", "block"}
+        Correlation structure type.
+    corr_strength : float
+        Correlation strength (constraints depend on ``corr_type``).
+    block_size : int or None
+        Block size for block correlation (required when ``corr_type='block'``).
 
-    Returns:
-        - (p, p) correlation matrix.
+    Returns
+    -------
+    R : ndarray of shape (p, p)
+        Correlation matrix.
     """
     if corr_type == "none":
         return np.eye(p)
@@ -51,15 +59,19 @@ def _build_correlation_matrix(
         raise ValueError(f"Unknown corr_type `{corr_type}`")
 
 def _cluster_covariances(scales: list[float], R: np.ndarray) -> list[np.ndarray]:
-    """
-    Convert per-cluster scales into covariance matrices using a shared correlation matrix.
+    """Convert per-cluster scales into covariance matrices.
 
-    Parameters:
-        - `scales`: list of per-cluster scale values (interpreted as standard deviations).
-        - `R`: base correlation matrix.
+    Parameters
+    ----------
+    scales : list of float
+        Per-cluster scale values (interpreted as standard deviations).
+    R : ndarray of shape (p, p)
+        Base correlation matrix.
 
-    Returns:
-        - list of (p, p) covariance matrices, one per cluster.
+    Returns
+    -------
+    covs : list of ndarray
+        Covariance matrices, one per cluster.
     """
     covs = []
     for s in scales:

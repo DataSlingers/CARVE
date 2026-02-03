@@ -3,6 +3,7 @@ import inspect
 from typing import Type, Iterable, Any
 
 import numpy as np
+import pandas as pd
 
 from sklearn.base import ClusterMixin
 from sklearn.cluster import AgglomerativeClustering, KMeans, SpectralClustering
@@ -61,84 +62,153 @@ def align_labels(true_labels: np.ndarray, pred_labels: np.ndarray) -> np.ndarray
     return np.array([label_map[l] if l in label_map else l for l in pred_labels])
 
 
-def _pick_first(v: Any) -> Any:
+def _wilson_ci(k_success: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """wilson score interval for a binomial proportion."""
+    if n <= 0:
+        return (np.nan, np.nan)
+    p = k_success / n
+    denom = 1 + (z**2) / n
+    center = (p + (z**2) / (2 * n)) / denom
+    half = (z / denom) * np.sqrt((p * (1 - p) / n) + (z**2) / (4 * n**2))
+    return (max(0.0, center - half), min(1.0, center + half))
+
+
+def _pick_first(value_or_sequence: Any) -> Any:
     """
     Returns the first element if v is a list/tuple; otherwise returns v unchanged.
 
     Args:
-        - v: Parameter value or list/tuple of candidate values.
+        - value_or_sequence: Parameter value or list/tuple of candidate values.
 
     Returns:
         The first element if v is list/tuple; otherwise v.
     """
-    return v[0] if isinstance(v, (list, tuple)) else v
+    return value_or_sequence[0] if isinstance(value_or_sequence, (list, tuple)) else value_or_sequence
+
+
+def _summary_stats(x: pd.Series, q=(0.05, 0.25, 0.50, 0.75, 0.95)) -> dict[str, float]:
+    x = pd.to_numeric(x, errors="coerce").dropna().astype(float)
+    if x.empty:
+        return {k: np.nan for k in ["mean", "sd", "median", "q05", "q25", "q75", "q95"]}
+    qs = x.quantile(list(q))
+    return {
+        "mean": float(x.mean()),
+        "sd": float(x.std(ddof=1)) if x.size > 1 else 0.0,
+        "median": float(qs.loc[0.50]),
+        "q05": float(qs.loc[0.05]),
+        "q25": float(qs.loc[0.25]),
+        "q75": float(qs.loc[0.75]),
+        "q95": float(qs.loc[0.95]),
+    }
 
 
 def _build_estimator(
-    algorithm: Type[ClusterMixin],
-    k: int,
-    algorithm_params: dict[str, list[Any]] | None,
-    seed: int,
+    estimator_cls: Type[ClusterMixin],
+    n_clusters: int,
+    estimator_params: dict[str, list[Any]] | None,
+    random_seed: int,
 ) -> ClusterMixin:
     """
     Builds a clustering estimator with fixed parameters and a specified number of clusters.
 
     Args:
-        - algorithm (Type[ClusterMixin]): Estimator class to instantiate.
-        - k (int): Number of clusters for this estimator instance.
-        - algorithm_params (dict[str, list[Any]] | None): Parameter grid or fixed parameters.
-        - seed (int): Random seed used when the estimator supports random_state.
+        - estimator_cls (Type[ClusterMixin]): Estimator class to instantiate.
+        - n_clusters (int): Number of clusters for this estimator instance.
+        - estimator_params (dict[str, list[Any]] | None): Parameter grid or fixed parameters.
+        - random_seed (int): Random seed used when the estimator supports random_state.
 
     Returns:
         ClusterMixin: Instantiated clustering estimator.
     """
-    # start with the fixed params coming from model_grids[0][1]
+    # start with the fixed params coming from estimator_grids[0][1]
     params = {}
-    if algorithm_params:
-        for key, val in algorithm_params.items():
+    if estimator_params:
+        for key, val in estimator_params.items():
             if key == "n_clusters":
                 continue
             
             params[key] = _pick_first(val)
 
     # set k for this call
-    params["n_clusters"] = k
+    params["n_clusters"] = n_clusters
 
     # set random_state when supported
-    sig = inspect.signature(algorithm.__init__)
+    sig = inspect.signature(estimator_cls.__init__)
     if "random_state" in sig.parameters:
-        params["random_state"] = seed
+        params["random_state"] = random_seed
 
     # pin kmeans defaults across sklearn versions
-    if algorithm.__name__ == "KMeans" or algorithm is KMeans:
+    if estimator_cls.__name__ == "KMeans" or estimator_cls is KMeans:
         if "n_init" in sig.parameters and "n_init" not in params:
             params["n_init"] = 10
 
-    return algorithm(**params)
+    return estimator_cls(**params)
 
 
-def make_model_grids(
-    model: str,
-    test_ks: Iterable[int],
-    spectral_quant: float = 0.5,
-    X: np.ndarray | None = None,
-) -> list[tuple[Type[ClusterMixin], dict[str, list[Any]]]]:
+def get_rule(carve_metric: str) -> str:
     """
-    Creates parameter grids for supported clustering models.
+    Determines the carving rule suffix for a metric name.
 
     Args:
-        - model (str): Model key ('agglomerative', 'spectral', or default to kmeans).
-        - test_ks (Iterable[int]): Candidate cluster counts.
+        - carve_metric (str): Metric name with optional suffixes like '_quant' or '_1se'.
+
+    Returns:
+        str: Rule identifier ('quantile', '1se', or 'max').
+    """
+    if carve_metric.endswith('_quant'):
+        rule = 'quantile'
+    elif carve_metric.endswith('_1se'):
+        rule = '1se'
+    else:
+        rule = 'max'
+        
+    return rule
+
+
+def get_measure(carve_metric: str) -> str:
+    """
+    Extracts the base measure name from a carved metric string.
+
+    Args:
+        - carve_metric (str): Metric name with optional suffixes like '_quant' or '_1se'.
+
+    Returns:
+        str: Base measure name without suffix.
+    """
+    if carve_metric.endswith('_1se'):
+        measure = carve_metric[:-4]
+    elif carve_metric.endswith('_quant'):
+        measure = carve_metric[:-6]
+    else:
+        measure = carve_metric
+        
+    return measure
+    
+
+def make_estimator_grids(
+    estimator: str,
+    candidate_clusters: Iterable[int],
+    spectral_quant: float = 0.5,
+    X: np.ndarray | None = None,
+    random_state: int = 0,
+) -> list[tuple[Type[ClusterMixin], dict[str, list[Any]]]]:
+    """
+    Creates parameter grids for supported clustering estimators.
+
+    Args:
+        - estimator (str): Estimator key ('agglomerative', 'spectral', or default to kmeans).
+        - candidate_clusters (Iterable[int]): Candidate cluster counts.
         - spectral_quant (float): Quantile used for spectral gamma estimation (default: 0.5).
         - X (np.ndarray | None): Data matrix used to estimate spectral gamma when needed.
-
+        - random_state (int): Random seed used for reproducibility.
+        
     Returns:
         list[tuple]: List of (EstimatorClass, param_grid) tuples.
     """
-    if model == "agglomerative":
-        return [(AgglomerativeClustering, {"n_clusters": list(test_ks), "linkage": ["ward"]})]
-    if model == "spectral":
-        gamma = gamma_quantile_approx(X, q=spectral_quant)
-        return [(SpectralClustering, {"n_clusters": list(test_ks), "affinity": ["rbf"], "gamma": [gamma]})]
-    return [(KMeans, {"n_clusters": list(test_ks), "n_init": [10]})]
+    if estimator == "agglomerative":
+        return [(AgglomerativeClustering, {"n_clusters": list(candidate_clusters), "linkage": ["ward"]})]
+    if estimator == "spectral":
+        gamma = gamma_quantile_approx(X, q=spectral_quant, random_state=random_state)
+        return [(SpectralClustering, {"n_clusters": list(candidate_clusters), "gamma": [gamma]})]
+    return [(KMeans, {"n_clusters": list(candidate_clusters), "n_init": [10]})]
 

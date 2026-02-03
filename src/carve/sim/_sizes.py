@@ -1,3 +1,5 @@
+"""Cluster size and scaling utilities for simulations."""
+
 import numpy as np
 import warnings
 
@@ -12,22 +14,31 @@ def _compute_cluster_sizes(
     min_frac: float, 
     alpha: float | np.ndarray
 ) -> np.ndarray:
-    """
-    Compute per-cluster sample sizes using explicit fractions, balanced sizing, or
-    a constrained Dirichlet-multinomial scheme.
+    """Compute per-cluster sample sizes.
 
-    Parameters:
-        - `n_total_clusters`: total number of non-outlier samples.
-        - `k`: number of clusters.
-        - `balanced`: if True and `cluster_size_frac` is None, produce near-equal sizes.
-        - `cluster_size_frac`: explicit proportions per cluster (length k, will be normalized).
-        - `rng`: NumPy random generator.
-        - `min_abs`: minimum samples per cluster when unbalanced sizing is used.
-        - `min_frac`: minimum fraction per cluster when unbalanced sizing is used.
-        - `alpha`: Dirichlet concentration (scalar or length-k array) for unbalanced sizes.
+    Parameters
+    ----------
+    n_total_clusters : int
+        Total number of non-outlier samples.
+    k : int
+        Number of clusters.
+    balanced : bool
+        If True and ``cluster_size_frac`` is None, produce near-equal sizes.
+    cluster_size_frac : list of float or None
+        Explicit proportions per cluster (length k; will be normalized).
+    rng : numpy.random.Generator
+        Random generator.
+    min_abs : int
+        Minimum samples per cluster for unbalanced sizing.
+    min_frac : float
+        Minimum fraction per cluster for unbalanced sizing.
+    alpha : float or ndarray
+        Dirichlet concentration for unbalanced sizes.
 
-    Returns:
-        - (k,) integer array of cluster sizes summing to `n_total_clusters`.
+    Returns
+    -------
+    sizes : ndarray of shape (k,)
+        Integer array of cluster sizes summing to ``n_total_clusters``.
     """
     if cluster_size_frac is not None:
         if len(cluster_size_frac) != k:
@@ -68,15 +79,19 @@ def _compute_cluster_sizes(
         )
 
 def _get_cluster_scales(cluster_scale, k: int) -> list[float]:
-    """
-    Resolve per-cluster scale values from a scalar, iterable, or callable.
+    """Resolve per-cluster scale values.
 
-    Parameters:
-        - `cluster_scale`: scalar scale, iterable of length k, or callable returning a float.
-        - `k`: number of clusters.
+    Parameters
+    ----------
+    cluster_scale : float, sequence, or callable
+        Scalar scale, iterable of length k, or callable returning a float.
+    k : int
+        Number of clusters.
 
-    Returns:
-        - list of length k containing per-cluster scales.
+    Returns
+    -------
+    scales : list of float
+        Per-cluster scales.
     """
     if callable(cluster_scale):
         return [float(cluster_scale()) for _ in range(k)]
@@ -98,22 +113,29 @@ def _sample_cluster_sizes(
     alpha: float | np.ndarray = 0.3,
     ensure_nonempty: bool = True
 ) -> np.ndarray:
-    """
-    Returns integer sizes summing to n_total with floors enforced.
-    Strategy: allocate the guaranteed minimum first, then distribute the remainder
-    via Multinomial with probabilities from a Dirichlet(alpha).
+    """Sample integer cluster sizes with floor constraints.
 
-        Parameters:
-            - `n_total`: total samples to allocate.
-            - `k`: number of clusters.
-            - `rng`: NumPy random generator.
-            - `min_abs`: minimum absolute size per cluster.
-            - `min_frac`: minimum fraction per cluster.
-            - `alpha`: Dirichlet concentration (scalar or length-k array).
-            - `ensure_nonempty`: enforce at least 1 sample per cluster.
+    Parameters
+    ----------
+    n_total : int
+        Total samples to allocate.
+    k : int
+        Number of clusters.
+    rng : numpy.random.Generator
+        Random generator.
+    min_abs : int, default=5
+        Minimum absolute size per cluster.
+    min_frac : float, default=0.1
+        Minimum fraction per cluster.
+    alpha : float or ndarray, default=0.3
+        Dirichlet concentration (scalar or length-k array).
+    ensure_nonempty : bool, default=True
+        Enforce at least one sample per cluster.
 
-        Returns:
-            - (k,) integer array of cluster sizes summing to `n_total`.
+    Returns
+    -------
+    sizes : ndarray of shape (k,)
+        Cluster sizes summing to ``n_total``.
     """
     if n_total <= 0 or k <= 0:
         raise ValueError("n_total and k must be positive.")
@@ -159,17 +181,23 @@ def _post_embed_scaling(
     mode: str = "standardize",
     scale: float = 1.0,
 ) -> np.ndarray:
-    """
-    Apply post-embedding scaling operations.
+    """Apply post-embedding scaling operations.
 
-    Parameters:
-        - `X`: embedded data array (n, d).
-        - `X_pre_embed`: original data before embedding, used for scale preservation.
-        - `mode`: one of "none", "standardize", "preserve_global", "standardize_preserve".
-        - `scale`: global multiplicative scale applied after other transforms.
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        Embedded data array.
+    X_pre_embed : ndarray or None, default=None
+        Original data before embedding, used for scale preservation.
+    mode : {"none", "standardize", "preserve_global", "standardize_preserve"}, default="standardize"
+        Post-embedding scaling mode.
+    scale : float, default=1.0
+        Global multiplicative scale applied after other transforms.
 
-    Returns:
-        - Scaled embedded data array of shape (n, d).
+    Returns
+    -------
+    X_scaled : ndarray of shape (n_samples, n_features)
+        Scaled embedded data array.
     """
     if mode not in {"none", "standardize", "preserve_global", "standardize_preserve"}:
         raise ValueError("`post_embed_mode` must be one of {'none','standardize','preserve_global','standardize_preserve'}.")

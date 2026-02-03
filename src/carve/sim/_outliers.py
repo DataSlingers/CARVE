@@ -1,3 +1,5 @@
+"""Outlier sampling utilities for simulations."""
+
 import numpy as np
 import warnings
 from typing import Literal
@@ -5,15 +7,19 @@ from typing import Literal
 from ._centers import _validate_center_box
 
 def _parse_outliers(outliers: int | float, n_total: int) -> int:
-    """
-    Normalize the outlier specification to an integer count.
+    """Normalize the outlier specification to an integer count.
 
-    Parameters:
-        - `outliers`: nonnegative integer count or fraction in (0,1).
-        - `n_total`: total samples requested.
+    Parameters
+    ----------
+    outliers : int or float
+        Nonnegative integer count or fraction in (0, 1).
+    n_total : int
+        Total samples requested.
 
-    Returns:
-        - Integer count of outliers.
+    Returns
+    -------
+    n_outliers : int
+        Integer count of outliers.
     """
     if isinstance(outliers, float) and 0 < outliers < 1:
         return int(np.floor(n_total * outliers))
@@ -28,22 +34,33 @@ def _sample_outliers(
     centers: np.ndarray, cluster_sizes: np.ndarray, covs: list[np.ndarray],
     center_box: float, outlier_mode: Literal["far_gaussian", "uniform_box"], outlier_scale: float
 ) -> np.ndarray:
-    """
-    Sample outlier points either far from the global centroid or uniformly in a box.
+    """Sample outliers either far from the centroid or within a box.
 
-    Parameters:
-        - `rng`: NumPy random generator.
-        - `n_outliers`: number of outliers to sample.
-        - `p`: feature dimension.
-        - `centers`: cluster centers (k, p).
-        - `cluster_sizes`: cluster sizes (k,).
-        - `covs`: list of cluster covariance matrices.
-        - `center_box`: base center box half-width.
-        - `outlier_mode`: "far_gaussian" or "uniform_box".
-        - `outlier_scale`: scale multiplier for distance or box size.
+    Parameters
+    ----------
+    rng : numpy.random.Generator
+        Random generator.
+    n_outliers : int
+        Number of outliers to sample.
+    p : int
+        Feature dimension.
+    centers : ndarray of shape (k, p)
+        Cluster centers.
+    cluster_sizes : ndarray of shape (k,)
+        Cluster sizes.
+    covs : list of ndarray
+        Cluster covariance matrices.
+    center_box : float
+        Base center box half-width.
+    outlier_mode : {"far_gaussian", "uniform_box"}
+        Outlier sampling mode.
+    outlier_scale : float
+        Scale multiplier for distance or box size.
 
-    Returns:
-        - (n_outliers, p) array of outlier points.
+    Returns
+    -------
+    X_out : ndarray of shape (n_outliers, p)
+        Outlier samples.
     """
     if n_outliers <= 0:
         return np.empty((0, p), dtype=float)

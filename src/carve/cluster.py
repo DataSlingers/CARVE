@@ -1,3 +1,5 @@
+"""Custom spectral clustering implementation for CARVE."""
+
 import numpy as np
 from dataclasses import dataclass
 from typing import Literal, Optional
@@ -11,6 +13,33 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import pairwise_distances
 
 class SpectralClusteringCARVE(BaseEstimator, ClusterMixin):
+    """Spectral clustering with optional self-tuning affinity.
+
+    Parameters
+    ----------
+    n_clusters : int, default=2
+        Number of clusters.
+    affinity : {"rbf", "knn", "self_tuning"}, default="rbf"
+        Affinity type.
+    gamma : float or None, default=None
+        RBF scale; if None, uses a median heuristic.
+    n_neighbors : int, default=10
+        Number of neighbors for kNN or self-tuning affinity.
+    normalized : bool, default=True
+        Whether to use the normalized graph Laplacian.
+    random_state : int or None, default=None
+        Random seed for k-means.
+    n_init : "auto" or int, default="auto"
+        Number of k-means initializations.
+    scale : bool, default=True
+        Whether to standardize X before computing affinities.
+    eig_tol : float, default=1e-4
+        Tolerance for eigen solver convergence.
+    eig_maxiter : int, default=5000
+        Maximum iterations for eigen solver.
+    dense_fallback_n : int, default=2000
+        Threshold for dense fallback in eigen decomposition.
+    """
     def __init__(
         self,
         n_clusters: int = 2,                                        # number of clusters
@@ -25,6 +54,7 @@ class SpectralClusteringCARVE(BaseEstimator, ClusterMixin):
         eig_maxiter: int = 5000, 
         dense_fallback_n: int = 2000
     ):
+        """Initialize the estimator with spectral clustering parameters."""
         self.n_clusters = n_clusters
         self.affinity = affinity
         self.gamma = gamma
@@ -40,6 +70,18 @@ class SpectralClusteringCARVE(BaseEstimator, ClusterMixin):
         self.used_dense_fallback_ = False
     
     def _rbf_affinity(self, X: np.ndarray) -> csr_matrix:
+        """Compute an RBF affinity matrix.
+
+        Parameters
+        ----------
+        X : ndarray of shape (n_samples, n_features)
+            Input data.
+
+        Returns
+        -------
+        W : scipy.sparse.csr_matrix
+            RBF affinity matrix.
+        """
         D2 = pairwise_distances(X, metric="sqeuclidean")
         if self.gamma is None:
             # median heuristic
@@ -53,6 +95,18 @@ class SpectralClusteringCARVE(BaseEstimator, ClusterMixin):
         return csr_matrix(W)
     
     def _knn_affinity(self, X: np.ndarray) -> csr_matrix:
+        """Compute a mutual kNN affinity matrix.
+
+        Parameters
+        ----------
+        X : ndarray of shape (n_samples, n_features)
+            Input data.
+
+        Returns
+        -------
+        W : scipy.sparse.csr_matrix
+            Symmetrized kNN affinity matrix.
+        """
         # mutual k-NN (symmetrize)
         G = kneighbors_graph(X, self.n_neighbors, mode="distance", include_self=False)
         # convert distances to weights with a global gamma via median heuristic
@@ -67,6 +121,18 @@ class SpectralClusteringCARVE(BaseEstimator, ClusterMixin):
         return W
     
     def _self_tuning_affinity(self, X: np.ndarray) -> csr_matrix:
+        """Compute self-tuning affinity (Zelnik-Manor & Perona, 2004).
+
+        Parameters
+        ----------
+        X : ndarray of shape (n_samples, n_features)
+            Input data.
+
+        Returns
+        -------
+        W : scipy.sparse.csr_matrix
+            Self-tuning affinity matrix.
+        """
         # Zelnik-Manor & Perona (2004)
         G = kneighbors_graph(X, self.n_neighbors, mode="distance", include_self=True)
         dists = G.toarray()  # small n ok; for large n, implement sparse loop
@@ -85,6 +151,18 @@ class SpectralClusteringCARVE(BaseEstimator, ClusterMixin):
         return csr_matrix(W)
     
     def _affinity(self, X: np.ndarray) -> csr_matrix:
+        """Dispatch to the selected affinity computation.
+
+        Parameters
+        ----------
+        X : ndarray of shape (n_samples, n_features)
+            Input data.
+
+        Returns
+        -------
+        W : scipy.sparse.csr_matrix
+            Affinity matrix.
+        """
         if self.affinity == "rbf":
             return self._rbf_affinity(X)
         elif self.affinity == "knn":
@@ -95,7 +173,22 @@ class SpectralClusteringCARVE(BaseEstimator, ClusterMixin):
             raise ValueError("Unknown affinity")
 
     def _smallest_k(self, L, k):
-        """robust solver for k smallest eigenpairs of symmetric PSD L."""
+        """Compute the k smallest eigenpairs for a symmetric PSD matrix.
+
+        Parameters
+        ----------
+        L : array-like or sparse matrix
+            Graph Laplacian.
+        k : int
+            Number of eigenpairs to compute.
+
+        Returns
+        -------
+        vals : ndarray
+            Eigenvalues.
+        vecs : ndarray
+            Eigenvectors.
+        """
         try:
             vals, vecs = eigsh(L, k=k, which="SM", tol=self.eig_tol, maxiter=self.eig_maxiter)
             self.converged_ = True
@@ -114,6 +207,20 @@ class SpectralClusteringCARVE(BaseEstimator, ClusterMixin):
             return vals[:k], vecs[:, :k]
         
     def fit(self, X, y=None):
+        """Fit the spectral clustering model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input data.
+        y : None
+            Ignored (sklearn compatibility).
+
+        Returns
+        -------
+        self : SpectralClusteringCARVE
+            Fitted estimator.
+        """
         X = np.asarray(X)
         Xp = StandardScaler().fit_transform(X) if self.scale else X
         W = self._affinity(Xp)
@@ -141,4 +248,18 @@ class SpectralClusteringCARVE(BaseEstimator, ClusterMixin):
         return self
 
     def fit_predict(self, X, y=None):
+        """Fit the model and return cluster labels.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input data.
+        y : None
+            Ignored (sklearn compatibility).
+
+        Returns
+        -------
+        labels : ndarray of shape (n_samples,)
+            Cluster labels.
+        """
         return self.fit(X, y).labels_
