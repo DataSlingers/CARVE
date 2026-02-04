@@ -74,6 +74,7 @@ class CARVE(BaseEstimator):
     estimator_results_: Optional[pd.DataFrame] = field(init=False, default=None)
     preprocessing_results_: Optional[pd.DataFrame] = field(init=False, default=None)
     consensus_matrices_: Optional[List[np.ndarray]] = field(init=False, default=None)
+    consensus_generalizability_matrices_: Optional[List[np.ndarray]] = field(init=False, default=None)
     stability_gini_scores_: Optional[np.ndarray] = field(init=False, default=None)
     stability_ce_scores_: Optional[np.ndarray] = field(init=False, default=None)
     generalizability_scores_: Optional[List[np.ndarray]] = field(init=False, default=None)
@@ -88,6 +89,7 @@ class CARVE(BaseEstimator):
         reference_labels: Optional[np.ndarray] = None,
         randomize_preprocessing: bool = False,
         show_progress: bool = False,
+        mode: Literal['default', 'stability', 'generalizability'] = 'default',
         random_state: Optional[int] = None,
     ) -> 'CARVE':
         """
@@ -105,6 +107,10 @@ class CARVE(BaseEstimator):
             Whether to randomize preprocessing pipelines.
         show_progress : bool, default=False
             Show progress bar.
+        mode : Literal['default', 'stability', 'generalizability'], default='default'
+            Determines whether to run CARVE regularly ('default') or whether
+            to only run stability analysis ('stability'), 
+            or generalizability analysis ('generalizability).
         random_state : int, optional
             Per-call RNG seed. If None, uses self.random_state.
 
@@ -112,6 +118,13 @@ class CARVE(BaseEstimator):
         -------
         self
         """
+        if mode != "default":
+            warnings.warn(
+                "Non-default mode is experimental and may break downstream functionality.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        
         X = ensure_2d_array(X)
         self.X_ = X
 
@@ -142,6 +155,7 @@ class CARVE(BaseEstimator):
             estimator_records,
             pipeline_records,
             self.consensus_matrices_,
+            self.consensus_generalizability_matrices_,
             self.generalizability_scores_,
         ) = run_validation(
             X=X,
@@ -153,6 +167,7 @@ class CARVE(BaseEstimator):
             random_preprocess=randomize_preprocessing,
             n_jobs=self.n_jobs,
             random_state=self.random_state if random_state is None else random_state,
+            mode=mode,
             prog_bar=show_progress
         )
 
@@ -161,22 +176,33 @@ class CARVE(BaseEstimator):
             None if not randomize_preprocessing else summarize_preprocessing_records(pipeline_records)
         )
 
-        # compute stability vectors from consensus matrices
-        gini_list, ce_list, pac_list = compute_consensus_metrics(
-            self.consensus_matrices_
-        )
-        misclassification_arrs = compute_mean_generalizability(
-            self.generalizability_scores_
-        )
+        n_rows = int(self.estimator_results_.shape[0])
 
-        self.stability_gini_scores_ = np.vstack(gini_list)
-        self.stability_ce_scores_ = np.vstack(ce_list)
-        self.misclassification_rates_ = misclassification_arrs
+        # --- Stability-Derived Metrics
+        if mode != "generalizability" and self.consensus_matrices_ is not None:
+            gini_list, ce_list, pac_list = compute_consensus_metrics(self.consensus_matrices_)
+            
+            self.stability_gini_scores_ = np.vstack(gini_list)
+            self.stability_ce_scores_ = np.vstack(ce_list)
+            self.estimator_results_["consensus_pac_stability"] = pac_list
+            self.estimator_results_["consensus_gini_stability"] = (self.stability_gini_scores_.mean(axis=1))
+            self.estimator_results_["consensus_ce_stability"] = (self.stability_ce_scores_.mean(axis=1))
+        else:
+            self.stability_gini_scores_ = None
+            self.stability_ce_scores_ = None
+            self.estimator_results_["consensus_pac_stability"] = np.full(n_rows, np.nan)
+            self.estimator_results_["consensus_gini_stability"] = np.full(n_rows, np.nan)
+            self.estimator_results_["consensus_ce_stability"] = np.full(n_rows, np.nan)
 
-        self.estimator_results_["consensus_pac_stability"] = pac_list
-        self.estimator_results_["consensus_gini_stability"] = self.stability_gini_scores_.mean(axis=1)
-        self.estimator_results_["consensus_ce_stability"] = self.stability_ce_scores_.mean(axis=1)
-        self.estimator_results_["misclassification_generalizability"] = misclassification_arrs
+        # --- Generalizability-Derived Metrics
+        if mode != "stability" and self.generalizability_scores_ is not None:
+            misclassification_arrs = compute_mean_generalizability(self.generalizability_scores_)
+            
+            self.misclassification_rates_ = misclassification_arrs
+            self.estimator_results_["misclassification_generalizability"] = misclassification_arrs
+        else:
+            self.misclassification_rates_ = None
+            self.estimator_results_["misclassification_generalizability"] = np.full(n_rows, np.nan)
         
         # output footer
         _print_run_footer(estimator_df=self.estimator_results_, verbose=self.verbose)
@@ -189,6 +215,7 @@ class CARVE(BaseEstimator):
         measure: str = "stability",
         rule: str = 'max',
         k: Optional[int] = None, 
+        mode: Literal['default', 'generalizability'] = 'default',
         estimator: ClusterMixin | None = None,
     ) -> np.ndarray:
         """Return clustering labels from the selected consensus matrix.
@@ -202,6 +229,8 @@ class CARVE(BaseEstimator):
         k : int or None, default=None
             Optional fixed number of clusters to select. If None, uses the
             value selected by `measure` and `rule`.
+        mode : Literal['default', 'generalizability'], default='default'
+            Determines which consensus matrix is used to return labels.
         estimator : Type[ClusterMixin] | None, default=None
             If provided, uses this estimator to cluster the consensus
             distance matrix; otherwise defaults to average-linkage
@@ -212,7 +241,7 @@ class CARVE(BaseEstimator):
         labels : ndarray of shape (n_samples,)
             Clustering labels derived from the selected consensus matrix.
         """
-        if self.consensus_matrices_ is None or self.estimator_results_ is None:
+        if (self.consensus_matrices_ is None and mode == 'default') or (self.consensus_generalizability_matrices_ is None and mode == 'generalizability') or self.estimator_results_ is None:
             raise RuntimeError("Call fit() first.")
         
         df = self.estimator_results_
@@ -229,7 +258,20 @@ class CARVE(BaseEstimator):
             row = select_best_row_by_rule(df_k, measure=measure, rule=rule)
             best_idx = int(row.name)
 
-        M = np.asarray(self.consensus_matrices_[best_idx], dtype=float)
+        if mode == 'default':
+            M_raw = self.consensus_matrices_[best_idx]
+        elif mode == 'generalizability':
+            M_raw = self.consensus_generalizability_matrices_[best_idx]
+        else:
+            raise ValueError("mode must be 'default' or 'generalizability'.")
+        
+        if M_raw is None:
+            raise RuntimeError(
+                f"Consensus matrix not available for mode={mode!r}."
+                "This run likely used split-mode and skipped building that artifact."
+            )
+
+        M = np.asarray(M_raw, dtype=float)
         
         S = 0.5 * (M + M.T)                    # enforce symmetry
         np.fill_diagonal(S, 1.0)

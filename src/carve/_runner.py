@@ -1,6 +1,6 @@
 """Core validation runner for CARVE."""
 
-from typing import Any, Callable, Dict, List, Tuple, Type
+from typing import Any, Callable, Dict, List, Literal, Tuple, Type
 from joblib import Parallel, delayed
 import numpy as np
 import pandas as pd
@@ -14,7 +14,7 @@ from ._output import _log_config_progress
 from ._consensus import compute_consensus_matrix
 from ._misclassification import compute_generalizability_scores
 from ._pipeline import build_preprocessing_pipeline
-from ._utils import cluster_labels, split_subsample_indices
+from ._utils import cluster_labels, split_subsample_indices, _summarise_ari_scores
 import warnings
 
 
@@ -23,9 +23,10 @@ PipelineRecord = Dict[str, Any]
 
 ValidationReturn = Tuple[
     List[EstimatorRecord],      # model_records | TODO: check whether this type suggestion is correct
-    List[PipelineRecord],   # pipeline_records | TODO: check whether this type suggestion is correct
-    List[np.ndarray],       # consensus_matrices
-    List[np.ndarray],       # generalizability_scores
+    List[PipelineRecord],       # pipeline_records | TODO: check whether this type suggestion is correct
+    List[np.ndarray],           # consensus_matrices
+    List[np.ndarray],           # consensus_generalizability_matrices
+    List[np.ndarray],           # generalizability_scores
 ]
 
 ResultTuple = Tuple[
@@ -51,6 +52,7 @@ def run_validation(
     n_jobs: int = 1, 
     random_state: int = None,
     prog_bar: bool = False,
+    mode: Literal['default', 'stability', 'generalizability'] = 'default',
     verbose: int = 1
 ) -> ValidationReturn:
     """Run CARVE validation over estimator grids and resamples.
@@ -77,6 +79,10 @@ def run_validation(
         Random seed for reproducibility.
     prog_bar : bool, default=False
         If True, display a progress bar for grid configurations.
+    mode : Literal['default', 'stability', 'generalizability'], default='default'
+        Determines whether to run CARVE regularly ('default') or whether
+        to only run stability analysis ('stability'), 
+        or generalizability analysis ('generalizability).
     verbose : int, default=1
         Verbosity for logging.
 
@@ -96,6 +102,7 @@ def run_validation(
     estimator_records: List[EstimatorRecord] = []
     pipeline_records: List[PipelineRecord] = []
     consensus_matrices: List[np.ndarray] = []
+    consensus_generalizability_matrices: List[np.ndarray] = []
     generalizability_scores: List[np.ndarray] = []
     
     total_configs = sum(len(list(ParameterGrid(g))) for _, g in estimator_grids)
@@ -122,6 +129,7 @@ def run_validation(
                         norm_options=norm_options, 
                         dr_options=dr_options,
                         random_preprocess=random_preprocess, 
+                        mode=mode,
                         random_state=random_state
                     ) 
                     for b in range(n_resamples)
@@ -129,38 +137,47 @@ def run_validation(
                 
                 aris_stab = [r[0] for r in results]
                 aris_gen = [r[1] for r in results]
-                aris_avg = [(r[0] + r[1]) / 2 for r in results]
+                aris_avg = [(r[0] + r[1]) / 2 for r in results] if mode == 'default' else [np.nan] * n_resamples
                 
                 M = compute_consensus_matrix(
                     n_samples=n, 
                     runs=[(r[6], r[2]) for r in results],        # r[6]: P_1_idx, r[2]: labels_1
-                )
+                ) if mode != 'generalizability' else None
+                
+                M_g = compute_consensus_matrix(
+                    n_samples=n, 
+                    runs=[(r[7], r[4]) for r in results],        # r[7]: P_test_idx, r[4]: labels_pred
+                ) if mode != 'stability' else None
                 
                 E = compute_generalizability_scores(
                     n_samples=n, 
                     runs=[(r[7], r[3], r[4]) for r in results]  # r[7]: P_test_idx, r[3]: labels_test, # r[4]: labels_pred
-                )                      
+                ) if mode != 'stability' else None                  
                 
                 consensus_matrices.append(M)
+                consensus_generalizability_matrices.append(M_g)
                 generalizability_scores.append(E)
 
+                stab_mean, stab_se, stab_q95, stab_q05 = _summarise_ari_scores(aris_stab, n_resamples)
+                gen_mean, gen_se, gen_q95, gen_q05 = _summarise_ari_scores(aris_gen, n_resamples)
+                avg_mean, avg_se, avg_q95, avg_q05 = _summarise_ari_scores(aris_avg, n_resamples)
                 record: EstimatorRecord = {
                     "estimator": est_class.__name__,
                     **params,
-                    "ari_stability": float(np.mean(aris_stab)),
-                    "ari_stability_se": float(np.std(aris_stab, ddof=1) / np.sqrt(n_resamples)),
-                    "ari_stability_upper": float(np.quantile(aris_stab, 0.95)),
-                    "ari_stability_lower": float(np.quantile(aris_stab, 0.05)),
+                    "ari_stability": stab_mean,
+                    "ari_stability_se": stab_se,
+                    "ari_stability_upper": stab_q95,
+                    "ari_stability_lower": stab_q05,
                     
-                    "ari_generalizability": float(np.mean(aris_gen)),
-                    "ari_generalizability_se": float(np.std(aris_gen, ddof=1) / np.sqrt(n_resamples)),
-                    "ari_generalizability_upper": float(np.quantile(aris_gen, 0.95)),
-                    "ari_generalizability_lower": float(np.quantile(aris_gen, 0.05)),
+                    "ari_generalizability": gen_mean,
+                    "ari_generalizability_se": gen_se,
+                    "ari_generalizability_upper": gen_q95,
+                    "ari_generalizability_lower": gen_q05,
                     
-                    "ari_average": float(np.mean(aris_avg)),
-                    "ari_average_se": float(np.std(aris_avg, ddof=1) / np.sqrt(n_resamples)),
-                    "ari_average_upper": float(np.quantile(aris_avg, 0.95)),
-                    "ari_average_lower": float(np.quantile(aris_avg, 0.05)),
+                    "ari_average": avg_mean,
+                    "ari_average_se": avg_se,
+                    "ari_average_upper": avg_q95,
+                    "ari_average_lower": avg_q05,
                 }
                 estimator_records.append(record)
                 
@@ -183,7 +200,7 @@ def run_validation(
                 
                 pbar.update(1)
                 
-    return estimator_records, pipeline_records, consensus_matrices, generalizability_scores
+    return estimator_records, pipeline_records, consensus_matrices, consensus_generalizability_matrices, generalizability_scores
 
 def validation_iter(
     X: np.ndarray,
@@ -195,6 +212,7 @@ def validation_iter(
     norm_options: List[PreprocSpec],
     dr_options: List[PreprocSpec],
     random_preprocess: bool = False,
+    mode: Literal['default', 'stability', 'generalizability'] = 'default',
     random_state: int = None
 ) -> ResultTuple:
     """Run a single resampling iteration for one estimator configuration.
@@ -219,6 +237,10 @@ def validation_iter(
         Dimensionality reduction options.
     random_preprocess : bool, default=False
         Whether to randomize preprocessing.
+    mode : Literal['default', 'stability', 'generalizability'], default='default'
+        Determines whether to run CARVE regularly ('default') or whether
+        to only run stability analysis ('stability'), 
+        or generalizability analysis ('generalizability).
     random_state : int or None, default=None
         Base random seed for reproducibility.
 
@@ -232,7 +254,7 @@ def validation_iter(
     random_state0 = random_state if random_state is not None else 0
     
     P_1_idx, P_test_idx = split_subsample_indices(n_samples, subsample_ratio=subsample_ratio, random_state=random_state0+seed)
-    P_2_idx, _ = split_subsample_indices(n_samples, subsample_ratio=subsample_ratio, random_state=random_state0+seed+n_resamples)
+    P_2_idx, _ = split_subsample_indices(n_samples, subsample_ratio=subsample_ratio, random_state=random_state0+seed+n_resamples) if mode != 'generalizability' else (None, None)
     
     pipeline, normalization_params, dim_reduction_params, normalization_name, dim_reduction_name = build_preprocessing_pipeline(
         randomize_preprocessing=random_preprocess, 
@@ -241,45 +263,53 @@ def validation_iter(
         seed=random_state0 + seed
     )
     
-    X_prepocessed = pipeline.fit_transform(X)
+    X_preprocessed = pipeline.fit_transform(X)
 
-    X_1 = X_prepocessed[P_1_idx]
-    X_test = X_prepocessed[P_test_idx]
-    X_2 = X_prepocessed[P_2_idx]
+    X_1 = X_preprocessed[P_1_idx]
+    X_test = X_preprocessed[P_test_idx] if mode != 'stability' else None
+    X_2 = X_preprocessed[P_2_idx] if mode != 'generalizability' else None
     
     # clustering 
     labels_1 = cluster_labels(X_1, est_class, random_state=random_state0+seed, **params)
-    labels_test = cluster_labels(X_test, est_class, random_state=random_state0+seed, **params)
-    labels_2 = cluster_labels(X_2, est_class, random_state=random_state0+seed, **params)
+    labels_test = cluster_labels(X_test, est_class, random_state=random_state0+seed, **params) if mode != 'stability' else None
+    labels_2 = cluster_labels(X_2, est_class, random_state=random_state0+seed, **params) if mode != 'generalizability' else None
     
     n_clusters = params.get('n_clusters')
-    if len(np.unique(labels_1)) != n_clusters:
-        warnings.warn(f"labels_1 has {len(np.unique(labels_1))} clusters, expected {n_clusters}")
-    if len(np.unique(labels_test)) != n_clusters:
-        warnings.warn(f"labels_test has {len(np.unique(labels_test))} clusters, expected {n_clusters}")
-    if len(np.unique(labels_2)) != n_clusters:
-        warnings.warn(f"labels_2 has {len(np.unique(labels_2))} clusters, expected {n_clusters}")
+    if n_clusters is not None:
+        if len(np.unique(labels_1)) != n_clusters:
+            warnings.warn(f"labels_1 has {len(np.unique(labels_1))} clusters, expected {n_clusters}")
+        if mode != 'stability' and labels_test is not None and len(np.unique(labels_test)) != n_clusters:
+            warnings.warn(f"labels_test has {len(np.unique(labels_test))} clusters, expected {n_clusters}")
+        if mode != 'generalizability' and labels_2 is not None and len(np.unique(labels_2)) != n_clusters:
+            warnings.warn(f"labels_2 has {len(np.unique(labels_2))} clusters, expected {n_clusters}")
     
     # model-explorer ARI
-    _, i_1, i_2 = np.intersect1d(P_1_idx, P_2_idx, return_indices=True)
-    ari_stab = adjusted_rand_score(labels_1[i_1], labels_2[i_2])
+    if mode == 'generalizability':
+        ari_stab = np.nan
+    else:
+        _, i_1, i_2 = np.intersect1d(P_1_idx, P_2_idx, return_indices=True)
+        ari_stab = adjusted_rand_score(labels_1[i_1], labels_2[i_2])
     
     # predictive ARI
-    rf = RandomForestClassifier(
-        n_estimators=100, 
-        max_depth=X_1.shape[1],
-        max_features=int(np.sqrt(X_1.shape[1])),
-        random_state=random_state0+seed, 
-        n_jobs=-1
-    )
-    rf.fit(X_1, labels_1)
-    labels_pred = rf.predict(X_test)
-    ari_pred = adjusted_rand_score(labels_test, labels_pred)
+    if mode == 'stability':
+        labels_pred = None
+        ari_pred = np.nan
+    else:
+        rf = RandomForestClassifier(
+            n_estimators=100, 
+            max_depth=X_1.shape[1],
+            max_features=int(np.sqrt(X_1.shape[1])),
+            random_state=random_state0+seed, 
+            n_jobs=-1
+        )
+        rf.fit(X_1, labels_1)
+        labels_pred = rf.predict(X_test)
+        ari_pred = adjusted_rand_score(labels_test, labels_pred)
     
-    return [
+    return (
         ari_stab, ari_pred, 
         labels_1, labels_test, labels_pred, labels_2,
         P_1_idx, P_test_idx, P_2_idx,
         normalization_params, dim_reduction_params, 
         normalization_name, dim_reduction_name
-    ]
+    )

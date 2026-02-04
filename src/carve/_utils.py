@@ -8,6 +8,7 @@ from sklearn.base import ClusterMixin
 from sklearn.metrics.cluster import contingency_matrix
 from numpy.typing import ArrayLike
 
+
 def split_subsample_indices(
     n_samples: int, 
     *,
@@ -40,6 +41,43 @@ def split_subsample_indices(
     test_idx = np.setdiff1d(all_idx, train_idx)
     
     return train_idx, test_idx
+
+
+def _summarise_ari_scores(x: List[float] | np.ndarray, n_resamples: int) -> Tuple[float, float, float, float]:
+    """
+    Summarizes a collection of ARI (Adjusted Rand Index) scores by computing mean, standard error, and quantiles.
+    
+    Parameters
+    ----------
+    x : list of float or np.ndarray
+        A list or array of ARI scores, possibly containing NaN values.
+    n_resamples : int
+        The number of resamples used to generate the ARI scores. (Unused in computation, but kept for interface consistency.)
+        
+    Returns
+    -------
+    mean : float
+        The mean of the ARI scores, ignoring NaN values.
+    se : float
+        The standard error of the ARI scores, ignoring NaN values. Returns NaN if fewer than 2 valid entries.
+    q95 : float
+        The 95th percentile (quantile) of the ARI scores, ignoring NaN values.
+    q05 : float
+        The 5th percentile (quantile) of the ARI scores, ignoring NaN values.
+    """
+    
+    arr = np.asarray(x, dtype=float)
+    if np.all(np.isnan(arr)):
+        return (np.nan, np.nan, np.nan, np.nan)
+    mean = float(np.nanmean(arr))
+    
+    # SE over non-NaN entries
+    m = np.sum(~np.isnan(arr))
+    se = float(np.nanstd(arr, ddof=1) / np.sqrt(m)) if m > 1 else np.nan
+    q95 = float(np.nanquantile(arr, 0.95))
+    q05 = float(np.nanquantile(arr, 0.05))
+    return (mean, se, q95, q05)
+
 
 def cluster_labels(
     X: np.ndarray,
@@ -95,18 +133,7 @@ def cluster_labels(
     except Exception:
         # fallback: predict(X) if available
         return estimator.predict(X)  
-    
-    # if hasattr(estimator, "labels_"):
-    #     return estimator.labels_
 
-    # # fallback: predict(X) if available
-    # if hasattr(estimator, "predict"):
-    #     return estimator.predict(X)
-
-    # raise TypeError(
-    #     f"estimator of type {type(estimator)} has no fit_predict, "
-    #     f"no labels_ and no predict; cannot extract cluster labels."
-    # )
 
 def summarize_preprocessing_records(
     pipeline_records: List[Dict[str, Any]]
@@ -159,6 +186,7 @@ def summarize_preprocessing_records(
         .mean()
     )
     
+    
 def align_cluster_labels(
     reference_labels: np.ndarray, 
     labels: np.ndarray
@@ -199,6 +227,7 @@ def align_cluster_labels(
     # apply mapping
     aligned = np.array([mapping[lbl] for lbl in labels], dtype=reference_labels.dtype)
     return aligned
+
 
 def ensure_2d_array(X: ArrayLike) -> np.ndarray:
     """Ensure input is a 2D NumPy array.
