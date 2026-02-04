@@ -127,7 +127,8 @@ def benchmark_cluster_metrics(
                     for k in candidate_clusters:
                         value = carve.estimator_results_[measure].loc[carve.estimator_results_["n_clusters"] == k].values[0]
                         results.append({
-                            'difficulty_level': difficulty_level,
+                            'axis_name': 'difficulty_level',
+                            'axis_value': difficulty_level,
                             'baseline_ari': baseline_ari,
                             'dataset_iteration': seed,
                             'true_k': true_k,
@@ -196,7 +197,8 @@ def benchmark_cluster_metrics(
                     # 4.4) Record all results
                     for k, value, ari in metric_values:
                         results.append({
-                            'difficulty_level': difficulty_level,
+                            'axis_name': 'difficulty_level',
+                            'axis_value': difficulty_level,
                             'baseline_ari': baseline_ari,
                             'dataset_iteration': seed,
                             'true_k': true_k,
@@ -245,6 +247,7 @@ def benchmark_cluster_metrics(
 def benchmark_scaling(
     regime: Dict[int, Dict[str, Any]],
     axis_name: str,
+    granularity: int = 10,
     n_seeds_per_value: int = 20,
     estimator: str = "kmeans",
     spectral_quant: float = 0.5,
@@ -285,18 +288,18 @@ def benchmark_scaling(
     ]
 
     if axis_name == "n_total":
-        x_values = [int(x) for x in np.logspace(np.log10(100), np.log10(10000), num=10)]
+        x_values = [int(x) for x in np.logspace(np.log10(100), np.log10(10000), num=granularity)]
     elif axis_name == "p":
-        x_values = [int(x) for x in np.logspace(np.log10(10), np.log10(2500), num=10)]
+        x_values = [int(x) for x in np.logspace(np.log10(10), np.log10(2500), num=granularity)]
     elif axis_name == "embed_dim":
-        x_values = [int(x) for x in np.logspace(np.log10(10), np.log10(2500), num=10)]
+        x_values = [int(x) for x in np.logspace(np.log10(10), np.log10(2500), num=granularity)]
     else:
         raise ValueError("axis_name must be 'n_total', 'p', or 'embed_dim'.")
 
     scores = []
     runtimes = []
 
-    total_steps = len(x_values) * n_seeds_per_value * len(true_cluster_counts)
+    total_steps = granularity * n_seeds_per_value * len(true_cluster_counts)
     pbar = tqdm(total=total_steps, desc=f"benchmarking scaling ({axis_name})", leave=True)
 
     for i, x_value in enumerate(x_values):
@@ -368,19 +371,15 @@ def benchmark_scaling(
                     rule = get_rule(carve_metric)
                     measure = get_measure(carve_metric)
                     
-                    if carve_metric in CARVE_AVAILABLE_METRICS_S:
-                        carve = carve_s
-                        t_carve = t_carve_s
-                    else:
-                        carve = carve_g
-                        t_carve = t_carve_g
+                    carve = carve_s if carve_metric in CARVE_AVAILABLE_METRICS_S else carve_g
                     
                     optimal_k = carve.get_k(measure=measure, rule=rule)
 
                     for k in candidate_clusters:
                         value = carve.estimator_results_[measure].loc[carve.estimator_results_["n_clusters"] == k].values[0]
                         scores.append({
-                            axis_name: x_value,
+                            'axis_name': axis_name,
+                            'axis_value': x_value,
                             'baseline_ari': baseline_ari,
                             'dataset_iteration': seed,
                             'true_k': true_k,
@@ -449,7 +448,8 @@ def benchmark_scaling(
                     # 4.4) Record all results
                     for k, value, ari in metric_values:
                         scores.append({
-                            axis_name: x_value,
+                            'axis_name': axis_name,
+                            'axis_value': x_value,
                             'baseline_ari': baseline_ari,
                             'dataset_iteration': seed,
                             'true_k': true_k,
@@ -472,7 +472,8 @@ def benchmark_scaling(
 
                 # 5) Record runtimes
                 runtimes.append({
-                    axis_name: x_value,
+                    'axis_name': axis_name,
+                    'axis_value': x_value,
                     "dataset_iteration": seed,
                     "true_k": true_k,
                     "n": X.shape[0],
@@ -481,8 +482,10 @@ def benchmark_scaling(
                     "n_jobs": n_jobs,
                     "n_test_ks": len(list(candidate_clusters)),
                     "estimator": estimator,
-                    "t_carve_sec": t_carve,
-                    "t_carve_per_k_sec": t_carve / len(list(candidate_clusters)),
+                    "t_carve_sec_s": t_carve_s,
+                    "t_carve_sec_g": t_carve_g,
+                    "t_carve_per_k_sec_s": t_carve_s / len(list(candidate_clusters)),
+                    "t_carve_per_k_sec_g": t_carve_g / len(list(candidate_clusters)),
                 })
                 
                 # --- Plotting ---

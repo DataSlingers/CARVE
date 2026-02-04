@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Dict, Iterable, List, Mapping, Sequence
+from typing import Any, Dict, Iterable, List, Literal, Literal, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -15,6 +15,7 @@ from sklearn.metrics import adjusted_rand_score
 from carve.sim import simulate_clusters
 
 from .benchmarking_utils import gamma_quantile_approx, _wilson_ci
+import warnings
 
 
 # --- Setup and basic handlers ---
@@ -25,6 +26,26 @@ OKABE_ITO = [
 
 
 # --- Utils ---
+def _infer_axis_cols(df: pd.DataFrame) -> tuple[str, str]:
+    """
+    returns (axis_value_col, axis_name_col)
+    preference:
+      1) long-form: ('axis_value','axis_name')
+      2) legacy difficulty: ('difficulty_level', '')
+      3) legacy scaling raw column: (first of n_total/p/embed_dim present, '')
+    """
+    if "axis_value" in df.columns:
+        return "axis_value", ("axis_name" if "axis_name" in df.columns else "")
+    if "difficulty_level" in df.columns:
+        return "difficulty_level", ""
+    for c in ("n_total", "p", "embed_dim"):
+        if c in df.columns:
+            return c, ""
+    raise ValueError(
+        "could not infer benchmark axis; expected axis_value or difficulty_level or one of {n_total,p,embed_dim}"
+    )
+
+
 def _get_color_mapping(k: int) -> List[Any]:
     """okabe-ito for k<=7, tab20 for 8..20, hsv fallback."""
     if k <= 7:
@@ -104,13 +125,15 @@ def _pretty_metric_name(metric: str) -> str:
 # --- Main plotting functions ---
 def plot_examples(
     settings_by_k: Dict,
-    other_settings: Dict,
+    other_settings: Dict | None = None,
     true_cluster_counts: np.ndarray = np.array([3, 4, 5, 6]),
-    difficulty_levels: List[str] = ['easy', 'medium', 'hard'],
+    level_label: str = "difficulty",
+    levels: List[Any] = ['easy', 'medium', 'hard'],
     n_seeds_per_dataset: int = 20,
     estimator_type: str = 'kmeans',
     spectral_quant: float = 0.5,
     example_title: str = 'Gaussian Mixtures', 
+    sampler: Literal['default', 'scaling'] = 'default',
     random_state: int = 0
 ) -> None:
     """
@@ -131,31 +154,66 @@ def plot_examples(
     Returns:
         None. Displays the matplotlib figure.
     """
-    _, axes = plt.subplots(len(true_cluster_counts), len(difficulty_levels), figsize=(12, 14))
+    _, axes = plt.subplots(len(true_cluster_counts), len(levels), figsize=(12, 14))
     
-    for j, difficulty_level in enumerate(difficulty_levels):
+    if level_label == 'difficulty':
+        levels = ['easy', 'medium', 'hard']
+    elif level_label == "n_total":
+        levels = [int(x) for x in np.logspace(np.log10(100), np.log10(10000), num=3)]
+    elif level_label == "p":
+        levels = [int(x) for x in np.logspace(np.log10(10), np.log10(2500), num=3)]
+    elif level_label == "embed_dim":
+        levels = [int(x) for x in np.logspace(np.log10(10), np.log10(2500), num=3)]
+    else:
+        raise ValueError("level_label must be 'difficulty', 'n_total', 'p', or 'embed_dim'.")
+    
+    for j, level in enumerate(levels):
         for i, true_k in enumerate(true_cluster_counts): 
             
-            # compute baseline ARI over B replicates
             ari_arr = []
             for seed in range(n_seeds_per_dataset):
-                difficulty_level_seed = {"medium": 4, "hard": 9}.get(difficulty_level, 0)
-                benchmark_seed = seed + ((true_k - min(true_cluster_counts)) * 100) + (difficulty_level_seed * 10000) + random_state
+                level_seed = {1: 4, 2: 9}.get(j, 0)
+                benchmark_seed = seed + ((true_k - min(true_cluster_counts)) * 100) + (level_seed * 10000) + random_state
                 
-                X_val, y_val = simulate_clusters(
-                    k=true_k,
-                    plotting=False,
-                    random_state=benchmark_seed,
-                    **settings_by_k[true_k][difficulty_level],
-                    **other_settings
-                )
+                if sampler == 'default':
+                    X, y = simulate_clusters(
+                        k=true_k,
+                        plotting=False,
+                        random_state=benchmark_seed,
+                        **settings_by_k[true_k][level],
+                        **other_settings
+                    )
+                elif sampler == 'scaling':
+                    if level_label not in {"n_total", "p", "embed_dim"}:
+                        raise ValueError("level_label must be 'n_total', 'p', or 'embed_dim'")
+
+                    n_total = int(settings_by_k[true_k].get("n_total", 500))
+                    p = int(settings_by_k[true_k].get("p", 50))
+
+                    if level_label == "n_total":
+                        n_total = int(level)
+                    elif level_label == "p":
+                        p = int(level)
+                    elif level_label == "embed_dim":
+                        settings_by_k[true_k]["embed_dim"] = int(level)
+                    else:
+                        raise ValueError("level_label must be 'n_total', 'p', or 'embed_dim'")
+
+                    X, y = simulate_clusters(
+                        n_total=n_total,
+                        p=p,
+                        k=true_k,
+                        plotting=False,
+                        random_state=random_state,
+                        **{k: v for k, v in settings_by_k[true_k].items() if k not in {"n_total", "p"}},
+                    )
                 
                 if estimator_type == 'agglomerative':
                     estimator = AgglomerativeClustering(
                         n_clusters=true_k
                     )
                 elif estimator_type == 'spectral':
-                    gamma = gamma_quantile_approx(X_val, q=spectral_quant, random_state=benchmark_seed)
+                    gamma = gamma_quantile_approx(X, q=spectral_quant, random_state=benchmark_seed)
                     estimator = SpectralClustering(
                         n_clusters=true_k,
                         affinity='rbf',
@@ -169,20 +227,20 @@ def plot_examples(
                         random_state=benchmark_seed
                     )
                 
-                y_hat_val = estimator.fit_predict(X_val)
-                ari = adjusted_rand_score(y_val, y_hat_val)
+                y_hat = estimator.fit_predict(X)
+                ari = adjusted_rand_score(y, y_hat)
                 ari_arr.append(ari)
                 
             ari_mean = np.mean(ari_arr)
 
             # plot PCA of dataset
-            X_pca = PCA(n_components=2, random_state=0).fit_transform(X_val)
+            X_pca = PCA(n_components=2, random_state=0).fit_transform(X)
             ax = axes[i, j]
             ax.scatter(
                 X_pca[:, 0], X_pca[:, 1],
-                c=y_val, cmap="tab10", s=20, alpha=0.8, edgecolors="k"
+                c=y, cmap="tab10", s=20, alpha=0.8, edgecolors="k"
             )
-            ax.set_title(f"k={true_k}, difficulty={difficulty_level} | Baseline ARI={ari_mean:.3f}")
+            ax.set_title(f"k={true_k}, {level_label}={level} | Baseline ARI={ari_mean:.3f}")
             ax.set_xticks([]); ax.set_yticks([])
             
     plt.suptitle(f"Example datasets: {example_title}", fontsize=16)
@@ -333,6 +391,9 @@ def plot_ari_over_difficulty(
     center: str = "mean",
     band: tuple = (0.05, 0.95),
     show_band_for=("baseline", "ari_stability_1se", "ari_generalizability_1se"),
+    x_col: str | None = None,
+    x_label: str = "Difficulty Ladder",
+    xscale: str = "linear",
     title: str | None = None,
     figsize: tuple = (12, 10),
     ax=None,
@@ -351,7 +412,8 @@ def plot_ari_over_difficulty(
         - ax: Matplotlib axis.
         - ylim (tuple): Y-axis limits.
     """
-    needed = {"difficulty_level", "metric_name", "is_optimal", "metric_ari", "baseline_ari"}
+    axis_col, axis_name_col = _infer_axis_cols(results_df) if x_col is None else (x_col, "")
+    needed = {axis_col, "metric_name", "is_optimal", "metric_ari", "baseline_ari"}
     missing = sorted(c for c in needed if c not in results_df.columns)
     if missing:
         raise ValueError(f"results_df missing columns: {missing}")
@@ -364,8 +426,8 @@ def plot_ari_over_difficulty(
     df_opt = results_df.loc[results_df["is_optimal"] == True].copy()
     
     # --- 2) Baseline: dedupe per dataset instance (we only want one per (dataset instance, true_k, difficulty_level)) --- 
-    dedupe_cols = ["difficulty_level", "dataset_iteration", "true_k"]
-    base = results_df.drop_duplicates(dedupe_cols)[["difficulty_level", "baseline_ari"]].copy()
+    dedupe_cols = [c for c in [axis_col, "dataset_iteration", "true_k"] if c in results_df.columns]
+    base = results_df.drop_duplicates(dedupe_cols)[[axis_col, "baseline_ari"]].copy()
 
     # Helper to get quantiles and average/median
     def _summarize(y: pd.Series):
@@ -379,21 +441,21 @@ def plot_ari_over_difficulty(
     
     # --- 3) Build summary tables ---
     base_sum = (
-        base.groupby("difficulty_level")["baseline_ari"].apply(lambda s: pd.Series(_summarize(s), index=["mid", "lo", "hi"]))
+        base.groupby(axis_col)["baseline_ari"].apply(lambda s: pd.Series(_summarize(s), index=["mid", "lo", "hi"]))
         .unstack()
         .reset_index()
-        .sort_values("difficulty_level")
+        .sort_values(axis_col)
     )  # cols: difficulty_level, mid, lo, hi
     
     sums = []
     for m in metrics:
         sub = df_opt.loc[df_opt["metric_name"] == m]
         s = (
-            sub.groupby("difficulty_level")["metric_ari"]
+            sub.groupby(axis_col)["metric_ari"]
             .apply(lambda s: pd.Series(_summarize(s), index=["mid", "lo", "hi"]))
             .unstack()
             .reset_index()
-            .sort_values("difficulty_level")
+            .sort_values(axis_col)
         )
         s["metric_name"] = m
         sums.append(s)
@@ -406,13 +468,11 @@ def plot_ari_over_difficulty(
     else:
         fig = ax.figure
         
-    x = base_sum["difficulty_level"].astype(int).values
+    x = base_sum[axis_col].astype(int).values  # if throw error, uncomment next line
+    # x = pd.to_numeric(base_sum[axis_col], errors="coerce").values
     
     # Plot baseline line and (optional) CI band
     baseline_color = (0.35, 0.35, 0.35, 1.0)
-    
-    # print("base_sum columns:", base_sum.columns.tolist())
-    
     ax.plot(x, base_sum['mid'].values, color=baseline_color, linestyle='--', linewidth=2.6, label='Baseline (Oracle k*)')
     if "baseline" in show_band_for:
         ax.fill_between(x, base_sum["lo"].values, base_sum["hi"].values, color=baseline_color, alpha=0.15)
@@ -432,7 +492,8 @@ def plot_ari_over_difficulty(
             continue
             
         # Get values
-        xx = s['difficulty_level'].astype(int).values
+        xx = s[axis_col].astype(int).values  # if throw error, uncomment next line
+        # xx = pd.to_numeric(s[axis_col], errors="coerce").values
         yy = s['mid'].values
         
         # Plot line and (optional) band
@@ -441,15 +502,18 @@ def plot_ari_over_difficulty(
         if m in show_band_for:
             ax.fill_between(xx, s["lo"].values, s["hi"].values, color=color, alpha=0.12)
             
-    ax.set_xlabel("Difficulty Ladder")
+    ax.set_xlabel(x_label)
     ax.set_ylabel("ARI (selected k^hat vs. true labels)")
     ax.set_xlim(x.min(), x.max())
     ax.set_ylim(ylim)
     ax.set_xticks(np.unique(x))
+    
+    if xscale in {"log", "linear"}:
+        ax.set_xscale(xscale)
+    
     if title is not None:
         ax.set_title(title)
 
-    # keeLegend
     ax.legend(frameon=False, fontsize=9, ncol=2)
 
     return fig
@@ -501,18 +565,21 @@ def plot_baseline_vs_metric_ari_grid(
     # --- 1) Filter to one row per (dataset instance, metric): selected "optimal" k --- 
     df_opt = results_df.loc[results_df["is_optimal"] == True].copy()
     
+    axis_col, axis_name_col = _infer_axis_cols(df_opt)
+    group_col = "difficulty_level" if "difficulty_level" in df_opt.columns else axis_col
+    
     # Difficulty color mapping
-    difficulty_levels = None
+    levels = None
     diff_color = None
     diff_cmap = None
     diff_norm = None
-    if color_by_difficulty and "difficulty_level" in df_opt.columns:
-        difficulty_levels = sorted(df_opt["difficulty_level"].dropna().unique())
-        diff_cmap = plt.get_cmap(difficulty_cmap, len(difficulty_levels))
-        diff_color = {lvl: diff_cmap(i) for i, lvl in enumerate(difficulty_levels)}
+    if color_by_difficulty and group_col in df_opt.columns:
+        levels = sorted(df_opt[group_col].dropna().unique())
+        diff_cmap = plt.get_cmap(difficulty_cmap, len(levels))
+        diff_color = {lvl: diff_cmap(i) for i, lvl in enumerate(levels)}
         diff_norm = mpl.colors.BoundaryNorm(
-            boundaries=np.arange(-0.5, len(difficulty_levels) + 0.5, 1.0),
-            ncolors=len(difficulty_levels),
+            boundaries=np.arange(-0.5, len(levels) + 0.5, 1.0),
+            ncolors=len(levels),
         )
     
     # --- 2) Setup grid ---
@@ -539,8 +606,8 @@ def plot_baseline_vs_metric_ari_grid(
         
         # 1) Scatter actual ARIs (Baseline ARI : Metric ARI)
         if color_by_difficulty and diff_color is not None:
-            for lvl in difficulty_levels:
-                pts = sub.loc[sub["difficulty_level"] == lvl]
+            for lvl in levels:
+                pts = sub.loc[sub[group_col] == lvl]
                 if pts.empty:
                     continue
                 ax.scatter(
@@ -567,8 +634,8 @@ def plot_baseline_vs_metric_ari_grid(
         ax.plot(diag_x, diag_x, linestyle="--", linewidth=1.0, color=baseline_color)
     
         # 3) Difficulty path overlay (median/mean per difficulty, connected)
-        if "difficulty_level" in sub.columns:
-            g = sub.groupby("difficulty_level")[["baseline_ari", "metric_ari"]]
+        if group_col in sub.columns:
+            g = sub.groupby(group_col)[["baseline_ari", "metric_ari"]]
             if center == "mean":
                 path = g.mean()
             elif center == "median":
@@ -577,7 +644,7 @@ def plot_baseline_vs_metric_ari_grid(
                 raise ValueError("center must be 'mean' or 'median'")
 
             # Enforce consistent ordering of difficulty steps
-            path = path.reindex(difficulty_levels).dropna()
+            path = path.reindex(levels).dropna()
 
             xy = path[["baseline_ari", "metric_ari"]].values
             lvls = list(path.index)
@@ -638,10 +705,13 @@ def plot_baseline_vs_metric_ari_grid(
             fraction=0.03,
             pad=0.02,
         )
-        cbar.set_label("difficulty ladder", rotation=90)
-        tick_pos = np.arange(len(difficulty_levels))
+        if group_col == 'difficulty ladder':
+            cbar.set_label("difficulty ladder", rotation=90)
+        else:
+            cbar.set_label(group_col, rotation=90)
+        tick_pos = np.arange(len(levels))
         cbar.set_ticks(tick_pos)
-        cbar.set_ticklabels([str(lvl) for lvl in difficulty_levels])
+        cbar.set_ticklabels([str(lvl) for lvl in levels])
 
     fig.supxlabel("Baseline ARI (Oracle k*)")
     fig.supylabel("ARI (selected k^hat)")
