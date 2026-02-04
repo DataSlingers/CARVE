@@ -100,3 +100,48 @@ def parse_difficulty_and_simulate(
     
     return X, y
 
+
+def simulate_scaling(
+    *,
+    regime: Dict[str, Any],
+    true_cluster_count: int,
+    axis_name: str,
+    axis_value: int,
+    random_state: int = 0,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Simulates a dataset for scaling experiments by varying one axis (n_total, p, or embed_dim).
+
+    Args:
+        - regime (Dict[str, Any]): Simulation regime parameters for a given k.
+        - true_cluster_count (int): True number of clusters.
+        - axis_name (str): Scaling axis name ('n_total', 'p', or 'embed_dim').
+        - axis_value (int): Value to set for the chosen scaling axis.
+        - base_random_state (int): Base seed for reproducibility (default: 0).
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: Simulated data matrix X and cluster labels y.
+    """
+    if axis_name not in {"n_total", "p", "embed_dim"}:
+        raise ValueError("axis_name must be 'n_total', 'p', or 'embed_dim'")
+
+    n_total = int(regime.get("n_total", 500))
+    p = int(regime.get("p", 50))
+
+    if axis_name == "n_total":
+        n_total = int(axis_value)
+    elif axis_name == "p":
+        p = int(axis_value)
+    elif axis_name == "embed_dim":
+        regime["embed_dim"] = int(axis_value)
+    else:
+        raise ValueError("axis_name must be 'n_total', 'p', or 'embed_dim'")
+
+    return simulate_clusters(
+        n_total=n_total,
+        p=p,
+        k=int(true_cluster_count),
+        plotting=False,
+        random_state=random_state,
+        **{k: v for k, v in regime.items() if k not in {"n_total", "p"}},
+    )
