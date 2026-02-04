@@ -16,7 +16,7 @@ from carve import CARVE
 from .benchmarking_simulation_helpers import simulate_scaling, parse_difficulty_and_simulate
 from .benchmarking_utils import make_estimator_grids, _build_estimator, get_measure, get_rule, _pick_first
 from .benchmarking_metrics import calculate_metric
-from .benchmarking_plotting_reporting import plot_benchmark_snapshot
+from .benchmarking_plotting import plot_benchmark_snapshot
 
 
 def benchmark_cluster_metrics(
