@@ -13,7 +13,7 @@ from tqdm.notebook import tqdm
 
 from carve import CARVE
 
-from .benchmarking_simulation_helpers import simulate_scaling, parse_difficulty_and_simulate
+from .benchmarking_simulation_helpers import parse_difficulty_and_simulate, parse_range_and_simulate
 from .benchmarking_utils import make_estimator_grids, _build_estimator, get_measure, get_rule, _pick_first
 from .benchmarking_metrics import calculate_metric
 from .benchmarking_plotting import plot_benchmark_snapshot
@@ -92,7 +92,7 @@ def benchmark_cluster_metrics(
                     settings_by_k=settings_by_k[true_k],
                     other_settings=other_settings,
                     difficulty_levels=difficulty_levels,
-                    difficulty_index=difficulty_level,
+                    difficulty_level=difficulty_level,
                     true_cluster_count=true_k,
                     seed=benchmark_seed
                 )
@@ -259,7 +259,8 @@ def benchmark_cluster_metrics(
 
 
 def benchmark_scaling(
-    regime: Dict[int, Dict[str, Any]],
+    settings_by_k: Dict,
+    other_settings: Dict,
     axis_name: str,
     granularity: int = 10,
     n_seeds_per_value: int = 20,
@@ -275,7 +276,8 @@ def benchmark_scaling(
     Benchmarks CARVE and external metrics across scaling regimes.
 
     Args:
-        - regime (Dict): Simulation regime settings keyed by true_k.
+        - settings_by_k (Dict): Simulation regime settings keyed by true_k.
+        - other_settings (Dict): Other simulation settings.
         - axis_name (str): Scaling axis name ('n_total', 'p', or 'embed_dim').
         - n_seeds_per_value (int): Number of seeds per x_value and true_k.
         - estimator (str): Clustering estimator key for CARVE grids.
@@ -324,8 +326,11 @@ def benchmark_scaling(
                 # plotting_dict = {}  # Plotting
                 
                 # --- 1) Simulate data ---
-                X, y = simulate_scaling(
-                    regime=regime[true_k],
+                X, y = parse_range_and_simulate(
+                    settings_by_k=settings_by_k[true_k],
+                    other_settings=other_settings,
+                    total_stages=granularity,
+                    stage=i,
                     true_cluster_count=true_k,
                     axis_name=axis_name,
                     axis_value=x_value,

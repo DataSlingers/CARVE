@@ -27,7 +27,7 @@ def simulate_clusters(
     centroid_method: Literal["none", "lhs", "best_candidate", "min_dist"] = "best_candidate",
     n_candidates: int = 64,
     corr_type: Literal["none", "ar1", "block"] = "none",
-    corr_strength: float = 1.0,
+    corr_strength: float = 0.5,
     block_size: int | None = None,
     outliers: int | float = 0,
     outlier_scale: float = 5.0,

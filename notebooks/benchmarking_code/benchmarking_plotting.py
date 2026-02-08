@@ -187,25 +187,30 @@ def plot_examples(
                     if level_label not in {"n_total", "p", "embed_dim"}:
                         raise ValueError("level_label must be 'n_total', 'p', or 'embed_dim'")
 
-                    n_total = int(settings_by_k[true_k].get("n_total", 500))
-                    p = int(settings_by_k[true_k].get("p", 50))
+                    n_total = int(other_settings.get("n_total", 500))
+                    p = int(other_settings.get("p", 50))
+                    embed_dim = int(other_settings.get("embed_dim", 64))
 
                     if level_label == "n_total":
                         n_total = int(level)
                     elif level_label == "p":
                         p = int(level)
                     elif level_label == "embed_dim":
-                        settings_by_k[true_k]["embed_dim"] = int(level)
+                        embed_dim = int(level)
                     else:
                         raise ValueError("level_label must be 'n_total', 'p', or 'embed_dim'")
 
+                    dict_key = {1: 'middle', 2: 'end'}.get(j, 'start')
+                    
                     X, y = simulate_clusters(
                         n_total=n_total,
                         p=p,
+                        embed_dim=embed_dim,
                         k=true_k,
                         plotting=False,
                         random_state=random_state,
-                        **{k: v for k, v in settings_by_k[true_k].items() if k not in {"n_total", "p"}},
+                        **settings_by_k[true_k][dict_key],
+                        **other_settings
                     )
                 
                 if estimator_type == 'agglomerative':
