@@ -17,6 +17,7 @@ from .benchmarking_simulation_helpers import simulate_scaling, parse_difficulty_
 from .benchmarking_utils import make_estimator_grids, _build_estimator, get_measure, get_rule, _pick_first
 from .benchmarking_metrics import calculate_metric
 from .benchmarking_plotting import plot_benchmark_snapshot
+import random
 
 
 def benchmark_cluster_metrics(
@@ -30,6 +31,8 @@ def benchmark_cluster_metrics(
     true_cluster_counts: Sequence[int] = (3, 4, 5, 6),
     candidate_clusters: Sequence[int] = range(2, 8),
     external_metrics: Sequence[str] = ("silhouette", "gap", "davies_bouldin", "calinski_harabasz"),
+    get_snapshot: bool = False,
+    snapshot_df: Optional[pd.DataFrame] = None,
     n_jobs: int = 1,
     random_state: int = 0
 ) -> pd.DataFrame:
@@ -53,7 +56,13 @@ def benchmark_cluster_metrics(
     Returns:
         pd.DataFrame: Benchmarking results per metric, dataset, and configuration.
     """
-    results = []
+    if get_snapshot and snapshot_df is not None:
+        results = snapshot_df.to_dict(orient="records")
+    else:
+        results = []
+        
+    rng = random.Random(random_state)
+    
     plt.ion()
 
     CARVE_AVAILABLE_METRICS = [
@@ -72,6 +81,8 @@ def benchmark_cluster_metrics(
     for difficulty_level in range(difficulty_levels):
         for true_k in true_cluster_counts:
             for seed in range(n_seeds_per_dataset): 
+                difficulty_level, true_k, seed= rng.randint(0, difficulty_levels - 1), rng.choice(list(true_cluster_counts)), rng.randint(0, n_seeds_per_dataset - 1) if get_snapshot else (difficulty_level, true_k, seed)  # Pick a random combination for snapshot
+                
                 # --- 0) Set seed ---
                 benchmark_seed = seed + ((true_k - min(true_cluster_counts)) * 100) + (difficulty_level * 10000) + random_state
                 plotting_dict = {}  # Plotting
@@ -239,6 +250,9 @@ def benchmark_cluster_metrics(
                 plt.close(fig_sum)
 
                 pbar.update(1)
+                
+                if get_snapshot:
+                    return None
 
     pbar.close()
     return pd.DataFrame(results)
@@ -315,7 +329,7 @@ def benchmark_scaling(
                     true_cluster_count=true_k,
                     axis_name=axis_name,
                     axis_value=x_value,
-                    base_random_state=benchmark_seed
+                    random_state=benchmark_seed
                 )
                 
                 # --- 2) Get baseline ARI ---
@@ -360,8 +374,8 @@ def benchmark_scaling(
                 carve_aris_s, carve_aris_g = [], []
                 # carve_labels_by_k = []  # Plotting
                 for k in candidate_clusters:
-                    carve_consensus_labels_s = carve_s.get_labels(k=k, mode='stability')  # providing measure and rule is not necessary here as there is only a single option for every k
-                    carve_consensus_labels_g = carve_g.get_labels(k=k, mode='generalizability')
+                    carve_consensus_labels_s = carve_s.get_labels(k=k, measure='stability', mode='stability')  # providing rule is not necessary here as there is only a single option for every k
+                    carve_consensus_labels_g = carve_g.get_labels(k=k, measure='generalizability', mode='generalizability')
                     carve_aris_s.append(adjusted_rand_score(y, carve_consensus_labels_s))
                     carve_aris_g.append(adjusted_rand_score(y, carve_consensus_labels_g))
                     # carve_labels_by_k.append(carve_consensus_labels)  # Plotting

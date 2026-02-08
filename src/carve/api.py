@@ -258,12 +258,12 @@ class CARVE(BaseEstimator):
             row = select_best_row_by_rule(df_k, measure=measure, rule=rule)
             best_idx = int(row.name)
 
-        if mode == 'default':
+        if mode == 'default' or mode == 'stability':
             M_raw = self.consensus_matrices_[best_idx]
         elif mode == 'generalizability':
             M_raw = self.consensus_generalizability_matrices_[best_idx]
         else:
-            raise ValueError("mode must be 'default' or 'generalizability'.")
+            raise ValueError("Mode must be 'default' or 'generalizability'.")
         
         if M_raw is None:
             raise RuntimeError(

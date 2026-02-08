@@ -397,7 +397,7 @@ def plot_ari_over_difficulty(
     title: str | None = None,
     figsize: tuple = (12, 10),
     ax=None,
-    ylim=(0.0, 1.02),
+    ylim: tuple | str = "auto",
 ):
     """
     Plots ARI vs. difficulty level for selected metrics.
@@ -410,7 +410,7 @@ def plot_ari_over_difficulty(
         - show_band_for (tuple): Metrics for which to show uncertainty band.
         - title (str | None): Plot title.
         - ax: Matplotlib axis.
-        - ylim (tuple): Y-axis limits.
+        - ylim (tuple | str): Y-axis limits.
     """
     axis_col, axis_name_col = _infer_axis_cols(results_df) if x_col is None else (x_col, "")
     needed = {axis_col, "metric_name", "is_optimal", "metric_ari", "baseline_ari"}
@@ -505,7 +505,10 @@ def plot_ari_over_difficulty(
     ax.set_xlabel(x_label)
     ax.set_ylabel("ARI (selected k^hat vs. true labels)")
     ax.set_xlim(x.min(), x.max())
-    ax.set_ylim(ylim)
+    if ylim != "auto":
+        ax.set_ylim(ylim)
+    else:
+        ax.set_ylim(auto=True)
     ax.set_xticks(np.unique(x))
     
     if xscale in {"log", "linear"}:
