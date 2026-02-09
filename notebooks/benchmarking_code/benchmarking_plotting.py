@@ -277,14 +277,20 @@ def plot_examples(
 
             # plot PCA of dataset
             X_pca = PCA(n_components=2, random_state=0).fit_transform(X)
-            ax = axes[i, j]
+            
+            # get labels and colors
             labels = np.asarray(y)
             cmap = _cluster_color_map(labels)
             colors = [cmap[int(lbl)] for lbl in labels]
+            
+            # plot scatter plot
+            ax = axes[i, j]
             ax.scatter(
                 X_pca[:, 0], X_pca[:, 1],
                 c=colors, s=10, alpha=0.8
             )
+            
+            # titles, legends, &c.
             ax.set_title(f"k={true_k}, {level_label}={level} | Baseline ARI={ari_mean:.3f}")
             ax.set_aspect("equal", adjustable="datalim")
             ax.set_xticks([]); ax.set_yticks([])
