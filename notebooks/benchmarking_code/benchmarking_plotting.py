@@ -1,6 +1,8 @@
 from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Literal, Literal, Mapping, Sequence
 
+from joblib import Parallel, delayed
+
 import numpy as np
 import pandas as pd
 
@@ -121,11 +123,90 @@ def _pretty_metric_name(metric: str) -> str:
     }
     return pretty.get(metric, metric)
 
+def _plotting_iter(
+    settings_by_k: Dict,
+    other_settings: Dict,
+    j: int,
+    level: Any,
+    level_label: str,
+    true_k: int,
+    true_cluster_counts: np.ndarray,
+    estimator_type: str,
+    spectral_quant: float,
+    sampler: Literal['default', 'scaling'],
+    seed: int,
+    random_state: int,
+):
+    level_seed = {1: 4, 2: 9}.get(j, 0)
+    benchmark_seed = seed + ((true_k - min(true_cluster_counts)) * 100) + (level_seed * 10000) + random_state
+    
+    if sampler == 'default':
+        X, y = simulate_clusters(
+            k=true_k,
+            plotting=False,
+            random_state=benchmark_seed,
+            **settings_by_k[true_k][level],
+            **other_settings
+        )
+    elif sampler == 'scaling':
+        if level_label not in {"n_total", "p", "embed_dim"}:
+            raise ValueError("level_label must be 'n_total', 'p', or 'embed_dim'")
+
+        n_total = int(other_settings.get("n_total", 500))
+        p = int(other_settings.get("p", 50))
+        embed_dim = int(other_settings.get("embed_dim", 64))
+
+        if level_label == "n_total":
+            n_total = int(level)
+        elif level_label == "p":
+            p = int(level)
+        elif level_label == "embed_dim":
+            embed_dim = int(level)
+        else:
+            raise ValueError("level_label must be 'n_total', 'p', or 'embed_dim'")
+
+        dict_key = {1: 'middle', 2: 'end'}.get(j, 'start')
+        
+        X, y = simulate_clusters(
+            n_total=n_total,
+            p=p,
+            embed_dim=embed_dim,
+            k=true_k,
+            plotting=False,
+            random_state=random_state,
+            **settings_by_k[true_k][dict_key],
+            **other_settings
+        )
+    
+    if estimator_type == 'agglomerative':
+        estimator = AgglomerativeClustering(
+            n_clusters=true_k
+        )
+    elif estimator_type == 'spectral':
+        gamma = gamma_quantile_approx(X, q=spectral_quant, random_state=benchmark_seed)
+        estimator = SpectralClustering(
+            n_clusters=true_k,
+            affinity='rbf',
+            gamma=gamma,
+            random_state=benchmark_seed
+        )
+    else:
+        estimator = KMeans(
+            n_clusters=true_k,
+            n_init=10,
+            random_state=benchmark_seed
+        )
+    
+    y_hat = estimator.fit_predict(X)
+    ari = adjusted_rand_score(y, y_hat)
+
+    return ari, X, y
+    
 
 # --- Main plotting functions ---
 def plot_examples(
     settings_by_k: Dict,
-    other_settings: Dict | None = None,
+    other_settings: Dict,
     true_cluster_counts: np.ndarray = np.array([3, 4, 5, 6]),
     level_label: str = "difficulty",
     levels: List[Any] = ['easy', 'medium', 'hard'],
@@ -134,6 +215,7 @@ def plot_examples(
     spectral_quant: float = 0.5,
     example_title: str = 'Gaussian Mixtures', 
     sampler: Literal['default', 'scaling'] = 'default',
+    n_jobs: int = 1,
     random_state: int = 0
 ) -> None:
     """
@@ -170,83 +252,44 @@ def plot_examples(
     for j, level in enumerate(levels):
         for i, true_k in enumerate(true_cluster_counts): 
             
-            ari_arr = []
-            for seed in range(n_seeds_per_dataset):
-                level_seed = {1: 4, 2: 9}.get(j, 0)
-                benchmark_seed = seed + ((true_k - min(true_cluster_counts)) * 100) + (level_seed * 10000) + random_state
-                
-                if sampler == 'default':
-                    X, y = simulate_clusters(
-                        k=true_k,
-                        plotting=False,
-                        random_state=benchmark_seed,
-                        **settings_by_k[true_k][level],
-                        **other_settings
-                    )
-                elif sampler == 'scaling':
-                    if level_label not in {"n_total", "p", "embed_dim"}:
-                        raise ValueError("level_label must be 'n_total', 'p', or 'embed_dim'")
-
-                    n_total = int(other_settings.get("n_total", 500))
-                    p = int(other_settings.get("p", 50))
-                    embed_dim = int(other_settings.get("embed_dim", 64))
-
-                    if level_label == "n_total":
-                        n_total = int(level)
-                    elif level_label == "p":
-                        p = int(level)
-                    elif level_label == "embed_dim":
-                        embed_dim = int(level)
-                    else:
-                        raise ValueError("level_label must be 'n_total', 'p', or 'embed_dim'")
-
-                    dict_key = {1: 'middle', 2: 'end'}.get(j, 'start')
-                    
-                    X, y = simulate_clusters(
-                        n_total=n_total,
-                        p=p,
-                        embed_dim=embed_dim,
-                        k=true_k,
-                        plotting=False,
-                        random_state=random_state,
-                        **settings_by_k[true_k][dict_key],
-                        **other_settings
-                    )
-                
-                if estimator_type == 'agglomerative':
-                    estimator = AgglomerativeClustering(
-                        n_clusters=true_k
-                    )
-                elif estimator_type == 'spectral':
-                    gamma = gamma_quantile_approx(X, q=spectral_quant, random_state=benchmark_seed)
-                    estimator = SpectralClustering(
-                        n_clusters=true_k,
-                        affinity='rbf',
-                        gamma=gamma,
-                        random_state=benchmark_seed
-                    )
-                else:
-                    estimator = KMeans(
-                        n_clusters=true_k,
-                        n_init=10,
-                        random_state=benchmark_seed
-                    )
-                
-                y_hat = estimator.fit_predict(X)
-                ari = adjusted_rand_score(y, y_hat)
-                ari_arr.append(ari)
+            worker = delayed(_plotting_iter)
+            results = Parallel(n_jobs=n_jobs)(
+                worker(
+                    settings_by_k=settings_by_k,
+                    other_settings=other_settings,
+                    j=j,
+                    level=level,
+                    level_label=level_label,
+                    true_k=true_k,
+                    true_cluster_counts=true_cluster_counts,
+                    estimator_type=estimator_type,
+                    spectral_quant=spectral_quant,
+                    sampler=sampler,
+                    seed=seed,
+                    random_state=random_state,
+                )
+                for seed in range(n_seeds_per_dataset)
+            )
+            ari_arr = [res[0] for res in results]
+            _, X, y = results[0]
                 
             ari_mean = np.mean(ari_arr)
 
             # plot PCA of dataset
             X_pca = PCA(n_components=2, random_state=0).fit_transform(X)
             ax = axes[i, j]
+            labels = np.asarray(y)
+            cmap = _cluster_color_map(labels)
+            colors = [cmap[int(lbl)] for lbl in labels]
             ax.scatter(
                 X_pca[:, 0], X_pca[:, 1],
-                c=y, cmap="tab10", s=20, alpha=0.8, edgecolors="k"
+                c=colors, s=10, alpha=0.8
             )
             ax.set_title(f"k={true_k}, {level_label}={level} | Baseline ARI={ari_mean:.3f}")
+            ax.set_aspect("equal", adjustable="datalim")
             ax.set_xticks([]); ax.set_yticks([])
+            for spine in ax.spines.values():
+                spine.set_alpha(0.1)
             
     plt.suptitle(f"Example datasets: {example_title}", fontsize=16)
     plt.tight_layout(); plt.show()
