@@ -1,4 +1,11 @@
 data/ 
-Anirban processing/ 
+
 notebooks/legacy/
+notebooks/legacy/benchmarking_code/legacy/
+
+results/backup*/
+results/legacy/
+
+Anirban processing/ 
+
 .venv
