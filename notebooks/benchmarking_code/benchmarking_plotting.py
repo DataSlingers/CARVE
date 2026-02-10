@@ -774,4 +774,3 @@ def plot_baseline_vs_metric_ari_grid(
     fig.supylabel("ARI (selected k^hat)")
 
     return fig
-
