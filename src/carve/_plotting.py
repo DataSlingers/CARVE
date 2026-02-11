@@ -455,7 +455,7 @@ def infer_param_cols(df: pd.DataFrame) -> list[str]:
     return cols
 
 
-def _fmt_param(v: Any, decimals: int = 4) -> str:
+def _fmt_param(v: Any, decimals: int = 4, *, for_id: bool = False) -> str:
     """Format a parameter value for display.
 
     Parameters
@@ -472,9 +472,28 @@ def _fmt_param(v: Any, decimals: int = 4) -> str:
     """
     if pd.isna(v):
         return "NA"
-    if isinstance(v, (float, np.floating)):
-        return f"{float(v):.{decimals}f}"
-    return str(v)
+    if isinstance(v, (float, np.floating)):  # handle floats with consistent formatting
+        fv = float(v)
+
+        # avoid negative-zero in ids and labels
+        if fv == 0.0:
+            fv = 0.0
+
+        if for_id:
+            return repr(fv)
+
+        fixed = f"{fv:.{decimals}f}"
+        if 0.0 < abs(fv) < 1.0 and fixed.endswith("." + "0" * decimals):
+            sci = f"{fv:.3e}"
+            mantissa, exp = sci.split("e")
+            mantissa = mantissa.rstrip("0").rstrip(".")
+            exp_sign = "-" if exp.startswith("-") else ""
+            exp_num = exp.lstrip("+-0") or "0"
+            return f"{mantissa}e{exp_sign}{exp_num}"
+
+        return fixed
+    
+    return str(v)  # fallback to string conversion for other types
 
 
 def build_method_id(row: pd.Series, *, param_cols: Sequence[str], decimals: int = 4) -> str:
@@ -496,7 +515,7 @@ def build_method_id(row: pd.Series, *, param_cols: Sequence[str], decimals: int 
     """
     parts: list[str] = []
     for c in param_cols:
-        parts.append(f"{c}={_fmt_param(row.get(c), decimals)}")
+        parts.append(f"{c}={_fmt_param(row.get(c), decimals, for_id=True)}")
     return "|".join(parts)
 
 
@@ -893,6 +912,21 @@ def plot_global_metric_over_k(
     if df.empty:
         raise ValueError(f"No rows to plot for measure={measure!r} (column={y_col!r})")
     df["n_clusters"] = df["n_clusters"].astype(int)
+    
+    # check; each (method_id, k) should appear once; if not, something is colliding
+    dup = df.duplicated(subset=["_method_id", "n_clusters"], keep=False)
+    if dup.any():
+        example = (
+            df.loc[dup, ["_method_id", "_method_label", "n_clusters", y_col]]
+              .sort_values(["_method_id", "n_clusters"])
+              .head(12)
+        )
+        raise ValueError(
+            "Found multiple rows for the same (_method_id, n_clusters). "
+            "This usually means distinct hyper-parameter settings collapsed into the same _method_id "
+            "(common cause: float rounding in method id construction).\n\n"
+            f"Example rows:\n{example.to_string(index=False)}"
+        )
 
     # decide key panel mode (only possible if we control the figure layout)
     n_methods = df["_method_id"].nunique()
@@ -1077,6 +1111,7 @@ def plot_clustering(
     *,
     measure: Measure = "stability",
     rule: Rule = "1se",
+    consensus_type: Literal["stability", "generalizability"] = "stability",
     k: int | None = None,
     cluster_metric: ClusterMetric = "gini",
     dr: DRFunc | None = None,
@@ -1169,7 +1204,7 @@ def plot_clustering(
     selected_k = int(selected_row["n_clusters"])
 
     # labels from CARVE (aligned / consistent with your pipeline)
-    labels = carve.get_best_labels(measure=str(measure), rule=str(rule), k=k)
+    labels = carve.get_labels(measure=str(measure), rule=str(rule), k=k, mode=consensus_type)
 
     # find "pos" (row position in original model_df_) for per-sample arrays
     pos = estimator_df.index.get_loc(selected_idx)
@@ -1196,18 +1231,10 @@ def plot_clustering(
     else:
         raise ValueError(f"Unknown cluster_metric={cluster_metric!r}")
 
-    # make sure method label exists for annotation, if added it earlier
-    # if "_method_label" in model_df.columns:
-    #     try:
-    #         selected_method_label = str(model_df.loc[selected_idx, "_method_label"])
-    #     except Exception:
-    #         pass
-
     # now X, labels, values must exist
     if X is None:
         raise ValueError("X is required.")
     labels = np.asarray(labels)
-    # values = np.asarray(values)
 
     if labels.ndim != 1:
         raise ValueError("Labels must be 1D.")
@@ -1332,10 +1359,6 @@ def plot_clustering(
 
         ax_box.set_xticks(np.arange(1, len(cluster_ids) + 1))
         ax_box.set_xticklabels(tick_names)
-        # xticklabels = ax_box.get_xticklabels()
-        # for lbl, cid in zip(xticklabels, cluster_ids):
-        #     c = color_map.get(int(cid), (0.5, 0.5, 0.5, 1.0))
-        #     lbl.set_color(c)
             
         ax_box.xaxis.set_major_locator(MaxNLocator(integer=True))
         
@@ -1358,8 +1381,6 @@ def plot_clustering(
             ax_box.grid(False)
 
         # titles
-        # if title is None:
-        #     title = "clustering + cluster-wise scores"
         fig.suptitle(title, y=0.98)
 
         # selection annotation

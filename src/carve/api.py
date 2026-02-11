@@ -537,6 +537,7 @@ class CARVE(BaseEstimator):
         interactive: bool = False,
         # selection + which cluster-wise thing to show
         rule: str = "1se",
+        consensus_type: Literal["stability", "generalizability"] = "stability",
         mode: str = "screen",
         k: Optional[int] = None,
         cluster_metric: Literal["gini", "ce", "misclassification"] = "gini",
@@ -636,6 +637,7 @@ class CARVE(BaseEstimator):
             carve=self,
             measure=measure, 
             rule=rule,
+            consensus_type=consensus_type,
             k=k,
             cluster_metric=cluster_metric,
             dr=dr,

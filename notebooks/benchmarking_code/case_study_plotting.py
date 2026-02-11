@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Iterable, List
+from typing import Any, Iterable, List, Literal
 
 from itertools import product
 
@@ -12,7 +12,10 @@ import plotly.graph_objects as go
 
 from sklearn.cluster import AgglomerativeClustering, KMeans, SpectralClustering
 from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
 from sklearn.metrics import adjusted_rand_score
+
+from umap import UMAP
 
 from .benchmarking_utils import gamma_quantile_approx, LeidenClustering, align_labels, _build_estimator
 from .benchmarking_metrics import calculate_metric
@@ -152,10 +155,11 @@ def _hex_to_rgba(hex_color, a=0.35):
     
 
 # --- Main plotting functions for case studies ---
-def plot_pca(
+def plot_dim_red(
     X: np.ndarray, 
     *, 
     y: np.ndarray, 
+    method: Literal['pca', 'tsne', 'umap'] = 'pca',
     label_col: str = 'label', 
     s: int = 50,
     alpha: float = 0.8,
@@ -166,13 +170,32 @@ def plot_pca(
     show_legend: bool = True,
     legend_title: str = 'stage',
 ) -> None:
-    # Get PCs
-    pca = PCA(n_components=2, random_state=0)
-    pcs = pca.fit_transform(X)
+    if isinstance(X, pd.DataFrame):
+        X = X.to_numpy()
+    else:
+        X = np.asarray(X)
+
+    if isinstance(y, (pd.Series, pd.Index)):
+        y = y.to_numpy()
+    else:
+        y = np.asarray(y)
+        
+    if method == 'pca':
+         # Get PCs
+        pca = PCA(n_components=2, random_state=0)
+        pcs = pca.fit_transform(X)
+    elif method == 'tsne':
+        tsne = TSNE(n_components=2, random_state=0)
+        pcs = tsne.fit_transform(X)
+    elif method == 'umap':
+        umap = UMAP(n_components=2, random_state=0)
+        pcs = umap.fit_transform(X)
+    else:
+        raise ValueError(f"unsupported method: {method}")
 
     # Construct data frame
     pc_df = pd.DataFrame(pcs, columns=['PC1', 'PC2'])
-    pc_df[label_col] = y.values
+    pc_df[label_col] = y
     
     # Get colors 
     cat = pd.Categorical(pc_df[label_col])
@@ -194,8 +217,15 @@ def plot_pca(
 
     # Set title, axis labels, legend
     plt.title(title)
-    plt.xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.2f}% var)")
-    plt.ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.2f}% var)")
+    if method == 'pca':
+        plt.xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.2f}% var)")
+        plt.ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.2f}% var)")
+    elif method == 'tsne':
+        plt.xlabel("t-SNE 1")
+        plt.ylabel("t-SNE 2")
+    elif method == 'umap':
+        plt.xlabel("UMAP 1")
+        plt.ylabel("UMAP 2")
     
     if show_legend:
         plt.legend(title=legend_title, bbox_to_anchor=(1.02, 1), loc='upper left')
@@ -225,46 +255,57 @@ def calculate_baseline_aris_and_plot(
     figsize: tuple[float, float] = (12, 10),
     random_state: int = 0,
 ) -> tuple[float, np.ndarray]:
-    n_clusters = len(np.unique(y))
+    # --- coerce inputs ---
+    if isinstance(X, pd.DataFrame):
+        X_arr = X.to_numpy()
+    else:
+        X_arr = np.asarray(X)
+
+    if isinstance(y, (pd.Series, pd.Index)):
+        y_arr = y.to_numpy()
+    else:
+        y_arr = np.asarray(y)
+        
+    n_clusters = len(np.unique(y_arr))
 
     # KMeans
     kmeans = KMeans(n_clusters=n_clusters, random_state=random_state)
-    kmeans_labels = kmeans.fit_predict(X)
-    ari_kmeans = adjusted_rand_score(y, kmeans_labels)
+    kmeans_labels = kmeans.fit_predict(X_arr)
+    ari_kmeans = adjusted_rand_score(y_arr, kmeans_labels)
 
     # Agglomerative (Ward linkage)
     agg_w = AgglomerativeClustering(n_clusters=n_clusters, linkage='ward')
-    agg_w_labels = agg_w.fit_predict(X)
-    ari_agg_w = adjusted_rand_score(y, agg_w_labels)
+    agg_w_labels = agg_w.fit_predict(X_arr)
+    ari_agg_w = adjusted_rand_score(y_arr, agg_w_labels)
 
     # Agglomerative (single linkage)
     agg_s = AgglomerativeClustering(n_clusters=n_clusters, linkage='single')
-    agg_s_labels = agg_s.fit_predict(X)
-    ari_agg_s = adjusted_rand_score(y, agg_s_labels)
+    agg_s_labels = agg_s.fit_predict(X_arr)
+    ari_agg_s = adjusted_rand_score(y_arr, agg_s_labels)
 
     # Leiden
     leiden = LeidenClustering(n_clusters=n_clusters, random_state=random_state)
-    leiden_labels = leiden.fit_predict(X)
-    ari_leiden = adjusted_rand_score(y, leiden_labels)
+    leiden_labels = leiden.fit_predict(X_arr)
+    ari_leiden = adjusted_rand_score(y_arr, leiden_labels)
 
     # Spectral Clustering (median heuristic for gamma)
-    gamma = gamma_quantile_approx(X, q=spectral_quant, random_state=random_state)
+    gamma = gamma_quantile_approx(X_arr, q=spectral_quant, random_state=random_state)
     spectral = SpectralClustering(n_clusters=n_clusters, affinity='rbf', gamma=gamma, random_state=random_state)
-    spectral_labels = spectral.fit_predict(X)
-    ari_spectral = adjusted_rand_score(y, spectral_labels)
+    spectral_labels = spectral.fit_predict(X_arr)
+    ari_spectral = adjusted_rand_score(y_arr, spectral_labels)
     
     # Get PCs
     pca = PCA(n_components=2, random_state=0)
-    pcs = pca.fit_transform(X)
+    pcs = pca.fit_transform(X_arr)
 
     # Construct data frame
     pc_df = pd.DataFrame(pcs, columns=['PC1', 'PC2'])
-    pc_df[label_col] = y.values
+    pc_df[label_col] = y_arr
     
     # Plot PCA with labels 
-    fig, axes = plt.subplots(2, 3, figsize=figsize, sharex=True, sharey=True)
+    _, axes = plt.subplots(2, 3, figsize=figsize, sharex=True, sharey=True)
 
-    y_cat = pd.Categorical(y)
+    y_cat = pd.Categorical(y_arr)
     if hasattr(y_cat, "remove_unused_categories"):
         y_cat = y_cat.remove_unused_categories()
     y_codes = y_cat.codes
