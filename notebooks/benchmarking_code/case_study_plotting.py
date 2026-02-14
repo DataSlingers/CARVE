@@ -801,6 +801,8 @@ def alluvial_compare(
     font_size=14,
     height=600,
     width=1200,
+    title_y=1.02,
+    top_margin=80,
 ):
     # --- coerce to strings for clean labeling ---
     y_true = pd.Series(y_true).astype(str).to_numpy()
@@ -928,11 +930,11 @@ def alluvial_compare(
         plot_bgcolor="white",
         width=width,
         height=height,
-        margin=dict(l=40, r=40, t=60, b=20),
+        margin=dict(l=40, r=40, t=int(top_margin), b=20),
         annotations=[
-            dict(x=0.0, y=1.08, xref="paper", yref="paper", text=left_title, showarrow=False, font=dict(size=font_size+2)),
-            dict(x=0.5, y=1.08, xref="paper", yref="paper", text=true_title, showarrow=False, font=dict(size=font_size+2)),
-            dict(x=1.0, y=1.08, xref="paper", yref="paper", text=right_title, showarrow=False, font=dict(size=font_size+2)),
+            dict(x=0.0, y=title_y, xref="paper", yref="paper", text=left_title, showarrow=False, font=dict(size=font_size+2)),
+            dict(x=0.5, y=title_y, xref="paper", yref="paper", text=true_title, showarrow=False, font=dict(size=font_size+2)),
+            dict(x=1.0, y=title_y, xref="paper", yref="paper", text=right_title, showarrow=False, font=dict(size=font_size+2)),
         ],
     )
     return fig
