@@ -199,7 +199,7 @@ def summarize_benchmark_regime(
     def _fmt_pm(mean: float, sd: float) -> str:
         if not np.isfinite(mean) or not np.isfinite(sd):
             return ""
-        return f"{mean:.{decimals}f} (sd {sd:.{decimals}f})"
+        return f"{mean:.{decimals}f} ({sd:.{decimals}f})"
 
     def _fmt_med_iqr(med: float, q25: float, q75: float) -> str:
         if not all(np.isfinite([med, q25, q75])):
