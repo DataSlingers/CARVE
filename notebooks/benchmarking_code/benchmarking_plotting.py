@@ -114,6 +114,7 @@ def _pretty_metric_name(metric: str) -> str:
     # tune freely
     pretty = {
         "ari_stability_1se": "CARVE Stability (1se)",
+        "ari_stability_quant": "CARVE Stability (95% Quantile)",
         "ari_generalizability_1se": "CARVE Generalizability (1se)",
         "silhouette": "Silhouette",
         "gap": "Gap Statistic",
