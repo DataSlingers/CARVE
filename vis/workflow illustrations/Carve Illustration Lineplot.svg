@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="CARVE output illustration: multi-line score over k (transparent background)">
+  <!-- transparent background: no backdrop rectangles -->
+  <!-- subtle panel outline (no fill) -->
+  <rect x="48" y="64" width="416" height="384" rx="28"
+        fill="none" stroke="#EDEDED" stroke-opacity="0.18" stroke-width="6"/>
+
+  <!-- axes -->
+  <g stroke="#EDEDED" stroke-width="10" stroke-linecap="round" opacity="0.9">
+    <path d="M120 388 L120 168"/>
+    <path d="M120 388 L412 388"/>
+  </g>
+
+  <!-- x ticks -->
+  <g stroke="#EDEDED" stroke-width="6" stroke-linecap="round" opacity="0.35">
+    <path d="M172 388 L172 402"/>
+    <path d="M224 388 L224 402"/>
+    <path d="M276 388 L276 402"/>
+    <path d="M328 388 L328 402"/>
+    <path d="M380 388 L380 402"/>
+  </g>
+
+  <!-- lines -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M120 340 L172 316 L224 304 L276 318 L328 346 L380 368 L412 380"
+          stroke="#60A5FA" stroke-width="10" opacity="0.9"/>
+    <path d="M120 358 L172 346 L224 330 L276 308 L328 300 L380 316 L412 342"
+          stroke="#A78BFA" stroke-width="10" opacity="0.9"/>
+    <path d="M120 368 L172 354 L224 328 L276 276 L328 246 L380 268 L412 306"
+          stroke="#6EE7B7" stroke-width="14" opacity="1.0"/>
+    <path d="M120 308 L172 298 L224 286 L276 294 L328 310 L380 328 L412 344"
+          stroke="#FBBF24" stroke-width="10" opacity="0.9"/>
+  </g>
+
+  <!-- markers -->
+  <g opacity="0.9">
+    <g fill="#60A5FA">
+      <circle cx="172" cy="316" r="8"/><circle cx="224" cy="304" r="8"/><circle cx="276" cy="318" r="8"/>
+    </g>
+    <g fill="#A78BFA">
+      <circle cx="224" cy="330" r="8"/><circle cx="276" cy="308" r="8"/><circle cx="328" cy="300" r="8"/>
+    </g>
+    <g fill="#FBBF24">
+      <circle cx="224" cy="286" r="8"/><circle cx="276" cy="294" r="8"/><circle cx="328" cy="310" r="8"/>
+    </g>
+  </g>
+
+  <!-- winning peak star -->
+  <g transform="translate(328 246)">
+    <path d="M0 -22 L6 -7 L22 -6 L9 4 L13 20 L0 12 L-13 20 L-9 4 L-22 -6 L-6 -7 Z"
+          fill="#6EE7B7" stroke="#0b0f16" stroke-width="6" />
+  </g>
+
+  <text x="120" y="144" fill="#EDEDED" opacity="0.85"
+        font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto"
+        font-size="20" font-weight="600">score over k</text>
+</svg>

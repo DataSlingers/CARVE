@@ -3,6 +3,8 @@ from typing import Any, Iterable, List, Literal
 
 from itertools import product
 
+from joblib import Parallel, delayed
+
 import numpy as np
 import pandas as pd
 
@@ -14,6 +16,8 @@ from sklearn.cluster import AgglomerativeClustering, KMeans, SpectralClustering
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.metrics import adjusted_rand_score
+
+import glasbey
 
 from umap import UMAP
 
@@ -57,8 +61,8 @@ def _get_color_mapping(k: int) -> List[Any]:
         tab20 = plt.get_cmap("tab20")
         cols = [tab20(i) for i in range(k)]
     else:
-        hsv = plt.get_cmap("hsv")
-        cols = [hsv(i / max(k - 1, 1)) for i in range(k)]
+        hex_cols = glasbey.create_palette(palette_size=k)
+        cols = [mpl.colors.to_rgba(h) for h in hex_cols]
         
     return cols
 
@@ -152,6 +156,59 @@ def _hex_to_rgba(hex_color, a=0.35):
     g = int(hex_color[2:4], 16)
     b = int(hex_color[4:6], 16)
     return f"rgba({r},{g},{b},{a})"
+
+
+def _baseline_metric_iter(
+    *,
+    X: np.ndarray,
+    y_arr: np.ndarray | None,
+    estimator_cls: Any,
+    fixed_params: dict[str, Any],
+    model_label: str,
+    k: int,
+    metrics: list[str],
+    random_state: int,
+) -> list[dict[str, Any]]:
+    try:
+        est = _build_estimator(estimator_cls, int(k), fixed_params, int(random_state))
+        labels = est.fit_predict(X)
+        labels = np.asarray(labels)
+    except Exception:
+        labels = None
+
+    ari = np.nan
+    if labels is not None and y_arr is not None and len(y_arr) == len(labels):
+        ari = float(adjusted_rand_score(y_arr, labels))
+
+    rows = []
+    for metric in metrics:
+        score = np.nan
+        if labels is not None:
+            try:
+                score = float(
+                    calculate_metric(
+                        X,
+                        labels,
+                        metric=metric,
+                        estimator_cls=estimator_cls,
+                        estimator_params=fixed_params,
+                        random_state=int(random_state),
+                    )
+                )
+            except Exception:
+                score = np.nan
+
+        rows.append(
+            {
+                "metric": metric,
+                "model": model_label,
+                "k": int(k),
+                "score": score,
+                "ari": ari,
+            }
+        )
+
+    return rows
     
 
 # --- Main plotting functions for case studies ---
@@ -169,6 +226,8 @@ def plot_dim_red(
     title: str = 'PCA of raw cell counts (colored by stage label)', 
     show_legend: bool = True,
     legend_title: str = 'stage',
+    ax: plt.Axes | None = None,
+    show: bool = True,
 ) -> None:
     if isinstance(X, pd.DataFrame):
         X = X.to_numpy()
@@ -209,36 +268,44 @@ def plot_dim_red(
     }
 
     # Plot
-    plt.figure(figsize=figsize)
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.figure
 
     for lab in cat.categories:
         sel = pc_df[pc_df[label_col] == lab]
-        plt.scatter(sel['PC1'], sel['PC2'], label=lab, color=color_map[lab], s=s, alpha=alpha, edgecolor='k', linewidths=linewidth)
+        ax.scatter(
+            sel['PC1'], sel['PC2'],
+            label=lab, color=color_map[lab],
+            s=s, alpha=alpha, edgecolor='k', linewidths=linewidth
+        )
 
     # Set title, axis labels, legend
-    plt.title(title)
+    ax.set_title(title)
     if method == 'pca':
-        plt.xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.2f}% var)")
-        plt.ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.2f}% var)")
+        ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.2f}% var)")
+        ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.2f}% var)")
     elif method == 'tsne':
-        plt.xlabel("t-SNE 1")
-        plt.ylabel("t-SNE 2")
+        ax.set_xlabel("t-SNE 1")
+        ax.set_ylabel("t-SNE 2")
     elif method == 'umap':
-        plt.xlabel("UMAP 1")
-        plt.ylabel("UMAP 2")
+        ax.set_xlabel("UMAP 1")
+        ax.set_ylabel("UMAP 2")
     
     if show_legend:
-        plt.legend(title=legend_title, bbox_to_anchor=(1.02, 1), loc='upper left')
+        ax.legend(title=legend_title, bbox_to_anchor=(1.02, 1), loc='upper left')
     
-    if hide_axes == True:
-        ax = plt.gca()
+    if hide_axes:
         ax.set_xticks([])
         ax.set_yticks([])
         for spine in ax.spines.values():
             spine.set_visible(False)
     
-    plt.tight_layout()
-    plt.show()
+    fig.tight_layout()
+    if show:
+        plt.show()
+    return fig, ax
     
 
 def calculate_baseline_aris_and_plot(
@@ -373,6 +440,7 @@ def baseline_metrics_over_k(
     model_grids: list[tuple[Any, dict[str, Any]]],
     metrics: list[str] = ["silhouette", "gap", "DB", "CH"],
     random_state: int = 0,
+    n_jobs: int = 1,
     ncols: int = 2,
     figsize: tuple[float, float] = (12, 8),
     legend_below: bool = True,
@@ -384,6 +452,7 @@ def baseline_metrics_over_k(
       - selects best (model, k) per metric (max score)
       - reports ARI(best) if y is given
       - plots a small grid of metric-vs-k lineplots
+      - n_jobs controls joblib workers
 
     returns:
       curves_df (long): metric, model, k, score, ari
@@ -392,8 +461,7 @@ def baseline_metrics_over_k(
     X = np.asarray(X)
     y_arr = None if y is None else np.asarray(y)
 
-    rows = []
-
+    jobs = []
     for estimator_cls, grid in model_grids:
         ks = list(np.asarray(grid["n_clusters"]).astype(int))
 
@@ -407,44 +475,21 @@ def baseline_metrics_over_k(
             model_label = _pretty_model_label(estimator_cls, fixed_params)
 
             for k in ks:
-                # fit once -> labels -> ari + all label-based metrics (+ gap uses labels too)
-                try:
-                    est = _build_estimator(estimator_cls, int(k), fixed_params, int(random_state))
-                    labels = est.fit_predict(X)
-                    labels = np.asarray(labels)
-                except Exception:
-                    labels = None
-
-                ari = np.nan
-                if labels is not None and y_arr is not None and len(y_arr) == len(labels):
-                    ari = float(adjusted_rand_score(y_arr, labels))
-
-                for metric in metrics:
-                    score = np.nan
-                    if labels is not None:
-                        try:
-                            score = float(
-                                calculate_metric(
-                                    X,
-                                    labels,
-                                    metric=metric,
-                                    estimator_cls=estimator_cls,
-                                    estimator_params=fixed_params,
-                                    random_state=int(random_state),
-                                )
-                            )
-                        except Exception:
-                            score = np.nan
-
-                    rows.append(
-                        {
-                            "metric": metric,
-                            "model": model_label,
-                            "k": int(k),
-                            "score": score,
-                            "ari": ari,
-                        }
+                jobs.append(
+                    delayed(_baseline_metric_iter)(
+                        X=X,
+                        y_arr=y_arr,
+                        estimator_cls=estimator_cls,
+                        fixed_params=fixed_params,
+                        model_label=model_label,
+                        k=int(k),
+                        metrics=metrics,
+                        random_state=int(random_state),
                     )
+                )
+
+    results = Parallel(n_jobs=n_jobs)(jobs) if jobs else []
+    rows = [row for sub in results for row in sub]
 
     curves_df = pd.DataFrame(rows)
 
@@ -490,8 +535,6 @@ def baseline_metrics_over_k(
                     print(f"  - {m}: k={bk}, score={bs:.{decimals}f}   [{bm}]")
 
     # ---- plotting: one subplot per metric, lines = models
-    import matplotlib.pyplot as plt
-
     ms = list(metrics)
     n = len(ms)
     ncols = max(1, int(ncols))
@@ -541,6 +584,206 @@ def baseline_metrics_over_k(
     plt.show()
 
     return curves_df, best_df
+
+
+# Split quantification
+def plot_label_split_counts(
+    true_labels,
+    labels_a,
+    labels_b,
+    title_a="Agglomerative (single linkage)",
+    title_b="KMeans",
+    color_a=None,
+    color_b=None,
+    figsize=(14, 5),
+):
+    """
+    Plot how many clusters each true label is split into, for two labelings.
+    """
+    true_labels = np.asarray(true_labels)
+    labels_a = np.asarray(labels_a)
+    labels_b = np.asarray(labels_b)
+
+    # default to Okabe–Ito colors
+    if color_a is None or color_b is None:
+        okabe = _get_color_mapping(2)
+        color_a = okabe[0] if color_a is None else color_a
+        color_b = okabe[1] if color_b is None else color_b
+
+    def count_splits(true_labels, cluster_labels):
+        splits = []
+        for lab in np.unique(true_labels):
+            members = cluster_labels[true_labels == lab]
+            splits.append(len(np.unique(members)))
+        return np.asarray(splits, dtype=int)
+
+    def plot_counts(ax, splits, title, color):
+        values, counts = np.unique(splits, return_counts=True)
+        ax.bar(values, counts, color=color, edgecolor="black", linewidth=0.5)
+        ax.set_title(title)
+        ax.set_xlabel("Number of clusters per true label")
+        ax.set_xticks(values)
+
+    splits_a = count_splits(true_labels, labels_a)
+    splits_b = count_splits(true_labels, labels_b)
+
+    fig, axes = plt.subplots(1, 2, figsize=figsize, sharey=True)
+
+    plot_counts(axes[0], splits_a, title_a, color_a)
+    axes[0].set_ylabel("Count")
+
+    plot_counts(axes[1], splits_b, title_b, color_b)
+    axes[1].set_ylabel("")
+
+    plt.tight_layout()
+    plt.show()
+    
+    
+def fragmentation_report(
+    y_true,
+    labels_a,
+    labels_b,
+    name_a="method A",
+    name_b="method B",
+    top_n=10,
+    print_compare=True,
+):
+    """
+    Compute fragmentation stats for two labelings and optionally print a comparison.
+    Returns:
+        (summ_a, splits_a, dist_a, top_a), (summ_b, splits_b, dist_b, top_b)
+    """
+    def fragmentation_by_label(y_true, y_pred):
+        y_true = np.asarray(y_true)
+        y_pred = np.asarray(y_pred)
+
+        labels = pd.unique(y_true)
+        split_counts = {}
+        for lab in labels:
+            members = y_pred[y_true == lab]
+            split_counts[lab] = pd.unique(members).size
+
+        splits = pd.Series(split_counts, name="n_clusters").sort_values(ascending=False)
+        return splits
+
+    def summarize_fragmentation(splits: pd.Series, name="method"):
+        arr = splits.to_numpy(dtype=float)
+        L = splits.size
+
+        out = {
+            "name": name,
+            "L_total_labels": int(L),
+
+            "n_intact": int((arr == 1).sum()),
+            "pct_intact": float((arr == 1).mean() * 100),
+
+            "n_split_ge2": int((arr >= 2).sum()),
+            "pct_split_ge2": float((arr >= 2).mean() * 100),
+
+            "mean_splits": float(arr.mean()),
+            "median_splits": float(np.median(arr)),
+            "q25_splits": float(np.quantile(arr, 0.25)),
+            "q75_splits": float(np.quantile(arr, 0.75)),
+            "q90_splits": float(np.quantile(arr, 0.90)),
+            "q95_splits": float(np.quantile(arr, 0.95)),
+
+            "max_splits": int(arr.max()),
+            "n_at_max": int((arr == arr.max()).sum()),
+
+            "n_split_ge3": int((arr >= 3).sum()),
+            "n_split_ge5": int((arr >= 5).sum()),
+            "n_split_ge8": int((arr >= 8).sum()),
+        }
+        return out
+
+    def split_distribution_table(splits: pd.Series):
+        dist = splits.value_counts().sort_index()
+        dist.index.name = "clusters_per_label"
+        dist.name = "n_labels"
+        return dist.reset_index()
+
+    def print_report(y_true, y_pred, name):
+        splits = fragmentation_by_label(y_true, y_pred)
+        summ = summarize_fragmentation(splits, name=name)
+        dist = split_distribution_table(splits)
+        top = splits.head(top_n)
+
+        label_map = {
+            "name": "Method",
+            "L_total_labels": "Total true labels",
+            "n_intact": "Intact labels (split into 1 cluster)",
+            "pct_intact": "Intact labels (%)",
+            "n_split_ge2": "Labels split into 2+ clusters",
+            "pct_split_ge2": "Labels split into 2+ clusters (%)",
+            "mean_splits": "Average # clusters per true label",
+            "median_splits": "Median # clusters per true label",
+            "q25_splits": "25th percentile of splits",
+            "q75_splits": "75th percentile of splits",
+            "q90_splits": "90th percentile of splits",
+            "q95_splits": "95th percentile of splits",
+            "max_splits": "Max # clusters for any true label",
+            "n_at_max": "# labels at max split count",
+            "n_split_ge3": "Labels split into 3+ clusters",
+            "n_split_ge5": "Labels split into 5+ clusters",
+            "n_split_ge8": "Labels split into 8+ clusters",
+        }
+
+        summary_order = [
+            "name",
+            "L_total_labels",
+            "n_intact",
+            "pct_intact",
+            "n_split_ge2",
+            "pct_split_ge2",
+            "mean_splits",
+            "median_splits",
+            "q25_splits",
+            "q75_splits",
+            "q90_splits",
+            "q95_splits",
+            "max_splits",
+            "n_at_max",
+            "n_split_ge3",
+            "n_split_ge5",
+            "n_split_ge8",
+        ]
+
+        print("\n" + "=" * 80)
+        print(f"Label fragmentation summary: {name}")
+        print("=" * 80)
+        for k in summary_order:
+            v = summ.get(k)
+            if isinstance(v, float):
+                print(f"{label_map.get(k, k):>40}: {v:.3f}")
+            else:
+                print(f"{label_map.get(k, k):>40}: {v}")
+
+        print("\nHow many true labels were split into N clusters:")
+        print(dist.to_string(index=False))
+
+        print(f"\nMost fragmented true labels (top {top_n}):")
+        print(top.to_string())
+
+        return summ, splits, dist, top
+
+    y_true = np.asarray(y_true)
+    labels_a = np.asarray(labels_a)
+    labels_b = np.asarray(labels_b)
+
+    res_a = print_report(y_true, labels_a, name_a)
+    res_b = print_report(y_true, labels_b, name_b)
+
+    if print_compare:
+        summ_a, *_ = res_a
+        summ_b, *_ = res_b
+        print("\n" + "-" * 80)
+        print("Comparison (A minus B):")
+        print(f"Change in intact labels (split into 1 cluster): {summ_a['n_intact'] - summ_b['n_intact']}")
+        print(f"Change in intact label percentage: {summ_a['pct_intact'] - summ_b['pct_intact']:.2f} percentage points")
+        print(f"Change in average # of clusters per true label: {summ_a['mean_splits'] - summ_b['mean_splits']:.3f}")
+        print(f"Change in max # of clusters for any true label: {summ_a['max_splits'] - summ_b['max_splits']}")
+
+    return res_a, res_b
 
 
 # Alluvial Plot:

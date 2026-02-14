@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="CARVE output illustration: embedding plus stability-by-cluster (transparent background)">
+  <!-- two-panel layout with transparent background -->
+  <rect x="48" y="64" width="220" height="384" rx="28"
+        fill="none" stroke="#EDEDED" stroke-opacity="0.18" stroke-width="6"/>
+  <rect x="292" y="64" width="172" height="384" rx="28"
+        fill="none" stroke="#EDEDED" stroke-opacity="0.18" stroke-width="6"/>
+
+  <!-- LEFT PANEL: scatter -->
+  <g transform="translate(72 96)">
+    <text x="0" y="28" fill="#EDEDED" opacity="0.85"
+          font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto" font-size="18" font-weight="600">
+      embedding
+    </text>
+
+    <!-- axes -->
+    <g transform="translate(16 56)" stroke="#EDEDED" stroke-width="8" stroke-linecap="round" opacity="0.65">
+      <path d="M28 256 L28 28"/>
+      <path d="M28 256 L168 256"/>
+    </g>
+
+    <!-- clusters -->
+    <g transform="translate(16 56)">
+      <!-- teal -->
+      <g fill="#6EE7B7">
+        <circle cx="70" cy="188" r="7"/><circle cx="84" cy="174" r="6"/><circle cx="98" cy="192" r="6"/>
+        <circle cx="78" cy="204" r="6"/><circle cx="108" cy="178" r="7"/>
+      </g>
+      <!-- violet -->
+      <g fill="#A78BFA">
+        <circle cx="120" cy="98" r="7"/><circle cx="138" cy="110" r="6"/><circle cx="148" cy="90" r="6"/>
+        <circle cx="134" cy="82" r="6"/><circle cx="156" cy="104" r="7"/>
+      </g>
+      <!-- amber -->
+      <g fill="#FBBF24">
+        <circle cx="98" cy="236" r="7"/><circle cx="116" cy="228" r="6"/><circle cx="126" cy="242" r="6"/>
+        <circle cx="110" cy="214" r="6"/><circle cx="138" cy="230" r="7"/>
+      </g>
+
+      <!-- unstable samples as x -->
+      <g stroke="#FB7185" stroke-width="6" stroke-linecap="round" opacity="0.95">
+        <path d="M60 146 L74 160"/><path d="M74 146 L60 160"/>
+        <path d="M136 190 L150 204"/><path d="M150 190 L136 204"/>
+        <path d="M92 118 L106 132"/><path d="M106 118 L92 132"/>
+      </g>
+
+      <!-- unstable cluster warning (triangle + exclamation) -->
+      <g transform="translate(154 176)">
+        <path d="M0 -20 L20 16 H-20 Z" fill="#FBBF24" stroke="#0b0f16" stroke-width="6"/>
+        <path d="M0 -8 V6" stroke="#0b0f16" stroke-width="6" stroke-linecap="round"/>
+        <circle cx="0" cy="12" r="4.5" fill="#0b0f16"/>
+      </g>
+    </g>
+  </g>
+
+  <!-- RIGHT PANEL: boxplots -->
+  <g transform="translate(308 96)">
+    <text x="0" y="28" fill="#EDEDED" opacity="0.85"
+          font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto" font-size="18" font-weight="600">
+      stability
+    </text>
+
+    <!-- axis -->
+    <g transform="translate(0 56)" stroke="#EDEDED" stroke-width="8" stroke-linecap="round" opacity="0.55">
+      <path d="M18 256 L18 28"/>
+    </g>
+
+    <!-- boxplots area -->
+    <g transform="translate(0 56)">
+      <!-- boxplot 1 -->
+      <g transform="translate(60 0)" stroke="#60A5FA" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none">
+        <path d="M0 66 L0 210"/>
+        <rect x="-18" y="106" width="36" height="60" rx="10"/>
+        <path d="M-18 138 L18 138"/>
+      </g>
+
+      <!-- boxplot 2 (less stable) -->
+      <g transform="translate(108 0)" stroke="#A78BFA" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none">
+        <path d="M0 104 L0 232"/>
+        <rect x="-18" y="156" width="36" height="58" rx="10"/>
+        <path d="M-18 186 L18 186"/>
+      </g>
+
+      <!-- warning for cluster 2 (placed above, no overlap) -->
+      <g transform="translate(108 18)">
+        <path d="M0 -18 L18 14 H-18 Z" fill="#FB7185" stroke="#0b0f16" stroke-width="5"/>
+        <path d="M0 -6 V6" stroke="#0b0f16" stroke-width="5" stroke-linecap="round"/>
+        <circle cx="0" cy="10" r="3.8" fill="#0b0f16"/>
+      </g>
+
+      <!-- boxplot 3 -->
+      <g transform="translate(156 0)" stroke="#6EE7B7" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none">
+        <path d="M0 54 L0 200"/>
+        <rect x="-18" y="92" width="36" height="56" rx="10"/>
+        <path d="M-18 120 L18 120"/>
+      </g>
+
+      <!-- jittered points -->
+      <g opacity="0.45">
+        <g fill="#60A5FA">
+          <circle cx="52" cy="126" r="4"/><circle cx="66" cy="150" r="4"/><circle cx="60" cy="170" r="4"/>
+        </g>
+        <g fill="#A78BFA">
+          <circle cx="102" cy="178" r="4"/><circle cx="114" cy="202" r="4"/><circle cx="108" cy="222" r="4"/>
+        </g>
+        <g fill="#6EE7B7">
+          <circle cx="150" cy="108" r="4"/><circle cx="162" cy="130" r="4"/><circle cx="156" cy="146" r="4"/>
+        </g>
+      </g>
+    </g>
+  </g>
+</svg>

@@ -2,6 +2,7 @@ README.md
 pyproject.toml
 src/carve/__init__.py
 src/carve/_consensus.py
+src/carve/_grids.py
 src/carve/_misclassification.py
 src/carve/_output.py
 src/carve/_pipeline.py
@@ -12,7 +13,6 @@ src/carve/_utils.py
 src/carve/api.py
 src/carve/cluster.py
 src/carve/config.py
-src/carve/grids.py
 src/carve.egg-info/PKG-INFO
 src/carve.egg-info/SOURCES.txt
 src/carve.egg-info/dependency_links.txt
