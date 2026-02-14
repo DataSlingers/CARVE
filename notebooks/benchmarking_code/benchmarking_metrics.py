@@ -6,7 +6,7 @@ from sklearn.base import ClusterMixin
 from sklearn.cluster import KMeans
 from sklearn.metrics import calinski_harabasz_score, davies_bouldin_score, pairwise_distances, silhouette_score
 
-from .benchmarking_utils import _build_estimator
+from benchmarking_utils import _build_estimator
 
 
 def compute_dispersion(X: np.ndarray, labels: np.ndarray, metric: str = 'euclidean') -> float:

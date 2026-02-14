@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from .benchmarking_utils import _wilson_ci, _summary_stats
+from benchmarking_utils import _wilson_ci, _summary_stats
 
 
 def summarize_benchmark_regime(

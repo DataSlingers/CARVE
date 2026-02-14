@@ -16,7 +16,7 @@ from sklearn.metrics import adjusted_rand_score
 
 from carve.sim import simulate_clusters
 
-from .benchmarking_utils import gamma_quantile_approx, _wilson_ci
+from benchmarking_utils import gamma_quantile_approx, _wilson_ci
 import warnings
 
 

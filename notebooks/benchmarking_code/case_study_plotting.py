@@ -21,8 +21,8 @@ import glasbey
 
 from umap import UMAP
 
-from .benchmarking_utils import gamma_quantile_approx, LeidenClustering, align_labels, _build_estimator
-from .benchmarking_metrics import calculate_metric
+from benchmarking_utils import gamma_quantile_approx, LeidenClustering, align_labels, _build_estimator
+from benchmarking_metrics import calculate_metric
 
 
 # --- Setup and basic handlers ---

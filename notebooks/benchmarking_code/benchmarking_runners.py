@@ -13,10 +13,10 @@ from tqdm.notebook import tqdm
 
 from carve import CARVE
 
-from .benchmarking_simulation_helpers import parse_difficulty_and_simulate, parse_range_and_simulate
-from .benchmarking_utils import make_estimator_grids, _build_estimator, get_measure, get_rule, _pick_first
-from .benchmarking_metrics import calculate_metric
-from .benchmarking_plotting import plot_benchmark_snapshot
+from benchmarking_simulation_helpers import parse_difficulty_and_simulate, parse_range_and_simulate
+from benchmarking_utils import make_estimator_grids, _build_estimator, get_measure, get_rule, _pick_first
+from benchmarking_metrics import calculate_metric
+from benchmarking_plotting import plot_benchmark_snapshot
 import random
 
 
