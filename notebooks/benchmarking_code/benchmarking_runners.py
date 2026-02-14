@@ -240,7 +240,6 @@ def benchmark_cluster_metrics(
                     true_labels=y,
                     baseline_labels=baseline_labels,
                     baseline_ari=baseline_ari,
-                    panel_metrics=("ari_stability_1se", "ari_generalizability_1se", "silhouette", "davies_bouldin"),
                 )
                 
                 display(fig_pca)
