@@ -113,9 +113,9 @@ def _scatter_clusters(ax, Z: np.ndarray, labels: np.ndarray, title: str, subtitl
 def _pretty_metric_name(metric: str) -> str:
     # tune freely
     pretty = {
-        "ari_stability_1se": "CARVE Stability (1se)",
+        "ari_stability_1se": "CARVE Stability (1SE)",
         "ari_stability_quant": "CARVE Stability (95% Quantile)",
-        "ari_generalizability_1se": "CARVE Generalizability (1se)",
+        "ari_generalizability_1se": "CARVE Generalizability (1SE)",
         "silhouette": "Silhouette",
         "gap": "Gap Statistic",
         "davies_bouldin": "Davies–Bouldin",
@@ -341,14 +341,14 @@ def plot_benchmark_snapshot(
     k_true = len(np.unique(y))
     _scatter_clusters(
         axs[0, 0], Z, y,
-        title="true labels",
-        subtitle=f"k={k_true}"
+        title="True Labels",
+        subtitle=f"k^*={k_true}"
     )
 
     _scatter_clusters(
         axs[0, 1], Z, base_lab,
-        title="baseline",
-        subtitle=f"ari={baseline_ari:.3f}  |  k={len(np.unique(base_lab))}"
+        title="Baseline",
+        subtitle=f"ARI={baseline_ari:.3f}"
     )
 
     targets = [
@@ -372,7 +372,7 @@ def plot_benchmark_snapshot(
         _scatter_clusters(
             ax, Z, labs,
             title=_pretty_metric_name(key),
-            subtitle=f"k={k_sel}  |  ari={ari_sel:.3f}"
+            subtitle=f"k^hat={k_sel}  |  ARI={ari_sel:.3f}"
         )
 
     # --- Summary figure: accuracy+wilson + ari boxplots
@@ -414,7 +414,7 @@ def plot_benchmark_snapshot(
 
     # Include baseline as first box
     ari_data = [base_ari] + ari_data
-    ari_labels = ["baseline"] + ari_labels
+    ari_labels = ["Baseline"] + ari_labels
 
     fig_sum, ax = plt.subplots(1, 2, figsize=figsize_summary, constrained_layout=True)
 
@@ -435,7 +435,7 @@ def plot_benchmark_snapshot(
     ax1.set_xticks(np.arange(1, len(ari_labels) + 1))
     ax1.set_xticklabels(ari_labels, rotation=35, ha="right")
     ax1.set_ylabel("ARI(y, y^hat)")
-    ax1.set_title("ARI : true labels (for k^hat)")
+    ax1.set_title("ARI : True Labels (for k^hat)")
 
     return fig_pca, fig_sum
 
