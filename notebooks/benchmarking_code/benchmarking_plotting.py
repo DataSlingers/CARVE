@@ -292,8 +292,11 @@ def plot_examples(
             )
             
             # titles, legends, &c.
-            display_label = level_label.capitalize() if level_label != "difficulty" else "Signal/Noise Ratio"
-            ax.set_title(f"k={true_k}, {display_label}={level} | Baseline ARI={ari_mean:.3f}")
+            if level_label == "difficulty":
+                display_label = 'S/N Ratio'
+                ax.set_title(f"k={true_k}, 'S/N Ratio': {level} | Baseline ARI={ari_mean:.3f}")
+            else:
+                ax.set_title(f"k={true_k}, {level_label}={level} | Baseline ARI={ari_mean:.3f}")
             ax.set_aspect("equal", adjustable="datalim")
             ax.set_xticks([]); ax.set_yticks([])
             for spine in ax.spines.values():
@@ -764,8 +767,8 @@ def plot_baseline_vs_metric_ari_grid(
             fraction=0.03,
             pad=0.02,
         )
-        if group_col == 'difficulty ladder':
-            cbar.set_label("difficulty ladder", rotation=90)
+        if group_col == 'difficulty_level':
+            cbar.set_label("Signal/Noise Ratio", rotation=90)
         else:
             cbar.set_label(group_col, rotation=90)
         tick_pos = np.arange(len(levels))
