@@ -292,7 +292,8 @@ def plot_examples(
             )
             
             # titles, legends, &c.
-            ax.set_title(f"k={true_k}, {level_label}={level} | Baseline ARI={ari_mean:.3f}")
+            display_label = level_label.capitalize() if level_label != "difficulty" else "Signal/Noise Ratio"
+            ax.set_title(f"k={true_k}, {display_label}={level} | Baseline ARI={ari_mean:.3f}")
             ax.set_aspect("equal", adjustable="datalim")
             ax.set_xticks([]); ax.set_yticks([])
             for spine in ax.spines.values():
