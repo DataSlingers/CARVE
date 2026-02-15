@@ -9,3 +9,9 @@ results/legacy/
 Anirban processing/ 
 
 .venv
+
+# OS / editor / build artifacts
+.DS_Store
+__pycache__/
+*.egg-info/
+.ipynb_checkpoints/
