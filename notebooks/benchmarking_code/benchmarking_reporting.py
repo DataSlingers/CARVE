@@ -260,3 +260,83 @@ def summarize_benchmark_regime(
         "by_difficulty_numeric": by_difficulty,
         "by_true_k_numeric": by_true_k,
     }
+    
+def render_tex_table(out: dict) -> str:
+    """Return a LaTeX table string from a summarize_benchmark_regime output dict."""
+    numeric = out["overall_numeric"].copy()
+    formatted = out["overall_formatted"].copy()
+
+    # Columns to rank: mapping from formatted col -> (numeric col, "high"/"low"/"abs")
+    rank_spec = {
+        "ARI mean (sd)": ("ari_mean", "high"),
+        "ARI median [q25, q75]": ("ari_median", "high"),
+        "Δ mean (sd)": ("delta_mean", "low"),
+        "k recovery (95% CI); num/den": ("k_recovery","high"),
+        "kbias_mean": ("kbias_mean", "abs"),
+        "kbias_median": ("kbias_median", "abs"),
+        "p_under": ("p_under", "low"),
+        "p_over": ("p_over", "low"),
+    }
+
+    # Mask: only rank non-baseline rows
+    is_metric = numeric["metric"] != "baseline_oracle"
+
+    for fmt_col, (num_col, direction) in rank_spec.items():
+        if fmt_col not in formatted.columns or num_col not in numeric.columns:
+            continue
+
+        vals = numeric.loc[is_metric, num_col].copy()
+
+        # Skip columns where fewer than 2 finite values exist
+        finite_mask = vals.apply(lambda v: np.isfinite(v) if np.isscalar(v) else False)
+        if finite_mask.sum() < 2:
+            continue
+
+        if direction == "abs":
+            rank_vals = vals.abs()
+            # lower |bias| is better
+            ascending = True
+        elif direction == "low":
+            rank_vals = vals
+            ascending = True
+        else:  # "high"
+            rank_vals = vals
+            ascending = False
+
+        ranked = rank_vals[finite_mask].rank(ascending=ascending, method="min")
+
+        best_idx = ranked[ranked == 1].index
+        second_idx = ranked[ranked == 2].index
+
+        for idx in best_idx:
+            cell = str(formatted.at[idx, fmt_col])
+            if cell:
+                formatted.at[idx, fmt_col] = r"\textbf{" + cell + "}"
+        for idx in second_idx:
+            cell = str(formatted.at[idx, fmt_col])
+            if cell:
+                formatted.at[idx, fmt_col] = r"\underline{" + cell + "}"
+
+    # --- TeX escaping (same as before) ---
+    df_tex = formatted.copy()
+    df_tex["metric"] = df_tex["metric"].astype(str).str.replace("_", r"\_", regex=False)
+    df_tex = df_tex.rename(columns={"Δ mean (sd)": r"$\Delta$ mean (sd)"})
+
+    def escape_header(s: str) -> str:
+        if ("$" in s) or ("\\" in s):
+            return s
+        return (
+            s.replace("&", r"\&")
+            .replace("%", r"\%")
+            .replace("_", r"\_")
+            .replace("#", r"\#")
+            .replace("{", r"\{")
+            .replace("}", r"\}")
+        )
+
+    df_tex.columns = [escape_header(str(c)) for c in df_tex.columns]
+
+    ncols = df_tex.shape[1]
+    colfmt = "l" + "r" + "l" * (ncols - 2)
+
+    return df_tex.to_latex(index=False, escape=False, column_format=colfmt)
