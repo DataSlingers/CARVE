@@ -1,7 +1,7 @@
 data/ 
 
 notebooks/legacy/
-notebooks/legacy/benchmarking_code/legacy/
+notebooks/benchmarking_code/legacy/
 
 results/backup*/
 results/legacy/
