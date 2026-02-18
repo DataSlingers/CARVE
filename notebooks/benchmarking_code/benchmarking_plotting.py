@@ -21,9 +21,18 @@ import warnings
 
 
 # --- Setup and basic handlers ---
-OKABE_ITO = [
-    "#E69F00", "#56B4E9", "#009E73", 
-    "#F0E442", "#0072B2", "#D55E00", "#CC79A7"
+cluster_pallette = [
+    "#FF1F5B", "#00CD6C", "#009ADE", 
+    "#AF58BA", "#F28522", "#A6761D", "#A0B1BA"
+]
+
+lines_pallette_contrastive_carve = [
+    "#00CD6C", "#009ADE", 
+    
+]
+
+lines_pallette_contrastive_other = [
+    "#FF1F5B", "#FF4B33", "#F28522", "#A6761D",
 ]
 
 
@@ -51,7 +60,7 @@ def _infer_axis_cols(df: pd.DataFrame) -> tuple[str, str]:
 def _get_color_mapping(k: int) -> List[Any]:
     """okabe-ito for k<=7, tab20 for 8..20, hsv fallback."""
     if k <= 7:
-        cols = [mpl.colors.to_rgba(OKABE_ITO[i]) for i in range(k)]
+        cols = [mpl.colors.to_rgba(cluster_pallette[i]) for i in range(k)]
     elif k <= 20:
         tab20 = plt.get_cmap("tab20")
         cols = [tab20(i) for i in range(k)]
@@ -86,6 +95,30 @@ def _metric_color_map(metric_names: Iterable[str]) -> dict[str, Any]:
 
     return {name: cols[i] for i, name in enumerate(names)}
 
+def _constrastive_color_map(metric_names: Iterable[str]) -> dict[str, Any]:
+    """
+    """
+    names = list(metric_names)
+
+    internal_metrics = {'silhouette', 'gap', 'davies_bouldin', 'calinski_harabasz'}
+    
+    carve_metrics = [n for n in names if n not in internal_metrics]
+    other_metrics = [n for n in names if n in internal_metrics]
+    
+    cols_dict = {}
+    
+    if carve_metrics:
+        cols = [mpl.colors.to_rgba(lines_pallette_contrastive_carve[i]) for i in range(len(carve_metrics))]
+        for i, name in enumerate(carve_metrics):
+            cols_dict[name] = cols[i]
+    
+    if other_metrics:
+        cols = [mpl.colors.to_rgba(lines_pallette_contrastive_other[i]) for i in range(len(other_metrics))]
+        for i, name in enumerate(other_metrics):
+            cols_dict[name] = cols[i]
+
+    return cols_dict
+
 
 def _scatter_clusters(ax, Z: np.ndarray, labels: np.ndarray, title: str, subtitle: str = ""):
     labels = np.asarray(labels)
@@ -96,7 +129,7 @@ def _scatter_clusters(ax, Z: np.ndarray, labels: np.ndarray, title: str, subtitl
 
     for cid in uniq:
         m = labels == cid
-        ax.scatter(Z[m, 0], Z[m, 1], s=12, alpha=0.90, c=[cmap[cid]], linewidths=0)
+        ax.scatter(Z[m, 0], Z[m, 1], s=12, alpha=0.90, c=[cmap[cid]], edgecolor='k', linewidth=0.2)
 
     ax.set_title(title, fontsize=10)
     if subtitle:
@@ -288,7 +321,8 @@ def plot_examples(
             ax = axes[i, j]
             ax.scatter(
                 X_pca[:, 0], X_pca[:, 1],
-                c=colors, s=10, alpha=0.8
+                c=colors, s=20, alpha=0.8, 
+                edgecolor='k', linewidth=0.2
             )
             
             # titles, legends, &c.
@@ -457,6 +491,7 @@ def plot_ari_over_difficulty(
     figsize: tuple = (12, 10),
     ax=None,
     ylim: tuple | str = "auto",
+    show_legend: bool = True,
 ):
     """
     Plots ARI vs. difficulty level for selected metrics.
@@ -471,7 +506,7 @@ def plot_ari_over_difficulty(
         - ax: Matplotlib axis.
         - ylim (tuple | str): Y-axis limits.
     """
-    axis_col, axis_name_col = _infer_axis_cols(results_df) if x_col is None else (x_col, "")
+    axis_col, _ = _infer_axis_cols(results_df) if x_col is None else (x_col, "")
     needed = {axis_col, "metric_name", "is_optimal", "metric_ari", "baseline_ari"}
     missing = sorted(c for c in needed if c not in results_df.columns)
     if missing:
@@ -527,8 +562,7 @@ def plot_ari_over_difficulty(
     else:
         fig = ax.figure
         
-    x = base_sum[axis_col].astype(int).values  # if throw error, uncomment next line
-    # x = pd.to_numeric(base_sum[axis_col], errors="coerce").values
+    x = base_sum[axis_col].astype(int).values 
     
     # Plot baseline line and (optional) CI band
     baseline_color = (0.35, 0.35, 0.35, 1.0)
@@ -542,7 +576,7 @@ def plot_ari_over_difficulty(
         if (sum_df["metric_name"] == m).any():
             present_metrics.append(m)
 
-    color_map = _metric_color_map(present_metrics)
+    color_map = _constrastive_color_map(present_metrics)
         
     # Plot metrics
     for m in metrics:
@@ -551,13 +585,12 @@ def plot_ari_over_difficulty(
             continue
             
         # Get values
-        xx = s[axis_col].astype(int).values  # if throw error, uncomment next line
-        # xx = pd.to_numeric(s[axis_col], errors="coerce").values
+        xx = s[axis_col].astype(int).values 
         yy = s['mid'].values
         
         # Plot line and (optional) band
         color = color_map[m]
-        ax.plot(xx, yy, color=color, linewidth=2.2 if 'ari_' in m else 1.6, label=_pretty_metric_name(m))
+        ax.plot(xx, yy, color=color, linewidth=3.1 if 'ari_' in m else 2.1, label=_pretty_metric_name(m))
         if m in show_band_for:
             ax.fill_between(xx, s["lo"].values, s["hi"].values, color=color, alpha=0.12)
             
@@ -576,7 +609,100 @@ def plot_ari_over_difficulty(
     if title is not None:
         ax.set_title(title)
 
-    ax.legend(frameon=False, fontsize=9, ncol=2)
+    if show_legend:
+        ax.legend(frameon=False, fontsize=9, ncol=2)
+
+    return fig
+
+
+def plot_ari_overview_grid(
+    regimes: list[tuple[str, pd.DataFrame]],
+    *,
+    metrics=("ari_generalizability_1se", "ari_stability_quant", "silhouette", "gap", "davies_bouldin", "calinski_harabasz"),
+    center: str = "mean",
+    band: tuple = (0.05, 0.95),
+    show_band_for=(),
+    x_label: str = "Signal/Noise Ratio",
+    figsize: tuple = (16, 18),
+    ylim: tuple | str = "auto",
+    legend_fontsize: float = 13,
+    title_fontsize: float = 14,
+    suptitle: str | None = None,
+):
+    """
+    2×3 overview grid of ARI-over-difficulty plots, one panel per benchmarking
+    regime, with a single shared legend at the bottom.
+
+    Args:
+        regimes: list of (panel_title, results_df) pairs (length ≤ 6).
+        metrics, center, band, show_band_for, x_label, ylim: forwarded to
+            ``plot_ari_over_difficulty``.
+        figsize: figure size.
+        legend_fontsize: font size for the shared legend.
+        title_fontsize: font size for each panel title.
+        suptitle: optional overall figure title.
+    """
+    n = len(regimes)
+    nrows, ncols = 2, 3
+    if n > nrows * ncols:
+        raise ValueError(f"At most {nrows * ncols} regimes are supported, got {n}")
+
+    fig, axes = plt.subplots(
+        nrows, ncols,
+        figsize=figsize,
+        constrained_layout=False,
+    )
+    axes_flat = axes.ravel()
+
+    for idx, (panel_title, df) in enumerate(regimes):
+        ax = axes_flat[idx]
+        plot_ari_over_difficulty(
+            df,
+            metrics=metrics,
+            center=center,
+            band=band,
+            show_band_for=show_band_for,
+            x_label=x_label,
+            title=panel_title,
+            ax=ax,
+            ylim=ylim,
+            show_legend=False,
+        )
+        ax.set_title(panel_title, fontsize=title_fontsize, fontweight="bold")
+
+        # Only keep y-axis label on the leftmost column of each row
+        row, col = divmod(idx, ncols)
+        if col == 0:
+            ax.set_ylabel(r"ARI (selected $\hat{k}$ vs. true labels)", fontsize=11)
+        else:
+            ax.set_ylabel("")
+
+    # Hide unused axes
+    for idx in range(n, nrows * ncols):
+        axes_flat[idx].set_visible(False)
+
+    # Shared legend from first panel (all panels have the same lines)
+    handles, labels = axes_flat[0].get_legend_handles_labels()
+    fig.legend(
+        handles, labels,
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.01),
+        ncol=min(len(handles), 4),
+        frameon=False,
+        fontsize=legend_fontsize,
+    )
+
+    fig.subplots_adjust(
+        hspace=0.18,
+        wspace=0.15,
+        bottom=0.08,
+        top=0.95 if suptitle is None else 0.92,
+        left=0.07,
+        right=0.97,
+    )
+
+    if suptitle is not None:
+        fig.suptitle(suptitle, fontsize=title_fontsize + 2, fontweight="bold")
 
     return fig
 
