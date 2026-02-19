@@ -80,7 +80,7 @@ def _summarize_single_group(
 
         rows.append({
             "metric": m,
-            "n": n,
+            "B_datasets": n,
             "ari_mean": ari_stats["mean"],
             "ari_sd": ari_stats["sd"],
             "ari_median": ari_stats["median"],
@@ -112,7 +112,7 @@ def _summarize_single_group(
     base_stats = _summary_stats(base["baseline_ari"])
     baseline_row = pd.DataFrame([{
         "metric": "baseline_oracle",
-        "n": int(len(base)),
+        "B_datasets": int(len(base)),
         "ari_mean": base_stats["mean"],
         "ari_sd": base_stats["sd"],
         "ari_median": base_stats["median"],
@@ -171,7 +171,7 @@ def _summarize_single_group(
             out_rows.append({
                 "metric": m,
                 by: gval,
-                "n": n,
+                "B_datasets": n,
                 "ari_mean": ari_stats["mean"],
                 "ari_median": ari_stats["median"],
                 "ari_q25": ari_stats["q25"],
@@ -236,7 +236,7 @@ def _summarize_single_group(
     formatted = formatted[
         [
             "metric",
-            "n",
+            "B_datasets",
             "ARI mean (sd)",
             "ARI median [q25, q75]",
             "\u0394 mean (sd)",
@@ -409,7 +409,10 @@ def render_tex_table(out: dict) -> str:
     # --- TeX escaping ---
     df_tex = formatted.copy()
     df_tex["metric"] = df_tex["metric"].astype(str).str.replace("_", r"\_", regex=False)
-    df_tex = df_tex.rename(columns={"\u0394 mean (sd)": r"$\Delta$ mean (sd)"})
+    df_tex = df_tex.rename(columns={
+        "\u0394 mean (sd)": r"$\Delta$ mean (sd)",
+        "B_datasets": r"$B_{\mathrm{datasets}}$",
+    })
 
     def escape_header(s: str) -> str:
         if ("$" in s) or ("\\" in s):
