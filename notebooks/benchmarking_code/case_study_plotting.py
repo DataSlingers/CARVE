@@ -26,9 +26,9 @@ from benchmarking_metrics import calculate_metric
 
 
 # --- Setup and basic handlers ---
-OKABE_ITO = [
-    "#E69F00", "#56B4E9", "#009E73", 
-    "#F0E442", "#0072B2", "#D55E00", "#CC79A7"
+cluster_pallette = [
+    "#FF1F5B", "#00CD6C", "#009ADE", 
+    "#AF58BA", "#F28522", "#A6761D", "#A0B1BA"
 ]
 
 
@@ -56,7 +56,7 @@ def _infer_axis_cols(df: pd.DataFrame) -> tuple[str, str]:
 def _get_color_mapping(k: int) -> List[Any]:
     """okabe-ito for k<=7, tab20 for 8..20, hsv fallback."""
     if k <= 7:
-        cols = [mpl.colors.to_rgba(OKABE_ITO[i]) for i in range(k)]
+        cols = [mpl.colors.to_rgba(cluster_pallette[i]) for i in range(k)]
     elif k <= 20:
         tab20 = plt.get_cmap("tab20")
         cols = [tab20(i) for i in range(k)]
@@ -801,8 +801,8 @@ def alluvial_compare(
     font_size=14,
     height=600,
     width=1200,
-    title_y=1.02,
-    top_margin=80,
+    title_y=1.08,
+    vertical_margin=100,
 ):
     # --- coerce to strings for clean labeling ---
     y_true = pd.Series(y_true).astype(str).to_numpy()
@@ -897,7 +897,7 @@ def alluvial_compare(
                 colors.append(_hex_to_rgba(true_colors[lab], link_alpha))
 
     # --- fixed 3-column layout (x positions), evenly spaced y positions per column ---
-    def col_positions(m, top=0.02, bottom=0.98):
+    def col_positions(m, top=0.06, bottom=0.94):
         if m == 1:
             return [0.5]
         return list(np.linspace(top, bottom, m))
@@ -930,7 +930,7 @@ def alluvial_compare(
         plot_bgcolor="white",
         width=width,
         height=height,
-        margin=dict(l=40, r=40, t=int(top_margin), b=20),
+        margin=dict(l=40, r=40, t=max(int(vertical_margin), 80), b=int(vertical_margin)),
         annotations=[
             dict(x=0.0, y=title_y, xref="paper", yref="paper", text=left_title, showarrow=False, font=dict(size=font_size+2)),
             dict(x=0.5, y=title_y, xref="paper", yref="paper", text=true_title, showarrow=False, font=dict(size=font_size+2)),
