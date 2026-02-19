@@ -786,6 +786,252 @@ def fragmentation_report(
     return res_a, res_b
 
 
+def plot_label_merge_counts(
+    true_labels,
+    labels_a,
+    labels_b,
+    title_a="method A",
+    title_b="method B",
+    color_a=None,
+    color_b=None,
+    figsize=(14, 5),
+):
+    """
+    Plot how many true labels each predicted cluster contains, for two labelings.
+
+    This is the underclustering counterpart of `plot_label_split_counts`:
+      - split counts  → overclustering  (true label → N predicted clusters)
+      - merge counts  → underclustering  (predicted cluster → N true labels)
+    """
+    true_labels = np.asarray(true_labels)
+    labels_a = np.asarray(labels_a)
+    labels_b = np.asarray(labels_b)
+
+    if color_a is None or color_b is None:
+        okabe = _get_color_mapping(2)
+        color_a = okabe[0] if color_a is None else color_a
+        color_b = okabe[1] if color_b is None else color_b
+
+    def count_merges(true_labels, cluster_labels):
+        merges = []
+        for cl in np.unique(cluster_labels):
+            members = true_labels[cluster_labels == cl]
+            merges.append(len(np.unique(members)))
+        return np.asarray(merges, dtype=int)
+
+    def plot_counts(ax, merges, title, color):
+        values, counts = np.unique(merges, return_counts=True)
+        ax.bar(values, counts, color=color, edgecolor="black", linewidth=0.5)
+        ax.set_title(title)
+        ax.set_xlabel("Number of true labels per predicted cluster")
+        ax.set_xticks(values)
+
+    merges_a = count_merges(true_labels, labels_a)
+    merges_b = count_merges(true_labels, labels_b)
+
+    fig, axes = plt.subplots(1, 2, figsize=figsize, sharey=True)
+
+    plot_counts(axes[0], merges_a, title_a, color_a)
+    axes[0].set_ylabel("Count")
+
+    plot_counts(axes[1], merges_b, title_b, color_b)
+    axes[1].set_ylabel("")
+
+    plt.tight_layout()
+    plt.show()
+
+
+def merging_report(
+    y_true,
+    labels_a,
+    labels_b,
+    name_a="method A",
+    name_b="method B",
+    top_n=10,
+    print_compare=True,
+):
+    """
+    Compute merging / underclustering stats for two labelings and optionally
+    print a comparison.
+
+    This is the directional complement of `fragmentation_report`:
+      - fragmentation  → overclustering  (true label → N predicted clusters)
+      - merging         → underclustering  (predicted cluster → N true labels)
+
+    For each predicted cluster we compute:
+      - **merge count**: how many distinct true labels its members belong to.
+      - **purity**: fraction of members from the dominant (most frequent) true label.
+
+    Returns:
+        (summ_a, merges_a, dist_a, top_a), (summ_b, merges_b, dist_b, top_b)
+    """
+
+    def merges_by_cluster(y_true, y_pred):
+        y_true = np.asarray(y_true)
+        y_pred = np.asarray(y_pred)
+
+        clusters = pd.unique(y_pred)
+        merge_counts = {}
+        for cl in clusters:
+            members = y_true[y_pred == cl]
+            merge_counts[cl] = pd.unique(members).size
+
+        merges = pd.Series(merge_counts, name="n_true_labels").sort_values(ascending=False)
+        return merges
+
+    def purity_by_cluster(y_true, y_pred):
+        y_true = np.asarray(y_true)
+        y_pred = np.asarray(y_pred)
+
+        clusters = pd.unique(y_pred)
+        purities = {}
+        for cl in clusters:
+            members = y_true[y_pred == cl]
+            counts = pd.Series(members).value_counts()
+            purities[cl] = float(counts.iloc[0] / len(members))
+
+        return pd.Series(purities, name="purity").sort_values(ascending=True)
+
+    def summarize_merging(merges: pd.Series, purities: pd.Series, name="method"):
+        arr = merges.to_numpy(dtype=float)
+        pur = purities.to_numpy(dtype=float)
+        K = merges.size
+
+        out = {
+            "name": name,
+            "K_total_clusters": int(K),
+
+            "n_pure": int((arr == 1).sum()),
+            "pct_pure": float((arr == 1).mean() * 100),
+
+            "n_merged_ge2": int((arr >= 2).sum()),
+            "pct_merged_ge2": float((arr >= 2).mean() * 100),
+
+            "mean_merges": float(arr.mean()),
+            "median_merges": float(np.median(arr)),
+            "q25_merges": float(np.quantile(arr, 0.25)),
+            "q75_merges": float(np.quantile(arr, 0.75)),
+            "q90_merges": float(np.quantile(arr, 0.90)),
+            "q95_merges": float(np.quantile(arr, 0.95)),
+
+            "max_merges": int(arr.max()),
+            "n_at_max": int((arr == arr.max()).sum()),
+
+            "n_merged_ge3": int((arr >= 3).sum()),
+            "n_merged_ge5": int((arr >= 5).sum()),
+            "n_merged_ge8": int((arr >= 8).sum()),
+
+            # purity statistics
+            "mean_purity": float(pur.mean()),
+            "median_purity": float(np.median(pur)),
+            "min_purity": float(pur.min()),
+            "q10_purity": float(np.quantile(pur, 0.10)),
+            "q25_purity": float(np.quantile(pur, 0.25)),
+        }
+        return out
+
+    def merge_distribution_table(merges: pd.Series):
+        dist = merges.value_counts().sort_index()
+        dist.index.name = "true_labels_per_cluster"
+        dist.name = "n_clusters"
+        return dist.reset_index()
+
+    def print_report(y_true, y_pred, name):
+        merges = merges_by_cluster(y_true, y_pred)
+        purities = purity_by_cluster(y_true, y_pred)
+        summ = summarize_merging(merges, purities, name=name)
+        dist = merge_distribution_table(merges)
+        top = merges.head(top_n)
+
+        label_map = {
+            "name": "Method",
+            "K_total_clusters": "Total predicted clusters",
+            "n_pure": "Pure clusters (contain 1 true label)",
+            "pct_pure": "Pure clusters (%)",
+            "n_merged_ge2": "Clusters merging 2+ true labels",
+            "pct_merged_ge2": "Clusters merging 2+ true labels (%)",
+            "mean_merges": "Average # true labels per cluster",
+            "median_merges": "Median # true labels per cluster",
+            "q25_merges": "25th percentile of merge counts",
+            "q75_merges": "75th percentile of merge counts",
+            "q90_merges": "90th percentile of merge counts",
+            "q95_merges": "95th percentile of merge counts",
+            "max_merges": "Max # true labels in any cluster",
+            "n_at_max": "# clusters at max merge count",
+            "n_merged_ge3": "Clusters merging 3+ true labels",
+            "n_merged_ge5": "Clusters merging 5+ true labels",
+            "n_merged_ge8": "Clusters merging 8+ true labels",
+            "mean_purity": "Mean cluster purity",
+            "median_purity": "Median cluster purity",
+            "min_purity": "Minimum cluster purity",
+            "q10_purity": "10th percentile of purity",
+            "q25_purity": "25th percentile of purity",
+        }
+
+        summary_order = [
+            "name",
+            "K_total_clusters",
+            "n_pure",
+            "pct_pure",
+            "n_merged_ge2",
+            "pct_merged_ge2",
+            "mean_merges",
+            "median_merges",
+            "q25_merges",
+            "q75_merges",
+            "q90_merges",
+            "q95_merges",
+            "max_merges",
+            "n_at_max",
+            "n_merged_ge3",
+            "n_merged_ge5",
+            "n_merged_ge8",
+            "mean_purity",
+            "median_purity",
+            "min_purity",
+            "q10_purity",
+            "q25_purity",
+        ]
+
+        print("\n" + "=" * 80)
+        print(f"Cluster merging summary: {name}")
+        print("=" * 80)
+        for k in summary_order:
+            v = summ.get(k)
+            if isinstance(v, float):
+                print(f"{label_map.get(k, k):>45}: {v:.3f}")
+            else:
+                print(f"{label_map.get(k, k):>45}: {v}")
+
+        print("\nHow many predicted clusters contain N true labels:")
+        print(dist.to_string(index=False))
+
+        print(f"\nMost merged predicted clusters (top {top_n}):")
+        print(top.to_string())
+
+        return summ, merges, dist, top
+
+    y_true = np.asarray(y_true)
+    labels_a = np.asarray(labels_a)
+    labels_b = np.asarray(labels_b)
+
+    res_a = print_report(y_true, labels_a, name_a)
+    res_b = print_report(y_true, labels_b, name_b)
+
+    if print_compare:
+        summ_a, *_ = res_a
+        summ_b, *_ = res_b
+        print("\n" + "-" * 80)
+        print("Comparison (A minus B):")
+        print(f"Change in pure clusters (contain 1 true label): {summ_a['n_pure'] - summ_b['n_pure']}")
+        print(f"Change in pure cluster percentage: {summ_a['pct_pure'] - summ_b['pct_pure']:.2f} percentage points")
+        print(f"Change in average # true labels per cluster: {summ_a['mean_merges'] - summ_b['mean_merges']:.3f}")
+        print(f"Change in max # true labels in any cluster: {summ_a['max_merges'] - summ_b['max_merges']}")
+        print(f"Change in mean cluster purity: {summ_a['mean_purity'] - summ_b['mean_purity']:.3f}")
+
+    return res_a, res_b
+
+
 # Alluvial Plot:
 def alluvial_compare(
     y_true,
