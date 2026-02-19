@@ -2,7 +2,10 @@
 
 import warnings
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Type, Union
+
+import joblib
 
 import matplotlib as mpl
 
@@ -663,7 +666,102 @@ class CARVE(BaseEstimator):
 
         if save_path is not None:
             save_figure(fig, save_path, spec=spec)
-        
+
+    # ------------------------------------------------------------------ #
+    #  Persistence                                                        #
+    # ------------------------------------------------------------------ #
+
+    def save(
+        self,
+        path: Union[str, Path],
+        *,
+        include_data: bool = False,
+        compress: int = 3,
+    ) -> None:
+        """Save a fitted CARVE instance to disk.
+
+        Parameters
+        ----------
+        path : str or Path
+            Destination file path. The recommended extension is ``.carve``.
+        include_data : bool, default=False
+            If *True*, the input array ``X_`` is included in the file.
+            When *False* (default) ``X_`` is excluded to reduce file size;
+            methods that need the raw data (e.g. ``plot_cluster_summary``
+            with a dimensionality‑reduction callable) will require that
+            ``X`` is re‑supplied after loading.
+        compress : int, default=3
+            Compression level passed to :func:`joblib.dump` (0–9, where
+            0 disables compression and 9 is maximum).
+
+        Raises
+        ------
+        RuntimeError
+            If the instance has not been fitted yet.
+
+        Examples
+        --------
+        >>> carve = CARVE().fit(X)
+        >>> carve.save("results.carve")
+        >>> loaded = CARVE.load("results.carve")
+        """
+        if self.estimator_results_ is None:
+            raise RuntimeError(
+                "This CARVE instance has not been fitted yet. "
+                "Call .fit(X) before saving."
+            )
+
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        if include_data:
+            joblib.dump(self, path, compress=compress)
+        else:
+            # Temporarily set X_ to None so it is not serialized.
+            X_backup = self.X_
+            self.X_ = None
+            try:
+                joblib.dump(self, path, compress=compress)
+            finally:
+                self.X_ = X_backup
+
+    @classmethod
+    def load(cls, path: Union[str, Path]) -> "CARVE":
+        """Load a previously saved CARVE instance from disk.
+
+        Parameters
+        ----------
+        path : str or Path
+            Path to the saved ``.carve`` file.
+
+        Returns
+        -------
+        CARVE
+            The deserialized, fitted CARVE instance.
+
+        Raises
+        ------
+        FileNotFoundError
+            If *path* does not exist.
+        TypeError
+            If the loaded object is not a ``CARVE`` instance.
+
+        Examples
+        --------
+        >>> loaded = CARVE.load("results.carve")
+        >>> loaded.get_labels()
+        """
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"No such file: '{path}'")
+
+        obj = joblib.load(path)
+        if not isinstance(obj, cls):
+            raise TypeError(
+                f"Expected a CARVE instance, got {type(obj).__name__!r}."
+            )
+        return obj
+
     # def plot_preprocessing_results(
     #     self,
     #     measure: str = "stability",
