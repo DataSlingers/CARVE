@@ -2,6 +2,7 @@ data/
 
 notebooks/legacy/
 notebooks/benchmarking_code/legacy/
+notebooks/case_studies/carve_state_saves/
 
 results/backup*/
 results/legacy/
