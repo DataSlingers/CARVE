@@ -81,7 +81,11 @@ def benchmark_cluster_metrics(
     for difficulty_level in range(difficulty_levels):
         for true_k in true_cluster_counts:
             for seed in range(n_seeds_per_dataset): 
-                difficulty_level, true_k, seed= rng.randint(0, difficulty_levels - 1), rng.choice(list(true_cluster_counts)), rng.randint(0, n_seeds_per_dataset - 1) if get_snapshot else (difficulty_level, true_k, seed)  # Pick a random combination for snapshot
+                # difficulty_level, true_k, seed = rng.randint(0, difficulty_levels - 1), rng.choice(list(true_cluster_counts)), rng.randint(0, n_seeds_per_dataset - 1) if get_snapshot else difficulty_level, true_k, seed  # Pick a random combination for snapshot
+                if get_snapshot:
+                    difficulty_level = rng.randint(0, difficulty_levels - 1)
+                    true_k = rng.choice(list(true_cluster_counts))
+                    seed = rng.randint(0, n_seeds_per_dataset - 1)
                 
                 # --- 0) Set seed ---
                 benchmark_seed = seed + ((true_k - min(true_cluster_counts)) * 100) + (difficulty_level * 10000) + random_state

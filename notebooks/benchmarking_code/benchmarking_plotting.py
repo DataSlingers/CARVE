@@ -707,6 +707,323 @@ def plot_ari_overview_grid(
     return fig
 
 
+# ---------------------------------------------------------------------------
+# Paper Figure 3 — Per-k* combined overview (examples + lineplots)
+# ---------------------------------------------------------------------------
+
+def _select_visually_full_seed(
+    results_list: list[tuple[float, np.ndarray, np.ndarray]],
+) -> int:
+    """Pick the seed whose 2-D PCA spread is most *square* (least whitespace).
+
+    For each seed we project X to 2-D PCA and compute the ratio
+    ``min(var) / max(var)`` of the two explained-variance components.
+    A ratio close to 1 means data fills both axes evenly → less whitespace.
+    """
+    best_idx, best_ratio = 0, -1.0
+    for idx, (_, X, _) in enumerate(results_list):
+        pca = PCA(n_components=2, random_state=0)
+        pca.fit(X)
+        ev = pca.explained_variance_ratio_[:2]
+        ratio = ev.min() / max(ev.max(), 1e-12)
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_idx = idx
+    return best_idx
+
+
+def plot_paper_figure(
+    regimes: list[tuple],
+    k_star: int,
+    *,
+    difficulty: str = "medium",
+    metrics: tuple[str, ...] = (
+        "ari_generalizability_1se",
+        "ari_stability_quant",
+        "silhouette",
+        "gap",
+        "davies_bouldin",
+        "calinski_harabasz",
+    ),
+    n_seeds_per_dataset: int = 20,
+    center: str = "mean",
+    band: tuple[float, float] = (0.05, 0.95),
+    show_band_for: tuple[str, ...] = (),
+    n_jobs: int = 1,
+    random_state: int = 0,
+    figsize: tuple[float, float] = (16, 16),
+    scatter_size: float = 14,
+    title_fontsize: float = 13,
+    legend_fontsize: float = 12,
+    tick_fontsize: float = 10,
+    select_full_seed: bool = True,
+) -> mpl.figure.Figure:
+    """Create a single publication figure for a given k*.
+
+    Section **A** (top, 2×3): example scatter plots per regime (PCA projection).
+    Section **B** (bottom, 2×3): ARI-over-difficulty line plots, filtered to
+    ``true_k == k_star``.  Examples occupy ~1/3 of the figure height,
+    lineplots ~2/3.
+
+    Parameters
+    ----------
+    regimes : list of tuples
+        Each entry is a 5- or 6-tuple::
+
+            (name, results_df, settings_by_k, other_settings, estimator_type)
+            (name, results_df, settings_by_k, other_settings, estimator_type, spectral_quant)
+
+    k_star : int
+        True cluster count to visualise (3, 4, 5, or 6).
+    difficulty : str
+        Difficulty anchor for example scatter plots (``'easy'``, ``'medium'``,
+        or ``'hard'``).
+    select_full_seed : bool
+        If *True*, pick the seed whose PCA projection fills the axes most
+        evenly (reduces whitespace, especially for non-linear manifolds).
+    """
+    n_regimes = len(regimes)
+
+    # ---- unpack regime tuples ----
+    parsed = []
+    for tup in regimes:
+        if len(tup) == 6:
+            name, df, sbk, osett, etype, sq = tup
+        elif len(tup) == 5:
+            name, df, sbk, osett, etype = tup
+            sq = 0.5
+        else:
+            raise ValueError(
+                "Each regime must be a 5- or 6-tuple: "
+                "(name, results_df, settings_by_k, other_settings, "
+                "estimator_type[, spectral_quant])"
+            )
+        parsed.append((name, df, sbk, osett, etype, sq))
+
+    # ---- figure & nested gridspecs ----
+    # Outer grid: 2 rows (examples on top, lineplots on bottom).
+    # Inner grids allow independent wspace/hspace so PCA plots pack tightly.
+    ncols = 3
+    nrows_top = 2 if n_regimes > 3 else 1
+    nrows_bot = 2 if n_regimes > 3 else 1
+
+    fig = plt.figure(figsize=figsize, constrained_layout=False)
+    gs_outer = fig.add_gridspec(
+        nrows=2,
+        ncols=1,
+        height_ratios=[1, 1.6],
+        hspace=0.10,
+        left=0.05,
+        right=0.98,
+        top=0.93,
+        bottom=0.07,
+    )
+
+    # Inner grid for Section A (PCA example scatter plots) — tight packing
+    gs_top = gs_outer[0].subgridspec(
+        nrows=nrows_top,
+        ncols=ncols,
+        wspace=0.05,
+        hspace=0.18,
+    )
+
+    # Inner grid for Section B (ARI lineplots) — wider spacing for labels
+    gs_bot = gs_outer[1].subgridspec(
+        nrows=nrows_bot,
+        ncols=ncols,
+        wspace=0.28,
+        hspace=0.38,
+    )
+
+    # map regime index → (grid_row, grid_col)
+    def _rc(idx):
+        return idx // ncols, idx % ncols
+
+    axes_top = [fig.add_subplot(gs_top[_rc(i)]) for i in range(n_regimes)]
+    axes_bot = [fig.add_subplot(gs_bot[_rc(i)]) for i in range(n_regimes)]
+
+    # hide unused grid slots
+    for i in range(n_regimes, nrows_top * ncols):
+        fig.add_subplot(gs_top[_rc(i)]).set_visible(False)
+    for i in range(n_regimes, nrows_bot * ncols):
+        fig.add_subplot(gs_bot[_rc(i)]).set_visible(False)
+
+    # ---- section labels A / B ----
+    fig.text(
+        0.008, 0.95, "A",
+        fontsize=20, fontweight="bold", va="top", ha="left",
+        fontfamily="sans-serif",
+    )
+    # B label: y-position at the top of the lineplot rows
+    b_y = gs_bot[0, 0].get_position(fig).y1 + 0.025
+    fig.text(
+        0.008, b_y, "B",
+        fontsize=20, fontweight="bold", va="top", ha="left",
+        fontfamily="sans-serif",
+    )
+
+    # ---- Row A — example scatter plots ----
+    true_cluster_counts = np.array([3, 4, 5, 6])
+    difficulty_j = {"easy": 0, "medium": 1, "hard": 2}.get(difficulty, 1)
+
+    for col, (name, _df, sbk, osett, etype, sq) in enumerate(parsed):
+        ax = axes_top[col]
+
+        # generate seeds in parallel
+        worker = delayed(_plotting_iter)
+        results_list = Parallel(n_jobs=n_jobs)(
+            worker(
+                settings_by_k=sbk,
+                other_settings=osett,
+                j=difficulty_j,
+                level=difficulty,
+                level_label="difficulty",
+                true_k=k_star,
+                true_cluster_counts=true_cluster_counts,
+                estimator_type=etype,
+                spectral_quant=sq,
+                sampler="default",
+                seed=seed,
+                random_state=random_state,
+            )
+            for seed in range(n_seeds_per_dataset)
+        )
+
+        # pick seed for plotting
+        if select_full_seed and len(results_list) > 1:
+            pick = _select_visually_full_seed(results_list)
+        else:
+            pick = 0
+        _, X, y = results_list[pick]
+
+        # PCA projection
+        X_pca = PCA(n_components=2, random_state=0).fit_transform(X)
+        labels = np.asarray(y)
+        cmap = _cluster_color_map(labels)
+        colors = [cmap[int(lbl)] for lbl in labels]
+
+        ax.scatter(
+            X_pca[:, 0],
+            X_pca[:, 1],
+            c=colors,
+            s=scatter_size,
+            alpha=0.90,
+            edgecolor="k",
+            linewidth=0.2,
+            rasterized=True,
+        )
+
+        # non-linear regimes → auto aspect (less whitespace)
+        is_nonlinear = osett.get("nonlinear", False)
+        if is_nonlinear:
+            ax.set_aspect("auto")
+            ax.margins(0.04)
+        else:
+            ax.set_aspect("equal", adjustable="datalim")
+            ax.margins(0.06)
+
+        # force square subplot box regardless of data ranges
+        ax.set_box_aspect(1.0)
+
+        ax.set_title(name, fontsize=title_fontsize, fontweight="bold")
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_alpha(0.15)
+
+    # ---- Section B — ARI-over-difficulty lineplots (2×3) ----
+    for idx, (name, df, _sbk, _osett, _etype, _sq) in enumerate(parsed):
+        ax = axes_bot[idx]
+
+        # filter to k_star
+        df_k = df.loc[df["true_k"] == k_star].copy()
+        if df_k.empty:
+            ax.set_visible(False)
+            continue
+
+        plot_ari_over_difficulty(
+            df_k,
+            metrics=metrics,
+            center=center,
+            band=band,
+            show_band_for=show_band_for,
+            x_label="SNR",
+            ax=ax,
+            ylim="auto",
+            show_legend=False,
+        )
+
+        ax.set_title(name, fontsize=title_fontsize, fontweight="bold")
+        ax.tick_params(labelsize=tick_fontsize)
+
+        # y-axis label only on leftmost column of each lineplot row
+        grid_col = idx % ncols
+        if grid_col == 0:
+            ax.set_ylabel(
+                r"ARI (selected $\hat{k}$ vs. true labels)",
+                fontsize=title_fontsize - 1,
+            )
+        else:
+            ax.set_ylabel("")
+
+    # ---- shared legend (grouped: Baseline | CARVE | Classical) ----
+    handles, labels_leg = axes_bot[0].get_legend_handles_labels()
+
+    # split into groups
+    baseline_h, baseline_l = [], []
+    carve_h, carve_l = [], []
+    classical_h, classical_l = [], []
+    for h, lab in zip(handles, labels_leg):
+        if "baseline" in lab.lower() or "oracle" in lab.lower():
+            baseline_h.append(h)
+            baseline_l.append(lab)
+        elif "carve" in lab.lower():
+            carve_h.append(h)
+            carve_l.append(lab)
+        else:
+            classical_h.append(h)
+            classical_l.append(lab)
+
+    # ---- stacked 3-column legend (Baseline | CARVE | Classical) ----
+    legend_y = -0.005
+    legend_kw = dict(
+        frameon=False,
+        fontsize=legend_fontsize,
+        handlelength=2.2,
+        borderpad=0.4,
+        labelspacing=0.35,
+    )
+
+    n_groups = bool(baseline_h) + bool(carve_h) + bool(classical_h)
+    # distribute columns evenly across the figure width
+    if n_groups == 3:
+        x_positions = [0.16, 0.45, 0.78]
+    elif n_groups == 2:
+        x_positions = [0.28, 0.72]
+    else:
+        x_positions = [0.5]
+
+    col_idx = 0
+    for group_h, group_l in [
+        (baseline_h, baseline_l),
+        (carve_h, carve_l),
+        (classical_h, classical_l),
+    ]:
+        if not group_h:
+            continue
+        fig.legend(
+            group_h,
+            group_l,
+            loc="lower center",
+            bbox_to_anchor=(x_positions[col_idx], legend_y),
+            ncol=1,
+            **legend_kw,
+        )
+        col_idx += 1
+
+    return fig
+
+
 def plot_baseline_vs_metric_ari_grid(
     results_df: pd.DataFrame,
     *,
