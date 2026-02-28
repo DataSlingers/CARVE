@@ -751,7 +751,9 @@ def plot_paper_figure(
     show_band_for: tuple[str, ...] = (),
     n_jobs: int = 1,
     random_state: int = 0,
-    figsize: tuple[float, float] = (16, 16),
+    figsize: tuple[float, float] | None = None,
+    scatter_cell: float = 3.4,                  # ← was 3.0; "zoom out"
+    lineplot_height_ratio: float = 0.62,
     scatter_size: float = 14,
     title_fontsize: float = 13,
     legend_fontsize: float = 12,
@@ -800,39 +802,98 @@ def plot_paper_figure(
             )
         parsed.append((name, df, sbk, osett, etype, sq))
 
-    # ---- figure & nested gridspecs ----
-    # Outer grid: 2 rows (examples on top, lineplots on bottom).
-    # Inner grids allow independent wspace/hspace so PCA plots pack tightly.
+    # ---- figure sizing (content-driven) ----
+    # The 2×3 scatter grid determines the figure width; lineplots fill
+    # the same width with a wider-than-tall aspect ratio.
     ncols = 3
     nrows_top = 2 if n_regimes > 3 else 1
     nrows_bot = 2 if n_regimes > 3 else 1
+
+    if figsize is None:
+        # --- derive figure size from scatter_cell ---
+        scatter_gap_h = 0.12          # horizontal gap between scatter cols (in)
+        scatter_gap_v = 0.50          # vertical gap between scatter rows (in, for title)
+        margin_l = 0.55               # left margin (in) — room for shared y-label
+        margin_r = 0.15               # right margin (in)
+        margin_t = 0.45               # top margin (in) — room for section label A
+        margin_b = 1.05               # bottom margin (in) — room for legend
+        section_gap = 0.70            # vertical gap between sections A and B (in)
+
+        lineplot_gap_h = 0.70         # horizontal gap between lineplot cols (in)
+        lineplot_gap_v = 0.90         # vertical gap between lineplot rows (in)
+
+        # Width: driven by scatter grid
+        fig_width = (
+            margin_l
+            + ncols * scatter_cell
+            + (ncols - 1) * scatter_gap_h
+            + margin_r
+        )
+
+        # Lineplot cell width = whatever space is available per column
+        lp_cell_w = (
+            fig_width - margin_l - margin_r - (ncols - 1) * lineplot_gap_h
+        ) / ncols
+        lp_cell_h = lp_cell_w * lineplot_height_ratio
+
+        # Height: sum of all content rows + gaps
+        top_h = nrows_top * scatter_cell + (nrows_top - 1) * scatter_gap_v
+        bot_h = nrows_bot * lp_cell_h + (nrows_bot - 1) * lineplot_gap_v
+
+        fig_height = margin_t + top_h + section_gap + bot_h + margin_b
+        figsize = (fig_width, fig_height)
+
+        # Convert absolute margins → fractional for gridspec
+        frac_left   = margin_l / fig_width
+        frac_right  = 1.0 - margin_r / fig_width
+        frac_top    = 1.0 - margin_t / fig_height
+        frac_bottom = margin_b / fig_height
+        frac_hspace = section_gap / (top_h + bot_h)  # fraction of content height
+
+        # Height ratios: scatter vs lineplot content
+        hr_top = top_h
+        hr_bot = bot_h
+
+        # Inner spacing as fractions of sub-grid content height/width
+        scat_wspace = scatter_gap_h / scatter_cell
+        scat_hspace = scatter_gap_v / scatter_cell
+        lp_wspace   = lineplot_gap_h / lp_cell_w
+        lp_hspace   = lineplot_gap_v / lp_cell_h
+    else:
+        # If explicit figsize is given, use the old fractional defaults
+        frac_left, frac_right = 0.06, 0.98
+        frac_top, frac_bottom = 0.95, 0.06
+        frac_hspace = 0.08
+        hr_top, hr_bot = 1, 1.8
+        scat_wspace, scat_hspace = 0.04, 0.10
+        lp_wspace, lp_hspace = 0.18, 0.28
 
     fig = plt.figure(figsize=figsize, constrained_layout=False)
     gs_outer = fig.add_gridspec(
         nrows=2,
         ncols=1,
-        height_ratios=[1, 1.6],
-        hspace=0.10,
-        left=0.05,
-        right=0.98,
-        top=0.93,
-        bottom=0.07,
+        height_ratios=[hr_top, hr_bot],
+        hspace=frac_hspace,
+        left=frac_left,
+        right=frac_right,
+        top=frac_top,
+        bottom=frac_bottom,
     )
 
     # Inner grid for Section A (PCA example scatter plots) — tight packing
     gs_top = gs_outer[0].subgridspec(
         nrows=nrows_top,
         ncols=ncols,
-        wspace=0.05,
-        hspace=0.18,
+        wspace=scat_wspace,
+        hspace=scat_hspace,
     )
 
-    # Inner grid for Section B (ARI lineplots) — wider spacing for labels
+    # Inner grid for Section B (ARI lineplots)
     gs_bot = gs_outer[1].subgridspec(
         nrows=nrows_bot,
         ncols=ncols,
-        wspace=0.28,
-        hspace=0.38,
+        wspace=lp_wspace,
+        hspace=lp_hspace,
     )
 
     # map regime index → (grid_row, grid_col)
@@ -955,16 +1016,18 @@ def plot_paper_figure(
 
         ax.set_title(name, fontsize=title_fontsize, fontweight="bold")
         ax.tick_params(labelsize=tick_fontsize)
+        ax.set_ylabel("")  # remove per-axis y-labels; shared label below
 
-        # y-axis label only on leftmost column of each lineplot row
-        grid_col = idx % ncols
-        if grid_col == 0:
-            ax.set_ylabel(
-                r"ARI (selected $\hat{k}$ vs. true labels)",
-                fontsize=title_fontsize - 1,
-            )
-        else:
-            ax.set_ylabel("")
+    # ---- shared y-axis label for all lineplots ----
+    # Position at the left edge of the lineplot grid, vertically centred
+    bot_pos = gs_bot[:, :].get_position(fig)
+    fig.text(
+        bot_pos.x0 - 0.035,
+        (bot_pos.y0 + bot_pos.y1) / 2,
+        r"ARI (selected $\hat{k}$ vs. true labels)",
+        va="center", ha="center", rotation=90,
+        fontsize=title_fontsize - 1,
+    )
 
     # ---- shared legend (grouped: Baseline | CARVE | Classical) ----
     handles, labels_leg = axes_bot[0].get_legend_handles_labels()
@@ -984,39 +1047,51 @@ def plot_paper_figure(
             classical_h.append(h)
             classical_l.append(lab)
 
-    # ---- stacked 3-column legend (Baseline | CARVE | Classical) ----
-    legend_y = -0.005
+    # ---- grouped legend (Baseline | CARVE | Classical 2×2) ----
+    # Place legend centred below the lineplot grid, inside the bottom margin
+    bot_pos = gs_bot[:, :].get_position(fig)
+    legend_centre_x = (bot_pos.x0 + bot_pos.x1) / 2
+    legend_y = bot_pos.y0 - 0.04   # just below the lowest lineplot row
+
     legend_kw = dict(
         frameon=False,
         fontsize=legend_fontsize,
         handlelength=2.2,
-        borderpad=0.4,
-        labelspacing=0.35,
+        borderpad=0.3,
+        labelspacing=0.30,
+        columnspacing=1.4,
     )
 
     n_groups = bool(baseline_h) + bool(carve_h) + bool(classical_h)
-    # distribute columns evenly across the figure width
+    # Spread groups symmetrically around the centre
     if n_groups == 3:
-        x_positions = [0.16, 0.45, 0.78]
+        x_positions = [
+            legend_centre_x - 0.28,
+            legend_centre_x - 0.02,
+            legend_centre_x + 0.26,
+        ]
     elif n_groups == 2:
-        x_positions = [0.28, 0.72]
+        x_positions = [legend_centre_x - 0.15, legend_centre_x + 0.15]
     else:
-        x_positions = [0.5]
+        x_positions = [legend_centre_x]
+
+    # ncol per group: classical indices get 2×2 layout, others stay vertical
+    ncol_per_group = [1, 1, 2]  # baseline, carve, classical
 
     col_idx = 0
-    for group_h, group_l in [
+    for grp_idx, (group_h, group_l) in enumerate([
         (baseline_h, baseline_l),
         (carve_h, carve_l),
         (classical_h, classical_l),
-    ]:
+    ]):
         if not group_h:
             continue
         fig.legend(
             group_h,
             group_l,
-            loc="lower center",
+            loc="upper center",
             bbox_to_anchor=(x_positions[col_idx], legend_y),
-            ncol=1,
+            ncol=ncol_per_group[grp_idx],
             **legend_kw,
         )
         col_idx += 1
