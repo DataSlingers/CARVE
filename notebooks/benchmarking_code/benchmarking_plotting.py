@@ -22,8 +22,8 @@ import warnings
 
 # --- Setup and basic handlers ---
 cluster_pallette = [
-    "#FF1F5B", "#00CD6C", "#009ADE", 
-    "#AF58BA", "#F28522", "#A6761D", "#A0B1BA"
+    "#009ADE", "#00CD6C", 
+    "#FF1F5B", "#AF58BA", "#F28522", "#A6761D", "#A0B1BA"
 ]
 
 lines_pallette_contrastive_carve = [
