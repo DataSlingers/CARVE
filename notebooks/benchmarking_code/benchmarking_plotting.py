@@ -32,7 +32,7 @@ lines_pallette_contrastive_carve = [
 ]
 
 lines_pallette_contrastive_other = [
-    "#FF1F5B", "#FF4B33", "#F28522", "#A6761D",
+    "#E0457B", "#A8389E", "#D6292E", "#F28522",
 ]
 
 
@@ -746,17 +746,17 @@ def plot_paper_figure(
         "calinski_harabasz",
     ),
     n_seeds_per_dataset: int = 20,
-    center: str = "mean",
+    center: str = "median",
     band: tuple[float, float] = (0.05, 0.95),
     show_band_for: tuple[str, ...] = (),
     n_jobs: int = 1,
     random_state: int = 0,
     figsize: tuple[float, float] | None = None,
-    scatter_cell: float = 3.4,                  # ← was 3.0; "zoom out"
-    lineplot_height_ratio: float = 0.62,
+    scale: float = 1.0,
+    lineplot_height_ratio: float = 0.75,
     scatter_size: float = 14,
-    title_fontsize: float = 13,
-    legend_fontsize: float = 12,
+    title_fontsize: float = 15,
+    legend_fontsize: float = 15,
     tick_fontsize: float = 10,
     select_full_seed: bool = True,
 ) -> mpl.figure.Figure:
@@ -764,8 +764,8 @@ def plot_paper_figure(
 
     Section **A** (top, 2×3): example scatter plots per regime (PCA projection).
     Section **B** (bottom, 2×3): ARI-over-difficulty line plots, filtered to
-    ``true_k == k_star``.  Examples occupy ~1/3 of the figure height,
-    lineplots ~2/3.
+    ``true_k == k_star``.  Lineplots are the primary visual element and
+    drive the figure width; scatter plots are compact secondary panels.
 
     Parameters
     ----------
@@ -803,65 +803,69 @@ def plot_paper_figure(
         parsed.append((name, df, sbk, osett, etype, sq))
 
     # ---- figure sizing (content-driven) ----
-    # The 2×3 scatter grid determines the figure width; lineplots fill
-    # the same width with a wider-than-tall aspect ratio.
     ncols = 3
     nrows_top = 2 if n_regimes > 3 else 1
     nrows_bot = 2 if n_regimes > 3 else 1
 
     if figsize is None:
-        # --- derive figure size from scatter_cell ---
-        scatter_gap_h = 0.12          # horizontal gap between scatter cols (in)
-        scatter_gap_v = 0.50          # vertical gap between scatter rows (in, for title)
-        margin_l = 0.55               # left margin (in) — room for shared y-label
-        margin_r = 0.15               # right margin (in)
-        margin_t = 0.45               # top margin (in) — room for section label A
-        margin_b = 1.05               # bottom margin (in) — room for legend
-        section_gap = 0.70            # vertical gap between sections A and B (in)
+        # --- derive figure size: identical cells for scatter & lineplot ---
+        cell_w_base = 3.6  # base cell width (inches)
+        cell_w = cell_w_base * scale
+        cell_h = cell_w * lineplot_height_ratio  # landscape: wider than tall
 
-        lineplot_gap_h = 0.70         # horizontal gap between lineplot cols (in)
-        lineplot_gap_v = 0.90         # vertical gap between lineplot rows (in)
+        margin_l = 0.65 * scale       # left margin — room for shared y-label
+        margin_r = 0.20 * scale       # right margin
+        margin_t = 0.45 * scale       # top margin — room for section label A
+        margin_b = 1.60 * scale       # bottom margin — room for legend
+        section_gap = 0.30 * scale    # vertical gap between sections A and B (tight)
 
-        # Width: driven by scatter grid
+        gap_h = 0.45 * scale          # horizontal gap between cols (shared)
+        gap_v = 0.50 * scale          # vertical gap between rows  (shared)
+
+        # Width: driven by uniform cell grid
         fig_width = (
             margin_l
-            + ncols * scatter_cell
-            + (ncols - 1) * scatter_gap_h
+            + ncols * cell_w
+            + (ncols - 1) * gap_h
             + margin_r
         )
 
-        # Lineplot cell width = whatever space is available per column
-        lp_cell_w = (
-            fig_width - margin_l - margin_r - (ncols - 1) * lineplot_gap_h
-        ) / ncols
-        lp_cell_h = lp_cell_w * lineplot_height_ratio
-
-        # Height: sum of all content rows + gaps
-        top_h = nrows_top * scatter_cell + (nrows_top - 1) * scatter_gap_v
-        bot_h = nrows_bot * lp_cell_h + (nrows_bot - 1) * lineplot_gap_v
+        # Heights — both sections use the same cell dimensions
+        top_h = nrows_top * cell_h + (nrows_top - 1) * gap_v
+        bot_h = nrows_bot * cell_h + (nrows_bot - 1) * gap_v
 
         fig_height = margin_t + top_h + section_gap + bot_h + margin_b
         figsize = (fig_width, fig_height)
 
         # Convert absolute margins → fractional for gridspec
-        frac_left   = margin_l / fig_width
-        frac_right  = 1.0 - margin_r / fig_width
         frac_top    = 1.0 - margin_t / fig_height
         frac_bottom = margin_b / fig_height
-        frac_hspace = section_gap / (top_h + bot_h)  # fraction of content height
+        frac_hspace = section_gap / (top_h + bot_h)
 
-        # Height ratios: scatter vs lineplot content
+        # Height ratios (equal — same cell sizes)
         hr_top = top_h
         hr_bot = bot_h
 
-        # Inner spacing as fractions of sub-grid content height/width
-        scat_wspace = scatter_gap_h / scatter_cell
-        scat_hspace = scatter_gap_v / scatter_cell
-        lp_wspace   = lineplot_gap_h / lp_cell_w
-        lp_hspace   = lineplot_gap_v / lp_cell_h
+        # Both grids share the same left / right margins
+        frac_left  = margin_l / fig_width
+        frac_right = 1.0 - margin_r / fig_width
+
+        lp_frac_left   = frac_left
+        lp_frac_right  = frac_right
+        scat_frac_left  = frac_left
+        scat_frac_right = frac_right
+
+        # Inner spacing as fractions of cell dimensions (identical)
+        wspace = gap_h / cell_w
+        hspace = gap_v / cell_h
+        scat_wspace = wspace
+        scat_hspace = hspace
+        lp_wspace   = wspace
+        lp_hspace   = hspace
     else:
         # If explicit figsize is given, use the old fractional defaults
-        frac_left, frac_right = 0.06, 0.98
+        lp_frac_left, lp_frac_right = 0.06, 0.98
+        scat_frac_left, scat_frac_right = 0.10, 0.94
         frac_top, frac_bottom = 0.95, 0.06
         frac_hspace = 0.08
         hr_top, hr_bot = 1, 1.8
@@ -869,31 +873,46 @@ def plot_paper_figure(
         lp_wspace, lp_hspace = 0.18, 0.28
 
     fig = plt.figure(figsize=figsize, constrained_layout=False)
-    gs_outer = fig.add_gridspec(
-        nrows=2,
-        ncols=1,
-        height_ratios=[hr_top, hr_bot],
-        hspace=frac_hspace,
-        left=frac_left,
-        right=frac_right,
-        top=frac_top,
-        bottom=frac_bottom,
-    )
 
-    # Inner grid for Section A (PCA example scatter plots) — tight packing
-    gs_top = gs_outer[0].subgridspec(
+    # Overall two-row layout (scatter row, lineplot row)
+    # Use separate gridspecs so scatter and lineplot grids can have
+    # independent horizontal extents (scatter is centred & narrower).
+    content_top = frac_top
+    content_bot = frac_bottom
+    content_h   = content_top - content_bot
+    total_content = hr_top + hr_bot
+    gap_frac = frac_hspace * content_h / (1.0 + frac_hspace)  # approx
+
+    top_frac_h = (hr_top / total_content) * (content_h - gap_frac)
+    bot_frac_h = (hr_bot / total_content) * (content_h - gap_frac)
+
+    top_top = content_top
+    top_bot = content_top - top_frac_h
+    bot_top = top_bot - gap_frac
+    bot_bot = bot_top - bot_frac_h
+
+    # Inner grid for Section A (PCA example scatter plots) — compact & centred
+    gs_top = fig.add_gridspec(
         nrows=nrows_top,
         ncols=ncols,
         wspace=scat_wspace,
         hspace=scat_hspace,
+        left=scat_frac_left,
+        right=scat_frac_right,
+        top=top_top,
+        bottom=top_bot,
     )
 
-    # Inner grid for Section B (ARI lineplots)
-    gs_bot = gs_outer[1].subgridspec(
+    # Inner grid for Section B (ARI lineplots) — full width, landscape
+    gs_bot = fig.add_gridspec(
         nrows=nrows_bot,
         ncols=ncols,
         wspace=lp_wspace,
         hspace=lp_hspace,
+        left=lp_frac_left,
+        right=lp_frac_right,
+        top=bot_top,
+        bottom=bot_bot,
     )
 
     # map regime index → (grid_row, grid_col)
@@ -983,9 +1002,6 @@ def plot_paper_figure(
             ax.set_aspect("equal", adjustable="datalim")
             ax.margins(0.06)
 
-        # force square subplot box regardless of data ranges
-        ax.set_box_aspect(1.0)
-
         ax.set_title(name, fontsize=title_fontsize, fontweight="bold")
         ax.set_xticks([])
         ax.set_yticks([])
@@ -1047,11 +1063,15 @@ def plot_paper_figure(
             classical_h.append(h)
             classical_l.append(lab)
 
-    # ---- grouped legend (Baseline | CARVE | Classical 2×2) ----
-    # Place legend centred below the lineplot grid, inside the bottom margin
+    # ---- grouped legend (Baseline | CARVE | Classical) ----
+    # Place legend centred below the lineplot grid, inside the bottom margin.
+    # Positions are derived from the actual grid bounds so they adapt to any
+    # figure size / scale.
     bot_pos = gs_bot[:, :].get_position(fig)
-    legend_centre_x = (bot_pos.x0 + bot_pos.x1) / 2
-    legend_y = bot_pos.y0 - 0.04   # just below the lowest lineplot row
+    grid_x0 = bot_pos.x0
+    grid_x1 = bot_pos.x1
+    grid_w  = grid_x1 - grid_x0
+    legend_y = bot_pos.y0 - 0.03   # just below the lowest lineplot row
 
     legend_kw = dict(
         frameon=False,
@@ -1059,42 +1079,33 @@ def plot_paper_figure(
         handlelength=2.2,
         borderpad=0.3,
         labelspacing=0.30,
-        columnspacing=1.4,
+        columnspacing=1.0,
+        handletextpad=0.5,
     )
 
-    n_groups = bool(baseline_h) + bool(carve_h) + bool(classical_h)
-    # Spread groups symmetrically around the centre
-    if n_groups == 3:
-        x_positions = [
-            legend_centre_x - 0.28,
-            legend_centre_x - 0.02,
-            legend_centre_x + 0.26,
-        ]
-    elif n_groups == 2:
-        x_positions = [legend_centre_x - 0.15, legend_centre_x + 0.15]
-    else:
-        x_positions = [legend_centre_x]
+    # Build list of non-empty groups with their ncol preference
+    groups = []
+    if baseline_h:
+        groups.append((baseline_h, baseline_l, 1))    # single column
+    if carve_h:
+        groups.append((carve_h, carve_l, 1))           # single column
+    if classical_h:
+        groups.append((classical_h, classical_l, 2))   # 2-col grid
 
-    # ncol per group: classical indices get 2×2 layout, others stay vertical
-    ncol_per_group = [1, 1, 2]  # baseline, carve, classical
-
-    col_idx = 0
-    for grp_idx, (group_h, group_l) in enumerate([
-        (baseline_h, baseline_l),
-        (carve_h, carve_l),
-        (classical_h, classical_l),
-    ]):
-        if not group_h:
-            continue
-        fig.legend(
-            group_h,
-            group_l,
-            loc="upper center",
-            bbox_to_anchor=(x_positions[col_idx], legend_y),
-            ncol=ncol_per_group[grp_idx],
-            **legend_kw,
-        )
-        col_idx += 1
+    n_groups = len(groups)
+    if n_groups > 0:
+        # Spread groups evenly across the grid width
+        for gi, (gh, gl, gncol) in enumerate(groups):
+            # Position each group at equal fractions of the grid width
+            frac = (gi + 0.5) / n_groups
+            gx = grid_x0 + frac * grid_w
+            fig.legend(
+                gh, gl,
+                loc="upper center",
+                bbox_to_anchor=(gx, legend_y),
+                ncol=gncol,
+                **legend_kw,
+            )
 
     return fig
 
