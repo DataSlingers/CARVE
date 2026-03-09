@@ -241,7 +241,7 @@ def _plotting_iter(
 def plot_examples(
     settings_by_k: Dict,
     other_settings: Dict,
-    true_cluster_counts: np.ndarray = np.array([3, 4, 5, 6]),
+    true_cluster_counts: np.ndarray = np.array([3, 4]),
     level_label: str = "difficulty",
     levels: List[Any] = ['easy', 'medium', 'hard'],
     n_seeds_per_dataset: int = 20,
@@ -275,11 +275,11 @@ def plot_examples(
     if level_label == 'difficulty':
         levels = ['easy', 'medium', 'hard']
     elif level_label == "n_total":
-        levels = [int(x) for x in np.logspace(np.log10(100), np.log10(10000), num=3)]
+        levels = [int(x) for x in np.logspace(np.log10(50), np.log10(5000), num=3)]
     elif level_label == "p":
-        levels = [int(x) for x in np.logspace(np.log10(10), np.log10(2500), num=3)]
+        levels = [int(x) for x in np.logspace(np.log10(5), np.log10(500), num=3)]
     elif level_label == "embed_dim":
-        levels = [int(x) for x in np.logspace(np.log10(10), np.log10(2500), num=3)]
+        levels = [int(x) for x in np.logspace(np.log10(5), np.log10(500), num=3)]
     else:
         raise ValueError("level_label must be 'difficulty', 'n_total', 'p', or 'embed_dim'.")
     
@@ -327,7 +327,6 @@ def plot_examples(
             
             # titles, legends, &c.
             if level_label == "difficulty":
-                display_label = 'S/N Ratio'
                 ax.set_title(f"k={true_k}, 'S/N Ratio': {level} | Baseline ARI={ari_mean:.3f}")
             else:
                 ax.set_title(f"k={true_k}, {level_label}={level} | Baseline ARI={ari_mean:.3f}")
