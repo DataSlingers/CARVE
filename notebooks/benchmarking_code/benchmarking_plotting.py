@@ -738,7 +738,7 @@ def plot_paper_figure(
     difficulty: str = "medium",
     metrics: tuple[str, ...] = (
         "ari_generalizability_1se",
-        "ari_stability_quant",
+        "ari_stability_1se",
         "silhouette",
         "gap",
         "davies_bouldin",

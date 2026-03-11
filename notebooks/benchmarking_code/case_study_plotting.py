@@ -1356,6 +1356,7 @@ def plot_baseline_best_lines(
         if annotate and np.isfinite(best_k):
             idx_best = np.argmin(np.abs(sub["k"].to_numpy() - int(best_k)))
             best_score_plot = y[idx_best]
+            ax.axvline(int(best_k), linestyle="--", linewidth=1.0, color=c, alpha=0.35, zorder=0)
             ax.scatter([int(best_k)], [best_score_plot], s=60, color=c, edgecolor="black",
                        linewidths=0.6, zorder=5)
 
@@ -1439,7 +1440,7 @@ def plot_carve_best_line(
     # mark selected k
     if annotate:
         sel_y = float(best_row[y_col])
-        ax.axvline(best_k, linestyle="--", linewidth=1.0, color="#777777", alpha=0.6, zorder=0)
+        ax.axvline(best_k, linestyle="--", linewidth=1.0, color=color, alpha=0.35, zorder=0)
         ax.scatter([best_k], [sel_y], s=60, color=color, edgecolor="black", linewidths=0.6, zorder=5)
         ax.text(
             0.02, 0.98, f"Selected: k*={best_k}\n{label}",
@@ -1974,7 +1975,7 @@ def plot_composite_figure(
         colors=carve_line_colors,
         title=carve_line_title,
         show_1se=show_1se,
-        annotate=False,
+        annotate=True,
     )
 
     # =============================================================
@@ -2016,6 +2017,241 @@ def plot_composite_figure(
         x_off = 0.05 if letter == "F" else -0.05
         ax.text(
             x_off, 1.08, letter,
+            transform=ax.transAxes,
+            fontsize=18, fontweight="bold", va="top", ha="right",
+        )
+
+    if save_path is not None:
+        fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
+
+    return fig
+
+
+def plot_composite_figure_with_splits(
+    X: np.ndarray,
+    y: np.ndarray,
+    carve_obj: Any,
+    curves_df: pd.DataFrame,
+    best_df: pd.DataFrame,
+    silhouette_labels: np.ndarray,
+    *,
+    measure: str = "generalizability",
+    rule: str = "1se",
+    consensus_type: str = "stability",
+    carve_measures: list[tuple[str, str]] | None = None,
+    carve_line_colors: dict[str, str] | None = None,
+    baseline_colors: list[str] | None = None,
+    normalize_baseline: bool = True,
+    figsize: tuple[float, float] = (18, 16),
+    scatter_s: float = 30.0,
+    scatter_alpha: float = 0.85,
+    true_label_legend_title: str = "Cell Type",
+    carve_title: str = "CARVE clustering",
+    baseline_title: str = "Silhouette clustering",
+    carve_line_title: str = "CARVE ARI over k",
+    baseline_line_title: str = "Classic metrics (normalized)",
+    split_title_a: str = "CARVE",
+    split_title_b: str = "Silhouette",
+    split_color_a: str | None = None,
+    split_color_b: str | None = None,
+    show_true_legend: bool = False,
+    annotate_carve: bool = True,
+    show_1se: bool = True,
+    save_path: str | None = None,
+    dpi: int = 300,
+) -> plt.Figure:
+    """Composite paper figure with split-count bar charts in the bottom row.
+
+    Identical to ``plot_composite_figure`` for the top two rows (scatter +
+    line plots), but replaces the alluvial diagram with two side-by-side bar
+    charts showing how many true labels are kept intact (1 cluster), split
+    into 2 clusters, 3 clusters, etc.
+
+    Parameters
+    ----------
+    split_title_a, split_title_b : str
+        Titles for the CARVE and baseline bar-chart panels.
+    split_color_a, split_color_b : str | None
+        Bar colors. Defaults to CARVE green / warm pink.
+    show_true_legend : bool
+        Show a legend beneath the true-label scatter.  Default False
+        (useful when the number of true classes is large).
+    annotate_carve : bool
+        Show vertical lines, dots, and a text annotation at the
+        selected k in the CARVE line plot (panel D).  Default True.
+    All other parameters are identical to ``plot_composite_figure``.
+    """
+
+    X = np.asarray(X)
+    y_arr = np.asarray(y) if not isinstance(y, np.ndarray) else y
+    silhouette_labels = np.asarray(silhouette_labels)
+
+    # Get CARVE consensus labels
+    carve_labels = carve_obj.get_labels(measure=measure, rule=rule, mode=consensus_type)
+    carve_labels = np.asarray(carve_labels)
+
+    # Align labels via Hungarian for scatter plots
+    from benchmarking_utils import align_labels as _align_labels
+    y_codes = pd.Categorical(y_arr).codes
+    carve_labels = _align_labels(y_codes, carve_labels)
+    silhouette_labels = _align_labels(y_codes, silhouette_labels)
+
+    # Shared PCA projection
+    Z, pca_obj = _pca_project(X)
+
+    # Color maps
+    carve_cmap = _cluster_color_map(carve_labels)
+    sil_cmap = _cluster_color_map(silhouette_labels)
+
+    y_cat = pd.Categorical(y_arr)
+    if hasattr(y_cat, "remove_unused_categories"):
+        y_cat = y_cat.remove_unused_categories()
+
+    # =========  layout  =========
+    height_ratios = [1, 1.0, 0.7]
+    fig_w, fig_h = figsize
+    fig = plt.figure(figsize=(fig_w, fig_h), constrained_layout=False)
+
+    gs = fig.add_gridspec(
+        3, 6, height_ratios=height_ratios,
+        hspace=0.55, wspace=0.4,
+    )
+
+    ax_a = fig.add_subplot(gs[0, 0:2])   # true labels
+    ax_b = fig.add_subplot(gs[0, 2:4])   # CARVE clusters
+    ax_c = fig.add_subplot(gs[0, 4:6])   # baseline clusters
+    ax_d = fig.add_subplot(gs[1, 0:3])   # CARVE lines
+    ax_e = fig.add_subplot(gs[1, 3:6])   # baseline lines
+    ax_f = fig.add_subplot(gs[2, 0:3])   # split bars CARVE
+    ax_g = fig.add_subplot(gs[2, 3:6])   # split bars baseline
+
+    # Nudge scatter row down and lineplot row up
+    for ax in (ax_a, ax_b, ax_c):
+        box = ax.get_position()
+        ax.set_position([box.x0, box.y0 - 0.02, box.width, box.height])
+    for ax in (ax_d, ax_e):
+        box = ax.get_position()
+        ax.set_position([box.x0, box.y0 + 0.01, box.width, box.height])
+
+    # =========  Row 0: Scatter plots  =========
+    # (A) True labels
+    plot_dim_red(
+        X, y=y_arr,
+        ax=ax_a, show=False,
+        title="True Labels", legend_title=true_label_legend_title,
+        s=scatter_s, alpha=scatter_alpha,
+        show_legend=False, hide_axes=True,
+    )
+    ax_a.set_title("True Labels", fontsize=13)
+    ax_a.set_xlabel(""); ax_a.set_ylabel("")
+    if show_true_legend:
+        handles = ax_a.collections
+        y_cat_leg = pd.Categorical(y_arr)
+        if hasattr(y_cat_leg, "remove_unused_categories"):
+            y_cat_leg = y_cat_leg.remove_unused_categories()
+        leg_labels = [str(c) for c in y_cat_leg.categories]
+        if len(handles) >= len(leg_labels):
+            ax_a.legend(
+                handles[:len(leg_labels)], leg_labels,
+                loc="upper center", bbox_to_anchor=(0.5, -0.06),
+                ncol=min(len(leg_labels), 8), frameon=False, fontsize=8,
+                columnspacing=0.8, handletextpad=0.3,
+            )
+
+    # (B) CARVE
+    plot_cluster_scatter(
+        X, carve_labels,
+        ax=ax_b, color_map=carve_cmap,
+        s=scatter_s, alpha=scatter_alpha,
+        title=carve_title, Z=Z, pca_obj=pca_obj,
+    )
+
+    # (C) Baseline
+    plot_cluster_scatter(
+        X, silhouette_labels,
+        ax=ax_c, color_map=sil_cmap,
+        s=scatter_s, alpha=scatter_alpha,
+        title=baseline_title, Z=Z, pca_obj=pca_obj,
+    )
+
+    # =========  Row 1: Line plots  =========
+    # (D) CARVE
+    plot_carve_best_lines(
+        carve_obj, ax=ax_d,
+        measures=carve_measures,
+        colors=carve_line_colors,
+        title=carve_line_title,
+        show_1se=show_1se,
+        annotate=annotate_carve,
+    )
+
+    # (E) Baseline
+    plot_baseline_best_lines(
+        curves_df, best_df,
+        ax=ax_e, colors=baseline_colors,
+        title=baseline_line_title,
+        normalize=normalize_baseline,
+    )
+
+    # =========  Row 2: Split-count bar charts  =========
+    def _count_splits(true_labels, cluster_labels):
+        true_labels = np.asarray(true_labels)
+        cluster_labels = np.asarray(cluster_labels)
+        splits = []
+        for lab in np.unique(true_labels):
+            members = cluster_labels[true_labels == lab]
+            splits.append(len(np.unique(members)))
+        return np.asarray(splits, dtype=int)
+
+    if split_color_a is None:
+        split_color_a = CARVE_GREEN
+    if split_color_b is None:
+        split_color_b = BASELINE_WARM[0]
+
+    splits_carve = _count_splits(y_arr, carve_labels)
+    splits_sil = _count_splits(y_arr, silhouette_labels)
+
+    # Shared x range for visual comparability
+    all_split_vals = np.union1d(np.unique(splits_carve), np.unique(splits_sil))
+    x_lo, x_hi = int(all_split_vals.min()), int(all_split_vals.max())
+    all_x = np.arange(x_lo, x_hi + 1)
+
+    def _plot_split_bars(ax, splits, title, color, all_x):
+        values, counts = np.unique(splits, return_counts=True)
+        count_map = dict(zip(values, counts))
+        bar_counts = [count_map.get(v, 0) for v in all_x]
+
+        ax.bar(all_x, bar_counts, color=color, edgecolor="black", linewidth=0.5)
+        ax.set_title(title, fontsize=13)
+        ax.set_xlabel("Number of clusters per true label", fontsize=11)
+        ax.set_xticks(all_x)
+        ax.tick_params(labelsize=10)
+        ax.grid(axis="y", alpha=0.22)
+        # annotate counts on bars
+        for xv, ct in zip(all_x, bar_counts):
+            if ct > 0:
+                ax.text(xv, ct + 0.3, str(ct), ha="center", va="bottom", fontsize=10, fontweight="bold")
+
+    _plot_split_bars(ax_f, splits_carve, split_title_a, split_color_a, all_x)
+    ax_f.set_ylabel("Number of true labels", fontsize=11)
+
+    _plot_split_bars(ax_g, splits_sil, split_title_b, split_color_b, all_x)
+    ax_g.set_ylabel("")
+
+    # Shared y limit
+    y_max = max(ax_f.get_ylim()[1], ax_g.get_ylim()[1])
+    ax_f.set_ylim(0, y_max * 1.12)
+    ax_g.set_ylim(0, y_max * 1.12)
+
+    # --- Panel letter labels ---
+    panel_axes = [
+        (ax_a, "A"), (ax_b, "B"), (ax_c, "C"),
+        (ax_d, "D"), (ax_e, "E"),
+        (ax_f, "F"), (ax_g, "G"),
+    ]
+    for ax, letter in panel_axes:
+        ax.text(
+            -0.05, 1.08, letter,
             transform=ax.transAxes,
             fontsize=18, fontweight="bold", va="top", ha="right",
         )

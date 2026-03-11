@@ -10,7 +10,7 @@ from benchmarking_utils import _wilson_ci, _summary_stats
 
 SELECTED_CARVE = [
     "ari_generalizability_1se",
-    "ari_stability_quant",
+    "ari_stability_1se",
 ]
 
 CLASSICAL = [
@@ -45,6 +45,11 @@ METRIC_DISPLAY_NAMES = {
     "davies_bouldin":               "DB",
     "calinski_harabasz":            "CH",
 }
+
+EXCLUDE = [
+    "ari_average", "ari_average_1se", "ari_average_quant",
+    "consensus_pac_stability", "consensus_ce_stability",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -591,7 +596,8 @@ def summarize_regime_tables(
         present = set(flat_df["_metric_raw"])
         selected = [m for m in SELECTED_CARVE if m in present]
         classical = [m for m in CLASSICAL if m in present]
-        others = [m for m in present if m not in {"baseline_oracle"} and m not in selected and m not in classical]
+        exclude = [m for m in EXCLUDE if m in present]
+        others = [m for m in present if m not in {"baseline_oracle"} and m not in selected and m not in classical and m not in exclude]
 
         # Sort each group by overall mean (descending) using the ARI table values
         selected = _order_metrics_in_group(selected, ari_flat)
