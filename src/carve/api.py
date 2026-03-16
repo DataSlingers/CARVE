@@ -249,7 +249,8 @@ class CARVE(BaseEstimator):
         
         df = self.estimator_results_
 
-        # Pick best row index (df index matches consensus_matrices_ order; subsetting by k does not change that)
+        # Pick best row index 
+        # (df index matches consensus_matrices_ order; subsetting by k does not change that)
         if k is None:
             row = select_best_row_by_rule(df, measure=measure, rule=rule)  # returns a row/series
             k = int(row["n_clusters"])
@@ -276,7 +277,7 @@ class CARVE(BaseEstimator):
 
         M = np.asarray(M_raw, dtype=float)
         
-        S = 0.5 * (M + M.T)                    # enforce symmetry
+        S = 0.5 * (M + M.T)  # enforce symmetry
         np.fill_diagonal(S, 1.0)
         S = np.clip(S, 0.0, 1.0)
 
@@ -369,306 +370,9 @@ class CARVE(BaseEstimator):
         )
         
         return estimator
-    
-    # Plotting API wrappers (static backend).
-    def plot_metric_over_k(
-        self,
-        measure: str = "stability",
-        *,
-        rule: str = "1se",
-        mode: str = "screen",
-        figsize: Tuple[int, int] = (10, 8),
-        dpi: Optional[int] = None,
-        decimals: int = 4,
-        show_grid: bool = True,
-        legend_outside: bool = True,
-        save_path: Optional[str] = None,
-        # width: int = 1000,
-        # height: int = 800,
-        interactive: bool = False,
-        # plotting parameters
-        ax: mpl.axes.Axes | None = None,
-        show_1se: bool = True,
-        show_quant: bool = False,
-        # legend/key strategy
-        show_legend_panel: bool | Literal["auto"] = "auto",
-        max_full_annotation: int = 7,
-        key_label_wrap: int = 20,
-        # aesthetics
-        marker: str = "o",
-        linewidth: float = 1.6,
-        alpha_band: float = 0.18,
-        highlight_linewidth: float = 2.8,
-        grid_alpha: float = 0.22,
-        title: str | None = None,
-        y_label: str | None = None,
-        x_label: str = "Number of Clusters (k)",
-        annotate_selection: bool = True,
-    ) -> None:
-        """Plot a global metric over k for all configurations.
-
-        Parameters
-        ----------
-        measure : str, default="stability"
-            Metric key to plot.
-        rule : str, default="1se"
-            Selection rule used to highlight the best configuration.
-        mode : {"screen", "plos"}, default="screen"
-            Plotting mode.
-        figsize : tuple of int, default=(10, 8)
-            Figure size in inches.
-        dpi : int or None, default=None
-            Override DPI for export.
-        decimals : int, default=4
-            Decimal precision for method labels.
-        show_grid : bool, default=True
-            Whether to show grid lines.
-        legend_outside : bool, default=True
-            Place legend outside the plot when shown.
-        save_path : str or None, default=None
-            Optional file path to save the figure.
-        interactive : bool, default=False
-            Interactive plotting is currently disabled (falls back to static).
-        ax : matplotlib.axes.Axes or None, default=None
-            Optional axes to draw into.
-        show_1se : bool, default=True
-            Show 1-SE bands if available.
-        show_quant : bool, default=False
-            Show quantile bands if available.
-        show_legend_panel : bool or "auto", default="auto"
-            Whether to draw a legend panel or annotate endpoints.
-        max_full_annotation : int, default=7
-            Max methods for full annotation before using a legend.
-        key_label_wrap : int, default=20
-            Wrap width for labels.
-        marker : str, default="o"
-            Marker style.
-        linewidth : float, default=1.6
-            Line width for non-selected methods.
-        alpha_band : float, default=0.18
-            Opacity for uncertainty bands.
-        highlight_linewidth : float, default=2.8
-            Line width for the selected method.
-        grid_alpha : float, default=0.22
-            Grid line opacity.
-        title : str or None, default=None
-            Plot title.
-        y_label : str or None, default=None
-            Y-axis label.
-        x_label : str, default="Number of Clusters (k)"
-            X-axis label.
-        annotate_selection : bool, default=True
-            Whether to annotate the selected configuration.
-        """
-        if self.estimator_results_ is None or self.estimator_results_.empty:
-            warnings.warn("estimator_results_ is empty; nothing to plot. Run fit() first.", RuntimeWarning, stacklevel=2)
-            return
-
-        if rule not in {"max", "1se", "quantile"}:
-            raise ValueError("rule must be 'max', '1se', or 'quantile'")
-
-        if mode not in {"screen", "plos"}:
-            raise ValueError("mode must be 'screen' or 'plos'")
-
-        if interactive:
-            warnings.warn(
-                "Interactive plotting is currently disabled in the new plotting backend; falling back to static.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-
-        # Build PlotSpec from figsize (+ mode), with optional dpi override
-        if mode == "plos":
-            spec = plos_spec(width_in=float(figsize[0]), height_in=float(figsize[1]), dpi=(dpi or 600))
-        else:
-            spec = screen_spec(width_in=float(figsize[0]), height_in=float(figsize[1]), dpi=(dpi or 120))
-
-        # Ensure method labels exist and honor `decimals`
-        df_plot = self.estimator_results_
-        if "_method_id" not in df_plot.columns or "_method_label" not in df_plot.columns:
-            df_plot = add_method_columns(df_plot, decimals=decimals)
-
-        # Plot (new static function)
-        out = plot_global_metric_over_k(
-            df_plot,
-            measure=measure,
-            rule=rule,
-            spec=spec,
-            ax=ax,
-            show_1se=show_1se,
-            show_quant=show_quant,
-            show_legend_panel=show_legend_panel,
-            max_full_annotation=max_full_annotation,
-            key_label_wrap=key_label_wrap,
-            marker=marker,
-            linewidth=linewidth,
-            alpha_band=alpha_band,
-            highlight_linewidth=highlight_linewidth,
-            grid_alpha=(grid_alpha if show_grid else 0.0),
-            title=title,
-            y_label=y_label,
-            x_label=x_label,
-            annotate_selection=annotate_selection,
-        )
-
-        ax = out["ax"]
-        fig = out["fig"]
-
-        # If show_grid is False, disable it
-        if not show_grid:
-            ax.grid(False)
-
-        # Legend placement preference 
-        # (only applies when we used real legend; with little models, we use key panel instead)
-        if not legend_outside:
-            leg = ax.get_legend()
-            if leg is not None:
-                leg.remove()
-                ax.legend(loc="best", frameon=False)
-
-        if save_path is not None:
-            save_figure(fig, save_path, spec=spec)
-            
-    def plot_cluster_summary(
-        self,
-        measure: str = "stability",
-        *,
-        figsize: Tuple[int, int] = (10, 6),
-        dpi: Optional[int] = None,
-        decimals: int = 4,
-        save_path: Optional[str] = None,
-        interactive: bool = False,
-        # selection + which cluster-wise thing to show
-        rule: str = "1se",
-        consensus_type: Literal["stability", "generalizability"] = "stability",
-        mode: str = "screen",
-        k: Optional[int] = None,
-        cluster_metric: Literal["gini", "ce", "misclassification"] = "gini",
-        # DR + plot aesthetics
-        dr: Optional[Callable[[np.ndarray], np.ndarray]] = None,
-        title: Optional[str] = None,
-        point_size: float = 40.0,
-        min_point_size: float = 10.0,
-        point_alpha: float = 0.85,
-        min_point_alpha: float = 0.35,
-        grid_alpha: float = 0.15,
-        show_scatter_grid: bool = False,
-        show_scatter_axes: bool = False,
-        show_boxplot_axes: bool = False,
-        annotate_selection: bool = True,
-    ) -> None:
-        """Plot clustering scatter + cluster-wise boxplots.
-
-        Parameters
-        ----------
-        measure : str, default="stability"
-            Metric key used to select the best configuration.
-        figsize : tuple of int, default=(10, 6)
-            Figure size in inches.
-        dpi : int or None, default=None
-            Override DPI for export.
-        decimals : int, default=4
-            Decimal precision for method labels.
-        save_path : str or None, default=None
-            Optional file path to save the figure.
-        interactive : bool, default=False
-            Interactive plotting is currently disabled (falls back to static).
-        rule : str, default="1se"
-            Selection rule used to highlight the best configuration.
-        mode : {"screen", "plos"}, default="screen"
-            Plotting mode.
-        k : int or None, default=None
-            Optional fixed number of clusters to select.
-        cluster_metric : {"gini", "ce", "misclassification"}, default="gini"
-            Per-sample metric to display in boxplots.
-        dr : callable or None, default=None
-            Dimensionality reduction function or transformer.
-        title : str or None, default=None
-            Figure title.
-        point_size : float, default=40.0
-            Base point size for scatter.
-        min_point_size : float, default=10.0
-            Minimum point size for scatter.
-        point_alpha : float, default=0.85
-            Maximum alpha for scatter.
-        min_point_alpha : float, default=0.35
-            Minimum alpha for scatter.
-        grid_alpha : float, default=0.15
-            Grid line opacity.
-        show_scatter_grid : bool, default=False
-            Whether to show grid lines in the boxplot panel.
-        show_scatter_axes : bool, default=False
-            Whether to show axes on the scatter plot.
-        show_boxplot_axes : bool, default=False
-            Whether to show axes on the boxplot.
-        annotate_selection : bool, default=True
-            Whether to annotate the selected configuration.
-        """
-        if self.estimator_results_ is None or self.estimator_results_.empty:
-            warnings.warn("estimator_results_ is empty; nothing to plot. Run fit() first.", RuntimeWarning, stacklevel=2)
-            return
-
-        if rule not in {"max", "1se", "quantile"}:
-            raise ValueError("rule must be 'max', '1se', or 'quantile'.")
-
-        if mode not in {"screen", "plos"}:
-            raise ValueError("mode must be 'screen' or 'plos'.")
-
-        if cluster_metric not in {"gini", "ce", "misclassification"}:
-            raise ValueError("cluster_metric must be 'gini', 'ce', or 'misclassification'.")
-
-        if interactive:
-            warnings.warn(
-                "Interactive plotting is currently disabled in the new plotting backend; falling back to static.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-
-        # Build PlotSpec from figsize (+ mode), with optional dpi override
-        if mode == "plos":
-            spec = plos_spec(width_in=float(figsize[0]), height_in=float(figsize[1]), dpi=(dpi or 600))
-        else:
-            spec = screen_spec(width_in=float(figsize[0]), height_in=float(figsize[1]), dpi=(dpi or 120))
-
-        # Ensure method labels exist and handle `decimals`
-        df_plot = self.estimator_results_
-        if "_method_id" not in df_plot.columns or "_method_label" not in df_plot.columns:
-            df_plot = add_method_columns(df_plot, decimals=decimals)
-
-        # Delegate to plotting backend
-        out = plot_clustering(
-            carve=self,
-            measure=measure, 
-            rule=rule,
-            consensus_type=consensus_type,
-            k=k,
-            cluster_metric=cluster_metric,
-            dr=dr,
-            spec=spec,
-            title=title,
-            point_size=point_size,
-            min_point_size=min_point_size,
-            point_alpha=point_alpha,
-            min_point_alpha=min_point_alpha,
-            grid_alpha=grid_alpha,
-            show_scatter_grid=show_scatter_grid,
-            show_scatter_axes=show_scatter_axes,
-            show_boxplot_axes=show_boxplot_axes,
-            annotate_selection=annotate_selection,
-        )
-
-        fig = out["fig"]
-        ax_box = out["ax_box"]
-
-        # If show_grid=False, fully disable (backend also respects it, but keep consistent)
-        if not show_scatter_grid:
-            ax_box.grid(False)
-
-        if save_path is not None:
-            save_figure(fig, save_path, spec=spec)
 
     # ------------------------------------------------------------------ #
-    #  Persistence                                                        #
+    #  Persistence                                                       #
     # ------------------------------------------------------------------ #
 
     def save(
@@ -761,6 +465,303 @@ class CARVE(BaseEstimator):
                 f"Expected a CARVE instance, got {type(obj).__name__!r}."
             )
         return obj
+    
+    # Plotting API wrappers (static backend).
+    # def plot_metric_over_k(
+    #     self,
+    #     measure: str = "stability",
+    #     *,
+    #     rule: str = "1se",
+    #     mode: str = "screen",
+    #     figsize: Tuple[int, int] = (10, 8),
+    #     dpi: Optional[int] = None,
+    #     decimals: int = 4,
+    #     show_grid: bool = True,
+    #     legend_outside: bool = True,
+    #     save_path: Optional[str] = None,
+    #     # width: int = 1000,
+    #     # height: int = 800,
+    #     interactive: bool = False,
+    #     # plotting parameters
+    #     ax: mpl.axes.Axes | None = None,
+    #     show_1se: bool = True,
+    #     show_quant: bool = False,
+    #     # legend/key strategy
+    #     show_legend_panel: bool | Literal["auto"] = "auto",
+    #     max_full_annotation: int = 7,
+    #     key_label_wrap: int = 20,
+    #     # aesthetics
+    #     marker: str = "o",
+    #     linewidth: float = 1.6,
+    #     alpha_band: float = 0.18,
+    #     highlight_linewidth: float = 2.8,
+    #     grid_alpha: float = 0.22,
+    #     title: str | None = None,
+    #     y_label: str | None = None,
+    #     x_label: str = "Number of Clusters (k)",
+    #     annotate_selection: bool = True,
+    # ) -> None:
+    #     """Plot a global metric over k for all configurations.
+
+    #     Parameters
+    #     ----------
+    #     measure : str, default="stability"
+    #         Metric key to plot.
+    #     rule : str, default="1se"
+    #         Selection rule used to highlight the best configuration.
+    #     mode : {"screen", "plos"}, default="screen"
+    #         Plotting mode.
+    #     figsize : tuple of int, default=(10, 8)
+    #         Figure size in inches.
+    #     dpi : int or None, default=None
+    #         Override DPI for export.
+    #     decimals : int, default=4
+    #         Decimal precision for method labels.
+    #     show_grid : bool, default=True
+    #         Whether to show grid lines.
+    #     legend_outside : bool, default=True
+    #         Place legend outside the plot when shown.
+    #     save_path : str or None, default=None
+    #         Optional file path to save the figure.
+    #     interactive : bool, default=False
+    #         Interactive plotting is currently disabled (falls back to static).
+    #     ax : matplotlib.axes.Axes or None, default=None
+    #         Optional axes to draw into.
+    #     show_1se : bool, default=True
+    #         Show 1-SE bands if available.
+    #     show_quant : bool, default=False
+    #         Show quantile bands if available.
+    #     show_legend_panel : bool or "auto", default="auto"
+    #         Whether to draw a legend panel or annotate endpoints.
+    #     max_full_annotation : int, default=7
+    #         Max methods for full annotation before using a legend.
+    #     key_label_wrap : int, default=20
+    #         Wrap width for labels.
+    #     marker : str, default="o"
+    #         Marker style.
+    #     linewidth : float, default=1.6
+    #         Line width for non-selected methods.
+    #     alpha_band : float, default=0.18
+    #         Opacity for uncertainty bands.
+    #     highlight_linewidth : float, default=2.8
+    #         Line width for the selected method.
+    #     grid_alpha : float, default=0.22
+    #         Grid line opacity.
+    #     title : str or None, default=None
+    #         Plot title.
+    #     y_label : str or None, default=None
+    #         Y-axis label.
+    #     x_label : str, default="Number of Clusters (k)"
+    #         X-axis label.
+    #     annotate_selection : bool, default=True
+    #         Whether to annotate the selected configuration.
+    #     """
+    #     if self.estimator_results_ is None or self.estimator_results_.empty:
+    #         warnings.warn("estimator_results_ is empty; nothing to plot. Run fit() first.", RuntimeWarning, stacklevel=2)
+    #         return
+
+    #     if rule not in {"max", "1se", "quantile"}:
+    #         raise ValueError("rule must be 'max', '1se', or 'quantile'")
+
+    #     if mode not in {"screen", "plos"}:
+    #         raise ValueError("mode must be 'screen' or 'plos'")
+
+    #     if interactive:
+    #         warnings.warn(
+    #             "Interactive plotting is currently disabled in the new plotting backend; falling back to static.",
+    #             RuntimeWarning,
+    #             stacklevel=2,
+    #         )
+
+    #     # Build PlotSpec from figsize (+ mode), with optional dpi override
+    #     if mode == "plos":
+    #         spec = plos_spec(width_in=float(figsize[0]), height_in=float(figsize[1]), dpi=(dpi or 600))
+    #     else:
+    #         spec = screen_spec(width_in=float(figsize[0]), height_in=float(figsize[1]), dpi=(dpi or 120))
+
+    #     # Ensure method labels exist and honor `decimals`
+    #     df_plot = self.estimator_results_
+    #     if "_method_id" not in df_plot.columns or "_method_label" not in df_plot.columns:
+    #         df_plot = add_method_columns(df_plot, decimals=decimals)
+
+    #     # Plot (new static function)
+    #     out = plot_global_metric_over_k(
+    #         df_plot,
+    #         measure=measure,
+    #         rule=rule,
+    #         spec=spec,
+    #         ax=ax,
+    #         show_1se=show_1se,
+    #         show_quant=show_quant,
+    #         show_legend_panel=show_legend_panel,
+    #         max_full_annotation=max_full_annotation,
+    #         key_label_wrap=key_label_wrap,
+    #         marker=marker,
+    #         linewidth=linewidth,
+    #         alpha_band=alpha_band,
+    #         highlight_linewidth=highlight_linewidth,
+    #         grid_alpha=(grid_alpha if show_grid else 0.0),
+    #         title=title,
+    #         y_label=y_label,
+    #         x_label=x_label,
+    #         annotate_selection=annotate_selection,
+    #     )
+
+    #     ax = out["ax"]
+    #     fig = out["fig"]
+
+    #     # If show_grid is False, disable it
+    #     if not show_grid:
+    #         ax.grid(False)
+
+    #     # Legend placement preference 
+    #     # (only applies when we used real legend; with little models, we use key panel instead)
+    #     if not legend_outside:
+    #         leg = ax.get_legend()
+    #         if leg is not None:
+    #             leg.remove()
+    #             ax.legend(loc="best", frameon=False)
+
+    #     if save_path is not None:
+    #         save_figure(fig, save_path, spec=spec)
+            
+    # def plot_cluster_summary(
+    #     self,
+    #     measure: str = "stability",
+    #     *,
+    #     figsize: Tuple[int, int] = (10, 6),
+    #     dpi: Optional[int] = None,
+    #     decimals: int = 4,
+    #     save_path: Optional[str] = None,
+    #     interactive: bool = False,
+    #     # selection + which cluster-wise thing to show
+    #     rule: str = "1se",
+    #     consensus_type: Literal["stability", "generalizability"] = "stability",
+    #     mode: str = "screen",
+    #     k: Optional[int] = None,
+    #     cluster_metric: Literal["gini", "ce", "misclassification"] = "gini",
+    #     # DR + plot aesthetics
+    #     dr: Optional[Callable[[np.ndarray], np.ndarray]] = None,
+    #     title: Optional[str] = None,
+    #     point_size: float = 40.0,
+    #     min_point_size: float = 10.0,
+    #     point_alpha: float = 0.85,
+    #     min_point_alpha: float = 0.35,
+    #     grid_alpha: float = 0.15,
+    #     show_scatter_grid: bool = False,
+    #     show_scatter_axes: bool = False,
+    #     show_boxplot_axes: bool = False,
+    #     annotate_selection: bool = True,
+    # ) -> None:
+    #     """Plot clustering scatter + cluster-wise boxplots.
+
+    #     Parameters
+    #     ----------
+    #     measure : str, default="stability"
+    #         Metric key used to select the best configuration.
+    #     figsize : tuple of int, default=(10, 6)
+    #         Figure size in inches.
+    #     dpi : int or None, default=None
+    #         Override DPI for export.
+    #     decimals : int, default=4
+    #         Decimal precision for method labels.
+    #     save_path : str or None, default=None
+    #         Optional file path to save the figure.
+    #     interactive : bool, default=False
+    #         Interactive plotting is currently disabled (falls back to static).
+    #     rule : str, default="1se"
+    #         Selection rule used to highlight the best configuration.
+    #     mode : {"screen", "plos"}, default="screen"
+    #         Plotting mode.
+    #     k : int or None, default=None
+    #         Optional fixed number of clusters to select.
+    #     cluster_metric : {"gini", "ce", "misclassification"}, default="gini"
+    #         Per-sample metric to display in boxplots.
+    #     dr : callable or None, default=None
+    #         Dimensionality reduction function or transformer.
+    #     title : str or None, default=None
+    #         Figure title.
+    #     point_size : float, default=40.0
+    #         Base point size for scatter.
+    #     min_point_size : float, default=10.0
+    #         Minimum point size for scatter.
+    #     point_alpha : float, default=0.85
+    #         Maximum alpha for scatter.
+    #     min_point_alpha : float, default=0.35
+    #         Minimum alpha for scatter.
+    #     grid_alpha : float, default=0.15
+    #         Grid line opacity.
+    #     show_scatter_grid : bool, default=False
+    #         Whether to show grid lines in the boxplot panel.
+    #     show_scatter_axes : bool, default=False
+    #         Whether to show axes on the scatter plot.
+    #     show_boxplot_axes : bool, default=False
+    #         Whether to show axes on the boxplot.
+    #     annotate_selection : bool, default=True
+    #         Whether to annotate the selected configuration.
+    #     """
+    #     if self.estimator_results_ is None or self.estimator_results_.empty:
+    #         warnings.warn("estimator_results_ is empty; nothing to plot. Run fit() first.", RuntimeWarning, stacklevel=2)
+    #         return
+
+    #     if rule not in {"max", "1se", "quantile"}:
+    #         raise ValueError("rule must be 'max', '1se', or 'quantile'.")
+
+    #     if mode not in {"screen", "plos"}:
+    #         raise ValueError("mode must be 'screen' or 'plos'.")
+
+    #     if cluster_metric not in {"gini", "ce", "misclassification"}:
+    #         raise ValueError("cluster_metric must be 'gini', 'ce', or 'misclassification'.")
+
+    #     if interactive:
+    #         warnings.warn(
+    #             "Interactive plotting is currently disabled in the new plotting backend; falling back to static.",
+    #             RuntimeWarning,
+    #             stacklevel=2,
+    #         )
+
+    #     # Build PlotSpec from figsize (+ mode), with optional dpi override
+    #     if mode == "plos":
+    #         spec = plos_spec(width_in=float(figsize[0]), height_in=float(figsize[1]), dpi=(dpi or 600))
+    #     else:
+    #         spec = screen_spec(width_in=float(figsize[0]), height_in=float(figsize[1]), dpi=(dpi or 120))
+
+    #     # Ensure method labels exist and handle `decimals`
+    #     df_plot = self.estimator_results_
+    #     if "_method_id" not in df_plot.columns or "_method_label" not in df_plot.columns:
+    #         df_plot = add_method_columns(df_plot, decimals=decimals)
+
+    #     # Delegate to plotting backend
+    #     out = plot_clustering(
+    #         carve=self,
+    #         measure=measure, 
+    #         rule=rule,
+    #         consensus_type=consensus_type,
+    #         k=k,
+    #         cluster_metric=cluster_metric,
+    #         dr=dr,
+    #         spec=spec,
+    #         title=title,
+    #         point_size=point_size,
+    #         min_point_size=min_point_size,
+    #         point_alpha=point_alpha,
+    #         min_point_alpha=min_point_alpha,
+    #         grid_alpha=grid_alpha,
+    #         show_scatter_grid=show_scatter_grid,
+    #         show_scatter_axes=show_scatter_axes,
+    #         show_boxplot_axes=show_boxplot_axes,
+    #         annotate_selection=annotate_selection,
+    #     )
+
+    #     fig = out["fig"]
+    #     ax_box = out["ax_box"]
+
+    #     # If show_grid=False, fully disable (backend also respects it, but keep consistent)
+    #     if not show_scatter_grid:
+    #         ax_box.grid(False)
+
+    #     if save_path is not None:
+    #         save_figure(fig, save_path, spec=spec)
 
     # def plot_preprocessing_results(
     #     self,
