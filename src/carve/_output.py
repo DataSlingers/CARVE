@@ -123,7 +123,7 @@ def _log_config_progress(
         f"n_clusters={n_clusters} | "
         f"ARI_stab={record['ari_stability']:.3f}±{record['ari_stability_se']:.3f}  "
         f"ARI_gen={record['ari_generalizability']:.3f}±{record['ari_generalizability_se']:.3f}  "
-        f"ARI_avg={record['ari_average']:.3f}±{record['ari_average_se']:.3f}"
+        # f"ARI_avg={record['ari_average']:.3f}±{record['ari_average_se']:.3f}"
     )
 
     if pbar_obj is not None:
