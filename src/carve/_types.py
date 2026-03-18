@@ -1,5 +1,6 @@
 """Canonical type aliases for CARVE."""
 
+from dataclasses import dataclass
 from typing import Any, Callable, Literal
 
 from sklearn.base import ClusterMixin, TransformerMixin
@@ -48,3 +49,43 @@ Measure = Literal[
 
 # Accepted selection rule names
 Rule = Literal["max", "1se", "quantile"]
+
+# Handling RunMode
+RunMode = Literal["default", "stability", "generalizability"]
+
+@dataclass(frozen=True)
+class ModePolicy:
+    mode: RunMode
+    run_stability: bool
+    run_generalizability: bool
+    compute_average_ari: bool
+
+def resolve_mode(mode: RunMode) -> ModePolicy:
+    if mode == "default":
+        return ModePolicy(
+            mode=mode,
+            run_stability=True,
+            run_generalizability=True,
+            compute_average_ari=True,
+        )
+        
+    if mode == "stability":
+        return ModePolicy(
+            mode=mode,
+            run_stability=True,
+            run_generalizability=False,
+            compute_average_ari=False,
+        )
+        
+    if mode == "generalizability":
+        return ModePolicy(
+            mode=mode,
+            run_stability=False,
+            run_generalizability=True,
+            compute_average_ari=False,
+        )
+        
+    raise ValueError(
+        f"Unknown mode: {mode!r}. Expected one of "
+        "'default', 'stability', 'generalizability'."
+    )

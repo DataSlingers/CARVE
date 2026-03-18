@@ -14,8 +14,16 @@ from ._output import _log_config_progress
 from ._consensus import compute_consensus_matrix
 from ._misclassification import compute_generalizability_scores
 from ._pipeline import build_preprocessing_pipeline
-from ._types import EstimatorRecord, GridSpec, PipelineRecord, PreprocSpec
 from ._utils import cluster_labels, split_subsample_indices, _summarize_ari_scores
+
+from ._types import (
+    EstimatorRecord,
+    GridSpec,
+    PipelineRecord,
+    PreprocSpec,
+    RunMode,
+    resolve_mode,
+)
 
 # Full return type for run_validation
 ValidationReturn = tuple[
@@ -56,7 +64,7 @@ def run_validation(
     n_jobs: int = 1,
     random_state: int = None,
     show_progress: bool = False,
-    mode: Literal["default", "stability", "generalizability"] = "default",
+    mode: RunMode = "default",
     verbose: int = 1,
 ) -> ValidationReturn:
     """Run CARVE validation over estimator grids and resamples.
@@ -103,17 +111,21 @@ def run_validation(
     generalizability_scores : list of ndarray
         Per-sample generalizability arrays for each configuration.
     """
-    n = X.shape[0]
+    policy = resolve_mode(mode)
 
     estimator_records: list[EstimatorRecord] = []
     pipeline_records: list[PipelineRecord] = []
+    
     consensus_matrices: list[np.ndarray] = []
     consensus_generalizability_matrices: list[np.ndarray] = []
+    
     generalizability_scores: list[np.ndarray] = []
 
     total_configs = sum(len(list(ParameterGrid(g))) for _, g in estimator_grids)
-
     config_idx = 0
+    
+    n = X.shape[0]
+    
     with tqdm(
         total=total_configs, desc="Grid configs", disable=not show_progress
     ) as pbar:
@@ -144,7 +156,7 @@ def run_validation(
                 aris_gen = [r.ari_generalizability for r in results]
                 aris_avg = (
                     [(r.ari_stability + r.ari_generalizability) / 2 for r in results]
-                    if mode == "default"
+                    if policy.compute_average_ari
                     else [np.nan] * n_resamples
                 )
 
@@ -154,7 +166,7 @@ def run_validation(
                         n_samples=n,
                         runs=[(r.train_indices, r.labels_train) for r in results],
                     )
-                    if mode != "generalizability"
+                    if policy.run_stability
                     else None
                 )
 
@@ -163,7 +175,7 @@ def run_validation(
                         n_samples=n,
                         runs=[(r.test_indices, r.labels_predicted) for r in results],
                     )
-                    if mode != "stability"
+                    if policy.run_generalizability
                     else None
                 )
 
@@ -176,7 +188,7 @@ def run_validation(
                             for r in results
                         ],
                     )
-                    if mode != "stability"
+                    if policy.run_generalizability
                     else None
                 )
 
@@ -252,7 +264,7 @@ def validation_iter(
     normalization_options: list[PreprocSpec],
     dim_reduction_options: list[PreprocSpec],
     randomize_preprocessing: bool = False,
-    mode: Literal["default", "stability", "generalizability"] = "default",
+    mode: RunMode = "default",
     random_state: int = None,
 ) -> ResampleResult:
     """Run a single resampling iteration for one estimator configuration.
@@ -290,6 +302,8 @@ def validation_iter(
         Named tuple containing ARI metrics, labels, sample indices, and
         preprocessing metadata for this resample.
     """
+    policy = resolve_mode(mode)
+    
     n_samples = X.shape[0]
     random_state0 = random_state if random_state is not None else 0
 
@@ -297,15 +311,14 @@ def validation_iter(
     P_1_idx, P_test_idx = split_subsample_indices(
         n_samples, subsample_ratio=subsample_ratio, random_state=random_state0 + seed
     )
-    P_2_idx, _ = (
-        split_subsample_indices(
+    
+    P_2_idx = None
+    if policy.run_stability:
+        P_2_idx, _ = split_subsample_indices(
             n_samples,
             subsample_ratio=subsample_ratio,
             random_state=random_state0 + seed + n_resamples,
         )
-        if mode != "generalizability"
-        else (None, None)
-    )
 
     # --- Preprocessing ---
     (
@@ -324,83 +337,103 @@ def validation_iter(
     X_preprocessed = pipeline.fit_transform(X)
 
     X_1 = X_preprocessed[P_1_idx]
-    X_test = X_preprocessed[P_test_idx] if mode != "stability" else None
-    X_2 = X_preprocessed[P_2_idx] if mode != "generalizability" else None
+    X_test = X_preprocessed[P_test_idx] if policy.run_generalizability else None
+    X_2 = X_preprocessed[P_2_idx] if policy.run_stability else None
 
     # --- Clustering ---
-    labels_1 = cluster_labels(
-        X_1, est_class, random_state=random_state0 + seed, **params
-    )
+    labels_1 = cluster_labels(X_1, est_class, random_state=random_state0 + seed, **params)
+    
     labels_test = (
         cluster_labels(X_test, est_class, random_state=random_state0 + seed, **params)
-        if mode != "stability"
-        else None
+        if policy.run_generalizability else None
     )
+    
     labels_2 = (
         cluster_labels(X_2, est_class, random_state=random_state0 + seed, **params)
-        if mode != "generalizability"
-        else None
+        if policy.run_stability else None
     )
 
     # --- Cluster count sanity checks ---
     n_clusters = params.get("n_clusters")
-    if n_clusters is not None:
-        if len(np.unique(labels_1)) != n_clusters:
-            warnings.warn(
-                f"labels_1 has {len(np.unique(labels_1))} clusters, expected {n_clusters}"
-            )
-        if (
-            mode != "stability"
-            and labels_test is not None
-            and len(np.unique(labels_test)) != n_clusters
-        ):
-            warnings.warn(
-                f"labels_test has {len(np.unique(labels_test))} clusters, expected {n_clusters}"
-            )
-        if (
-            mode != "generalizability"
-            and labels_2 is not None
-            and len(np.unique(labels_2)) != n_clusters
-        ):
-            warnings.warn(
-                f"labels_2 has {len(np.unique(labels_2))} clusters, expected {n_clusters}"
-            )
+    
+    if len(np.unique(labels_1)) != n_clusters:
+        warnings.warn(f"labels_1 has {len(np.unique(labels_1))} clusters, expected {n_clusters}")
+    
+    if (policy.run_generalizability and len(np.unique(labels_test)) != n_clusters):
+        warnings.warn(f"labels_test has {len(np.unique(labels_test))} clusters, expected {n_clusters}")
+    
+    if (policy.run_stability and len(np.unique(labels_2)) != n_clusters):
+        warnings.warn(f"labels_2 has {len(np.unique(labels_2))} clusters, expected {n_clusters}")
 
     # --- Stability ARI (overlap between two independent subsamples) ---
-    if mode == "generalizability":
-        ari_stab = np.nan
-    else:
-        _, i_1, i_2 = np.intersect1d(P_1_idx, P_2_idx, return_indices=True)
-        ari_stab = adjusted_rand_score(labels_1[i_1], labels_2[i_2])
-
+    ari_stab = _compute_stability_ari(policy, P_1_idx, P_2_idx, labels_1, labels_2)
+    
     # --- Generalizability ARI (RF prediction on held-out set) ---
-    if mode == "stability":
-        labels_pred = None
-        ari_pred = np.nan
-    else:
-        rf = RandomForestClassifier(
-            n_estimators=100,
-            max_depth=X_1.shape[1],
-            max_features=int(np.sqrt(X_1.shape[1])),
-            random_state=random_state0 + seed,
-            n_jobs=-1,
-        )
-        rf.fit(X_1, labels_1)
-        labels_pred = rf.predict(X_test)
-        ari_pred = adjusted_rand_score(labels_test, labels_pred)
+    labels_pred, ari_pred = _compute_generalizability_ari(
+        policy=policy,
+        X_1=X_1,
+        X_test=X_test,
+        labels_1=labels_1,
+        labels_test=labels_test,
+        seed=random_state0 + seed,
+    )
 
     return ResampleResult(
         ari_stability=ari_stab,
         ari_generalizability=ari_pred,
+        
         labels_train=labels_1,
         labels_test=labels_test,
         labels_predicted=labels_pred,
         labels_stability=labels_2,
+        
         train_indices=P_1_idx,
         test_indices=P_test_idx,
         stability_indices=P_2_idx,
+        
         normalization_params=normalization_params,
         dim_reduction_params=dim_reduction_params,
         normalization_name=normalization_name,
         dim_reduction_name=dim_reduction_name,
     )
+    
+def _compute_stability_ari(
+    policy,
+    P_1_idx,
+    P_2_idx,
+    labels_1,
+    labels_2,
+):
+    if not policy.run_stability:
+        return np.nan
+    
+    _, i_1, i_2 = np.intersect1d(P_1_idx, P_2_idx, return_indices=True)
+    
+    return adjusted_rand_score(labels_1[i_1], labels_2[i_2])
+
+
+def _compute_generalizability_ari(
+    policy,
+    X_1,
+    X_test,
+    labels_1,
+    labels_test,
+    seed,
+):
+    if not policy.run_generalizability:
+        return None, np.nan
+
+    rf = RandomForestClassifier(
+        n_estimators=100,
+        max_depth=X_1.shape[1],
+        max_features=int(np.sqrt(X_1.shape[1])),
+        random_state=seed,
+        n_jobs=-1,
+    )
+    
+    rf.fit(X_1, labels_1)
+    
+    labels_pred = rf.predict(X_test)
+    ari_pred = adjusted_rand_score(labels_test, labels_pred)
+    
+    return labels_pred, ari_pred
