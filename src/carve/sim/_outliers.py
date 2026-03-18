@@ -6,6 +6,7 @@ from typing import Literal
 
 from ._centers import _validate_center_box
 
+
 def _parse_outliers(outliers: int | float, n_total: int) -> int:
     """Normalize the outlier specification to an integer count.
 
@@ -26,13 +27,23 @@ def _parse_outliers(outliers: int | float, n_total: int) -> int:
     elif isinstance(outliers, int) and outliers >= 0:
         return outliers
     else:
-        warnings.warn("`outliers` must be a non-negative int or a float in (0, 1). Defaulting to 0.")
+        warnings.warn(
+            "`outliers` must be a non-negative int or a float in (0, 1). Defaulting to 0."
+        )
         return 0
-    
+
+
 def _sample_outliers(
-    *, rng: np.random.Generator, n_outliers: int, p: int,
-    centers: np.ndarray, cluster_sizes: np.ndarray, covs: list[np.ndarray],
-    center_box: float, outlier_mode: Literal["far_gaussian", "uniform_box"], outlier_scale: float
+    *,
+    rng: np.random.Generator,
+    n_outliers: int,
+    p: int,
+    centers: np.ndarray,
+    cluster_sizes: np.ndarray,
+    covs: list[np.ndarray],
+    center_box: float,
+    outlier_mode: Literal["far_gaussian", "uniform_box"],
+    outlier_scale: float,
 ) -> np.ndarray:
     """Sample outliers either far from the centroid or within a box.
 

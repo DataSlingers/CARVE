@@ -1,6 +1,7 @@
 """Public API for synthetic cluster simulations."""
 
-from typing import Callable, Literal, Tuple
+from collections.abc import Callable
+from typing import Literal
 import numpy as np
 
 from ._outliers import _parse_outliers, _sample_outliers
@@ -24,7 +25,9 @@ def simulate_clusters(
     min_cluster_size_floor_frac: float = 0.1,
     cluster_size_dirichlet_alpha: float | np.ndarray = 0.5,
     center_box: float = 3.0,
-    centroid_method: Literal["none", "lhs", "best_candidate", "min_dist"] = "best_candidate",
+    centroid_method: Literal[
+        "none", "lhs", "best_candidate", "min_dist"
+    ] = "best_candidate",
     n_candidates: int = 64,
     corr_type: Literal["none", "ar1", "block"] = "none",
     corr_strength: float = 0.5,
@@ -32,21 +35,25 @@ def simulate_clusters(
     outliers: int | float = 0,
     outlier_scale: float = 5.0,
     outlier_mode: Literal["far_gaussian", "uniform_box"] = "far_gaussian",
-    distribution: Literal["gaussian", "t", "uniform_ball", "circles", "moons", "swiss_roll"] = "gaussian",
+    distribution: Literal[
+        "gaussian", "t", "uniform_ball", "circles", "moons", "swiss_roll"
+    ] = "gaussian",
     t_df: int = 3,
     nonlinear: bool = False,
     embed_dim: int | None = None,
     embed_method: Literal["random_fourier", "poly", "rbf"] = "random_fourier",
     embed_param: float = 2.0,
     embed_standardize: bool = True,
-    post_embed_mode: Literal["none", "standardize", "preserve_global", "standardize_preserve"] = "standardize",
+    post_embed_mode: Literal[
+        "none", "standardize", "preserve_global", "standardize_preserve"
+    ] = "standardize",
     post_embed_scale: float = 1.0,
     noise_dims: int = 0,
     noise_dist: Literal["gaussian", "uniform", "laplace", "t"] = "gaussian",
     noise_scale: float | Literal["match"] = "match",
     plotting: bool = False,
     random_state: int | None = None,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Generate synthetic clustered data with optional correlation and embedding.
 
     Parameters
@@ -135,7 +142,7 @@ def simulate_clusters(
     noise_dims = int(np.floor(noise_dims + 0.5))
     t_df = int(np.floor(t_df + 0.5))
     embed_dim = int(np.floor(embed_dim + 0.5)) if embed_dim is not None else None
-    
+
     if p <= 0:
         raise ValueError("`p` must be positive.")
     if n_total <= 0:
@@ -171,17 +178,23 @@ def simulate_clusters(
         rng=rng,
         min_abs=min_cluster_size_abs,
         min_frac=min_cluster_size_floor_frac,
-        alpha=cluster_size_dirichlet_alpha
+        alpha=cluster_size_dirichlet_alpha,
     )
     assert int(cluster_sizes.sum()) == n_total_clusters
 
     # Centers and covariances
     centers = _sample_centers(
-        k=k, p=p, center_box=center_box, rng=rng,
-        method=centroid_method, n_candidates=n_candidates
+        k=k,
+        p=p,
+        center_box=center_box,
+        rng=rng,
+        method=centroid_method,
+        n_candidates=n_candidates,
     )
     scales = _get_cluster_scales(cluster_scale, k)
-    R = _build_correlation_matrix(p=p, corr_type=corr_type, corr_strength=corr_strength, block_size=block_size)
+    R = _build_correlation_matrix(
+        p=p, corr_type=corr_type, corr_strength=corr_strength, block_size=block_size
+    )
     covs = _cluster_covariances(scales, R)
 
     # Sample clusters
@@ -192,8 +205,7 @@ def simulate_clusters(
         mean = centers[c]
         cov = covs[c]
         X_c = _sample_cluster_points(
-            rng=rng, size=size, mean=mean, cov=cov,
-            distribution=distribution, t_df=t_df
+            rng=rng, size=size, mean=mean, cov=cov, distribution=distribution, t_df=t_df
         )
         X_parts.append(X_c)
         y_parts.append(np.full(size, c, dtype=int))
@@ -201,9 +213,15 @@ def simulate_clusters(
     # Outliers
     if n_outliers > 0:
         X_out = _sample_outliers(
-            rng=rng, n_outliers=int(n_outliers), p=p,
-            centers=centers, cluster_sizes=cluster_sizes, covs=covs,
-            center_box=center_box, outlier_mode=outlier_mode, outlier_scale=outlier_scale
+            rng=rng,
+            n_outliers=int(n_outliers),
+            p=p,
+            centers=centers,
+            cluster_sizes=cluster_sizes,
+            covs=covs,
+            center_box=center_box,
+            outlier_mode=outlier_mode,
+            outlier_scale=outlier_scale,
         )
         X_parts.append(X_out)
         y_parts.append(np.full(int(n_outliers), -1, dtype=int))
@@ -216,22 +234,27 @@ def simulate_clusters(
     X_pre_embed = X
     if nonlinear:
         X = _apply_embedding(
-            X, method=embed_method, embed_dim=embed_dim,
-            embed_param=embed_param, standardize=embed_standardize, rng=rng
-        )
-        
-        X = _post_embed_scaling(
             X,
-            X_pre_embed=X_pre_embed,
-            mode=post_embed_mode,
-            scale=post_embed_scale
+            method=embed_method,
+            embed_dim=embed_dim,
+            embed_param=embed_param,
+            standardize=embed_standardize,
+            rng=rng,
+        )
+
+        X = _post_embed_scaling(
+            X, X_pre_embed=X_pre_embed, mode=post_embed_mode, scale=post_embed_scale
         )
 
     # Add noise dimensions
     if noise_dims > 0:
         if noise_scale == "match":
             stds = X.std(axis=0, ddof=1)
-            base = float(np.nanmean(np.where(stds > 0, stds, np.nan))) if X.shape[1] > 0 else 1.0
+            base = (
+                float(np.nanmean(np.where(stds > 0, stds, np.nan)))
+                if X.shape[1] > 0
+                else 1.0
+            )
             if not np.isfinite(base) or base == 0.0:
                 base = 1.0
             scale_val = base
@@ -239,8 +262,12 @@ def simulate_clusters(
             scale_val = float(noise_scale)
 
         Z = _sample_noise(
-            rng=rng, n=X.shape[0], q=noise_dims,
-            dist=noise_dist, scale=scale_val, t_df=t_df
+            rng=rng,
+            n=X.shape[0],
+            q=noise_dims,
+            dist=noise_dist,
+            scale=scale_val,
+            t_df=t_df,
         )
         X = np.hstack([X, Z])
 
@@ -252,5 +279,5 @@ def simulate_clusters(
     # Optional plotting
     if plotting:
         _plot_simulation(X, y, random_state=random_state)
-    
+
     return X, y

@@ -3,18 +3,20 @@
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Type, Union
+from typing import Literal
 
 import joblib
-
-import matplotlib as mpl
 
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, ClusterMixin
 from sklearn.cluster import AgglomerativeClustering
 
-from ._grids import default_estimator_grids, default_norm_options, default_dr_options
+from ._grids import (
+    default_estimator_grids,
+    default_normalization_options,
+    default_dim_reduction_options,
+)
 from ._output import _print_run_footer, _print_run_header
 from ._runner import run_validation
 from ._consensus import compute_consensus_metrics
@@ -22,22 +24,21 @@ from ._selection import select_best_estimator, select_best_k, select_best_row_by
 from ._plotting import (
     plot_metric_over_n_clusters as _plot_metric_over_n_clusters,
     plot_consensus_matrix as _plot_consensus_matrix,
-    plot_cluster_uncertainty_boxplot as _plot_cluster_uncertainty_boxplot,
-    plot_cluster_uncertainty_violin as _plot_cluster_uncertainty_violin,
-    plot_cluster_score_scatter as _plot_cluster_score_scatter,
+    plot_cluster_boxplot as _plot_cluster_boxplot,
+    plot_cluster_violin as _plot_cluster_violin,
+    plot_cluster_scatter as _plot_cluster_scatter,
 )
-from ._utils import align_cluster_labels, ensure_2d_array, summarize_preprocessing_records, cluster_labels
+from ._types import GridSpec, PreprocOption
+from ._utils import (
+    align_cluster_labels,
+    ensure_2d_array,
+    summarize_preprocessing_records,
+)
 
-GridSpec = Tuple[Type[ClusterMixin], Dict[str, List[Any]]]
-PreprocSpec = Union[
-    Tuple[Callable, Dict[str, Any]],        # (Method, params)
-    Tuple[Callable, str, Dict[str, Any]],   # (Method, name, params)
-]
 
 @dataclass
 class CARVE(BaseEstimator):
-    """
-    CARVE validator.
+    """CARVE validator.
 
     Parameters
     ----------
@@ -50,7 +51,9 @@ class CARVE(BaseEstimator):
     estimator_param_grids : list of (Estimator, param_grid) tuples, optional
         Clustering estimators and their parameter grids.
     normalization_options : list of preprocessing specs, optional
+        Normalization preprocessing options.
     dim_reduction_options : list of dimensionality reduction specs, optional
+        Dimensionality reduction preprocessing options.
     reference_labels : array-like of shape (n_samples,), optional
         Reference labels for consistent plots.
     n_jobs : int, default=1
@@ -60,70 +63,80 @@ class CARVE(BaseEstimator):
     verbose : int, default=1
         Verbosity level for console output.
     """
-    n_clusters: Union[int, np.ndarray] = 10
+
+    # --- Constructor parameters ---
+    n_clusters: int | np.ndarray = 10
     n_resamples: int = 100
     subsample_ratio: float = 0.8
-    estimator_param_grids: Optional[List[GridSpec]] = None
-    normalization_options: Optional[List[PreprocSpec]] = None
-    dim_reduction_options: Optional[List[PreprocSpec]] = None
-    reference_labels: Optional[np.ndarray] = None
+    estimator_param_grids: list[GridSpec] | None = None
+    normalization_options: list[PreprocOption] | None = None
+    dim_reduction_options: list[PreprocOption] | None = None
+    reference_labels: np.ndarray | None = None
     n_jobs: int = 1
-    random_state: Optional[int] = None
+    random_state: int | None = None
     verbose: int = 1
 
-    # Attributes set after calling fit().
-    estimator_results_: Optional[pd.DataFrame] = field(init=False, default=None)
-    preprocessing_results_: Optional[pd.DataFrame] = field(init=False, default=None)
-    
-    # Consensus matrices
-    consensus_matrices_: Optional[List[np.ndarray]] = field(init=False, default=None)
-    consensus_generalizability_matrices_: Optional[List[np.ndarray]] = field(init=False, default=None)
-    
-    # Sample-wise rates
-    stability_gini_scores_: Optional[np.ndarray] = field(init=False, default=None) 
-    stability_ce_scores_: Optional[np.ndarray] = field(init=False, default=None)
-    generalizability_scores_: Optional[List[np.ndarray]] = field(init=False, default=None)
-    
-    # Misc. global rates
-    misclassification_rates_: Optional[np.ndarray] = field(init=False, default=None)
-    X_: Optional[np.ndarray] = field(init=False, default=None)
-    
+    # --- Fitted attributes (set by fit()) ---
+    estimator_results_: pd.DataFrame | None = field(init=False, default=None)
+    estimator_param_grids_: list[GridSpec] | None = field(init=False, default=None)
+    preprocessing_results_: pd.DataFrame | None = field(init=False, default=None)
+
+    # --- Consensus matrices ---
+    consensus_matrices_: list[np.ndarray] | None = field(init=False, default=None)
+    consensus_generalizability_matrices_: list[np.ndarray] | None = field(
+        init=False, default=None
+    )
+
+    # --- Sample-level scores ---
+    stability_gini_scores_: np.ndarray | None = field(init=False, default=None)
+    stability_ce_scores_: np.ndarray | None = field(init=False, default=None)
+    generalizability_scores_: list[np.ndarray] | None = field(init=False, default=None)
+
+    # --- Global rates ---
+    misclassification_rates_: np.ndarray | None = field(init=False, default=None)
+    X_: np.ndarray | None = field(init=False, default=None)
+
+    # ------------------------------------------------------------------ #
+    #  Core Methods                                                      #
+    # ------------------------------------------------------------------ #
+
     def fit(
         self,
         X: np.ndarray,
-        y: Optional[np.ndarray] = None,
+        y: np.ndarray | None = None,
         *,
-        reference_labels: Optional[np.ndarray] = None,
+        reference_labels: np.ndarray | None = None,
         randomize_preprocessing: bool = False,
         show_progress: bool = False,
-        mode: Literal['default', 'stability', 'generalizability'] = 'default',
-        random_state: Optional[int] = None,
-    ) -> 'CARVE':
-        """
-        Run CARVE validation on X.
+        mode: Literal["default", "stability", "generalizability"] = "default",
+        random_state: int | None = None,
+    ) -> "CARVE":
+        """Run CARVE validation on X.
 
         Parameters
         ----------
         X : array-like of shape (n_samples, n_features)
+            Input data.
         y : ignored
             Included for sklearn compatibility.
         reference_labels : array-like of shape (n_samples,), optional
             Reference labels used for generalizability metrics.
-            Overrides the `reference_labels` passed at __init__ if given.
+            Overrides the ``reference_labels`` passed at __init__ if given.
         randomize_preprocessing : bool, default=False
             Whether to randomize preprocessing pipelines.
         show_progress : bool, default=False
             Show progress bar.
         mode : Literal['default', 'stability', 'generalizability'], default='default'
             Determines whether to run CARVE regularly ('default') or whether
-            to only run stability analysis ('stability'), 
-            or generalizability analysis ('generalizability).
+            to only run stability analysis ('stability'),
+            or generalizability analysis ('generalizability').
         random_state : int, optional
             Per-call RNG seed. If None, uses self.random_state.
 
         Returns
         -------
-        self
+        self : CARVE
+            Fitted instance.
         """
         if mode != "default":
             warnings.warn(
@@ -131,7 +144,7 @@ class CARVE(BaseEstimator):
                 RuntimeWarning,
                 stacklevel=2,
             )
-        
+
         X = ensure_2d_array(X)
         self.X_ = X
 
@@ -141,11 +154,16 @@ class CARVE(BaseEstimator):
                 ref_arr, _ = pd.factorize(ref_arr)
             self.reference_labels = ref_arr
 
-        estimator_grids = self.estimator_param_grids or default_estimator_grids(X, self.n_clusters)
-        norm_options = self.normalization_options or default_norm_options()
-        dr_options = self.dim_reduction_options or default_dr_options(X, self.subsample_ratio)
-        
-        # Emit run header to stdout.
+        # --- Resolve defaults ---
+        estimator_grids = self.estimator_param_grids or default_estimator_grids(
+            X, self.n_clusters
+        )
+        self.estimator_param_grids_ = estimator_grids
+        norm_options = self.normalization_options or default_normalization_options()
+        dr_options = self.dim_reduction_options or default_dim_reduction_options(
+            X, self.subsample_ratio
+        )
+
         _print_run_header(
             X=X,
             n_clusters=self.n_clusters,
@@ -153,11 +171,12 @@ class CARVE(BaseEstimator):
             subsample_ratio=self.subsample_ratio,
             estimator_grids=estimator_grids,
             n_jobs=self.n_jobs,
-            random_preprocess=randomize_preprocessing,
+            randomize_preprocessing=randomize_preprocessing,
             random_state=self.random_state if random_state is None else random_state,
-            verbose=self.verbose
+            verbose=self.verbose,
         )
 
+        # --- Run validation loop ---
         (
             estimator_records,
             pipeline_records,
@@ -169,51 +188,62 @@ class CARVE(BaseEstimator):
             estimator_grids=estimator_grids,
             n_resamples=self.n_resamples,
             subsample_ratio=self.subsample_ratio,
-            norm_options=norm_options,
-            dr_options=dr_options,
-            random_preprocess=randomize_preprocessing,
+            normalization_options=norm_options,
+            dim_reduction_options=dr_options,
+            randomize_preprocessing=randomize_preprocessing,
             n_jobs=self.n_jobs,
             random_state=self.random_state if random_state is None else random_state,
             mode=mode,
-            prog_bar=show_progress
+            show_progress=show_progress,
         )
 
         self.estimator_results_ = pd.DataFrame.from_records(estimator_records)
         self.preprocessing_results_ = (
-            None if not randomize_preprocessing else summarize_preprocessing_records(pipeline_records)
+            None
+            if not randomize_preprocessing
+            else summarize_preprocessing_records(pipeline_records)
         )
 
         n_rows = int(self.estimator_results_.shape[0])
 
-        # --- Stability-Derived Metrics
+        # --- Stability-derived metrics ---
         if mode != "generalizability" and self.consensus_matrices_ is not None:
-            gini_list, ce_list, pac_list = compute_consensus_metrics(self.consensus_matrices_)
-            
+            gini_list, ce_list, pac_list = compute_consensus_metrics(
+                self.consensus_matrices_
+            )
+
             self.stability_gini_scores_ = np.vstack(gini_list)
             self.stability_ce_scores_ = np.vstack(ce_list)
             self.estimator_results_["consensus_pac_stability"] = pac_list
-            self.estimator_results_["consensus_gini_stability"] = (self.stability_gini_scores_.mean(axis=1))
-            self.estimator_results_["consensus_ce_stability"] = (self.stability_ce_scores_.mean(axis=1))
+            self.estimator_results_["consensus_gini_stability"] = (
+                self.stability_gini_scores_.mean(axis=1)
+            )
+            self.estimator_results_["consensus_ce_stability"] = (
+                self.stability_ce_scores_.mean(axis=1)
+            )
         else:
             self.stability_gini_scores_ = None
             self.stability_ce_scores_ = None
             self.estimator_results_["consensus_pac_stability"] = np.full(n_rows, np.nan)
-            self.estimator_results_["consensus_gini_stability"] = np.full(n_rows, np.nan)
+            self.estimator_results_["consensus_gini_stability"] = np.full(
+                n_rows, np.nan
+            )
             self.estimator_results_["consensus_ce_stability"] = np.full(n_rows, np.nan)
 
-        # --- Generalizability-Derived Metrics
+        # --- Generalizability-derived metrics ---
         if mode != "stability" and self.generalizability_scores_ is not None:
             gen_arr = np.vstack(self.generalizability_scores_)
             self.misclassification_rates_ = np.clip(gen_arr, 0.0, 1.0)
-            
+
             self.estimator_results_["misclassification_generalizability"] = (
                 self.misclassification_rates_.mean(axis=1)
             )
         else:
             self.misclassification_rates_ = None
-            self.estimator_results_["misclassification_generalizability"] = np.full(n_rows, np.nan)
-        
-        # output footer
+            self.estimator_results_["misclassification_generalizability"] = np.full(
+                n_rows, np.nan
+            )
+
         _print_run_footer(estimator_df=self.estimator_results_, verbose=self.verbose)
 
         return self
@@ -222,9 +252,9 @@ class CARVE(BaseEstimator):
         self,
         *,
         measure: str = "stability",
-        rule: str = 'max',
-        k: Optional[int] = None, 
-        mode: Literal['default', 'generalizability'] = 'default',
+        rule: str = "max",
+        k: int | None = None,
+        mode: Literal["default", "generalizability"] = "default",
         estimator: ClusterMixin | None = None,
     ) -> np.ndarray:
         """Return clustering labels from the selected consensus matrix.
@@ -237,30 +267,36 @@ class CARVE(BaseEstimator):
             Selection rule ("max", "1se", or "quantile").
         k : int or None, default=None
             Optional fixed number of clusters to select. If None, uses the
-            value selected by `measure` and `rule`.
+            value selected by ``measure`` and ``rule``.
         mode : Literal['default', 'generalizability'], default='default'
             Determines which consensus matrix is used to return labels.
-        estimator : Type[ClusterMixin] | None, default=None
+        estimator : ClusterMixin or None, default=None
             If provided, uses this estimator to cluster the consensus
             distance matrix; otherwise defaults to average-linkage
-            `AgglomerativeClustering` with precomputed distances.
+            ``AgglomerativeClustering`` with precomputed distances.
 
         Returns
         -------
         labels : ndarray of shape (n_samples,)
             Clustering labels derived from the selected consensus matrix.
         """
-        if (self.consensus_matrices_ is None and mode == 'default') or (self.consensus_generalizability_matrices_ is None and mode == 'generalizability') or self.estimator_results_ is None:
+        if (
+            (self.consensus_matrices_ is None and mode == "default")
+            or (
+                self.consensus_generalizability_matrices_ is None
+                and mode == "generalizability"
+            )
+            or self.estimator_results_ is None
+        ):
             raise RuntimeError("Call fit() first.")
-        
+
         df = self.estimator_results_
 
-        # Pick best row index 
-        # (df index matches consensus_matrices_ order; subsetting by k does not change that)
+        # --- Select best configuration ---
         if k is None:
-            row = select_best_row_by_rule(df, measure=measure, rule=rule)  # returns a row/series
+            row = select_best_row_by_rule(df, measure=measure, rule=rule)
             k = int(row["n_clusters"])
-            best_idx = int(row.name)  # keep original df index
+            best_idx = int(row.name)
         else:
             df_k = df[df["n_clusters"] == k]
             if df_k.empty:
@@ -268,13 +304,14 @@ class CARVE(BaseEstimator):
             row = select_best_row_by_rule(df_k, measure=measure, rule=rule)
             best_idx = int(row.name)
 
-        if mode == 'default' or mode == 'stability':
+        # --- Retrieve the consensus matrix ---
+        if mode == "default" or mode == "stability":
             M_raw = self.consensus_matrices_[best_idx]
-        elif mode == 'generalizability':
+        elif mode == "generalizability":
             M_raw = self.consensus_generalizability_matrices_[best_idx]
         else:
             raise ValueError("Mode must be 'default' or 'generalizability'.")
-        
+
         if M_raw is None:
             raise RuntimeError(
                 f"Consensus matrix not available for mode={mode!r}."
@@ -282,12 +319,12 @@ class CARVE(BaseEstimator):
             )
 
         M = np.asarray(M_raw, dtype=float)
-        
-        S = 0.5 * (M + M.T)  # enforce symmetry
+
+        # Symmetrize and clean up
+        S = 0.5 * (M + M.T)
         np.fill_diagonal(S, 1.0)
         S = np.clip(S, 0.0, 1.0)
 
-        # Handle NaNs (we use 0.5 as neutral-esque fill)
         if np.isnan(S).any():
             S = np.nan_to_num(S, nan=0.5)
             np.fill_diagonal(S, 1.0)
@@ -305,7 +342,7 @@ class CARVE(BaseEstimator):
 
         labels = estimator.fit_predict(D)
 
-        # Align with reference-labels if available
+        # --- Align with reference labels if available ---
         cur_k = int(np.unique(labels).size)
         ref = self.reference_labels
         ref_k = int(np.unique(ref).size) if ref is not None else None
@@ -316,43 +353,13 @@ class CARVE(BaseEstimator):
             labels = align_cluster_labels(ref, labels)
 
         return np.asarray(labels, dtype=np.int32)
-    
+
     def get_k(
         self,
         *,
         measure: str = "stability",
-        rule: str = 'max',
+        rule: str = "max",
     ) -> int:
-        """Return the best estimator.
-
-        Parameters
-        ----------
-        measure : str, default="stability"
-            Metric key used to select the best configuration.
-        rule : str, default="max"
-            Selection rule ("max", "1se", or "quantile").
-
-        Returns
-        -------
-        estimator : ClusterMixin
-            Fitted estimator.
-        """
-        if self.estimator_results_ is None:
-            raise RuntimeError("Call fit() first.")
-
-        k = select_best_k(
-            self.estimator_results_, 
-            measure=measure, rule=rule
-        )
-        
-        return k
-    
-    def get_estimator(
-        self,
-        *,
-        measure: str = "stability",
-        rule: str = 'max',
-    ) -> ClusterMixin:
         """Return the best number of clusters.
 
         Parameters
@@ -370,12 +377,37 @@ class CARVE(BaseEstimator):
         if self.estimator_results_ is None:
             raise RuntimeError("Call fit() first.")
 
-        estimator = select_best_estimator(
-            self.estimator_results_, 
-            measure=measure, rule=rule
+        return select_best_k(self.estimator_results_, measure=measure, rule=rule)
+
+    def get_estimator(
+        self,
+        *,
+        measure: str = "stability",
+        rule: str = "max",
+    ) -> ClusterMixin:
+        """Return the best estimator.
+
+        Parameters
+        ----------
+        measure : str, default="stability"
+            Metric key used to select the best configuration.
+        rule : str, default="max"
+            Selection rule ("max", "1se", or "quantile").
+
+        Returns
+        -------
+        estimator : ClusterMixin
+            Instantiated estimator with parameters from the best row.
+        """
+        if self.estimator_results_ is None:
+            raise RuntimeError("Call fit() first.")
+
+        return select_best_estimator(
+            self.estimator_results_,
+            self.estimator_param_grids_,
+            measure=measure,
+            rule=rule,
         )
-        
-        return estimator
 
     # ------------------------------------------------------------------ #
     #  Plotting                                                          #
@@ -387,25 +419,25 @@ class CARVE(BaseEstimator):
         measure: str = "stability",
         rule: str = "1se",
         ax=None,
-        figsize: Optional[Tuple] = None,
-        title: Optional[str] = None,
-        xlabel: Optional[str] = None,
-        ylabel: Optional[str] = None,
+        figsize: tuple | None = None,
+        title: str | None = None,
+        xlabel: str | None = None,
+        ylabel: str | None = None,
         legend: bool = True,
         legend_loc: str = "best",
-        palette: Optional[str] = None,
+        palette: str | None = None,
         show: bool = False,
-        save: Optional[Union[str, Path]] = None,
+        save: str | Path | None = None,
         dpi: int = 300,
         **kwargs,
     ):
         """Plot clustering validation metrics across cluster numbers.
-        
+
         Creates a line plot showing one line for each unique estimator
         configuration (estimator name + hyperparameters, excluding n_clusters).
-        Error bars represent ±1 standard error. A vertical dashed line indicates
-        the selected k according to the specified rule.
-        
+        Error bars represent +/-1 standard error. A vertical dashed line
+        indicates the selected k according to the specified rule.
+
         Parameters
         ----------
         measure : str, default="stability"
@@ -414,14 +446,14 @@ class CARVE(BaseEstimator):
             "pac", "consensus_pac_stability", "gini", "consensus_gini_stability",
             "ce", "consensus_ce_stability", "misclassification", etc.
         rule : str, default="1se"
-            Selection rule for choosing the best k. Options: "max" (maximum metric),
-            "1se" (one standard error rule), "quantile".
+            Selection rule for choosing the best k. Options: "max", "1se",
+            "quantile".
         ax : matplotlib.axes.Axes, optional
-            Axes object to plot on. If None, creates a new figure with default size.
+            Axes object to plot on. If None, creates a new figure.
         figsize : tuple, optional
             Figure size (width, height) in inches. Default is (9, 5.5).
         title : str, optional
-            Figure title. If None, auto-generated from measure and rule.
+            Figure title.
         xlabel : str, optional
             X-axis label. Default is "Number of Clusters (k)".
         ylabel : str, optional
@@ -435,40 +467,38 @@ class CARVE(BaseEstimator):
         show : bool, default=False
             Whether to call plt.show() before returning.
         save : str or Path, optional
-            Path to save the figure (e.g., "plot.pdf", "plot.png"). If provided,
-            the figure is saved and None is returned instead of an Axes object.
+            Path to save the figure. If provided, the figure is saved and
+            None is returned instead of an Axes object.
         dpi : int, default=300
-            Dots per inch for saved figures. Only used if save is not None.
+            Dots per inch for saved figures.
         **kwargs
-            Additional keyword arguments passed to matplotlib's errorbar function
-            (e.g., linewidth, marker, alpha).
-        
+            Additional keyword arguments passed to matplotlib's errorbar
+            function (e.g., linewidth, marker, alpha).
+
         Returns
         -------
         ax : matplotlib.axes.Axes or None
-            The Axes object on which the plot was drawn, or None if save was used.
-        
+            The Axes object, or None if save was used.
+
         Raises
         ------
         RuntimeError
             If the instance has not been fitted yet.
         ValueError
             If measure is not found in the results.
-        
+
         Examples
         --------
         >>> import matplotlib.pyplot as plt
         >>> carve = CARVE().fit(X)
         >>> ax = carve.plot_metric_over_n_clusters(measure="stability", rule="1se")
         >>> plt.show()
-        
-        >>> # Save figures with different metrics
-        >>> carve.plot_metric_over_n_clusters(measure="generalizability", save="gen.pdf", dpi=300)
-        >>> carve.plot_metric_over_n_clusters(measure="consensus_pac_stability", save="pac.png")
+
+        >>> carve.plot_metric_over_n_clusters(measure="generalizability", save="gen.pdf")
         """
         if self.estimator_results_ is None:
             raise RuntimeError("Call fit() first.")
-        
+
         return _plot_metric_over_n_clusters(
             self.estimator_results_,
             measure=measure,
@@ -493,16 +523,16 @@ class CARVE(BaseEstimator):
         measure: str = "stability",
         rule: str = "1se",
         mode: Literal["default", "stability", "generalizability"] = "default",
-        k: Optional[int] = None,
+        k: int | None = None,
         ax=None,
-        figsize: Optional[Tuple] = None,
+        figsize: tuple | None = None,
         cmap: str = "viridis",
-        cluster_palette: str = "tab20",
+        palette: str = "tab20",
         colorbar: bool = True,
         colorbar_label: str = "Consensus",
-        title: Optional[str] = None,
+        title: str | None = None,
         show: bool = False,
-        save: Optional[Union[str, Path]] = None,
+        save: str | Path | None = None,
         dpi: int = 300,
     ):
         """Plot the selected consensus matrix with a flush top cluster band.
@@ -526,7 +556,7 @@ class CARVE(BaseEstimator):
             Figure size in inches.
         cmap : str, default="viridis"
             Heatmap colormap.
-        cluster_palette : str, default="tab20"
+        palette : str, default="tab20"
             Discrete palette used for the top cluster band.
         colorbar : bool, default=True
             Whether to draw the heatmap colorbar.
@@ -556,10 +586,14 @@ class CARVE(BaseEstimator):
             matrices = self.consensus_generalizability_matrices_
             labels_mode = "generalizability"
         else:
-            raise ValueError("mode must be one of: 'default', 'stability', 'generalizability'.")
+            raise ValueError(
+                "mode must be one of: 'default', 'stability', 'generalizability'."
+            )
 
         if matrices is None:
-            raise RuntimeError(f"Consensus matrices for mode={mode!r} are not available.")
+            raise RuntimeError(
+                f"Consensus matrices for mode={mode!r} are not available."
+            )
 
         df = self.estimator_results_
         if k is None:
@@ -591,7 +625,7 @@ class CARVE(BaseEstimator):
             ax=ax,
             figsize=figsize,
             cmap=cmap,
-            cluster_palette=cluster_palette,
+            palette=palette,
             colorbar=colorbar,
             colorbar_label=colorbar_label,
             title=title,
@@ -600,33 +634,77 @@ class CARVE(BaseEstimator):
             dpi=dpi,
         )
 
-    def plot_uncertainty_boxplot(
+    def plot_cluster_boxplot(
         self,
         *,
         source: Literal["gini", "ce", "misclassification"] = "gini",
         measure: str = "stability",
         rule: str = "1se",
         mode: Literal["default", "stability", "generalizability"] = "default",
-        k: Optional[int] = None,
+        k: int | None = None,
         ax=None,
-        figsize: Optional[Tuple] = None,
-        order: Optional[List[Union[int, str]]] = None,
+        figsize: tuple | None = None,
+        order: list[int | str] | None = None,
         palette: str = "tab20",
         showfliers: bool = False,
         width: float = 0.75,
-        title: Optional[str] = None,
+        title: str | None = None,
         xlabel: str = "Cluster",
-        ylabel: Optional[str] = None,
-        rotation: Optional[float] = None,
+        ylabel: str | None = None,
+        rotation: float | None = None,
         show: bool = False,
-        save: Optional[Union[str, Path]] = None,
+        save: str | Path | None = None,
         dpi: int = 300,
     ):
         """Plot cluster-level uncertainty as a boxplot.
 
-        The model row is selected with the same single source of truth used by
-        ``plot_consensus_matrix``: ``select_best_row_by_rule`` from
-        ``_selection.py``.
+        The model row is selected with the same single source of truth
+        used by ``plot_consensus_matrix``: ``select_best_row_by_rule``
+        from ``_selection.py``.
+
+        Parameters
+        ----------
+        source : {"gini", "ce", "misclassification"}, default="gini"
+            Score source for per-sample values.
+        measure : str, default="stability"
+            Metric key used for model selection.
+        rule : str, default="1se"
+            Selection rule.
+        mode : Literal["default", "stability", "generalizability"], default="default"
+            Consensus matrix mode for label extraction.
+        k : int, optional
+            If given, restrict selection to this number of clusters.
+        ax : matplotlib.axes.Axes, optional
+            Axes object to plot on. If None, creates a new figure.
+        figsize : tuple, optional
+            Figure size in inches.
+        order : list of int or str, optional
+            Explicit cluster ordering for the x-axis.
+        palette : str, default="tab20"
+            Discrete colormap for box colors.
+        showfliers : bool, default=False
+            Whether to show outlier points.
+        width : float, default=0.75
+            Box width.
+        title : str, optional
+            Figure title.
+        xlabel : str, default="Cluster"
+            X-axis label.
+        ylabel : str, optional
+            Y-axis label. If None, auto-generated from source.
+        rotation : float, optional
+            Tick label rotation angle.
+        show : bool, default=False
+            Whether to call plt.show() before returning.
+        save : str or Path, optional
+            Path to save the figure.
+        dpi : int, default=300
+            Dots per inch for saved figures.
+
+        Returns
+        -------
+        ax : matplotlib.axes.Axes or None
+            The Axes object, or None if ``save`` is provided.
         """
         if self.estimator_results_ is None:
             raise RuntimeError("Call fit() first.")
@@ -643,37 +721,46 @@ class CARVE(BaseEstimator):
         best_idx = int(row.name)
         selected_k = int(row["n_clusters"])
 
+        # --- Resolve score source ---
         if source == "gini":
             if self.stability_gini_scores_ is None:
-                raise RuntimeError("Gini stability scores are not available for this run.")
-            
+                raise RuntimeError(
+                    "Gini stability scores are not available for this run."
+                )
             scores = np.asarray(self.stability_gini_scores_[best_idx], dtype=float)
             default_ylabel = "Cluster Stability (Gini)"
-            
+
         elif source == "ce":
             if self.stability_ce_scores_ is None:
-                raise RuntimeError("CE stability scores are not available for this run.")
-            
+                raise RuntimeError(
+                    "CE stability scores are not available for this run."
+                )
             scores = np.asarray(self.stability_ce_scores_[best_idx], dtype=float)
             default_ylabel = "Cluster Stability (CE)"
-            
+
         elif source == "misclassification":
             if self.generalizability_scores_ is None:
-                raise RuntimeError("Generalizability scores are not available for this run.")
-            
+                raise RuntimeError(
+                    "Generalizability scores are not available for this run."
+                )
             scores = np.asarray(self.generalizability_scores_[best_idx], dtype=float)
             default_ylabel = "Cluster Generalizability"
-            
-        else:
-            raise ValueError("source must be one of: 'misclassification', 'gini', 'ce'.")
 
+        else:
+            raise ValueError(
+                "source must be one of: 'misclassification', 'gini', 'ce'."
+            )
+
+        # --- Resolve labels mode ---
         labels_mode: Literal["default", "generalizability"]
         if mode in ("default", "stability"):
             labels_mode = "default"
         elif mode == "generalizability":
             labels_mode = "generalizability"
         else:
-            raise ValueError("mode must be one of: 'default', 'stability', 'generalizability'.")
+            raise ValueError(
+                "mode must be one of: 'default', 'stability', 'generalizability'."
+            )
 
         labels = self.get_labels(
             measure=measure,
@@ -685,7 +772,7 @@ class CARVE(BaseEstimator):
         if ylabel is None:
             ylabel = default_ylabel
 
-        return _plot_cluster_uncertainty_boxplot(
+        return _plot_cluster_boxplot(
             scores,
             labels,
             ax=ax,
@@ -703,37 +790,89 @@ class CARVE(BaseEstimator):
             dpi=dpi,
         )
 
-    def plot_uncertainty_violin(
+    def plot_cluster_violin(
         self,
         *,
         source: Literal["gini", "ce", "misclassification"] = "gini",
         measure: str = "stability",
         rule: str = "1se",
         mode: Literal["default", "stability", "generalizability"] = "default",
-        k: Optional[int] = None,
+        k: int | None = None,
         ax=None,
-        figsize: Optional[Tuple] = None,
-        order: Optional[List[Union[int, str]]] = None,
+        figsize: tuple | None = None,
+        order: list[int | str] | None = None,
         palette: str = "tab20",
         density_norm: Literal["width", "area", "count"] = "width",
         stripplot: bool = True,
-        jitter: Union[bool, float] = True,
+        jitter: bool | float = True,
         size: float = 8.0,
         alpha: float = 0.22,
         inner: Literal["box", "quartile", "none"] = "box",
-        title: Optional[str] = None,
+        title: str | None = None,
         xlabel: str = "Cluster",
-        ylabel: Optional[str] = None,
-        rotation: Optional[float] = None,
+        ylabel: str | None = None,
+        rotation: float | None = None,
         show: bool = False,
-        save: Optional[Union[str, Path]] = None,
+        save: str | Path | None = None,
         dpi: int = 300,
     ):
         """Plot cluster-level uncertainty as a violin plot.
 
-        The API mirrors common Scanpy arguments (`stripplot`, `jitter`,
-        `density_norm`, `show`, `ax`, `save`) and uses the same model row
-        selection path as ``plot_consensus_matrix``.
+        The API mirrors common scanpy arguments (``stripplot``, ``jitter``,
+        ``density_norm``, ``show``, ``ax``, ``save``) and uses the same
+        model row selection path as ``plot_consensus_matrix``.
+
+        Parameters
+        ----------
+        source : {"gini", "ce", "misclassification"}, default="gini"
+            Score source for per-sample values.
+        measure : str, default="stability"
+            Metric key used for model selection.
+        rule : str, default="1se"
+            Selection rule.
+        mode : Literal["default", "stability", "generalizability"], default="default"
+            Consensus matrix mode for label extraction.
+        k : int, optional
+            If given, restrict selection to this number of clusters.
+        ax : matplotlib.axes.Axes, optional
+            Axes object to plot on. If None, creates a new figure.
+        figsize : tuple, optional
+            Figure size in inches.
+        order : list of int or str, optional
+            Explicit cluster ordering for the x-axis.
+        palette : str, default="tab20"
+            Discrete colormap for violin colors.
+        density_norm : {"width", "area", "count"}, default="width"
+            How to normalize violin widths.
+        stripplot : bool, default=True
+            Whether to overlay individual data points.
+        jitter : bool or float, default=True
+            Jitter width for the strip plot.
+        size : float, default=8.0
+            Marker size for strip plot points.
+        alpha : float, default=0.22
+            Marker alpha for strip plot points.
+        inner : {"box", "quartile", "none"}, default="box"
+            Inner annotation style.
+        title : str, optional
+            Figure title.
+        xlabel : str, default="Cluster"
+            X-axis label.
+        ylabel : str, optional
+            Y-axis label. If None, auto-generated from source.
+        rotation : float, optional
+            Tick label rotation angle.
+        show : bool, default=False
+            Whether to call plt.show() before returning.
+        save : str or Path, optional
+            Path to save the figure.
+        dpi : int, default=300
+            Dots per inch for saved figures.
+
+        Returns
+        -------
+        ax : matplotlib.axes.Axes or None
+            The Axes object, or None if ``save`` is provided.
         """
         if self.estimator_results_ is None:
             raise RuntimeError("Call fit() first.")
@@ -750,37 +889,46 @@ class CARVE(BaseEstimator):
         best_idx = int(row.name)
         selected_k = int(row["n_clusters"])
 
+        # --- Resolve score source ---
         if source == "gini":
             if self.stability_gini_scores_ is None:
-                raise RuntimeError("Gini stability scores are not available for this run.")
-            
+                raise RuntimeError(
+                    "Gini stability scores are not available for this run."
+                )
             scores = np.asarray(self.stability_gini_scores_[best_idx], dtype=float)
             default_ylabel = "Cluster Stability (Gini)"
-            
+
         elif source == "ce":
             if self.stability_ce_scores_ is None:
-                raise RuntimeError("CE stability scores are not available for this run.")
-            
+                raise RuntimeError(
+                    "CE stability scores are not available for this run."
+                )
             scores = np.asarray(self.stability_ce_scores_[best_idx], dtype=float)
             default_ylabel = "Cluster Stability (CE)"
-            
+
         elif source == "misclassification":
             if self.generalizability_scores_ is None:
-                raise RuntimeError("Generalizability scores are not available for this run.")
-            
+                raise RuntimeError(
+                    "Generalizability scores are not available for this run."
+                )
             scores = np.asarray(self.generalizability_scores_[best_idx], dtype=float)
             default_ylabel = "Cluster Generalizability"
-            
-        else:
-            raise ValueError("source must be one of: 'misclassification', 'gini', 'ce'.")
 
+        else:
+            raise ValueError(
+                "source must be one of: 'misclassification', 'gini', 'ce'."
+            )
+
+        # --- Resolve labels mode ---
         labels_mode: Literal["default", "generalizability"]
         if mode in ("default", "stability"):
             labels_mode = "default"
         elif mode == "generalizability":
             labels_mode = "generalizability"
         else:
-            raise ValueError("mode must be one of: 'default', 'stability', 'generalizability'.")
+            raise ValueError(
+                "mode must be one of: 'default', 'stability', 'generalizability'."
+            )
 
         labels = self.get_labels(
             measure=measure,
@@ -792,7 +940,7 @@ class CARVE(BaseEstimator):
         if ylabel is None:
             ylabel = default_ylabel
 
-        return _plot_cluster_uncertainty_violin(
+        return _plot_cluster_violin(
             scores,
             labels,
             ax=ax,
@@ -814,30 +962,30 @@ class CARVE(BaseEstimator):
             dpi=dpi,
         )
 
-    def plot_uncertainty_scatter(
+    def plot_cluster_scatter(
         self,
         *,
         source: Literal["gini", "ce", "misclassification"] = "gini",
         measure: str = "stability",
         rule: str = "1se",
         mode: Literal["default", "stability", "generalizability"] = "default",
-        k: Optional[int] = None,
-        X: Optional[np.ndarray] = None,
-        embedding: Optional[np.ndarray] = None,
+        k: int | None = None,
+        X: np.ndarray | None = None,
+        embedding: np.ndarray | None = None,
         ax=None,
-        figsize: Optional[Tuple] = None,
+        figsize: tuple | None = None,
         palette: str = "tab20",
-        alpha_range: Optional[tuple[float, float]] = None,
-        size_range: Tuple[float, float] = (20.0, 100.0),
+        alpha_range: tuple[float, float] | None = None,
+        size_range: tuple[float, float] = (20.0, 100.0),
         sort_order: bool = True,
         legend: bool = True,
         legend_loc: str = "right margin",
-        title: Optional[str] = None,
-        xlabel: Optional[str] = None,
-        ylabel: Optional[str] = None,
+        title: str | None = None,
+        xlabel: str | None = None,
+        ylabel: str | None = None,
         frameon: bool = False,
         show: bool = False,
-        save: Optional[Union[str, Path]] = None,
+        save: str | Path | None = None,
         dpi: int = 300,
     ):
         """Plot data in 2D with score-encoded opacity and point size.
@@ -848,6 +996,58 @@ class CARVE(BaseEstimator):
         Visual encoding:
         - cluster-level mean score -> opacity (alpha)
         - sample-level score -> marker size
+
+        Parameters
+        ----------
+        source : {"gini", "ce", "misclassification"}, default="gini"
+            Score source for per-sample values.
+        measure : str, default="stability"
+            Metric key used for model selection.
+        rule : str, default="1se"
+            Selection rule.
+        mode : Literal["default", "stability", "generalizability"], default="default"
+            Consensus matrix mode for label extraction.
+        k : int, optional
+            If given, restrict selection to this number of clusters.
+        X : ndarray, optional
+            Data array to use. If None, uses ``self.X_``.
+        embedding : ndarray of shape (n_samples, 2), optional
+            Pre-computed 2D embedding.
+        ax : matplotlib.axes.Axes, optional
+            Axes object to plot on. If None, creates a new figure.
+        figsize : tuple, optional
+            Figure size in inches.
+        palette : str, default="tab20"
+            Colormap for cluster colors.
+        alpha_range : tuple of float, optional
+            Min/max alpha for cluster-level score mapping.
+        size_range : tuple of float, default=(20.0, 100.0)
+            Min/max marker size for sample-level score mapping.
+        sort_order : bool, default=True
+            Whether to sort points by alpha so transparent points are drawn first.
+        legend : bool, default=True
+            Whether to display a legend.
+        legend_loc : str, default="right margin"
+            Legend location.
+        title : str, optional
+            Figure title.
+        xlabel : str, optional
+            X-axis label. Default is "Component 1".
+        ylabel : str, optional
+            Y-axis label. Default is "Component 2".
+        frameon : bool, default=False
+            Whether to draw axis spines.
+        show : bool, default=False
+            Whether to call plt.show() before returning.
+        save : str or Path, optional
+            Path to save the figure.
+        dpi : int, default=300
+            Dots per inch for saved figures.
+
+        Returns
+        -------
+        ax : matplotlib.axes.Axes or None
+            The Axes object, or None if ``save`` is provided.
         """
         if self.estimator_results_ is None:
             raise RuntimeError("Call fit() first.")
@@ -864,31 +1064,40 @@ class CARVE(BaseEstimator):
         best_idx = int(row.name)
         selected_k = int(row["n_clusters"])
 
+        # --- Resolve score source ---
         if source == "gini":
             if self.stability_gini_scores_ is None:
-                raise RuntimeError("Gini stability scores are not available for this run.")
+                raise RuntimeError(
+                    "Gini stability scores are not available for this run."
+                )
             scores = np.asarray(self.stability_gini_scores_[best_idx], dtype=float)
-            score_name = "stability_gini"
         elif source == "ce":
             if self.stability_ce_scores_ is None:
-                raise RuntimeError("CE stability scores are not available for this run.")
+                raise RuntimeError(
+                    "CE stability scores are not available for this run."
+                )
             scores = np.asarray(self.stability_ce_scores_[best_idx], dtype=float)
-            score_name = "stability_ce"
         elif source == "misclassification":
             if self.generalizability_scores_ is None:
-                raise RuntimeError("Generalizability scores are not available for this run.")
+                raise RuntimeError(
+                    "Generalizability scores are not available for this run."
+                )
             scores = np.asarray(self.generalizability_scores_[best_idx], dtype=float)
-            score_name = "generalizability"
         else:
-            raise ValueError("source must be one of: 'misclassification', 'gini', 'ce'.")
+            raise ValueError(
+                "source must be one of: 'misclassification', 'gini', 'ce'."
+            )
 
+        # --- Resolve labels mode ---
         labels_mode: Literal["default", "generalizability"]
         if mode in ("default", "stability"):
             labels_mode = "default"
         elif mode == "generalizability":
             labels_mode = "generalizability"
         else:
-            raise ValueError("mode must be one of: 'default', 'stability', 'generalizability'.")
+            raise ValueError(
+                "mode must be one of: 'default', 'stability', 'generalizability'."
+            )
 
         labels = self.get_labels(
             measure=measure,
@@ -909,7 +1118,7 @@ class CARVE(BaseEstimator):
         if ylabel is None:
             ylabel = "Component 2"
 
-        return _plot_cluster_score_scatter(
+        return _plot_cluster_scatter(
             data,
             labels,
             scores,
@@ -937,7 +1146,7 @@ class CARVE(BaseEstimator):
 
     def save(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         *,
         include_data: bool = False,
         compress: int = 3,
@@ -949,13 +1158,12 @@ class CARVE(BaseEstimator):
         path : str or Path
             Destination file path. The recommended extension is ``.carve``.
         include_data : bool, default=False
-            If *True*, the input array ``X_`` is included in the file.
-            When *False* (default) ``X_`` is excluded to reduce file size;
-            methods that need the raw data (e.g. ``plot_cluster_summary``
-            with a dimensionality‑reduction callable) will require that
-            ``X`` is re‑supplied after loading.
+            If True, the input array ``X_`` is included in the file.
+            When False (default), ``X_`` is excluded to reduce file size;
+            methods that need the raw data will require that ``X`` is
+            re-supplied after loading.
         compress : int, default=3
-            Compression level passed to :func:`joblib.dump` (0–9, where
+            Compression level passed to :func:`joblib.dump` (0-9, where
             0 disables compression and 9 is maximum).
 
         Raises
@@ -981,7 +1189,6 @@ class CARVE(BaseEstimator):
         if include_data:
             joblib.dump(self, path, compress=compress)
         else:
-            # Temporarily set X_ to None so it is not serialized.
             X_backup = self.X_
             self.X_ = None
             try:
@@ -990,7 +1197,10 @@ class CARVE(BaseEstimator):
                 self.X_ = X_backup
 
     @classmethod
-    def load(cls, path: Union[str, Path]) -> "CARVE":
+    def load(
+        cls,
+        path: str | Path,
+    ) -> "CARVE":
         """Load a previously saved CARVE instance from disk.
 
         Parameters
@@ -1000,13 +1210,13 @@ class CARVE(BaseEstimator):
 
         Returns
         -------
-        CARVE
+        instance : CARVE
             The deserialized, fitted CARVE instance.
 
         Raises
         ------
         FileNotFoundError
-            If *path* does not exist.
+            If ``path`` does not exist.
         TypeError
             If the loaded object is not a ``CARVE`` instance.
 
@@ -1021,8 +1231,5 @@ class CARVE(BaseEstimator):
 
         obj = joblib.load(path)
         if not isinstance(obj, cls):
-            raise TypeError(
-                f"Expected a CARVE instance, got {type(obj).__name__!r}."
-            )
+            raise TypeError(f"Expected a CARVE instance, got {type(obj).__name__!r}.")
         return obj
-

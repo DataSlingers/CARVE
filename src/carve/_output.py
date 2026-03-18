@@ -2,24 +2,24 @@
 
 import numpy as np
 import pandas as pd
-from typing import Any, Dict, List, Tuple, Type, Union
+from typing import Any
 from sklearn.base import ClusterMixin
 from sklearn.model_selection import ParameterGrid
 from tqdm.auto import tqdm
 
-ModelRecord = Dict[str, Any]
-GridSpec = Tuple[Type[ClusterMixin], Dict[str, List[Any]]]
+from ._types import EstimatorRecord, GridSpec
+
 
 def _print_run_header(
     X: np.ndarray,
-    n_clusters: Union[int, np.ndarray],
+    n_clusters: int | np.ndarray,
     n_resamples: int,
     subsample_ratio: float,
-    estimator_grids: List[GridSpec],
+    estimator_grids: list[GridSpec],
     n_jobs: int,
-    random_preprocess: bool,
+    randomize_preprocessing: bool,
     random_state: int | None,
-    verbose: int
+    verbose: int,
 ) -> None:
     """Print a standard header describing the validation configuration.
 
@@ -37,7 +37,7 @@ def _print_run_header(
         Estimator classes and parameter grids.
     n_jobs : int
         Parallelism used for runs.
-    random_preprocess : bool
+    randomize_preprocessing : bool
         Whether preprocessing is randomized.
     random_state : int or None
         Random seed.
@@ -51,7 +51,7 @@ def _print_run_header(
     line = "=" * 60
 
     print(f"[CARVE] {line}")
-    print(f"[CARVE] Validation Settings:")
+    print("[CARVE] Validation Settings:")
     print(f"[CARVE] n_samples          : {X.shape[0]}")
     print(f"[CARVE] n_features         : {X.shape[1]}")
     print(f"[CARVE] n_clusters         : {n_clusters}")
@@ -59,14 +59,15 @@ def _print_run_header(
     print(f"[CARVE] subsample_ratio    : {subsample_ratio}")
     print(f"[CARVE] n_jobs             : {n_jobs}")
     print(f"[CARVE] total configs      : {total_configs}")
-    print(f"[CARVE] random_preprocess  : {random_preprocess}")
+    print(f"[CARVE] randomize_preproc  : {randomize_preprocessing}")
     print(f"[CARVE] random_state       : {random_state}")
     print(f"[CARVE] {line}")
-    print(f"\n[CARVE] Starting validation ...\n")
-    
+    print("\n[CARVE] Starting validation ...\n")
+
+
 def _print_run_footer(
     estimator_df: pd.DataFrame,
-    verbose: int
+    verbose: int,
 ) -> None:
     """Print a standard footer after validation completes.
 
@@ -79,16 +80,19 @@ def _print_run_footer(
     """
     if verbose < 1 or verbose is None:
         return
-    print(f"\n[CARVE] finished. evaluated {len(estimator_df)} estimator configurations.")
+    print(
+        f"\n[CARVE] finished. evaluated {len(estimator_df)} estimator configurations."
+    )
+
 
 def _log_config_progress(
     config_idx: int,
     total_configs: int,
-    est_class: Type[ClusterMixin],
-    params: Dict[str, Any],
-    record: ModelRecord,
+    est_class: type[ClusterMixin],
+    params: dict[str, Any],
+    record: EstimatorRecord,
     pbar_obj: tqdm | None,
-    verbose: int = 1
+    verbose: int = 1,
 ) -> None:
     """Log per-configuration progress during grid evaluation.
 

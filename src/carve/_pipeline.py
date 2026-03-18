@@ -1,23 +1,21 @@
 """Preprocessing pipeline construction and sampling utilities."""
 
 import random
-from typing import Any, Callable, Dict, List, Tuple, Union
+from typing import Any
+
 from sklearn.base import TransformerMixin
-from sklearn.model_selection import ParameterGrid
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer
 
-PreprocSpec = Tuple[Callable[..., TransformerMixin], Dict[str, List[Any]]]
-PreprocSpecWithName = Tuple[Callable[..., TransformerMixin], str, Dict[str, List[Any]]]
-PreprocOption = Union[PreprocSpec, PreprocSpecWithName]
+from ._types import PreprocOption
 
 
 def build_preprocessing_pipeline(
-    randomize_preprocessing: bool, 
-    normalization_options: List[PreprocOption], 
-    dim_reduction_options: List[PreprocOption], 
-    seed: int
-) -> Tuple[Pipeline, Dict[str, Any], Dict[str, Any], str, str]:
+    randomize_preprocessing: bool,
+    normalization_options: list[PreprocOption],
+    dim_reduction_options: list[PreprocOption],
+    seed: int,
+) -> tuple[Pipeline, dict[str, Any], dict[str, Any], str, str]:
     """Build a preprocessing pipeline.
 
     Parameters
@@ -45,22 +43,35 @@ def build_preprocessing_pipeline(
         Resolved name for the DR step.
     """
     if randomize_preprocessing:
-        pipeline, normalization_params, dim_reduction_params, normalization_name, dim_reduction_name = (
-            sample_preprocessing_pipeline(normalization_options, dim_reduction_options, seed)
+        (
+            pipeline,
+            normalization_params,
+            dim_reduction_params,
+            normalization_name,
+            dim_reduction_name,
+        ) = sample_preprocessing_pipeline(
+            normalization_options, dim_reduction_options, seed
         )
     else:
-        pipeline = Pipeline([('id', FunctionTransformer(lambda x: x))])
+        pipeline = Pipeline([("id", FunctionTransformer(lambda x: x))])
         normalization_params = dim_reduction_params = {}
-        normalization_name = dim_reduction_name = 'Identity'
-        
-    return pipeline, normalization_params, dim_reduction_params, normalization_name, dim_reduction_name
+        normalization_name = dim_reduction_name = "Identity"
+
+    return (
+        pipeline,
+        normalization_params,
+        dim_reduction_params,
+        normalization_name,
+        dim_reduction_name,
+    )
+
 
 def sample_preprocessing_pipeline(
-    normalization_options: List[PreprocOption],
-    dim_reduction_options: List[PreprocOption],
-    seed: int
-) -> Tuple[Pipeline, Dict[str, Any], Dict[str, Any], str, str]:
-    """Randomly sample normalization and DR steps.
+    normalization_options: list[PreprocOption],
+    dim_reduction_options: list[PreprocOption],
+    seed: int,
+) -> tuple[Pipeline, dict[str, Any], dict[str, Any], str, str]:
+    """Randomly sample normalization and DR steps into a pipeline.
 
     Parameters
     ----------
@@ -86,18 +97,28 @@ def sample_preprocessing_pipeline(
     """
     rnd = random.Random(seed)
 
-    normalization_step, normalization_params, normalization_name = _choose_preprocessor(rnd, normalization_options)
-    dim_reduction_step, dim_reduction_params, dim_reduction_name = _choose_preprocessor(rnd, dim_reduction_options)
-    
-    pipeline = Pipeline([('norm', normalization_step), ('dr', dim_reduction_step)])
-    return pipeline, normalization_params, dim_reduction_params, normalization_name, dim_reduction_name
+    normalization_step, normalization_params, normalization_name = _choose_preprocessor(
+        rnd, normalization_options
+    )
+    dim_reduction_step, dim_reduction_params, dim_reduction_name = _choose_preprocessor(
+        rnd, dim_reduction_options
+    )
+
+    pipeline = Pipeline([("norm", normalization_step), ("dr", dim_reduction_step)])
+    return (
+        pipeline,
+        normalization_params,
+        dim_reduction_params,
+        normalization_name,
+        dim_reduction_name,
+    )
+
 
 def _choose_preprocessor(
-    rnd: random.Random, 
-    options: List[PreprocOption]
-) -> Tuple[TransformerMixin, Dict[str, Any], str]:
-    """
-    Randomly select and instantiate a preprocessor from a set of options.
+    rnd: random.Random,
+    options: list[PreprocOption],
+) -> tuple[TransformerMixin, dict[str, Any], str]:
+    """Randomly select and instantiate a preprocessor from a set of options.
 
     Parameters
     ----------
@@ -127,7 +148,7 @@ def _choose_preprocessor(
     """
     option = rnd.choice(options)
     name = None
-    params: Dict[str, List[Any]] = {}
+    params: dict[str, list[Any]] = {}
 
     if isinstance(option, tuple):
         if len(option) == 3:
@@ -135,22 +156,26 @@ def _choose_preprocessor(
         elif len(option) == 2:
             cls, params = option
         else:
-            raise ValueError("Option tuples must be (cls, params) or (cls, name, params).")
-        
+            raise ValueError(
+                "Option tuples must be (cls, params) or (cls, name, params)."
+            )
+
     elif isinstance(option, dict):
-        # be tolerant with keys
         cls = option.get("cls") or option.get("estimator") or option.get("transformer")
-        
+
         if cls is None:
-            raise ValueError("Dict option must contain key 'cls' (or 'estimator'/'transformer').")
-        
+            raise ValueError(
+                "Dict option must contain key 'cls' (or 'estimator'/'transformer')."
+            )
+
         params = option.get("params") or option.get("grid") or {}
         name = option.get("name")
-    
-    else:
-        raise TypeError("Unsupported option type. Use (cls, params), (cls, name, params), or {'cls','params','name'}.")
 
-    # sample a concrete parameter setting
+    else:
+        raise TypeError(
+            "Unsupported option type. Use (cls, params), (cls, name, params), or {'cls','params','name'}."
+        )
+
     chosen_params = {k: rnd.choice(v) for k, v in (params or {}).items()}
     inst = cls(**chosen_params)
     resolved_name = name or inst.__class__.__name__

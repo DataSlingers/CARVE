@@ -3,16 +3,17 @@
 import numpy as np
 import warnings
 
+
 def _compute_cluster_sizes(
-    *, 
-    n_total_clusters: int, 
-    k: int, 
+    *,
+    n_total_clusters: int,
+    k: int,
     balanced: bool,
     cluster_size_frac: list[float] | None,
     rng: np.random.Generator,
-    min_abs: int, 
-    min_frac: float, 
-    alpha: float | np.ndarray
+    min_abs: int,
+    min_frac: float,
+    alpha: float | np.ndarray,
 ) -> np.ndarray:
     """Compute per-cluster sample sizes.
 
@@ -51,14 +52,16 @@ def _compute_cluster_sizes(
         if total <= 0:
             raise ValueError("`cluster_size_frac` must sum to a positive value.")
         if abs(total - 1.0) > 1e-8:
-            warnings.warn("`cluster_size_frac` does not add up to 1. Rescaling cluster_size_frac.")
+            warnings.warn(
+                "`cluster_size_frac` does not add up to 1. Rescaling cluster_size_frac."
+            )
             arr = arr / total
         sizes = [int(np.floor(n_total_clusters * frac)) for frac in arr]
-        
+
         # distribute remainder
         for i in range(n_total_clusters - int(np.sum(sizes))):
             sizes[i % k] += 1
-        
+
         return np.asarray(sizes, dtype=int)
 
     elif balanced:
@@ -75,8 +78,9 @@ def _compute_cluster_sizes(
             rng=rng,
             min_abs=min_abs,
             min_frac=min_frac,
-            alpha=alpha
+            alpha=alpha,
         )
+
 
 def _get_cluster_scales(cluster_scale, k: int) -> list[float]:
     """Resolve per-cluster scale values.
@@ -95,15 +99,16 @@ def _get_cluster_scales(cluster_scale, k: int) -> list[float]:
     """
     if callable(cluster_scale):
         return [float(cluster_scale()) for _ in range(k)]
-    
+
     elif isinstance(cluster_scale, (list, tuple, np.ndarray)):
         if len(cluster_scale) != k:
             raise ValueError("Passed `cluster_scale` parameter must be of size k.")
         return [float(x) for x in list(cluster_scale)]
-    
+
     else:
         return [float(cluster_scale)] * k
-    
+
+
 def _sample_cluster_sizes(
     n_total: int,
     k: int,
@@ -111,7 +116,7 @@ def _sample_cluster_sizes(
     min_abs: int = 5,
     min_frac: float = 0.1,
     alpha: float | np.ndarray = 0.3,
-    ensure_nonempty: bool = True
+    ensure_nonempty: bool = True,
 ) -> np.ndarray:
     """Sample integer cluster sizes with floor constraints.
 
@@ -175,6 +180,7 @@ def _sample_cluster_sizes(
     sizes += rng.multinomial(remaining, probs)
     return sizes
 
+
 def _post_embed_scaling(
     X: np.ndarray,
     X_pre_embed: np.ndarray | None = None,
@@ -200,7 +206,9 @@ def _post_embed_scaling(
         Scaled embedded data array.
     """
     if mode not in {"none", "standardize", "preserve_global", "standardize_preserve"}:
-        raise ValueError("`post_embed_mode` must be one of {'none','standardize','preserve_global','standardize_preserve'}.")
+        raise ValueError(
+            "`post_embed_mode` must be one of {'none','standardize','preserve_global','standardize_preserve'}."
+        )
     if not np.isfinite(scale) or scale <= 0:
         raise ValueError("`post_embed_scale` must be positive and finite.")
 
@@ -214,15 +222,14 @@ def _post_embed_scaling(
         def _rms_scatter(Z):
             Zc = Z - Z.mean(axis=0, keepdims=True)
             return np.sqrt(np.mean(np.sum(Zc**2, axis=1)))
-        
+
         s0 = _rms_scatter(X_pre_embed)
         s1 = _rms_scatter(X)
-        
+
         if s1 > 0:
             X = X * (s0 / s1)
 
     if scale != 1.0:
         X *= scale
-        
+
     return X
-            

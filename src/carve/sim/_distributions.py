@@ -3,6 +3,7 @@
 import numpy as np
 from typing import Literal
 
+
 def _chol_spd(A: np.ndarray, eps: float = 1e-10) -> np.ndarray:
     """Compute a robust Cholesky factorization for PSD matrices.
 
@@ -23,6 +24,7 @@ def _chol_spd(A: np.ndarray, eps: float = 1e-10) -> np.ndarray:
     except np.linalg.LinAlgError:
         return np.linalg.cholesky(A + eps * np.eye(A.shape[0], dtype=A.dtype))
 
+
 def _standardize(Z: np.ndarray) -> np.ndarray:
     """Standardize columns to zero mean and unit variance.
 
@@ -41,7 +43,10 @@ def _standardize(Z: np.ndarray) -> np.ndarray:
     sd[sd == 0] = 1.0
     return (Z - mu) / sd
 
-def _project_and_shape(Z2: np.ndarray, p: int, cov: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+
+def _project_and_shape(
+    Z2: np.ndarray, p: int, cov: np.ndarray, rng: np.random.Generator
+) -> np.ndarray:
     """Project 2D manifold points into p dimensions and apply covariance.
 
     Parameters
@@ -67,10 +72,17 @@ def _project_and_shape(Z2: np.ndarray, p: int, cov: np.ndarray, rng: np.random.G
     L = _chol_spd(cov)
     return Z @ L.T
 
+
 def _sample_cluster_points(
-    *, rng: np.random.Generator, size: int, mean: np.ndarray, cov: np.ndarray,
-    distribution: Literal["gaussian", "t", "uniform_ball", "circles", "moons", "swiss_roll"],
-    t_df: int
+    *,
+    rng: np.random.Generator,
+    size: int,
+    mean: np.ndarray,
+    cov: np.ndarray,
+    distribution: Literal[
+        "gaussian", "t", "uniform_ball", "circles", "moons", "swiss_roll"
+    ],
+    t_df: int,
 ) -> np.ndarray:
     """Sample points for a single cluster.
 
@@ -126,7 +138,7 @@ def _sample_cluster_points(
     elif distribution == "circles":
         if p < 2:
             raise ValueError("`circles` distribution requires p >= 2.")
-        
+
         theta = rng.uniform(0.0, 2.0 * np.pi, size=size)
         thickness = 0.08
         r = 1.0 + rng.normal(scale=thickness, size=size)
@@ -149,7 +161,7 @@ def _sample_cluster_points(
     elif distribution == "swiss_roll":
         if p < 2:
             raise ValueError("`swiss_roll` requires p >= 2.")
-        
+
         t = rng.uniform(0.6 * np.pi, 4.5 * np.pi, size=size)
         a, b, band = 0.3, 0.15, 0.06
         r = a + b * t + rng.normal(scale=band, size=size)
@@ -160,4 +172,6 @@ def _sample_cluster_points(
         return mean + Z
 
     else:
-        raise ValueError("`distribution` must be one of: {'gaussian','t','uniform_ball','circles','moons','swiss_roll'}.")
+        raise ValueError(
+            "`distribution` must be one of: {'gaussian','t','uniform_ball','circles','moons','swiss_roll'}."
+        )

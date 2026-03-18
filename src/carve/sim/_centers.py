@@ -3,10 +3,15 @@
 import numpy as np
 from typing import Literal
 
+
 def _sample_centers(
-    *, k: int, p: int, center_box: float, rng: np.random.Generator,
+    *,
+    k: int,
+    p: int,
+    center_box: float,
+    rng: np.random.Generator,
     method: Literal["none", "lhs", "best_candidate", "min_dist"] = "best_candidate",
-    n_candidates: int
+    n_candidates: int,
 ) -> np.ndarray:
     """Sample cluster centers within a hypercube.
 
@@ -48,6 +53,7 @@ def _sample_centers(
 
     raise ValueError(f"unknown centroid_method: {method}")
 
+
 def _validate_center_box(center_box: float) -> float:
     """Validate and normalize the center_box parameter.
 
@@ -67,12 +73,9 @@ def _validate_center_box(center_box: float) -> float:
         raise ValueError("`center_box` must be positive.")
     return float(center_box)
 
+
 def _best_candidate_centers(
-    k: int,
-    p: int,
-    center_box: float,
-    rng: np.random.Generator,
-    n_candidates: int = 64
+    k: int, p: int, center_box: float, rng: np.random.Generator, n_candidates: int = 64
 ) -> np.ndarray:
     """Sample centers via the best-candidate heuristic.
 
@@ -110,7 +113,10 @@ def _best_candidate_centers(
 
     return centers
 
-def _lhs_centers(k: int, p: int, center_box: float, rng: np.random.Generator) -> np.ndarray:
+
+def _lhs_centers(
+    k: int, p: int, center_box: float, rng: np.random.Generator
+) -> np.ndarray:
     """Sample centers using Latin hypercube stratification.
 
     Parameters
@@ -139,13 +145,14 @@ def _lhs_centers(k: int, p: int, center_box: float, rng: np.random.Generator) ->
 
     return X
 
+
 def _min_dist_centers(
     k: int,
     p: int,
     center_box: float,
     rng: np.random.Generator,
     min_center_dist: float,
-    max_tries: int = 200000
+    max_tries: int = 200000,
 ) -> np.ndarray:
     """Sample centers with a minimum spacing constraint.
 
@@ -173,7 +180,7 @@ def _min_dist_centers(
     tries = 0
     if min_center_dist <= 0:
         raise ValueError("`min_center_dist` must be positive.")
-    min2 = min_center_dist ** 2
+    min2 = min_center_dist**2
 
     while len(centers) < k and tries < max_tries:
         c = rng.uniform(-center_box, center_box, size=p)

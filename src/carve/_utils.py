@@ -1,6 +1,7 @@
 """Shared utility helpers for CARVE."""
 
-from typing import Any, Dict, List, Tuple, Type
+from typing import Any
+
 import numpy as np
 import pandas as pd
 from scipy.optimize import linear_sum_assignment
@@ -10,11 +11,11 @@ from numpy.typing import ArrayLike
 
 
 def split_subsample_indices(
-    n_samples: int, 
+    n_samples: int,
     *,
-    subsample_ratio: float = 0.8, 
-    random_state: int = None
-) -> Tuple[np.ndarray, np.ndarray]:
+    subsample_ratio: float = 0.8,
+    random_state: int = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """Split indices into a random subsample and its complement.
 
     Parameters
@@ -36,42 +37,44 @@ def split_subsample_indices(
     rng = np.random.RandomState(random_state)
     all_idx = np.arange(n_samples)
     train_size = int(np.float64(subsample_ratio * n_samples))
-    
+
     train_idx = rng.choice(all_idx, size=train_size, replace=False)
     test_idx = np.setdiff1d(all_idx, train_idx)
-    
+
     return train_idx, test_idx
 
 
-def _summarise_ari_scores(x: List[float] | np.ndarray, n_resamples: int) -> Tuple[float, float, float, float]:
-    """
-    Summarizes a collection of ARI (Adjusted Rand Index) scores by computing mean, standard error, and quantiles.
-    
+def _summarize_ari_scores(
+    x: list[float] | np.ndarray,
+    n_resamples: int,
+) -> tuple[float, float, float, float]:
+    """Summarize ARI scores by computing mean, standard error, and quantiles.
+
     Parameters
     ----------
-    x : list of float or np.ndarray
-        A list or array of ARI scores, possibly containing NaN values.
+    x : list of float or ndarray
+        ARI scores, possibly containing NaN values.
     n_resamples : int
-        The number of resamples used to generate the ARI scores. (Unused in computation, but kept for interface consistency.)
-        
+        Number of resamples (unused in computation; kept for interface
+        consistency).
+
     Returns
     -------
     mean : float
-        The mean of the ARI scores, ignoring NaN values.
+        Mean of the ARI scores, ignoring NaN values.
     se : float
-        The standard error of the ARI scores, ignoring NaN values. Returns NaN if fewer than 2 valid entries.
+        Standard error, ignoring NaN values. Returns NaN if fewer than 2
+        valid entries.
     q95 : float
-        The 95th percentile (quantile) of the ARI scores, ignoring NaN values.
+        95th percentile of the ARI scores, ignoring NaN values.
     q05 : float
-        The 5th percentile (quantile) of the ARI scores, ignoring NaN values.
+        5th percentile of the ARI scores, ignoring NaN values.
     """
-    
     arr = np.asarray(x, dtype=float)
     if np.all(np.isnan(arr)):
         return (np.nan, np.nan, np.nan, np.nan)
     mean = float(np.nanmean(arr))
-    
-    # SE over non-NaN entries
+
     m = np.sum(~np.isnan(arr))
     se = float(np.nanstd(arr, ddof=1) / np.sqrt(m)) if m > 1 else np.nan
     q95 = float(np.nanquantile(arr, 0.95))
@@ -81,10 +84,10 @@ def _summarise_ari_scores(x: List[float] | np.ndarray, n_resamples: int) -> Tupl
 
 def cluster_labels(
     X: np.ndarray,
-    estimator_cls: Type[ClusterMixin],
+    estimator_cls: type[ClusterMixin],
     *,
     random_state: int = None,
-    **params: Any
+    **params: Any,
 ) -> np.ndarray:
     """Fit a clustering estimator and return labels.
 
@@ -112,31 +115,26 @@ def cluster_labels(
     try:
         estimator = estimator_cls(random_state=random_state, **params)
     except Exception:
-        if 'random_state' in params:
+        if "random_state" in params:
             estimator = estimator_cls(**params)
-        elif 'random_state' in estimator_cls.__init__.__code__.co_varnames:
+        elif "random_state" in estimator_cls.__init__.__code__.co_varnames:
             estimator = estimator_cls(random_state=random_state, **params)
         else:
             estimator = estimator_cls(**params)
 
-
-    # estimator implements fit_predict
     if hasattr(estimator, "fit_predict"):
         return estimator.fit_predict(X)
 
-    # otherwise: fit first
     estimator.fit(X)
 
-    # standard sklearn behavior: labels_ attribute
     try:
         return estimator.labels_
     except Exception:
-        # fallback: predict(X) if available
-        return estimator.predict(X)  
+        return estimator.predict(X)
 
 
 def summarize_preprocessing_records(
-    pipeline_records: List[Dict[str, Any]]
+    pipeline_records: list[dict[str, Any]],
 ) -> pd.DataFrame:
     """Summarize randomized preprocessing records.
 
@@ -152,44 +150,49 @@ def summarize_preprocessing_records(
     """
     rows = []
     for record in pipeline_records:
-        params = record['params']
-        n_clusters = params['n_clusters']
-        
-        for r in record['results']:
-            ari_s, ari_g, *_, norm_p, dr_p, norm_name, dr_name = r
-            
-            if norm_name != 'FunctionTransformer':
+        params = record["params"]
+        n_clusters = params["n_clusters"]
+
+        for r in record["results"]:
+            ari_s = r.ari_stability
+            ari_g = r.ari_generalizability
+            norm_p = r.normalization_params
+            dr_p = r.dim_reduction_params
+            norm_name = r.normalization_name
+            dr_name = r.dim_reduction_name
+
+            if norm_name != "FunctionTransformer":
                 norm_label = norm_name
             else:
-                func = norm_p.get('func', None)
-                norm_label = func.__name__ if func is not None else 'identity'
-            
-            if dr_name != 'FunctionTransformer':
+                func = norm_p.get("func", None)
+                norm_label = func.__name__ if func is not None else "identity"
+
+            if dr_name != "FunctionTransformer":
                 dr_label = dr_name
             else:
-                func = dr_p.get('func', None)
-                dr_label = func.__name__ if func is not None else 'identity'
-                
-            rows.append({
-                'n_clusters': n_clusters, 
-                'norm__func': norm_label,
-                'dr__method': dr_label, 
-                'ari_stability': ari_s, 
-                'ari_generalizability': ari_g 
-            })
-        
+                func = dr_p.get("func", None)
+                dr_label = func.__name__ if func is not None else "identity"
+
+            rows.append(
+                {
+                    "n_clusters": n_clusters,
+                    "norm__func": norm_label,
+                    "dr__method": dr_label,
+                    "ari_stability": ari_s,
+                    "ari_generalizability": ari_g,
+                }
+            )
+
     dfp = pd.DataFrame(rows)
-    
-    return (
-        dfp
-        .groupby(['norm__func', 'dr__method', 'n_clusters'], as_index=False)
-        .mean()
-    )
-    
-    
+
+    return dfp.groupby(
+        ["norm__func", "dr__method", "n_clusters"], as_index=False
+    ).mean()
+
+
 def align_cluster_labels(
-    reference_labels: np.ndarray, 
-    labels: np.ndarray
+    reference_labels: np.ndarray,
+    labels: np.ndarray,
 ) -> np.ndarray:
     """Align labels to reference labels using Hungarian assignment.
 
@@ -205,26 +208,18 @@ def align_cluster_labels(
     aligned : ndarray of shape (n_samples,)
         Aligned labels with best matching permutation.
     """
-    # get contingency matrix
     cont = contingency_matrix(reference_labels, labels)
-    
-    # solve assignment on -cont to max matches
     row_ind, col_ind = linear_sum_assignment(-cont)
-    
-    # align order
+
     true_classes = np.unique(reference_labels)
     pred_classes = np.unique(labels)
-    
-    # build mapping
+
     mapping = {
-        pred_classes[col]: true_classes[row]
-        for row, col in zip(row_ind, col_ind)
+        pred_classes[col]: true_classes[row] for row, col in zip(row_ind, col_ind)
     }
-    
     for pc in pred_classes:
         mapping.setdefault(pc, pc)
 
-    # apply mapping
     aligned = np.array([mapping[lbl] for lbl in labels], dtype=reference_labels.dtype)
     return aligned
 
@@ -247,16 +242,16 @@ def ensure_2d_array(X: ArrayLike) -> np.ndarray:
     ValueError
         If the input cannot be converted to a 2D array.
     """
-    if isinstance(X, pd.DataFrame):     # Convert Pandas DataFrame to NumPy array
+    if isinstance(X, pd.DataFrame):
         return X.values
-    elif isinstance(X, np.ndarray):     # Ensure the array is 2D
+    elif isinstance(X, np.ndarray):
         if X.ndim == 1:
-            return X.reshape(-1, 1)     
+            return X.reshape(-1, 1)
         elif X.ndim == 2:
             return X
         else:
             raise ValueError("Input NumPy array must be 1D or 2D.")
-    elif isinstance(X, list):           # Convert list to NumPy array and ensure it's 2D
+    elif isinstance(X, list):
         return np.atleast_2d(np.array(X))
     else:
         raise ValueError("Input must be a NumPy array, Pandas DataFrame, or a list.")

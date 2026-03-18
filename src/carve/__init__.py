@@ -1,7 +1,7 @@
-# Lightweight, minimal API surface and version | should modify later
+"""CARVE: Cluster Analysis with Resampling for Validation and Exploration."""
+
 __version__ = "0.1.0"
 
-# Re-export key functions/classes for a clean top-level API
 from .api import CARVE
 from .cluster import SpectralClusteringCARVE
 
