@@ -33,6 +33,7 @@ from ._utils import (
     align_cluster_labels,
     ensure_2d_array,
     summarize_preprocessing_records,
+    _coerce_n_clusters
 )
 
 
@@ -65,13 +66,17 @@ class CARVE(BaseEstimator):
     """
 
     # --- Constructor parameters ---
-    n_clusters: int | np.ndarray = 10
+    n_clusters: int | np.ndarray = field(default_factory=lambda: np.arange(2, 10 + 1, dtype=int))
     n_resamples: int = 100
     subsample_ratio: float = 0.8
+    
     estimator_param_grids: list[GridSpec] | None = None
     normalization_options: list[PreprocOption] | None = None
     dim_reduction_options: list[PreprocOption] | None = None
+    
+    X_: np.ndarray | None = field(init=False, default=None)
     reference_labels: np.ndarray | None = None
+    
     n_jobs: int = 1
     random_state: int | None = None
     verbose: int = 1
@@ -94,7 +99,6 @@ class CARVE(BaseEstimator):
 
     # --- Global rates ---
     misclassification_rates_: np.ndarray | None = field(init=False, default=None)
-    X_: np.ndarray | None = field(init=False, default=None)
 
     # ------------------------------------------------------------------ #
     #  Core Methods                                                      #
@@ -145,28 +149,48 @@ class CARVE(BaseEstimator):
                 stacklevel=2,
             )
 
+        # --- Resolve X and reference labels ---
         X = ensure_2d_array(X)
         self.X_ = X
 
         if reference_labels is not None:
             ref_arr = np.asarray(reference_labels)
+            
             if not np.issubdtype(ref_arr.dtype, np.integer):
                 ref_arr, _ = pd.factorize(ref_arr)
+            
             self.reference_labels = ref_arr
 
-        # --- Resolve defaults ---
-        estimator_grids = self.estimator_param_grids or default_estimator_grids(
-            X, self.n_clusters
-        )
+        # --- Resolve default grids including n_clusters ---
+        if self.estimator_param_grids is None:  # Default estimator grids
+            n_clusters_arr = _coerce_n_clusters(self.n_clusters)
+            estimator_grids = default_estimator_grids(X, n_clusters_arr)
+        
+        else:  # User-provided estimator grids (verify consistency of n_clusters)
+            estimator_grids = self.estimator_param_grids
+            
+            # Extract n_clusters from first grid
+            n_clusters_arr = estimator_grids[0][1].get("n_clusters", None)
+            
+            # Verify all grids have the same n_clusters
+            for _, grid in estimator_grids[1: ]:
+                grid_n_clusters = grid.get("n_clusters", None)
+                
+                if not np.array_equal(n_clusters_arr, grid_n_clusters):
+                    raise ValueError(
+                        "All estimator parameter grids must contain the same n_clusters values."
+                    )
+            
         self.estimator_param_grids_ = estimator_grids
+        
+        # --- Resolve preprocessing options ---
         norm_options = self.normalization_options or default_normalization_options()
-        dr_options = self.dim_reduction_options or default_dim_reduction_options(
-            X, self.subsample_ratio
-        )
+        dr_options = self.dim_reduction_options or default_dim_reduction_options(X, self.subsample_ratio)
 
+        # --- Print run header ---
         _print_run_header(
             X=X,
-            n_clusters=self.n_clusters,
+            n_clusters=n_clusters_arr,
             n_resamples=self.n_resamples,
             subsample_ratio=self.subsample_ratio,
             estimator_grids=estimator_grids,

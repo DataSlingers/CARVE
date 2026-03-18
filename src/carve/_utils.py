@@ -44,6 +44,53 @@ def split_subsample_indices(
     return train_idx, test_idx
 
 
+def _coerce_n_clusters(
+    value: int | np.ndarray
+) -> np.ndarray:
+    """Coerce a cluster-count specification to a 1D integer NumPy array.
+
+    Parameters
+    ----------
+    value : int or ndarray
+        Cluster-count input. If an integer K is provided, this function
+        returns the range 2..K (inclusive). If an array-like is provided,
+        it is validated and converted to an integer ndarray.
+
+    Returns
+    -------
+    n_clusters : ndarray of shape (n_values,)
+        One-dimensional integer array of cluster counts, where all values
+        are greater than or equal to 2.
+
+    Raises
+    ------
+    ValueError
+        If an integer input is smaller than 2, if the provided array is not
+        one-dimensional, or if any cluster count is smaller than 2.
+    TypeError
+        If the provided array does not contain integer values.
+    """
+    if isinstance(value, (int, np.integer)):
+        k = int(value)
+        
+        if k < 2:
+            raise ValueError("n_clusters int must be >= 2.")
+        
+        return np.arange(2, k + 1, dtype=int)
+
+    arr = np.asarray(value)
+    if arr.ndim != 1:
+        raise ValueError("n_clusters must be a 1D array.")
+    
+    if not np.issubdtype(arr.dtype, np.integer):
+        raise TypeError("n_clusters array must contain integers.")
+    
+    if np.any(arr < 2):
+        raise ValueError("All n_clusters values must be >= 2.")
+    
+    return arr.astype(int, copy=False)
+
+
 def _summarize_ari_scores(
     x: list[float] | np.ndarray,
     n_resamples: int,

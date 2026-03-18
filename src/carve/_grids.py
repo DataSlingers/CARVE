@@ -67,10 +67,7 @@ def default_estimator_grids(
             return [1.0 for _ in quantiles]
         return [float(1.0 / (2.0 * np.quantile(d2, q))) for q in quantiles]
 
-    if isinstance(n_clusters, int):
-        ks = list(range(2, n_clusters + 1))
-    else:
-        ks = list(np.asarray(n_clusters).tolist())
+    ks = list(np.asarray(n_clusters).tolist())
 
     return [
         (KMeans, {"n_clusters": ks}),
