@@ -904,6 +904,7 @@ def plot_cluster_scatter(
     legend: bool = True,
     legend_loc: str = "right margin",
     title: str | None = None,
+    scores_name: str = "Score",
     xlabel: str = "Component 1",
     ylabel: str = "Component 2",
     frameon: bool = False,
@@ -945,6 +946,8 @@ def plot_cluster_scatter(
         Legend location. "right margin" places the legend outside the axes.
     title : str, optional
         Figure title.
+    scores_name : str, default="Score"
+        Name for the score variable in the plot.
     xlabel : str, default="Component 1"
         X-axis label.
     ylabel : str, default="Component 2"
@@ -1102,7 +1105,7 @@ def plot_cluster_scatter(
                     [0],
                     marker="o",
                     linestyle="",
-                    label=f"{lab} (mean={cluster_mean[lab]:.2f})",
+                    label=f"{lab} (Mean = {cluster_mean[lab]:.2f})",
                     markerfacecolor=(
                         col[0],
                         col[1],
@@ -1117,7 +1120,7 @@ def plot_cluster_scatter(
         if legend_loc == "right margin":
             ax.legend(
                 handles=handles,
-                title="Cluster",
+                title=f"Cluster, {scores_name}",
                 frameon=False,
                 bbox_to_anchor=(1.02, 0.5),
                 loc="center left",

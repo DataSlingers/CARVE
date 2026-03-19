@@ -1265,18 +1265,21 @@ class CARVE(BaseEstimator):
                     "Gini stability scores are not available for this run."
                 )
             scores = np.asarray(self.stability_gini_scores_[best_idx], dtype=float)
+            scores_name = "Gini Stability"
         elif source == "ce":
             if self.stability_ce_scores_ is None:
                 raise RuntimeError(
                     "CE stability scores are not available for this run."
                 )
             scores = np.asarray(self.stability_ce_scores_[best_idx], dtype=float)
+            scores_name = "CE Stability"
         elif source == "misclassification":
             if self.generalizability_scores_ is None:
                 raise RuntimeError(
                     "Generalizability scores are not available for this run."
                 )
             scores = np.asarray(self.generalizability_scores_[best_idx], dtype=float)
+            scores_name = "Generalizability"
         else:
             raise ValueError(
                 "source must be one of: 'misclassification', 'gini', 'ce'."
@@ -1326,6 +1329,7 @@ class CARVE(BaseEstimator):
             legend=legend,
             legend_loc=legend_loc,
             title=title,
+            scores_name=scores_name,
             xlabel=xlabel,
             ylabel=ylabel,
             frameon=frameon,
