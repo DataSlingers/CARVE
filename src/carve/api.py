@@ -358,8 +358,8 @@ class CARVE(BaseEstimator):
     def get_labels(
         self,
         *,
-        measure: str = "stability",
-        rule: str = "max",
+        measure: str = "generalizability",
+        rule: str = "1se",
         k: int | None = None,
         mode: Literal["default", "generalizability"] = "default",
         estimator: ClusterMixin | None = None,
@@ -368,12 +368,12 @@ class CARVE(BaseEstimator):
 
         Parameters
         ----------
-        measure : str, default="stability"
+        measure : str, default="generalizability"
             Metric key used to select the best configuration. Common
             aliases: ``"stability"`` / ``"s"``, ``"generalizability"`` /
             ``"g"``, ``"average"`` / ``"avg"``, ``"pac"``, ``"gini"``,
             ``"ce"``, ``"misclassification"``.
-        rule : str, default="max"
+        rule : str, default="1se"
             Selection rule. ``"max"`` picks the configuration with the
             highest score. ``"1se"`` picks the largest *k* within one
             standard error of the best score. ``"quantile"`` picks the
@@ -486,19 +486,19 @@ class CARVE(BaseEstimator):
     def get_k(
         self,
         *,
-        measure: str = "stability",
-        rule: str = "max",
+        measure: str = "generalizability",
+        rule: str = "1se",
     ) -> int:
         """Return the best number of clusters.
 
         Parameters
         ----------
-        measure : str, default="stability"
+        measure : str, default="generalizability"
             Metric key used to select the best configuration. Common
             aliases: ``"stability"`` / ``"s"``, ``"generalizability"`` /
             ``"g"``, ``"average"`` / ``"avg"``, ``"pac"``, ``"gini"``,
             ``"ce"``, ``"misclassification"``.
-        rule : str, default="max"
+        rule : str, default="1se"
             Selection rule. ``"max"`` picks the configuration with the
             highest score. ``"1se"`` picks the largest *k* within one
             standard error of the best score. ``"quantile"`` picks the
@@ -522,19 +522,19 @@ class CARVE(BaseEstimator):
     def get_estimator(
         self,
         *,
-        measure: str = "stability",
-        rule: str = "max",
+        measure: str = "generalizability",
+        rule: str = "1se",
     ) -> ClusterMixin:
         """Return the best estimator.
 
         Parameters
         ----------
-        measure : str, default="stability"
+        measure : str, default="generalizability"
             Metric key used to select the best configuration. Common
             aliases: ``"stability"`` / ``"s"``, ``"generalizability"`` /
             ``"g"``, ``"average"`` / ``"avg"``, ``"pac"``, ``"gini"``,
             ``"ce"``, ``"misclassification"``.
-        rule : str, default="max"
+        rule : str, default="1se"
             Selection rule. ``"max"`` picks the configuration with the
             highest score. ``"1se"`` picks the largest *k* within one
             standard error of the best score. ``"quantile"`` picks the
@@ -567,7 +567,7 @@ class CARVE(BaseEstimator):
     def plot_metric_over_n_clusters(
         self,
         *,
-        measure: str = "stability",
+        measure: str = "generalizability",
         rule: str = "1se",
         ax=None,
         figsize: tuple | None = None,
@@ -591,7 +591,7 @@ class CARVE(BaseEstimator):
 
         Parameters
         ----------
-        measure : str, default="stability"
+        measure : str, default="generalizability"
             Metric to plot. Options include: "stability", "ari_stability",
             "generalizability", "ari_generalizability", "average", "ari_average",
             "pac", "consensus_pac_stability", "gini", "consensus_gini_stability",
@@ -671,7 +671,7 @@ class CARVE(BaseEstimator):
     def plot_consensus_matrix(
         self,
         *,
-        measure: str = "stability",
+        measure: str = "generalizability",
         rule: str = "1se",
         mode: Literal["default", "stability", "generalizability"] = "default",
         k: int | None = None,
@@ -693,7 +693,7 @@ class CARVE(BaseEstimator):
 
         Parameters
         ----------
-        measure : str, default="stability"
+        measure : str, default="generalizability"
             Metric key used for model selection.
         rule : str, default="1se"
             Selection rule ("max", "1se", "quantile").
@@ -789,7 +789,7 @@ class CARVE(BaseEstimator):
         self,
         *,
         source: Literal["gini", "ce", "misclassification"] = "gini",
-        measure: str = "stability",
+        measure: str = "generalizability",
         rule: str = "1se",
         mode: Literal["default", "stability", "generalizability"] = "default",
         k: int | None = None,
@@ -816,7 +816,7 @@ class CARVE(BaseEstimator):
         ----------
         source : {"gini", "ce", "misclassification"}, default="gini"
             Score source for per-sample values.
-        measure : str, default="stability"
+        measure : str, default="generalizability"
             Metric key used for model selection.
         rule : str, default="1se"
             Selection rule.
@@ -944,7 +944,7 @@ class CARVE(BaseEstimator):
         self,
         *,
         source: Literal["gini", "ce", "misclassification"] = "gini",
-        measure: str = "stability",
+        measure: str = "generalizability",
         rule: str = "1se",
         mode: Literal["default", "stability", "generalizability"] = "default",
         k: int | None = None,
@@ -977,7 +977,7 @@ class CARVE(BaseEstimator):
         ----------
         source : {"gini", "ce", "misclassification"}, default="gini"
             Score source for per-sample values.
-        measure : str, default="stability"
+        measure : str, default="generalizability"
             Metric key used for model selection.
         rule : str, default="1se"
             Selection rule.
@@ -1117,7 +1117,7 @@ class CARVE(BaseEstimator):
         self,
         *,
         source: Literal["gini", "ce", "misclassification"] = "gini",
-        measure: str = "stability",
+        measure: str = "generalizability",
         rule: str = "1se",
         mode: Literal["default", "stability", "generalizability"] = "default",
         k: int | None = None,
@@ -1152,7 +1152,7 @@ class CARVE(BaseEstimator):
         ----------
         source : {"gini", "ce", "misclassification"}, default="gini"
             Score source for per-sample values.
-        measure : str, default="stability"
+        measure : str, default="generalizability"
             Metric key used for model selection.
         rule : str, default="1se"
             Selection rule.
