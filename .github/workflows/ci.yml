@@ -37,4 +37,11 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Run tests
-        run: pytest
+        run: pytest -v --tb=short --junitxml=report.xml
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: report.xml
