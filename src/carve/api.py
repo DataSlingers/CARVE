@@ -891,9 +891,6 @@ class CARVE(BaseEstimator):
                 )
             scores = np.asarray(self.generalizability_scores_[best_idx], dtype=float)
             default_ylabel = "Cluster Generalizability"
-            
-            print(f'generalizability scores shape: {scores.shape}')
-            print(f'generalizability scores: {scores}')
 
         else:
             raise ValueError(
@@ -936,6 +933,15 @@ class CARVE(BaseEstimator):
             annotation_text = annotation
         else:
             annotation_text = None
+
+        # TODO: fix bug where boxplot of generalizability scores isn't properly displayed
+        # --- Debugging: print mean scores grouped by labels ---
+        # score_by_cluster = pd.DataFrame({  
+        #     'cluster': labels,
+        #     'score': scores
+        # }).groupby('cluster')['score'].agg(['count', 'mean', 'std', 'min', 'max'])
+
+        # print(f"Score statistics by cluster:\n{score_by_cluster}\n")
 
         # --- Plot ---
         return _plot_cluster_boxplot(
