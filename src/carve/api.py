@@ -226,6 +226,7 @@ class CARVE(BaseEstimator):
         )
 
         self.estimator_results_ = pd.DataFrame.from_records(estimator_records)
+        
         self.preprocessing_results_ = (
             None
             if not randomize_preprocessing
@@ -233,44 +234,38 @@ class CARVE(BaseEstimator):
         )
 
         n_rows = int(self.estimator_results_.shape[0])
-
-        # --- Stability-derived metrics ---
-        if policy.run_stability and self.consensus_matrices_ is not None:
+        
+        # --- Stability-derived metrics ---d
+        if policy.run_stability and self.consensus_matrices_ is not None:  # Default route
             gini_list, ce_list, pac_list = compute_consensus_metrics(
                 self.consensus_matrices_
             )
 
             self.stability_gini_scores_ = np.vstack(gini_list)
             self.stability_ce_scores_ = np.vstack(ce_list)
+            
             self.estimator_results_["consensus_pac_stability"] = pac_list
-            self.estimator_results_["consensus_gini_stability"] = (
-                self.stability_gini_scores_.mean(axis=1)
-            )
-            self.estimator_results_["consensus_ce_stability"] = (
-                self.stability_ce_scores_.mean(axis=1)
-            )
-        else:
+            self.estimator_results_["consensus_gini_stability"] = self.stability_gini_scores_.mean(axis=1)
+            self.estimator_results_["consensus_ce_stability"] = self.stability_ce_scores_.mean(axis=1)
+            
+        else:  # If not running stability, set these attributes to None/NaN
             self.stability_gini_scores_ = None
             self.stability_ce_scores_ = None
+            
             self.estimator_results_["consensus_pac_stability"] = np.full(n_rows, np.nan)
-            self.estimator_results_["consensus_gini_stability"] = np.full(
-                n_rows, np.nan
-            )
+            self.estimator_results_["consensus_gini_stability"] = np.full(n_rows, np.nan)
             self.estimator_results_["consensus_ce_stability"] = np.full(n_rows, np.nan)
 
         # --- Generalizability-derived metrics ---
-        if policy.run_generalizability and self.generalizability_scores_ is not None:
+        if policy.run_generalizability and self.generalizability_scores_ is not None:  # Default route
             gen_arr = np.vstack(self.generalizability_scores_)
+            
             self.misclassification_rates_ = np.clip(gen_arr, 0.0, 1.0)
-
-            self.estimator_results_["misclassification_generalizability"] = (
-                self.misclassification_rates_.mean(axis=1)
-            )
-        else:
+            self.estimator_results_["misclassification_generalizability"] = self.misclassification_rates_.mean(axis=1)
+            
+        else:  # If not running generalizability, set these attributes to None/NaN
             self.misclassification_rates_ = None
-            self.estimator_results_["misclassification_generalizability"] = np.full(
-                n_rows, np.nan
-            )
+            self.estimator_results_["misclassification_generalizability"] = np.full(n_rows, np.nan)
 
         _print_run_footer(estimator_df=self.estimator_results_, verbose=self.verbose)
 
