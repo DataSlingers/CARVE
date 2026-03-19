@@ -17,9 +17,17 @@ dependencies = [
   "llvmlite>=0.43,<0.44",
   "umap-learn>=0.5.6",
   "pynndescent>=0.5.10,<0.6",
+  "matplotlib>=3.9.4",
+]
+
+[project.optional-dependencies]
+dev = [
+  "ruff",
+  "pytest",
+]
+notebooks = [
   "jupyterlab>=4.2,<5",
   "ipykernel>=6.29,<7",
-  "matplotlib>=3.9.4",
   "ipywidgets>=8.1.7",
   "plotly>=6.3.0",
   "rpy2>=3.6.3",
@@ -34,12 +42,6 @@ dependencies = [
   "scvi>=0.6.8",
   "cmap>=0.7.0",
   "glasbey>=0.3.0",
-]
-
-[project.optional-dependencies]
-dev = [
-  "ruff",
-  "pytest",
 ]
 
 [tool.setuptools.packages.find]
