@@ -99,8 +99,6 @@ class CARVE(BaseEstimator):
         configuration.
     generalizability_scores_ : list of ndarray or None
         Per-sample generalizability scores for each configuration.
-    misclassification_rates_ : ndarray or None
-        Clipped per-sample misclassification rates for each configuration.
     X_ : ndarray or None
         Input data stored after fitting.
 
@@ -159,9 +157,6 @@ class CARVE(BaseEstimator):
     stability_gini_scores_: np.ndarray | None = field(init=False, default=None)
     stability_ce_scores_: np.ndarray | None = field(init=False, default=None)
     generalizability_scores_: list[np.ndarray] | None = field(init=False, default=None)
-
-    # --- Global rates ---
-    misclassification_rates_: np.ndarray | None = field(init=False, default=None)
 
     # ------------------------------------------------------------------ #
     #  Core Methods                                                      #
@@ -340,14 +335,11 @@ class CARVE(BaseEstimator):
             policy.run_generalizability and self.generalizability_scores_ is not None
         ):  # Default route
             gen_arr = np.vstack(self.generalizability_scores_)
-
-            self.misclassification_rates_ = np.clip(gen_arr, 0.0, 1.0)
             self.estimator_results_["misclassification_generalizability"] = (
-                self.misclassification_rates_.mean(axis=1)
+                gen_arr.mean(axis=1)
             )
 
         else:  # If not running generalizability, set these attributes to None/NaN
-            self.misclassification_rates_ = None
             self.estimator_results_["misclassification_generalizability"] = np.full(
                 n_rows, np.nan
             )
@@ -899,6 +891,9 @@ class CARVE(BaseEstimator):
                 )
             scores = np.asarray(self.generalizability_scores_[best_idx], dtype=float)
             default_ylabel = "Cluster Generalizability"
+            
+            print(f'generalizability scores shape: {scores.shape}')
+            print(f'generalizability scores: {scores}')
 
         else:
             raise ValueError(
