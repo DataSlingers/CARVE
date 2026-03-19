@@ -46,7 +46,7 @@ class CARVE(BaseEstimator):
 
     CARVE evaluates clustering robustness by repeatedly subsampling the
     input data, running clustering algorithms on each subsample, building
-    consensus matrices, and computing stability and generalizability metrics. 
+    consensus matrices, and computing stability and generalizability metrics.
     It is compatible with the scikit-learn estimator interface.
 
     Parameters
@@ -328,15 +328,11 @@ class CARVE(BaseEstimator):
             self.stability_gini_scores_ = None
             self.stability_ce_scores_ = None
 
-            self.estimator_results_["consensus_pac_stability"] = np.full(
-                n_rows, np.nan
-            )
+            self.estimator_results_["consensus_pac_stability"] = np.full(n_rows, np.nan)
             self.estimator_results_["consensus_gini_stability"] = np.full(
                 n_rows, np.nan
             )
-            self.estimator_results_["consensus_ce_stability"] = np.full(
-                n_rows, np.nan
-            )
+            self.estimator_results_["consensus_ce_stability"] = np.full(n_rows, np.nan)
 
         # --- Generalizability-derived metrics ---
         if (
