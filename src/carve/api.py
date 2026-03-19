@@ -36,50 +36,109 @@ from ._utils import (
     align_cluster_labels,
     ensure_2d_array,
     summarize_preprocessing_records,
-    _coerce_n_clusters
+    _coerce_n_clusters,
 )
 
 
 @dataclass
 class CARVE(BaseEstimator):
-    """CARVE validator.
+    """Stability and generalizability validator for clustering methods.
+
+    CARVE evaluates clustering robustness by repeatedly subsampling the
+    input data, running clustering algorithms on each subsample, building
+    consensus matrices, and computing stability and generalizability metrics. 
+    It is compatible with the scikit-learn estimator interface.
 
     Parameters
     ----------
     n_clusters : int or np.ndarray, default=10
-        Number(s) of clusters to evaluate.
+        Number(s) of clusters to evaluate. If an integer *K* is provided,
+        all values from 2 to *K* (inclusive) are evaluated.
     n_resamples : int, default=100
-        Number of resampling iterations.
+        Number of resampling iterations per estimator configuration.
     subsample_ratio : float, default=0.8
-        Subsampling proportion.
+        Fraction of samples drawn without replacement per resample.
+        Must be in (0, 1).
     estimator_param_grids : list of (Estimator, param_grid) tuples, optional
-        Clustering estimators and their parameter grids.
+        Clustering estimators and their parameter grids. If None, defaults
+        include KMeans, AgglomerativeClustering, and SpectralClustering.
     normalization_options : list of preprocessing specs, optional
-        Normalization preprocessing options.
+        Normalization preprocessing options. If None, defaults include
+        identity, StandardScaler, and log1p.
     dim_reduction_options : list of dimensionality reduction specs, optional
-        Dimensionality reduction preprocessing options.
+        Dimensionality reduction preprocessing options. If None, defaults
+        include identity, PCA, t-SNE, and UMAP.
     reference_labels : array-like of shape (n_samples,), optional
-        Reference labels for consistent plots.
+        Reference labels used to align cluster assignments across
+        successive ``get_labels`` calls so that cluster indices remain
+        consistent.
     n_jobs : int, default=1
-        Parallelism.
+        Number of parallel jobs for resampling. ``-1`` uses all cores.
     random_state : int, optional
-        RNG seed.
+        Seed for the random number generator, ensuring reproducibility.
     verbose : int, default=1
-        Verbosity level for console output.
+        Verbosity level for console output during fitting.
+
+    Attributes
+    ----------
+    estimator_results_ : pandas.DataFrame
+        Per-configuration aggregate metrics populated by ``fit``.
+    estimator_param_grids_ : list of tuple
+        Resolved estimator grids used during fitting.
+    preprocessing_results_ : pandas.DataFrame or None
+        Preprocessing summary when ``randomize_preprocessing=True``.
+    consensus_matrices_ : list of ndarray
+        Stability consensus matrices, one per configuration.
+    consensus_generalizability_matrices_ : list of ndarray
+        Generalizability consensus matrices, one per configuration.
+    stability_gini_scores_ : ndarray or None
+        Per-sample Gini stability scores for each configuration.
+    stability_ce_scores_ : ndarray or None
+        Per-sample classification entropy stability scores for each
+        configuration.
+    generalizability_scores_ : list of ndarray or None
+        Per-sample generalizability scores for each configuration.
+    misclassification_rates_ : ndarray or None
+        Clipped per-sample misclassification rates for each configuration.
+    X_ : ndarray or None
+        Input data stored after fitting.
+
+    Notes
+    -----
+    The validation pipeline proceeds as follows: for each estimator
+    configuration (estimator type x hyperparameters x *k*), CARVE draws
+    ``n_resamples`` random subsamples, clusters each subsample, and
+    measures stability (intra-subsample ARI and consensus-matrix metrics)
+    and generalizability (held-out prediction via a random forest).
+
+    See Also
+    --------
+    SpectralClusteringCARVE : Custom spectral clustering variant included
+        in the default estimator grid.
+
+    Examples
+    --------
+    >>> from carve import CARVE
+    >>> carve = CARVE(n_clusters=10, n_resamples=200, subsample_ratio=0.6)
+    >>> carve.fit(X)
+    >>> labels = carve.get_labels(measure="stability", rule="1se")
+    >>> k = carve.get_k(measure="generalizability", rule="1se")
     """
 
     # --- Constructor parameters ---
-    n_clusters: int | np.ndarray = field(default_factory=lambda: np.arange(2, 10 + 1, dtype=int))
+    n_clusters: int | np.ndarray = field(
+        default_factory=lambda: np.arange(2, 10 + 1, dtype=int)
+    )
     n_resamples: int = 100
     subsample_ratio: float = 0.8
-    
+
     estimator_param_grids: list[GridSpec] | None = None
     normalization_options: list[PreprocOption] | None = None
     dim_reduction_options: list[PreprocOption] | None = None
-    
+
     X_: np.ndarray | None = field(init=False, default=None)
     reference_labels: np.ndarray | None = None
-    
+
     n_jobs: int = 1
     random_state: int | None = None
     verbose: int = 1
@@ -130,20 +189,29 @@ class CARVE(BaseEstimator):
             Reference labels used for generalizability metrics.
             Overrides the ``reference_labels`` passed at __init__ if given.
         randomize_preprocessing : bool, default=False
-            Whether to randomize preprocessing pipelines.
+            Whether to randomize preprocessing pipelines. When True, a
+            random normalization and dimensionality reduction combination
+            is sampled independently for each resample iteration.
         show_progress : bool, default=False
-            Show progress bar.
-        mode : Literal['default', 'stability', 'generalizability'], default='default'
-            Determines whether to run CARVE regularly ('default') or whether
-            to only run stability analysis ('stability'),
-            or generalizability analysis ('generalizability').
+            Display a tqdm progress bar over grid configurations.
+        mode : {"default", "stability", "generalizability"}, default="default"
+            ``"default"`` runs both stability and generalizability
+            analyses. ``"stability"`` skips generalizability (no
+            held-out prediction). ``"generalizability"`` skips stability
+            (no second subsample or consensus metrics).
         random_state : int, optional
-            Per-call RNG seed. If None, uses self.random_state.
+            Per-call RNG seed. If None, uses ``self.random_state``.
 
         Returns
         -------
         self : CARVE
             Fitted instance.
+
+        Raises
+        ------
+        ValueError
+            If estimator parameter grids have inconsistent ``n_clusters``
+            values.
         """
         policy = resolve_mode(mode)
         if policy.mode != "default":
@@ -159,37 +227,39 @@ class CARVE(BaseEstimator):
 
         if reference_labels is not None:
             ref_arr = np.asarray(reference_labels)
-            
+
             if not np.issubdtype(ref_arr.dtype, np.integer):
                 ref_arr, _ = pd.factorize(ref_arr)
-            
+
             self.reference_labels = ref_arr
 
         # --- Resolve default grids including n_clusters ---
         if self.estimator_param_grids is None:  # Default estimator grids
             n_clusters_arr = _coerce_n_clusters(self.n_clusters)
             estimator_grids = default_estimator_grids(X, n_clusters_arr)
-        
+
         else:  # User-provided estimator grids (verify consistency of n_clusters)
             estimator_grids = self.estimator_param_grids
-            
+
             # Extract n_clusters from first grid
             n_clusters_arr = estimator_grids[0][1].get("n_clusters", None)
-            
+
             # Verify all grids have the same n_clusters
-            for _, grid in estimator_grids[1: ]:
+            for _, grid in estimator_grids[1:]:
                 grid_n_clusters = grid.get("n_clusters", None)
-                
+
                 if not np.array_equal(n_clusters_arr, grid_n_clusters):
                     raise ValueError(
                         "All estimator parameter grids must contain the same n_clusters values."
                     )
-            
+
         self.estimator_param_grids_ = estimator_grids
-        
+
         # --- Resolve preprocessing options ---
         norm_options = self.normalization_options or default_normalization_options()
-        dr_options = self.dim_reduction_options or default_dim_reduction_options(X, self.subsample_ratio)
+        dr_options = self.dim_reduction_options or default_dim_reduction_options(
+            X, self.subsample_ratio
+        )
 
         # --- Print run header ---
         _print_run_header(
@@ -226,7 +296,7 @@ class CARVE(BaseEstimator):
         )
 
         self.estimator_results_ = pd.DataFrame.from_records(estimator_records)
-        
+
         self.preprocessing_results_ = (
             None
             if not randomize_preprocessing
@@ -234,38 +304,56 @@ class CARVE(BaseEstimator):
         )
 
         n_rows = int(self.estimator_results_.shape[0])
-        
-        # --- Stability-derived metrics ---d
-        if policy.run_stability and self.consensus_matrices_ is not None:  # Default route
+
+        # --- Stability-derived metrics ---
+        if (
+            policy.run_stability and self.consensus_matrices_ is not None
+        ):  # Default route
             gini_list, ce_list, pac_list = compute_consensus_metrics(
                 self.consensus_matrices_
             )
 
             self.stability_gini_scores_ = np.vstack(gini_list)
             self.stability_ce_scores_ = np.vstack(ce_list)
-            
+
             self.estimator_results_["consensus_pac_stability"] = pac_list
-            self.estimator_results_["consensus_gini_stability"] = self.stability_gini_scores_.mean(axis=1)
-            self.estimator_results_["consensus_ce_stability"] = self.stability_ce_scores_.mean(axis=1)
-            
+            self.estimator_results_["consensus_gini_stability"] = (
+                self.stability_gini_scores_.mean(axis=1)
+            )
+            self.estimator_results_["consensus_ce_stability"] = (
+                self.stability_ce_scores_.mean(axis=1)
+            )
+
         else:  # If not running stability, set these attributes to None/NaN
             self.stability_gini_scores_ = None
             self.stability_ce_scores_ = None
-            
-            self.estimator_results_["consensus_pac_stability"] = np.full(n_rows, np.nan)
-            self.estimator_results_["consensus_gini_stability"] = np.full(n_rows, np.nan)
-            self.estimator_results_["consensus_ce_stability"] = np.full(n_rows, np.nan)
+
+            self.estimator_results_["consensus_pac_stability"] = np.full(
+                n_rows, np.nan
+            )
+            self.estimator_results_["consensus_gini_stability"] = np.full(
+                n_rows, np.nan
+            )
+            self.estimator_results_["consensus_ce_stability"] = np.full(
+                n_rows, np.nan
+            )
 
         # --- Generalizability-derived metrics ---
-        if policy.run_generalizability and self.generalizability_scores_ is not None:  # Default route
+        if (
+            policy.run_generalizability and self.generalizability_scores_ is not None
+        ):  # Default route
             gen_arr = np.vstack(self.generalizability_scores_)
-            
+
             self.misclassification_rates_ = np.clip(gen_arr, 0.0, 1.0)
-            self.estimator_results_["misclassification_generalizability"] = self.misclassification_rates_.mean(axis=1)
-            
+            self.estimator_results_["misclassification_generalizability"] = (
+                self.misclassification_rates_.mean(axis=1)
+            )
+
         else:  # If not running generalizability, set these attributes to None/NaN
             self.misclassification_rates_ = None
-            self.estimator_results_["misclassification_generalizability"] = np.full(n_rows, np.nan)
+            self.estimator_results_["misclassification_generalizability"] = np.full(
+                n_rows, np.nan
+            )
 
         _print_run_footer(estimator_df=self.estimator_results_, verbose=self.verbose)
 
@@ -285,9 +373,15 @@ class CARVE(BaseEstimator):
         Parameters
         ----------
         measure : str, default="stability"
-            Metric key used to select the best configuration.
+            Metric key used to select the best configuration. Common
+            aliases: ``"stability"`` / ``"s"``, ``"generalizability"`` /
+            ``"g"``, ``"average"`` / ``"avg"``, ``"pac"``, ``"gini"``,
+            ``"ce"``, ``"misclassification"``.
         rule : str, default="max"
-            Selection rule ("max", "1se", or "quantile").
+            Selection rule. ``"max"`` picks the configuration with the
+            highest score. ``"1se"`` picks the largest *k* within one
+            standard error of the best score. ``"quantile"`` picks the
+            largest *k* within the best score's quantile bounds.
         k : int or None, default=None
             Optional fixed number of clusters to select. If None, uses the
             value selected by ``measure`` and ``rule``.
@@ -302,12 +396,23 @@ class CARVE(BaseEstimator):
         -------
         labels : ndarray of shape (n_samples,)
             Clustering labels derived from the selected consensus matrix.
+
+        Raises
+        ------
+        RuntimeError
+            If the instance has not been fitted yet or if the required
+            consensus matrix is not available.
+        ValueError
+            If no configurations match the given *k*.
         """
         policy = resolve_mode(mode)
-        
+
         if (
             (self.consensus_matrices_ is None and policy.run_stability)
-            or (self.consensus_generalizability_matrices_ is None and policy.run_generalizability)
+            or (
+                self.consensus_generalizability_matrices_ is None
+                and policy.run_generalizability
+            )
             or self.estimator_results_ is None
         ):
             raise RuntimeError("Call fit() first.")
@@ -319,20 +424,23 @@ class CARVE(BaseEstimator):
             row = select_best_row_by_rule(df, measure=measure, rule=rule)
             k = int(row["n_clusters"])
             best_idx = int(row.name)
-        
+
         else:
             df_k = df[df["n_clusters"] == k]
-            
+
             if df_k.empty:
                 raise ValueError(f"No configurations found for k={k}.")
-            
+
             row = select_best_row_by_rule(df_k, measure=measure, rule=rule)
             best_idx = int(row.name)
 
         # --- Retrieve the consensus matrix ---
         if policy.run_stability and self.consensus_matrices_ is not None:
             M_raw = self.consensus_matrices_[best_idx]
-        elif policy.run_generalizability and self.consensus_generalizability_matrices_ is not None:
+        elif (
+            policy.run_generalizability
+            and self.consensus_generalizability_matrices_ is not None
+        ):
             M_raw = self.consensus_generalizability_matrices_[best_idx]
         else:
             raise ValueError("Mode must be 'default' or 'generalizability'.")
@@ -390,14 +498,25 @@ class CARVE(BaseEstimator):
         Parameters
         ----------
         measure : str, default="stability"
-            Metric key used to select the best configuration.
+            Metric key used to select the best configuration. Common
+            aliases: ``"stability"`` / ``"s"``, ``"generalizability"`` /
+            ``"g"``, ``"average"`` / ``"avg"``, ``"pac"``, ``"gini"``,
+            ``"ce"``, ``"misclassification"``.
         rule : str, default="max"
-            Selection rule ("max", "1se", or "quantile").
+            Selection rule. ``"max"`` picks the configuration with the
+            highest score. ``"1se"`` picks the largest *k* within one
+            standard error of the best score. ``"quantile"`` picks the
+            largest *k* within the best score's quantile bounds.
 
         Returns
         -------
         k : int
             Selected number of clusters.
+
+        Raises
+        ------
+        RuntimeError
+            If the instance has not been fitted yet.
         """
         if self.estimator_results_ is None:
             raise RuntimeError("Call fit() first.")
@@ -415,14 +534,25 @@ class CARVE(BaseEstimator):
         Parameters
         ----------
         measure : str, default="stability"
-            Metric key used to select the best configuration.
+            Metric key used to select the best configuration. Common
+            aliases: ``"stability"`` / ``"s"``, ``"generalizability"`` /
+            ``"g"``, ``"average"`` / ``"avg"``, ``"pac"``, ``"gini"``,
+            ``"ce"``, ``"misclassification"``.
         rule : str, default="max"
-            Selection rule ("max", "1se", or "quantile").
+            Selection rule. ``"max"`` picks the configuration with the
+            highest score. ``"1se"`` picks the largest *k* within one
+            standard error of the best score. ``"quantile"`` picks the
+            largest *k* within the best score's quantile bounds.
 
         Returns
         -------
         estimator : ClusterMixin
             Instantiated estimator with parameters from the best row.
+
+        Raises
+        ------
+        RuntimeError
+            If the instance has not been fitted yet.
         """
         if self.estimator_results_ is None:
             raise RuntimeError("Call fit() first.")
@@ -562,8 +692,8 @@ class CARVE(BaseEstimator):
     ):
         """Plot the selected consensus matrix with a flush top cluster band.
 
-        Selection of the matrix is handled via ``_selection.py`` using
-        ``measure`` and ``rule`` (defaults: stability + 1se).
+        The best configuration is chosen according to ``measure`` and
+        ``rule``.
 
         Parameters
         ----------
@@ -683,9 +813,8 @@ class CARVE(BaseEstimator):
     ):
         """Plot cluster-level uncertainty as a boxplot.
 
-        The model row is selected with the same single source of truth
-        used by ``plot_consensus_matrix``: ``select_best_row_by_rule``
-        from ``_selection.py``.
+        The best configuration is chosen via ``measure`` and ``rule``,
+        consistent with other plotting methods.
 
         Parameters
         ----------
@@ -844,8 +973,9 @@ class CARVE(BaseEstimator):
         """Plot cluster-level uncertainty as a violin plot.
 
         The API mirrors common scanpy arguments (``stripplot``, ``jitter``,
-        ``density_norm``, ``show``, ``ax``, ``save``) and uses the same
-        model row selection path as ``plot_consensus_matrix``.
+        ``density_norm``, ``show``, ``ax``, ``save``). The best
+        configuration is chosen via ``measure`` and ``rule``, consistent
+        with other plotting methods.
 
         Parameters
         ----------
@@ -1015,8 +1145,8 @@ class CARVE(BaseEstimator):
     ):
         """Plot data in 2D with score-encoded opacity and point size.
 
-        Selection of the model row is identical to the consensus/box/violin
-        plotting workflow via ``select_best_row_by_rule`` in ``_selection.py``.
+        The best configuration is chosen via ``measure`` and ``rule``,
+        consistent with other plotting methods.
 
         Visual encoding:
         - cluster-level mean score -> opacity (alpha)

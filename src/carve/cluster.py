@@ -39,6 +39,32 @@ class SpectralClusteringCARVE(BaseEstimator, ClusterMixin):
         Maximum iterations for eigen solver.
     dense_fallback_n : int, default=2000
         Threshold for dense fallback in eigen decomposition.
+
+    Attributes
+    ----------
+    labels_ : ndarray of shape (n_samples,)
+        Cluster labels assigned after fitting.
+    embedding_ : ndarray of shape (n_samples, n_clusters)
+        Spectral embedding (eigenvectors of the graph Laplacian).
+    affinity_ : scipy.sparse.csr_matrix
+        Computed affinity matrix.
+    evals_ : ndarray
+        Eigenvalues from the Laplacian decomposition.
+    converged_ : bool or None
+        Whether the sparse eigen solver converged. None before fitting.
+    used_dense_fallback_ : bool
+        Whether a dense eigen decomposition fallback was used.
+
+    Notes
+    -----
+    The algorithm computes a pairwise affinity matrix, derives the graph
+    Laplacian, extracts the *k* smallest eigenvectors, and clusters the
+    resulting spectral embedding with k-means.
+
+    See Also
+    --------
+    CARVE : Main validation class that uses this estimator in its default
+        grid.
     """
 
     def __init__(
@@ -55,7 +81,6 @@ class SpectralClusteringCARVE(BaseEstimator, ClusterMixin):
         eig_maxiter: int = 5000,
         dense_fallback_n: int = 2000,
     ):
-        """Initialize the estimator with spectral clustering parameters."""
         self.n_clusters = n_clusters
         self.affinity = affinity
         self.gamma = gamma

@@ -50,7 +50,10 @@ def select_best_row_by_rule(
     measure : Measure
         Metric key (see ``MEASURE_MAP``).
     rule : Rule
-        Selection rule: "max", "1se", or "quantile".
+        Selection rule. ``"max"`` picks the row with the highest score.
+        ``"1se"`` picks the largest *k* within one standard error of the
+        best score. ``"quantile"`` picks the largest *k* within the best
+        score's quantile bounds.
     return_idx : bool, default=False
         If True, return the selected row index instead of the row itself.
 
@@ -108,7 +111,10 @@ def select_best_estimator(
     estimator_param_grids : list of tuple
         Estimator classes and parameter grids.
     measure : Measure, default="stability"
-        Metric key used for selection.
+        Metric key used for selection. Common aliases: ``"stability"`` /
+        ``"s"``, ``"generalizability"`` / ``"g"``, ``"average"`` /
+        ``"avg"``, ``"pac"``, ``"gini"``, ``"ce"``,
+        ``"misclassification"``.
     rule : Rule, default="max"
         Selection rule.
     k : int or None, default=None
@@ -140,7 +146,10 @@ def select_best_k(
     results_df : pandas.DataFrame
         Results table.
     measure : Measure, default="stability"
-        Metric key used for selection.
+        Metric key used for selection. Common aliases: ``"stability"`` /
+        ``"s"``, ``"generalizability"`` / ``"g"``, ``"average"`` /
+        ``"avg"``, ``"pac"``, ``"gini"``, ``"ce"``,
+        ``"misclassification"``.
     rule : Rule, default="max"
         Selection rule.
 
@@ -191,7 +200,7 @@ def select_best_row_1se(
     measure: Measure = "stability",
     return_idx: bool = False,
 ) -> pd.Series:
-    """Select the simplest model within 1 SE of the best score.
+    """Select the model with the largest k within 1 SE of the best score.
 
     Parameters
     ----------
@@ -230,7 +239,7 @@ def select_best_row_quantile(
     measure: Measure = "stability",
     return_idx: bool = False,
 ) -> pd.Series:
-    """Select a row within the best score's quantile bounds.
+    """Select the model with the largest k within the best score's quantile bounds.
 
     Parameters
     ----------

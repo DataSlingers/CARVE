@@ -1,4 +1,9 @@
-"""Canonical type aliases for CARVE."""
+"""Canonical type aliases and mode policy for CARVE.
+
+Defines shared type aliases (``GridSpec``, ``PreprocSpec``, ``Measure``,
+``Rule``, etc.) and the ``ModePolicy`` dataclass used to control which
+pipeline stages are executed.
+"""
 
 from dataclasses import dataclass
 from typing import Any, Callable, Literal
@@ -53,14 +58,48 @@ Rule = Literal["max", "1se", "quantile"]
 # Handling RunMode
 RunMode = Literal["default", "stability", "generalizability"]
 
+
 @dataclass(frozen=True)
 class ModePolicy:
+    """Immutable policy controlling which pipeline stages are executed.
+
+    Attributes
+    ----------
+    mode : RunMode
+        The mode string that produced this policy.
+    run_stability : bool
+        Whether to run the stability analysis branch.
+    run_generalizability : bool
+        Whether to run the generalizability analysis branch.
+    compute_average_ari : bool
+        Whether to compute the average of stability and generalizability
+        ARI scores.
+    """
+
     mode: RunMode
     run_stability: bool
     run_generalizability: bool
     compute_average_ari: bool
 
+
 def resolve_mode(mode: RunMode) -> ModePolicy:
+    """Resolve a run-mode string into an execution policy.
+
+    Parameters
+    ----------
+    mode : RunMode
+        One of ``"default"``, ``"stability"``, or ``"generalizability"``.
+
+    Returns
+    -------
+    policy : ModePolicy
+        Frozen dataclass describing which pipeline stages to run.
+
+    Raises
+    ------
+    ValueError
+        If *mode* is not a recognized run-mode string.
+    """
     if mode == "default":
         return ModePolicy(
             mode=mode,
@@ -68,7 +107,7 @@ def resolve_mode(mode: RunMode) -> ModePolicy:
             run_generalizability=True,
             compute_average_ari=True,
         )
-        
+
     if mode == "stability":
         return ModePolicy(
             mode=mode,
@@ -76,7 +115,7 @@ def resolve_mode(mode: RunMode) -> ModePolicy:
             run_generalizability=False,
             compute_average_ari=False,
         )
-        
+
     if mode == "generalizability":
         return ModePolicy(
             mode=mode,
@@ -84,7 +123,7 @@ def resolve_mode(mode: RunMode) -> ModePolicy:
             run_generalizability=True,
             compute_average_ari=False,
         )
-        
+
     raise ValueError(
         f"Unknown mode: {mode!r}. Expected one of "
         "'default', 'stability', 'generalizability'."

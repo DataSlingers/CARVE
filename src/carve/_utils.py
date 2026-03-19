@@ -1,4 +1,8 @@
-"""Shared utility helpers for CARVE."""
+"""Shared utility helpers for CARVE.
+
+Provides subsample splitting, cluster label alignment via the Hungarian
+algorithm, ARI score summarization, and array coercion utilities.
+"""
 
 from typing import Any
 
@@ -44,9 +48,7 @@ def split_subsample_indices(
     return train_idx, test_idx
 
 
-def _coerce_n_clusters(
-    value: int | np.ndarray
-) -> np.ndarray:
+def _coerce_n_clusters(value: int | np.ndarray) -> np.ndarray:
     """Coerce a cluster-count specification to a 1D integer NumPy array.
 
     Parameters
@@ -72,22 +74,22 @@ def _coerce_n_clusters(
     """
     if isinstance(value, (int, np.integer)):
         k = int(value)
-        
+
         if k < 2:
             raise ValueError("n_clusters int must be >= 2.")
-        
+
         return np.arange(2, k + 1, dtype=int)
 
     arr = np.asarray(value)
     if arr.ndim != 1:
         raise ValueError("n_clusters must be a 1D array.")
-    
+
     if not np.issubdtype(arr.dtype, np.integer):
         raise TypeError("n_clusters array must contain integers.")
-    
+
     if np.any(arr < 2):
         raise ValueError("All n_clusters values must be >= 2.")
-    
+
     return arr.astype(int, copy=False)
 
 

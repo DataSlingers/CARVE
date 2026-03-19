@@ -1,7 +1,12 @@
-"""Core validation runner for CARVE."""
+"""Core validation runner for CARVE.
+
+Coordinates the resampling loop: for each estimator configuration it
+draws subsamples, runs clustering, collects ARI scores, builds consensus
+matrices, and computes generalizability scores.
+"""
 
 import warnings
-from typing import Any, Literal, NamedTuple
+from typing import Any, NamedTuple
 
 from joblib import Parallel, delayed
 import numpy as np
@@ -36,7 +41,39 @@ ValidationReturn = tuple[
 
 
 class ResampleResult(NamedTuple):
-    """Results from a single resampling iteration."""
+    """Results from a single resampling iteration.
+
+    Attributes
+    ----------
+    ari_stability : float
+        Adjusted Rand Index between overlapping samples of two
+        independent subsamples. ``NaN`` when stability is skipped.
+    ari_generalizability : float
+        ARI between held-out true labels and random-forest predictions.
+        ``NaN`` when generalizability is skipped.
+    labels_train : ndarray
+        Cluster labels for the training subsample.
+    labels_test : ndarray or None
+        Cluster labels for the held-out test set.
+    labels_predicted : ndarray or None
+        Random-forest predicted labels for the test set.
+    labels_stability : ndarray or None
+        Cluster labels for the second independent subsample.
+    train_indices : ndarray
+        Row indices of the training subsample in the original data.
+    test_indices : ndarray
+        Row indices of the held-out test set.
+    stability_indices : ndarray or None
+        Row indices of the second subsample used for stability.
+    normalization_params : dict
+        Parameters of the normalization transformer used.
+    dim_reduction_params : dict
+        Parameters of the dimensionality reduction transformer used.
+    normalization_name : str
+        Class name of the normalization transformer.
+    dim_reduction_name : str
+        Class name of the dimensionality reduction transformer.
+    """
 
     ari_stability: float
     ari_generalizability: float
@@ -115,17 +152,17 @@ def run_validation(
 
     estimator_records: list[EstimatorRecord] = []
     pipeline_records: list[PipelineRecord] = []
-    
+
     consensus_matrices: list[np.ndarray] = []
     consensus_generalizability_matrices: list[np.ndarray] = []
-    
+
     generalizability_scores: list[np.ndarray] = []
 
     total_configs = sum(len(list(ParameterGrid(g))) for _, g in estimator_grids)
     config_idx = 0
-    
+
     n = X.shape[0]
-    
+
     with tqdm(
         total=total_configs, desc="Grid configs", disable=not show_progress
     ) as pbar:
@@ -303,7 +340,7 @@ def validation_iter(
         preprocessing metadata for this resample.
     """
     policy = resolve_mode(mode)
-    
+
     n_samples = X.shape[0]
     random_state0 = random_state if random_state is not None else 0
 
@@ -311,7 +348,7 @@ def validation_iter(
     P_1_idx, P_test_idx = split_subsample_indices(
         n_samples, subsample_ratio=subsample_ratio, random_state=random_state0 + seed
     )
-    
+
     P_2_idx = None
     if policy.run_stability:
         P_2_idx, _ = split_subsample_indices(
@@ -341,33 +378,43 @@ def validation_iter(
     X_2 = X_preprocessed[P_2_idx] if policy.run_stability else None
 
     # --- Clustering ---
-    labels_1 = cluster_labels(X_1, est_class, random_state=random_state0 + seed, **params)
-    
+    labels_1 = cluster_labels(
+        X_1, est_class, random_state=random_state0 + seed, **params
+    )
+
     labels_test = (
         cluster_labels(X_test, est_class, random_state=random_state0 + seed, **params)
-        if policy.run_generalizability else None
+        if policy.run_generalizability
+        else None
     )
-    
+
     labels_2 = (
         cluster_labels(X_2, est_class, random_state=random_state0 + seed, **params)
-        if policy.run_stability else None
+        if policy.run_stability
+        else None
     )
 
     # --- Cluster count sanity checks ---
     n_clusters = params.get("n_clusters")
-    
+
     if len(np.unique(labels_1)) != n_clusters:
-        warnings.warn(f"labels_1 has {len(np.unique(labels_1))} clusters, expected {n_clusters}")
-    
-    if (policy.run_generalizability and len(np.unique(labels_test)) != n_clusters):
-        warnings.warn(f"labels_test has {len(np.unique(labels_test))} clusters, expected {n_clusters}")
-    
-    if (policy.run_stability and len(np.unique(labels_2)) != n_clusters):
-        warnings.warn(f"labels_2 has {len(np.unique(labels_2))} clusters, expected {n_clusters}")
+        warnings.warn(
+            f"labels_1 has {len(np.unique(labels_1))} clusters, expected {n_clusters}"
+        )
+
+    if policy.run_generalizability and len(np.unique(labels_test)) != n_clusters:
+        warnings.warn(
+            f"labels_test has {len(np.unique(labels_test))} clusters, expected {n_clusters}"
+        )
+
+    if policy.run_stability and len(np.unique(labels_2)) != n_clusters:
+        warnings.warn(
+            f"labels_2 has {len(np.unique(labels_2))} clusters, expected {n_clusters}"
+        )
 
     # --- Stability ARI (overlap between two independent subsamples) ---
     ari_stab = _compute_stability_ari(policy, P_1_idx, P_2_idx, labels_1, labels_2)
-    
+
     # --- Generalizability ARI (RF prediction on held-out set) ---
     labels_pred, ari_pred = _compute_generalizability_ari(
         policy=policy,
@@ -381,22 +428,20 @@ def validation_iter(
     return ResampleResult(
         ari_stability=ari_stab,
         ari_generalizability=ari_pred,
-        
         labels_train=labels_1,
         labels_test=labels_test,
         labels_predicted=labels_pred,
         labels_stability=labels_2,
-        
         train_indices=P_1_idx,
         test_indices=P_test_idx,
         stability_indices=P_2_idx,
-        
         normalization_params=normalization_params,
         dim_reduction_params=dim_reduction_params,
         normalization_name=normalization_name,
         dim_reduction_name=dim_reduction_name,
     )
-    
+
+
 def _compute_stability_ari(
     policy,
     P_1_idx,
@@ -404,11 +449,33 @@ def _compute_stability_ari(
     labels_1,
     labels_2,
 ):
+    """Compute stability ARI on overlapping samples of two subsamples.
+
+    Parameters
+    ----------
+    policy : ModePolicy
+        Execution policy; stability is skipped when
+        ``policy.run_stability`` is False.
+    P_1_idx : ndarray
+        Indices of the first subsample.
+    P_2_idx : ndarray or None
+        Indices of the second subsample.
+    labels_1 : ndarray
+        Cluster labels for the first subsample.
+    labels_2 : ndarray or None
+        Cluster labels for the second subsample.
+
+    Returns
+    -------
+    ari : float
+        Adjusted Rand Index on overlapping samples, or ``NaN`` when
+        stability is skipped.
+    """
     if not policy.run_stability:
         return np.nan
-    
+
     _, i_1, i_2 = np.intersect1d(P_1_idx, P_2_idx, return_indices=True)
-    
+
     return adjusted_rand_score(labels_1[i_1], labels_2[i_2])
 
 
@@ -420,6 +487,32 @@ def _compute_generalizability_ari(
     labels_test,
     seed,
 ):
+    """Compute generalizability ARI via random-forest prediction.
+
+    Parameters
+    ----------
+    policy : ModePolicy
+        Execution policy; generalizability is skipped when
+        ``policy.run_generalizability`` is False.
+    X_1 : ndarray
+        Training features.
+    X_test : ndarray or None
+        Held-out test features.
+    labels_1 : ndarray
+        Cluster labels for the training set.
+    labels_test : ndarray or None
+        Cluster labels for the test set.
+    seed : int
+        Random seed for the random forest.
+
+    Returns
+    -------
+    labels_pred : ndarray or None
+        Predicted labels for the test set, or None when skipped.
+    ari : float
+        Adjusted Rand Index between test labels and predictions, or
+        ``NaN`` when skipped.
+    """
     if not policy.run_generalizability:
         return None, np.nan
 
@@ -430,10 +523,10 @@ def _compute_generalizability_ari(
         random_state=seed,
         n_jobs=-1,
     )
-    
+
     rf.fit(X_1, labels_1)
-    
+
     labels_pred = rf.predict(X_test)
     ari_pred = adjusted_rand_score(labels_test, labels_pred)
-    
+
     return labels_pred, ari_pred
