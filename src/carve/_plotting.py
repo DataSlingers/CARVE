@@ -23,6 +23,8 @@ from ._selection import MEASURE_MAP, select_best_k
 def _build_estimator_label(
     row: pd.Series,
     exclude_cols: set,
+    *,
+    tight_layout: bool = True
 ) -> str:
     """Build a human-readable estimator label from a results row.
 
@@ -32,6 +34,8 @@ def _build_estimator_label(
         A row from estimator_results_ DataFrame.
     exclude_cols : set
         Column names to exclude from the label (e.g., n_clusters, metrics).
+    tight_layout : bool, default=True
+        Whether to separate with line feeds.
 
     Returns
     -------
@@ -53,7 +57,7 @@ def _build_estimator_label(
             else:
                 parts.append(f"{col}={val}")
 
-    return ", ".join(parts)
+    return ", ".join(parts) if not tight_layout else "\n".join(parts)
 
 
 def plot_metric_over_n_clusters(
@@ -531,6 +535,7 @@ def _get_annotation(
     estimator_results: pd.DataFrame,
     row: pd.Series,
     selected_k: int | None,
+    tight_layout: bool = True,
 ) -> str:
     """Build an annotation string describing the selected model and criteria.
 
@@ -554,6 +559,8 @@ def _get_annotation(
         The selected row from ``estimator_results``.
     selected_k : int or None
         The resolved number of clusters shown in the annotation.
+    tight_layout : bool, default=True
+        Whether to separate label components with line feeds.
 
     Returns
     -------
@@ -578,7 +585,7 @@ def _get_annotation(
     }
 
     exclude_cols = metric_cols | {"estimator", "n_clusters", "index"}
-    model_label = _build_estimator_label(row, exclude_cols)
+    model_label = _build_estimator_label(row, exclude_cols, tight_layout=tight_layout)
 
     rule_str = "1-SE" if rule == "1se" else rule.title()
     measure_str = measure.replace("_", " ").title()
@@ -592,7 +599,10 @@ def _get_annotation(
         annotation_text = (
             f"{model_label} (k = {selected_k})\n{measure_str}, {rule_str} rule"
         )
-
+    
+    if tight_layout:
+        annotation_text += "\n"
+        
     return annotation_text
 
 
@@ -903,6 +913,8 @@ def plot_cluster_scatter(
     sort_order: bool = True,
     legend: bool = True,
     legend_loc: str = "right margin",
+    annotation: str | None = None,
+    annotation_style: Literal["legend", "box"] = "legend",
     title: str | None = None,
     scores_name: str = "Score",
     xlabel: str = "Component 1",
@@ -944,6 +956,15 @@ def plot_cluster_scatter(
         Whether to display a legend.
     legend_loc : str, default="right margin"
         Legend location. "right margin" places the legend outside the axes.
+    annotation : str, optional                                                                                             
+        Text for an informational annotation box. When provided, the                                                       
+        annotation is displayed according to ``annotation_style``.                                                         
+    annotation_style : {"legend", "box"}, default="legend"                                                                 
+        How to display the annotation.  ``"legend"`` appends the text                                                      
+        to the cluster legend (overlaid on the legend area).                                                               
+        ``"box"`` places a free-floating annotation at the                                                                 
+        least-obstructed location, identical to the violin/boxplot                                                         
+        annotation boxes. 
     title : str, optional
         Figure title.
     scores_name : str, default="Score"
@@ -1094,9 +1115,9 @@ def plot_cluster_scatter(
 
     # --- Legend ---
     if legend:
-        from matplotlib.lines import Line2D
-
         handles = []
+        
+        # Add cluster entries with mean score in the label and alpha in the marker
         for lab in uniq:
             col = cmap(label_to_idx[lab])
             handles.append(
@@ -1116,18 +1137,39 @@ def plot_cluster_scatter(
                     markersize=7,
                 )
             )
+            
+        # Place legend according to specified location
+        base_title = f"Cluster, {scores_name}" if scores_name else "Cluster"
+
+        # Prepend annotation as legend title text (above base title)
+        if annotation is not None and annotation_style == "legend":
+            title = f"{annotation}\n{base_title}"
+        else:
+            title = base_title
+
+        legend_kwargs = dict(handles=handles, title=title, frameon=False)
+        if annotation is not None and annotation_style == "legend":
+            legend_kwargs["title_fontproperties"] = {"size": 9}
 
         if legend_loc == "right margin":
             ax.legend(
-                handles=handles,
-                title=f"Cluster, {scores_name}",
-                frameon=False,
+                **legend_kwargs,
                 bbox_to_anchor=(1.02, 0.5),
                 loc="center left",
                 borderaxespad=0.0,
             )
         else:
-            ax.legend(handles=handles, title="Cluster", frameon=False, loc=legend_loc)
+            ax.legend(**legend_kwargs, loc=legend_loc)
+            
+    # Annotation as floating box (when not embedded in legend)
+    if annotation is not None and annotation_style == "box":
+        if legend:
+            # Preserve the existing cluster legend before adding annotation legend
+            existing_legend = ax.get_legend()
+            _place_adaptive_annotation(ax, annotation)
+            ax.add_artist(existing_legend)
+        else:
+            _place_adaptive_annotation(ax, annotation)
 
     fig.tight_layout()
 

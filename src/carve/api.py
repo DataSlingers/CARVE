@@ -1174,6 +1174,8 @@ class CARVE(BaseEstimator):
         sort_order: bool = True,
         legend: bool = True,
         legend_loc: str = "right margin",
+        annotation: bool | str = True,
+        annotation_style: Literal["legend", "box"] = "legend",
         title: str | None = None,
         xlabel: str | None = None,
         ylabel: str | None = None,
@@ -1223,6 +1225,13 @@ class CARVE(BaseEstimator):
             Whether to display a legend.
         legend_loc : str, default="right margin"
             Legend location.
+        annotation : bool or str, default=True                                                                             
+            Annotation text. ``True`` auto-generates from the selected                                                     
+            model/measure/rule.  A string is used verbatim.                                                                
+            ``False`` disables the annotation.                                                                             
+        annotation_style : {"legend", "box"}, default="legend"                                                             
+            ``"legend"`` appends the annotation to the cluster legend.                                                     
+            ``"box"`` places a free-floating annotation box.
         title : str, optional
             Figure title.
         xlabel : str, optional
@@ -1310,6 +1319,23 @@ class CARVE(BaseEstimator):
                 "Pass X=... explicitly (e.g., after loading a model saved with include_data=False)."
             )
 
+        # --- Build annotation ---
+        tight_layout = annotation_style == 'legend'
+        if annotation is True:
+            annotation_text = _get_annotation(
+                measure=measure,
+                rule=rule,
+                k=k,
+                estimator_results=df,
+                row=row,
+                selected_k=selected_k,
+                tight_layout=tight_layout
+            )
+        elif isinstance(annotation, str):
+            annotation_text = annotation
+        else:
+            annotation_text = None
+
         if xlabel is None:
             xlabel = "Component 1"
         if ylabel is None:
@@ -1328,6 +1354,8 @@ class CARVE(BaseEstimator):
             sort_order=sort_order,
             legend=legend,
             legend_loc=legend_loc,
+            annotation=annotation_text,
+            annotation_style=annotation_style,
             title=title,
             scores_name=scores_name,
             xlabel=xlabel,
