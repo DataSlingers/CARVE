@@ -7,6 +7,7 @@ import pytest
 import matplotlib
 matplotlib.use("Agg")  # non-interactive backend for tests
 import matplotlib.pyplot as plt
+from matplotlib.legend import Legend
 
 from carve._plotting import (
     _build_estimator_label,
@@ -356,6 +357,52 @@ class TestPlotClusterScatter:
             X, labels, scores, alpha_range=(0.3, 0.9),
         )
         assert ax is not None
+
+    def test_box_annotation_preserves_right_margin_legend(self):
+        X = np.random.RandomState(0).randn(30, 4)
+        labels = np.array([0] * 10 + [1] * 10 + [2] * 10)
+        scores = np.random.RandomState(0).rand(30)
+
+        ax = plot_cluster_scatter(
+            X,
+            labels,
+            scores,
+            legend=True,
+            legend_loc="right margin",
+            annotation="Model\n1-SE rule",
+            annotation_style="box",
+        )
+
+        main_legend = ax.get_legend()
+        assert main_legend is not None
+        assert "Cluster" in main_legend.get_title().get_text()
+
+        annotation_legends = [
+            artist for artist in ax.artists if isinstance(artist, Legend)
+        ]
+        assert len(annotation_legends) == 1
+        annotation_texts = [t.get_text() for t in annotation_legends[0].get_texts()]
+        assert any("1-SE rule" in text for text in annotation_texts)
+
+    def test_box_annotation_save_with_right_margin_legend(self, tmp_path):
+        X = np.random.RandomState(0).randn(24, 3)
+        labels = np.array([0] * 12 + [1] * 12)
+        scores = np.random.RandomState(0).rand(24)
+        path = tmp_path / "scatter_box_annotation.png"
+
+        result = plot_cluster_scatter(
+            X,
+            labels,
+            scores,
+            legend=True,
+            legend_loc="right margin",
+            annotation="Selected model",
+            annotation_style="box",
+            save=str(path),
+        )
+
+        assert result is None
+        assert path.exists()
 
     def test_mismatched_dims_raises(self):
         X = np.random.RandomState(0).randn(20, 2)

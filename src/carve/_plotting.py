@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from matplotlib.axes import Axes
+from matplotlib.legend import Legend
 from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from sklearn.decomposition import PCA
@@ -24,7 +25,7 @@ def _build_estimator_label(
     row: pd.Series,
     exclude_cols: set,
     *,
-    tight_layout: bool = True
+    tight_layout: bool = False
 ) -> str:
     """Build a human-readable estimator label from a results row.
 
@@ -34,7 +35,7 @@ def _build_estimator_label(
         A row from estimator_results_ DataFrame.
     exclude_cols : set
         Column names to exclude from the label (e.g., n_clusters, metrics).
-    tight_layout : bool, default=True
+    tight_layout : bool, default=False
         Whether to separate with line feeds.
 
     Returns
@@ -496,7 +497,12 @@ def _prepare_cluster_score_groups(
     return groups, kept_order
 
 
-def _place_adaptive_annotation(ax: Axes, text: str) -> None:
+def _place_adaptive_annotation(
+    ax: Axes,
+    text: str,
+    *,
+    replace_legend: bool = True,
+) -> Legend:
     """Place a text annotation at the least-obstructed axes location.
 
     Uses matplotlib's ``loc='best'`` legend placement with an invisible
@@ -509,10 +515,18 @@ def _place_adaptive_annotation(ax: Axes, text: str) -> None:
         Axes on which to place the annotation.
     text : str
         Annotation text. May contain newlines for multi-line display.
+    replace_legend : bool, default=True
+        Whether to create the annotation via ``ax.legend`` (replacing the
+        current Axes legend). If False, creates a standalone ``Legend`` artist
+        and adds it to the axes without replacing any existing legend.
+
+    Returns
+    -------
+    matplotlib.legend.Legend
+        The created annotation legend artist.
     """
     phantom = Line2D([], [], linestyle="none", marker="none")
-
-    leg = ax.legend(
+    legend_kwargs = dict(
         handles=[phantom],
         labels=[text],
         loc="best",
@@ -525,7 +539,17 @@ def _place_adaptive_annotation(ax: Axes, text: str) -> None:
         borderpad=0.6,
     )
 
+    if replace_legend:
+        leg = ax.legend(**legend_kwargs)
+    else:
+        leg = Legend(ax, legend_kwargs["handles"], legend_kwargs["labels"], **{
+            k: v for k, v in legend_kwargs.items() if k not in {"handles", "labels"}
+        })
+        ax.add_artist(leg)
+
     leg.set_zorder(5)
+    leg.set_in_layout(False)
+    return leg
 
 
 def _get_annotation(
@@ -535,7 +559,7 @@ def _get_annotation(
     estimator_results: pd.DataFrame,
     row: pd.Series,
     selected_k: int | None,
-    tight_layout: bool = True,
+    tight_layout: bool = False,
 ) -> str:
     """Build an annotation string describing the selected model and criteria.
 
@@ -559,7 +583,7 @@ def _get_annotation(
         The selected row from ``estimator_results``.
     selected_k : int or None
         The resolved number of clusters shown in the annotation.
-    tight_layout : bool, default=True
+    tight_layout : bool, default=False
         Whether to separate label components with line feeds.
 
     Returns
@@ -1163,13 +1187,7 @@ def plot_cluster_scatter(
             
     # Annotation as floating box (when not embedded in legend)
     if annotation is not None and annotation_style == "box":
-        if legend:
-            # Preserve the existing cluster legend before adding annotation legend
-            existing_legend = ax.get_legend()
-            _place_adaptive_annotation(ax, annotation)
-            ax.add_artist(existing_legend)
-        else:
-            _place_adaptive_annotation(ax, annotation)
+        _place_adaptive_annotation(ax, annotation, replace_legend=not legend)
 
     fig.tight_layout()
 
