@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from matplotlib.axes import Axes
+from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from sklearn.decomposition import PCA
 
@@ -491,6 +492,110 @@ def _prepare_cluster_score_groups(
     return groups, kept_order
 
 
+def _place_adaptive_annotation(ax: Axes, text: str) -> None:
+    """Place a text annotation at the least-obstructed axes location.
+
+    Uses matplotlib's ``loc='best'`` legend placement with an invisible
+    handle so the annotation box avoids plotted data automatically,
+    mirroring the adaptive legend in :func:`plot_metric_over_n_clusters`.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Axes on which to place the annotation.
+    text : str
+        Annotation text. May contain newlines for multi-line display.
+    """
+    phantom = Line2D([], [], linestyle="none", marker="none")
+
+    leg = ax.legend(
+        handles=[phantom],
+        labels=[text],
+        loc="best",
+        frameon=True,
+        framealpha=0.9,
+        edgecolor="0.8",
+        fontsize=9,
+        handlelength=0,
+        handletextpad=0,
+        borderpad=0.6,
+    )
+
+    leg.set_zorder(5)
+
+
+def _get_annotation(
+    measure: str,
+    rule: str,
+    k: int | None,
+    estimator_results: pd.DataFrame,
+    row: pd.Series,
+    selected_k: int | None,
+) -> str:
+    """Build an annotation string describing the selected model and criteria.
+
+    Combines the human-readable estimator label (via
+    :func:`_build_estimator_label`) with the selection measure, rule, and
+    chosen *k* into a two-line summary suitable for plot annotations.
+
+    Parameters
+    ----------
+    measure : str
+        Metric key used for model selection (e.g., ``"generalizability"``).
+    rule : str
+        Selection rule (``"max"``, ``"1se"``, or ``"quantile"``).
+    k : int or None
+        User-supplied number of clusters, or None if *k* was selected
+        automatically. When not None, the annotation marks *k* as fixed.
+    estimator_results : pd.DataFrame
+        Full results DataFrame, used to identify metric columns that
+        should be excluded from the estimator label.
+    row : pd.Series
+        The selected row from ``estimator_results``.
+    selected_k : int or None
+        The resolved number of clusters shown in the annotation.
+
+    Returns
+    -------
+    annotation : str
+        Two-line annotation string of the form
+        ``"<estimator> (k = <n>[, fixed])\n<Measure>, <Rule> rule"``.
+    """
+    metric_cols = {
+        col
+        for col in estimator_results.columns
+        if any(
+            x in col
+            for x in [
+                "ari_",
+                "consensus_",
+                "misclassification_",
+                "_se",
+                "_upper",
+                "_lower",
+            ]
+        )
+    }
+
+    exclude_cols = metric_cols | {"estimator", "n_clusters", "index"}
+    model_label = _build_estimator_label(row, exclude_cols)
+
+    rule_str = "1-SE" if rule == "1se" else rule.title()
+    measure_str = measure.replace("_", " ").title()
+
+    if k is not None:
+        annotation_text = (
+            f"{model_label} (k = {selected_k}, fixed)\n{measure_str}, {rule_str} rule"
+        )
+
+    else:
+        annotation_text = (
+            f"{model_label} (k = {selected_k})\n{measure_str}, {rule_str} rule"
+        )
+
+    return annotation_text
+
+
 def plot_cluster_boxplot(
     scores: np.ndarray,
     labels: np.ndarray,
@@ -504,6 +609,7 @@ def plot_cluster_boxplot(
     title: str | None = None,
     xlabel: str = "Cluster",
     ylabel: str = "Uncertainty",
+    annotation: str | None = None,
     rotation: float | None = None,
     ylim: tuple[float, float] = (0.0, 1.0),
     show: bool = False,
@@ -536,6 +642,8 @@ def plot_cluster_boxplot(
         X-axis label.
     ylabel : str, default="Uncertainty"
         Y-axis label.
+    annotation : str, optional
+        Text for adaptive annotation.
     rotation : float, optional
         Tick label rotation angle.
     ylim : tuple of float, default=(0.0, 1.0)
@@ -590,6 +698,10 @@ def plot_cluster_boxplot(
 
     ax.grid(axis="y", alpha=0.25, linestyle="-", linewidth=0.6)
     ax.set_axisbelow(True)
+
+    if annotation is not None:
+        _place_adaptive_annotation(ax, annotation)
+
     fig.tight_layout()
 
     if save is not None:
@@ -621,6 +733,7 @@ def plot_cluster_violin(
     title: str | None = None,
     xlabel: str = "Cluster",
     ylabel: str = "Uncertainty",
+    annotation: str | None = None,
     rotation: float | None = None,
     ylim: tuple[float, float] = (0.0, 1.0),
     show: bool = False,
@@ -665,6 +778,8 @@ def plot_cluster_violin(
         X-axis label.
     ylabel : str, default="Uncertainty"
         Y-axis label.
+    annotation : str, optional
+        Text for adaptive annotation.
     rotation : float, optional
         Tick label rotation angle.
     ylim : tuple of float, default=(0.0, 1.0)
@@ -756,6 +871,10 @@ def plot_cluster_violin(
 
     ax.grid(axis="y", alpha=0.25, linestyle="-", linewidth=0.6)
     ax.set_axisbelow(True)
+
+    if annotation is not None:
+        _place_adaptive_annotation(ax, annotation)
+
     fig.tight_layout()
 
     if save is not None:

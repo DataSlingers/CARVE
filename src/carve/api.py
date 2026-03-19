@@ -19,6 +19,7 @@ from ._consensus import compute_consensus_metrics
 from ._selection import select_best_estimator, select_best_k, select_best_row_by_rule
 
 from ._plotting import (
+    _get_annotation,
     plot_metric_over_n_clusters as _plot_metric_over_n_clusters,
     plot_consensus_matrix as _plot_consensus_matrix,
     plot_cluster_boxplot as _plot_cluster_boxplot,
@@ -802,6 +803,7 @@ class CARVE(BaseEstimator):
         title: str | None = None,
         xlabel: str = "Cluster",
         ylabel: str | None = None,
+        annotation: bool | str = True,
         rotation: float | None = None,
         show: bool = False,
         save: str | Path | None = None,
@@ -842,6 +844,8 @@ class CARVE(BaseEstimator):
             X-axis label.
         ylabel : str, optional
             Y-axis label. If None, auto-generated from source.
+        annotation : bool or str, optional
+            Text for adaptive annotation.
         rotation : float, optional
             Tick label rotation angle.
         show : bool, default=False
@@ -901,7 +905,7 @@ class CARVE(BaseEstimator):
                 "source must be one of: 'misclassification', 'gini', 'ce'."
             )
 
-        # --- Resolve labels mode ---
+        # --- Resolve labels mode and get labels ---
         labels_mode: Literal["default", "generalizability"]
         if mode in ("default", "stability"):
             labels_mode = "default"
@@ -921,7 +925,24 @@ class CARVE(BaseEstimator):
 
         if ylabel is None:
             ylabel = default_ylabel
+            
+        # --- Build annotation ---                                                                                         
+        if annotation is True:
+            annotation_text = _get_annotation(
+                measure=measure,
+                rule=rule,
+                k=k,
+                estimator_results=df,
+                row=row,
+                selected_k=selected_k
+            )
+                
+        elif isinstance(annotation, str):
+            annotation_text = annotation
+        else:
+            annotation_text = None
 
+        # --- Plot ---
         return _plot_cluster_boxplot(
             scores,
             labels,
@@ -934,6 +955,7 @@ class CARVE(BaseEstimator):
             title=title,
             xlabel=xlabel,
             ylabel=ylabel,
+            annotation=annotation_text,
             rotation=rotation,
             show=show,
             save=save,
@@ -961,6 +983,7 @@ class CARVE(BaseEstimator):
         title: str | None = None,
         xlabel: str = "Cluster",
         ylabel: str | None = None,
+        annotation: bool | str = True,
         rotation: float | None = None,
         show: bool = False,
         save: str | Path | None = None,
@@ -1011,6 +1034,8 @@ class CARVE(BaseEstimator):
             X-axis label.
         ylabel : str, optional
             Y-axis label. If None, auto-generated from source.
+        annotation : bool or str, optional
+            Text for adaptive annotation.
         rotation : float, optional
             Tick label rotation angle.
         show : bool, default=False
@@ -1070,7 +1095,7 @@ class CARVE(BaseEstimator):
                 "source must be one of: 'misclassification', 'gini', 'ce'."
             )
 
-        # --- Resolve labels mode ---
+        # --- Resolve labels mode and get labels ---
         labels_mode: Literal["default", "generalizability"]
         if mode in ("default", "stability"):
             labels_mode = "default"
@@ -1090,7 +1115,24 @@ class CARVE(BaseEstimator):
 
         if ylabel is None:
             ylabel = default_ylabel
+            
+        # --- Build annotation ---                                                                                         
+        if annotation is True:
+            annotation_text = _get_annotation(
+                measure=measure,
+                rule=rule,
+                k=k,
+                estimator_results=df,
+                row=row,
+                selected_k=selected_k
+            )
+                
+        elif isinstance(annotation, str):
+            annotation_text = annotation
+        else:
+            annotation_text = None
 
+        # --- Plot ---
         return _plot_cluster_violin(
             scores,
             labels,
@@ -1107,6 +1149,7 @@ class CARVE(BaseEstimator):
             title=title,
             xlabel=xlabel,
             ylabel=ylabel,
+            annotation=annotation_text,
             rotation=rotation,
             show=show,
             save=save,
