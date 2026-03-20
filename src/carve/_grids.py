@@ -1,15 +1,50 @@
 """Default estimator and preprocessing grids for CARVE."""
 
 import numpy as np
-from sklearn.cluster import KMeans, AgglomerativeClustering, SpectralClustering
+from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
-from sklearn.metrics import pairwise_distances
+from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import FunctionTransformer, StandardScaler
-from sklearn.utils import check_random_state
 from umap import UMAP
 
+from .cluster import SpectralClusteringCARVE
 from ._types import GridSpec, PreprocSpec
+
+
+def estimate_knn_gamma(
+    X: np.ndarray,
+    n_neighbors: int = 7,
+    multipliers: tuple[float, ...] = (0.5, 1.0, 2.0),
+) -> list[float]:
+    """Estimate RBF gamma values using a k-NN median heuristic.
+
+    Fits a NearestNeighbors model, takes the k-th neighbor distance for
+    each point, computes sigma = median(kth_distances), and returns
+    gamma = 1 / (2 * (m * sigma)^2) for each multiplier m.
+
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        Input data.
+    n_neighbors : int, default=7
+        Number of neighbors.
+    multipliers : tuple of float, default=(0.5, 1.0, 2.0)
+        Scale multipliers applied to sigma.
+
+    Returns
+    -------
+    gammas : list of float
+        Gamma values spanning a range around the local scale.
+    """
+    nn = NearestNeighbors(n_neighbors=n_neighbors)
+    nn.fit(X)
+    dists, _ = nn.kneighbors(X)
+    kth_dists = dists[:, -1]
+    sigma = float(np.median(kth_dists))
+    if sigma <= 0:
+        sigma = float(np.mean(kth_dists[kth_dists > 0])) if np.any(kth_dists > 0) else 1.0
+    return [float(1.0 / (2.0 * (m * sigma) ** 2)) for m in multipliers]
 
 
 def default_estimator_grids(
@@ -31,42 +66,6 @@ def default_estimator_grids(
         List of (EstimatorClass, param_grid) tuples suitable for
         ``sklearn.model_selection.ParameterGrid``.
     """
-
-    def estimate_rbf_gamma(
-        X: np.ndarray,
-        quantiles: tuple[float, ...] = (0.05, 0.10, 0.50),
-        max_points: int = 500,
-        random_state: int = 0,
-    ) -> list[float]:
-        """Approximate RBF gamma values from distance quantiles.
-
-        Parameters
-        ----------
-        X : ndarray of shape (n_samples, n_features)
-            Input data.
-        quantiles : tuple of float, default=(0.05, 0.10, 0.50)
-            Quantiles over squared distances used to set gamma values.
-        max_points : int, default=500
-            Maximum number of points used to approximate distance quantiles.
-        random_state : int, default=0
-            Random seed for subsampling.
-
-        Returns
-        -------
-        gammas : list of float
-            Gamma values corresponding to the requested quantiles.
-        """
-        rng = check_random_state(random_state)
-        n = X.shape[0]
-        Xs = X[rng.choice(n, size=max_points, replace=False)] if n > max_points else X
-
-        D2 = pairwise_distances(Xs, metric="sqeuclidean")
-        d2 = D2[np.triu_indices_from(D2, k=1)]
-        d2 = d2[np.isfinite(d2)]
-        if d2.size == 0:
-            return [1.0 for _ in quantiles]
-        return [float(1.0 / (2.0 * np.quantile(d2, q))) for q in quantiles]
-
     ks = list(np.asarray(n_clusters).tolist())
 
     return [
@@ -75,7 +74,14 @@ def default_estimator_grids(
             AgglomerativeClustering,
             {"n_clusters": ks, "linkage": ["ward", "average", "single"]},
         ),
-        (SpectralClustering, {"n_clusters": ks, "gamma": estimate_rbf_gamma(X)}),
+        (
+            SpectralClusteringCARVE,
+            {"n_clusters": ks, "affinity": ["self_tuning"]},
+        ),
+        (
+            SpectralClusteringCARVE,
+            {"n_clusters": ks, "affinity": ["rbf"], "gamma": estimate_knn_gamma(X)},
+        ),
     ]
 
 

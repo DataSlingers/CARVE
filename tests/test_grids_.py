@@ -2,10 +2,11 @@
 
 import numpy as np
 import pytest
-from sklearn.cluster import KMeans, AgglomerativeClustering, SpectralClustering
+from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import FunctionTransformer, StandardScaler
 
+from carve.cluster import SpectralClusteringCARVE
 from carve._grids import (
     default_estimator_grids,
     default_normalization_options,
@@ -22,7 +23,7 @@ class TestDefaultEstimatorGrids:
         X = np.random.RandomState(0).randn(50, 5)
         grids = default_estimator_grids(X, n_clusters=np.array([2, 3]))
         assert isinstance(grids, list)
-        assert len(grids) == 3  # KMeans, Agglomerative, Spectral
+        assert len(grids) == 4  # KMeans, Agglomerative, SpectralCARVE x2
 
     def test_estimator_types(self):
         X = np.random.RandomState(0).randn(50, 5)
@@ -30,7 +31,7 @@ class TestDefaultEstimatorGrids:
         classes = [cls for cls, _ in grids]
         assert KMeans in classes
         assert AgglomerativeClustering in classes
-        assert SpectralClustering in classes
+        assert SpectralClusteringCARVE in classes
 
     def test_n_clusters_propagated(self):
         X = np.random.RandomState(0).randn(50, 5)
@@ -42,10 +43,25 @@ class TestDefaultEstimatorGrids:
     def test_gamma_values(self):
         X = np.random.RandomState(0).randn(50, 5)
         grids = default_estimator_grids(X, n_clusters=np.array([2, 3]))
-        spectral_grid = next(g for cls, g in grids if cls is SpectralClustering)
-        assert "gamma" in spectral_grid
-        assert len(spectral_grid["gamma"]) == 3  # 3 quantiles
+        # Find the RBF spectral entry (the one with gamma in its grid)
+        rbf_grids = [(cls, g) for cls, g in grids if "gamma" in g]
+        assert len(rbf_grids) == 1
+        cls, spectral_grid = rbf_grids[0]
+        assert cls is SpectralClusteringCARVE
+        assert len(spectral_grid["gamma"]) == 3  # 3 multipliers
         assert all(g > 0 for g in spectral_grid["gamma"])
+
+    def test_self_tuning_entry(self):
+        X = np.random.RandomState(0).randn(50, 5)
+        grids = default_estimator_grids(X, n_clusters=np.array([2, 3]))
+        # Find the self-tuning entry (has affinity but no gamma)
+        st_grids = [
+            (cls, g) for cls, g in grids
+            if cls is SpectralClusteringCARVE and "gamma" not in g
+        ]
+        assert len(st_grids) == 1
+        _, grid = st_grids[0]
+        assert grid["affinity"] == ["self_tuning"]
 
     def test_agglomerative_linkages(self):
         X = np.random.RandomState(0).randn(50, 5)

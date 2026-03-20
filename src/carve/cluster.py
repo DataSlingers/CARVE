@@ -4,8 +4,8 @@ import numpy as np
 from typing import Literal
 from sklearn.base import BaseEstimator, ClusterMixin
 from sklearn.cluster import KMeans
-from sklearn.neighbors import kneighbors_graph
-from scipy.sparse import csgraph, csr_matrix, diags
+from sklearn.neighbors import NearestNeighbors
+from scipy.sparse import csr_matrix, diags
 from scipy.sparse.linalg import eigsh, ArpackNoConvergence
 from scipy.linalg import eigh
 from sklearn.preprocessing import StandardScaler
@@ -13,53 +13,50 @@ from sklearn.metrics import pairwise_distances
 
 
 class SpectralClusteringCARVE(BaseEstimator, ClusterMixin):
-    """Spectral clustering with optional self-tuning affinity.
+    """Spectral clustering with self-tuning, RBF, or kNN affinity.
 
     Parameters
     ----------
     n_clusters : int, default=2
         Number of clusters.
-    affinity : {"rbf", "knn", "self_tuning"}, default="rbf"
-        Affinity type.
+    affinity : {"rbf", "knn", "self_tuning"}, default="self_tuning"
+        Affinity type. ``"self_tuning"`` uses per-point local scales
+        (Zelnik-Manor & Perona 2004). ``"rbf"`` uses a single global
+        gamma. ``"knn"`` builds a sparse kNN graph with RBF-weighted edges.
     gamma : float or None, default=None
-        RBF scale; if None, uses a median heuristic.
-    n_neighbors : int, default=10
-        Number of neighbors for kNN or self-tuning affinity.
-    normalized : bool, default=True
-        Whether to use the normalized graph Laplacian.
+        RBF kernel scale for ``"rbf"`` and ``"knn"`` affinities. When None,
+        a k-NN median heuristic is used: sigma = median of k-th neighbor
+        distances, gamma = 1 / (2 * sigma^2). Ignored for ``"self_tuning"``.
+    n_neighbors : int, default=7
+        Number of neighbors for kNN graph construction and the self-tuning
+        local scale. Zelnik-Manor & Perona recommend 7.
     random_state : int or None, default=None
         Random seed for k-means.
     n_init : "auto" or int, default="auto"
         Number of k-means initializations.
     scale : bool, default=True
         Whether to standardize X before computing affinities.
-    eig_tol : float, default=1e-4
-        Tolerance for eigen solver convergence.
-    eig_maxiter : int, default=5000
-        Maximum iterations for eigen solver.
-    dense_fallback_n : int, default=2000
-        Threshold for dense fallback in eigen decomposition.
 
     Attributes
     ----------
     labels_ : ndarray of shape (n_samples,)
         Cluster labels assigned after fitting.
     embedding_ : ndarray of shape (n_samples, n_clusters)
-        Spectral embedding (eigenvectors of the graph Laplacian).
-    affinity_ : scipy.sparse.csr_matrix
+        Spectral embedding (row-normalized eigenvectors of the normalized
+        graph Laplacian).
+    affinity_ : ndarray or scipy.sparse.csr_matrix
         Computed affinity matrix.
     evals_ : ndarray
         Eigenvalues from the Laplacian decomposition.
-    converged_ : bool or None
-        Whether the sparse eigen solver converged. None before fitting.
-    used_dense_fallback_ : bool
-        Whether a dense eigen decomposition fallback was used.
+    gamma_ : float or None
+        Computed gamma value (set when ``affinity`` is ``"rbf"`` or ``"knn"``
+        and ``gamma=None``). None for ``"self_tuning"``.
 
     Notes
     -----
-    The algorithm computes a pairwise affinity matrix, derives the graph
-    Laplacian, extracts the *k* smallest eigenvectors, and clusters the
-    resulting spectral embedding with k-means.
+    Always uses the normalized Laplacian (L_sym = I - D^{-1/2} W D^{-1/2})
+    with Ng-Jordan-Weiss row-normalized eigenvectors, which is strictly
+    better than the unnormalized Laplacian (von Luxburg 2007).
 
     See Also
     --------
@@ -70,174 +67,211 @@ class SpectralClusteringCARVE(BaseEstimator, ClusterMixin):
     def __init__(
         self,
         n_clusters: int = 2,
-        affinity: Literal["rbf", "knn", "self_tuning"] = "rbf",
+        affinity: Literal["rbf", "knn", "self_tuning"] = "self_tuning",
         gamma: float | None = None,
-        n_neighbors: int = 10,
-        normalized: bool = True,
+        n_neighbors: int = 7,
         random_state: int | None = None,
         n_init: Literal["auto"] | int = "auto",
         scale: bool = True,
-        eig_tol: float = 1e-4,
-        eig_maxiter: int = 5000,
-        dense_fallback_n: int = 2000,
     ):
         self.n_clusters = n_clusters
         self.affinity = affinity
         self.gamma = gamma
         self.n_neighbors = n_neighbors
-        self.normalized = normalized
         self.random_state = random_state
         self.n_init = n_init
         self.scale = scale
-        self.eig_tol = eig_tol
-        self.eig_maxiter = eig_maxiter
-        self.dense_fallback_n = dense_fallback_n
-        self.converged_ = None
-        self.used_dense_fallback_ = False
 
-    def _rbf_affinity(self, X: np.ndarray) -> csr_matrix:
-        """Compute an RBF affinity matrix.
-
-        Parameters
-        ----------
-        X : ndarray of shape (n_samples, n_features)
-            Input data.
+    def _knn_sigma(self, X: np.ndarray) -> tuple[np.ndarray, float]:
+        """Compute k-th neighbor distances and median sigma.
 
         Returns
         -------
-        W : scipy.sparse.csr_matrix
-            RBF affinity matrix.
+        kth_dists : ndarray of shape (n_samples,)
+            Distance from each point to its k-th nearest neighbor.
+        sigma : float
+            Median of k-th neighbor distances.
+        """
+        nn = NearestNeighbors(n_neighbors=self.n_neighbors)
+        nn.fit(X)
+        dists, _ = nn.kneighbors(X)
+        
+        # dists[:, 0] is distance to self (0), dists[:, -1] is k-th neighbor
+        kth_dists = dists[:, -1]
+        sigma = float(np.median(kth_dists))
+        if sigma == 0:
+            sigma = float(np.mean(kth_dists[kth_dists > 0])) if np.any(kth_dists > 0) else 1.0
+        return kth_dists, sigma
+
+    def _compute_rbf_affinity(self, X: np.ndarray) -> np.ndarray:
+        """Full pairwise RBF affinity matrix.
+
+        When gamma is None, uses k-NN median heuristic.
         """
         D2 = pairwise_distances(X, metric="sqeuclidean")
         if self.gamma is None:
-            tri = D2[np.triu_indices_from(D2, k=1)]
-            sigma2 = np.median(tri)
-            gamma = 1.0 / (2.0 * sigma2) if sigma2 > 0 else 1.0
+            _, sigma = self._knn_sigma(X)
+            gamma = 1.0 / (2.0 * sigma**2)
+            self.gamma_ = gamma
         else:
             gamma = self.gamma
+            self.gamma_ = gamma
         W = np.exp(-gamma * D2)
         np.fill_diagonal(W, 0.0)
-        return csr_matrix(W)
-
-    def _knn_affinity(self, X: np.ndarray) -> csr_matrix:
-        """Compute a mutual kNN affinity matrix.
-
-        Parameters
-        ----------
-        X : ndarray of shape (n_samples, n_features)
-            Input data.
-
-        Returns
-        -------
-        W : scipy.sparse.csr_matrix
-            Symmetrized kNN affinity matrix.
-        """
-        G = kneighbors_graph(X, self.n_neighbors, mode="distance", include_self=False)
-        if self.gamma is None:
-            d = G.data
-            sigma2 = np.median(d**2) if d.size else 1.0
-            gamma = 1.0 / (2.0 * sigma2) if sigma2 > 0 else 1.0
-        else:
-            gamma = self.gamma
-        G.data = np.exp(-(G.data**2) * gamma)
-        W = 0.5 * (G + G.T)
         return W
 
-    def _self_tuning_affinity(self, X: np.ndarray) -> csr_matrix:
-        """Compute self-tuning affinity (Zelnik-Manor & Perona, 2004).
+    def _compute_knn_affinity(self, X: np.ndarray) -> csr_matrix:
+        """Sparse kNN graph with RBF-weighted edges, symmetrized.
 
-        Parameters
-        ----------
-        X : ndarray of shape (n_samples, n_features)
-            Input data.
-
-        Returns
-        -------
-        W : scipy.sparse.csr_matrix
-            Self-tuning affinity matrix.
+        When gamma is None, uses k-NN median heuristic.
         """
-        G = kneighbors_graph(X, self.n_neighbors, mode="distance", include_self=True)
-        dists = G.toarray()
+        nn = NearestNeighbors(n_neighbors=self.n_neighbors)
+        nn.fit(X)
+        dists, indices = nn.kneighbors(X)
 
-        # Local scale sigma_i = distance to the k-th neighbor
-        sigma = np.partition(dists, self.n_neighbors, axis=1)[:, self.n_neighbors]
-        sigma[sigma == 0] = np.median(sigma[sigma > 0]) if np.any(sigma > 0) else 1.0
+        if self.gamma is None:
+            kth_dists = dists[:, -1]
+            sigma = float(np.median(kth_dists))
+            if sigma == 0:
+                sigma = float(np.mean(kth_dists[kth_dists > 0])) if np.any(kth_dists > 0) else 1.0
+            gamma = 1.0 / (2.0 * sigma**2)
+            self.gamma_ = gamma
+        else:
+            gamma = self.gamma
+            self.gamma_ = gamma
 
         n = X.shape[0]
-        W = np.zeros((n, n))
-        idx = dists > 0
-        S = sigma[:, None] * sigma[None, :]
-        W[idx] = np.exp(-(dists[idx] ** 2) / S[idx])
-        W = np.maximum(W, W.T)
-        np.fill_diagonal(W, 0.0)
-        return csr_matrix(W)
+        rows, cols, vals = [], [], []
+        for i in range(n):
+            for j_idx in range(self.n_neighbors):
+                j = indices[i, j_idx]
+                if i == j:
+                    continue
+                d2 = dists[i, j_idx] ** 2
+                w = np.exp(-gamma * d2)
+                rows.append(i)
+                cols.append(j)
+                vals.append(w)
 
-    def _affinity(self, X: np.ndarray) -> csr_matrix:
-        """Dispatch to the selected affinity computation.
+        W = csr_matrix((vals, (rows, cols)), shape=(n, n))
+        # Symmetrize: W = (W + W^T) / 2
+        W = 0.5 * (W + W.T)
+        return W
 
-        Parameters
-        ----------
-        X : ndarray of shape (n_samples, n_features)
-            Input data.
+    def _compute_self_tuning_affinity(self, X: np.ndarray):
+        """Self-tuning affinity (Zelnik-Manor & Perona, 2004).
 
-        Returns
-        -------
-        W : scipy.sparse.csr_matrix
-            Affinity matrix.
+        sigma_i = distance from point i to its k-th nearest neighbor.
+        W(i,j) = exp(-d(i,j)^2 / (sigma_i * sigma_j)).
+
+        For n > 5000, uses sparse kNN-only edges for efficiency.
         """
-        if self.affinity == "rbf":
-            return self._rbf_affinity(X)
-        elif self.affinity == "knn":
-            return self._knn_affinity(X)
-        elif self.affinity == "self_tuning":
-            return self._self_tuning_affinity(X)
+        self.gamma_ = None
+        nn = NearestNeighbors(n_neighbors=self.n_neighbors)
+        nn.fit(X)
+        dists, indices = nn.kneighbors(X)
+        
+        # k-th neighbor is at index -1 when n_neighbors=k
+        sigma = dists[:, -1].copy()
+        
+        # Handle zero sigmas
+        if np.any(sigma == 0):
+            median_nonzero = float(np.median(sigma[sigma > 0])) if np.any(sigma > 0) else 1.0
+            sigma[sigma == 0] = median_nonzero
+
+        n = X.shape[0]
+        if n > 5000:
+            # Sparse: only compute affinities for kNN edges
+            rows, cols, vals = [], [], []
+            for i in range(n):
+                for j_idx in range(self.n_neighbors):
+                    j = indices[i, j_idx]
+                    if i == j:
+                        continue
+                    d2 = dists[i, j_idx] ** 2
+                    w = np.exp(-d2 / (sigma[i] * sigma[j]))
+                    rows.append(i)
+                    cols.append(j)
+                    vals.append(w)
+            W = csr_matrix((vals, (rows, cols)), shape=(n, n))
+            W = W.maximum(W.T)  # symmetrize by taking max
+            return W
         else:
-            raise ValueError("Unknown affinity")
+            # Dense: full pairwise distances
+            D2 = pairwise_distances(X, metric="sqeuclidean")
+            S = sigma[:, None] * sigma[None, :]
+            W = np.exp(-D2 / S)
+            np.fill_diagonal(W, 0.0)
+            return W
 
-    def _smallest_k(
-        self,
-        L,
-        k,
-    ):
-        """Compute the k smallest eigenpairs for a symmetric PSD matrix.
+    def _compute_affinity(self, X: np.ndarray):
+        """Dispatch to the selected affinity computation."""
+        if self.affinity == "rbf":
+            return self._compute_rbf_affinity(X)
+        elif self.affinity == "knn":
+            return self._compute_knn_affinity(X)
+        elif self.affinity == "self_tuning":
+            return self._compute_self_tuning_affinity(X)
+        else:
+            raise ValueError(f"Unknown affinity: {self.affinity!r}")
 
-        Parameters
-        ----------
-        L : array-like or sparse matrix
-            Graph Laplacian.
-        k : int
-            Number of eigenpairs to compute.
+    def _spectral_embedding(self, W, k: int) -> tuple[np.ndarray, np.ndarray]:
+        """Compute spectral embedding from affinity matrix W.
 
-        Returns
-        -------
-        vals : ndarray
-            Eigenvalues.
-        vecs : ndarray
-            Eigenvectors.
+        Always uses normalized Laplacian L_sym = I - D^{-1/2} W D^{-1/2}
+        and row-normalizes eigenvectors (Ng-Jordan-Weiss).
+
+        Uses dense eigh for n < 1000, sparse eigsh otherwise with dense
+        fallback on convergence failure.
         """
-        try:
-            vals, vecs = eigsh(
-                L, k=k, which="SM", tol=self.eig_tol, maxiter=self.eig_maxiter
-            )
-            self.converged_ = True
-            return vals, vecs
-        except ArpackNoConvergence as e:
-            self.converged_ = False
-            ev = getattr(e, "eigenvectors", None)
-            ew = getattr(e, "eigenvalues", None)
-            if ev is not None and ev.shape[1] >= k:
-                return (ew[:k] if ew is not None else np.full(k, np.nan)), ev[:, :k]
-            # Dense fallback
-            Ld = L.toarray() if hasattr(L, "toarray") else np.asarray(L)
-            self.used_dense_fallback_ = True
-            vals, vecs = eigh(Ld)
-            return vals[:k], vecs[:, :k]
+        from scipy.sparse import issparse as _issparse
 
-    def fit(
-        self,
-        X,
-        y=None,
-    ):
+        if _issparse(W):
+            d = np.asarray(W.sum(axis=1)).ravel()
+        else:
+            d = np.asarray(W.sum(axis=1)).ravel()
+
+        n = W.shape[0]
+        dinvsqrt = 1.0 / np.sqrt(np.maximum(d, 1e-12))
+
+        if n < 1000:
+            # Dense path
+            Wd = W.toarray() if _issparse(W) else W
+            Lsym = np.eye(n) - (dinvsqrt[:, None] * Wd * dinvsqrt[None, :])
+            # Ensure symmetry
+            Lsym = 0.5 * (Lsym + Lsym.T)
+            vals, vecs = eigh(Lsym)
+            vals, vecs = vals[:k], vecs[:, :k]
+        else:
+            # Sparse path
+            Dinv = diags(dinvsqrt)
+            Ws = csr_matrix(W) if not _issparse(W) else W
+            Lsym = diags(np.ones(n)) - Dinv @ Ws @ Dinv
+            try:
+                vals, vecs = eigsh(Lsym, k=k, which="SM", tol=1e-4, maxiter=5000)
+            except ArpackNoConvergence as e:
+                ev = getattr(e, "eigenvectors", None)
+                ew = getattr(e, "eigenvalues", None)
+                if ev is not None and ev.shape[1] >= k:
+                    vals = ew[:k] if ew is not None else np.full(k, np.nan)
+                    vecs = ev[:, :k]
+                else:
+                    # Dense fallback
+                    Ld = Lsym.toarray() if _issparse(Lsym) else np.asarray(Lsym)
+                    vals, vecs = eigh(Ld)
+                    vals, vecs = vals[:k], vecs[:, :k]
+
+        # Sort by eigenvalue
+        order = np.argsort(vals)
+        vals, vecs = vals[order], vecs[:, order]
+
+        # Row-normalize (Ng-Jordan-Weiss)
+        norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+        U = vecs / (norms + 1e-12)
+
+        return vals, U
+
+    def fit(self, X, y=None):
         """Fit the spectral clustering model.
 
         Parameters
@@ -252,32 +286,16 @@ class SpectralClusteringCARVE(BaseEstimator, ClusterMixin):
         self : SpectralClusteringCARVE
             Fitted estimator.
         """
-        X = np.asarray(X)
+        X = np.asarray(X, dtype=np.float64)
         Xp = StandardScaler().fit_transform(X) if self.scale else X
-        W = self._affinity(Xp)
+
+        W = self._compute_affinity(Xp)
         self.affinity_ = W
-        d = np.asarray(W.sum(axis=1)).ravel()
-        n = W.shape[0]
 
-        if self.normalized:
-            dinvsqrt = 1.0 / np.sqrt(np.maximum(d, 1e-12))
-            Dinv = diags(dinvsqrt)
-            Lsym = csr_matrix(np.eye(n)) - (Dinv @ W @ Dinv)
-            vals, vecs = self._smallest_k(Lsym, self.n_clusters)
-            order = np.argsort(vals)
-            vals, vecs = vals[order], vecs[:, order]
-            # Row-normalize eigenvectors for normalized spectral clustering
-            U = vecs / (np.linalg.norm(vecs, axis=1, keepdims=True) + 1e-12)
-        else:
-            L = csgraph.laplacian(W, normed=False)
-            vals, vecs = self._smallest_k(L, self.n_clusters + 1)
-            order = np.argsort(vals)
-            vals, vecs = vals[order], vecs[:, order]
-            # Skip the trivial (constant) eigenvector
-            U = vecs[:, 1 : self.n_clusters + 1]
-
+        vals, U = self._spectral_embedding(W, self.n_clusters)
         self.evals_ = vals
         self.embedding_ = U
+
         km = KMeans(
             n_clusters=self.n_clusters,
             n_init=self.n_init,
@@ -286,11 +304,7 @@ class SpectralClusteringCARVE(BaseEstimator, ClusterMixin):
         self.labels_ = km.fit_predict(U)
         return self
 
-    def fit_predict(
-        self,
-        X,
-        y=None,
-    ):
+    def fit_predict(self, X, y=None):
         """Fit the model and return cluster labels.
 
         Parameters

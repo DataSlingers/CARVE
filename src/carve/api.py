@@ -62,7 +62,7 @@ class CARVE(BaseEstimator):
         Must be in (0, 1).
     estimator_param_grids : list of (Estimator, param_grid) tuples, optional
         Clustering estimators and their parameter grids. If None, defaults
-        include KMeans, AgglomerativeClustering, and SpectralClustering.
+        include KMeans, AgglomerativeClustering, and SpectralClusteringCARVE.
     normalization_options : list of preprocessing specs, optional
         Normalization preprocessing options. If None, defaults include
         identity, StandardScaler, and log1p.
