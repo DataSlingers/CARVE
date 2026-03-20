@@ -60,9 +60,12 @@ class CARVE(BaseEstimator):
     subsample_ratio : float, default=0.8
         Fraction of samples drawn without replacement per resample.
         Must be in (0, 1).
-    estimator_param_grids : list of (Estimator, param_grid) tuples, optional
-        Clustering estimators and their parameter grids. If None, defaults
-        include KMeans, AgglomerativeClustering, and SpectralClusteringCARVE.
+    estimator_param_grids : list of (Estimator, param_grid) tuples, or {"light", "full"}, default="light"                      
+        Clustering estimators and their parameter grids. ``"light"`` uses                                                      
+        KMeans, Ward-linkage agglomerative, and self-tuning spectral                                                           
+        clustering. ``"full"`` additionally includes average/single-linkage                                                    
+        agglomerative and RBF-kernel spectral clustering. A custom list                                                        
+        of (EstimatorClass, param_grid) tuples may also be passed.
     normalization_options : list of preprocessing specs, optional
         Normalization preprocessing options. If None, defaults include
         identity, StandardScaler, and log1p.
@@ -131,7 +134,7 @@ class CARVE(BaseEstimator):
     n_resamples: int = 100
     subsample_ratio: float = 0.8
 
-    estimator_param_grids: list[GridSpec] | None = None
+    estimator_param_grids: list[GridSpec] | Literal["light", "full"] = "light"
     normalization_options: list[PreprocOption] | None = None
     dim_reduction_options: list[PreprocOption] | None = None
 
@@ -230,18 +233,18 @@ class CARVE(BaseEstimator):
             self.reference_labels = ref_arr
 
         # --- Resolve default grids including n_clusters ---
-        if self.estimator_param_grids is None:  # Default estimator grids
+        if self.estimator_param_grids == "light" or self.estimator_param_grids == "full":  # Default estimator grids
             n_clusters_arr = _coerce_n_clusters(self.n_clusters)
-            estimator_grids = default_estimator_grids(X, n_clusters_arr)
+            estimator_param_grids = default_estimator_grids(X, n_clusters_arr, preset=self.estimator_param_grids)
 
         else:  # User-provided estimator grids (verify consistency of n_clusters)
-            estimator_grids = self.estimator_param_grids
+            estimator_param_grids = self.estimator_param_grids
 
             # Extract n_clusters from first grid
-            n_clusters_arr = estimator_grids[0][1].get("n_clusters", None)
+            n_clusters_arr = estimator_param_grids[0][1].get("n_clusters", None)
 
             # Verify all grids have the same n_clusters
-            for _, grid in estimator_grids[1:]:
+            for _, grid in estimator_param_grids[1:]:
                 grid_n_clusters = grid.get("n_clusters", None)
 
                 if not np.array_equal(n_clusters_arr, grid_n_clusters):
@@ -249,7 +252,7 @@ class CARVE(BaseEstimator):
                         "All estimator parameter grids must contain the same n_clusters values."
                     )
 
-        self.estimator_param_grids_ = estimator_grids
+        self.estimator_param_grids_ = estimator_param_grids
 
         # --- Resolve preprocessing options ---
         norm_options = self.normalization_options or default_normalization_options()
@@ -263,7 +266,7 @@ class CARVE(BaseEstimator):
             n_clusters=n_clusters_arr,
             n_resamples=self.n_resamples,
             subsample_ratio=self.subsample_ratio,
-            estimator_grids=estimator_grids,
+            estimator_grids=self.estimator_param_grids_,
             n_jobs=self.n_jobs,
             randomize_preprocessing=randomize_preprocessing,
             random_state=self.random_state if random_state is None else random_state,
@@ -279,7 +282,7 @@ class CARVE(BaseEstimator):
             self.generalizability_scores_,
         ) = run_validation(
             X=X,
-            estimator_grids=estimator_grids,
+            estimator_grids=estimator_param_grids,
             n_resamples=self.n_resamples,
             subsample_ratio=self.subsample_ratio,
             normalization_options=norm_options,
@@ -287,7 +290,7 @@ class CARVE(BaseEstimator):
             randomize_preprocessing=randomize_preprocessing,
             n_jobs=self.n_jobs,
             random_state=self.random_state if random_state is None else random_state,
-            mode=mode,
+            mode=policy.mode,
             show_progress=show_progress,
         )
 

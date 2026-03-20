@@ -1,5 +1,7 @@
 """Default estimator and preprocessing grids for CARVE."""
 
+from typing import Literal
+
 import numpy as np
 from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.decomposition import PCA
@@ -50,6 +52,7 @@ def estimate_knn_gamma(
 def default_estimator_grids(
     X: np.ndarray,
     n_clusters: int | np.ndarray = 10,
+    preset: Literal["light", "full"] = "light",
 ) -> list[GridSpec]:
     """Return default clustering estimator grids.
 
@@ -59,6 +62,11 @@ def default_estimator_grids(
         Input data used to derive data-driven hyperparameters (e.g., gamma).
     n_clusters : int or ndarray, default=10
         Number(s) of clusters to evaluate.
+    preset : {"light", "full"}, default="light"                                                                            
+        ``"light"`` includes KMeans, Ward-linkage agglomerative, and                                                       
+        self-tuning spectral clustering. ``"full"`` adds average- and                                                      
+        single-linkage agglomerative clustering and RBF-kernel spectral                                                    
+        clustering with data-driven gamma.
 
     Returns
     -------
@@ -67,22 +75,41 @@ def default_estimator_grids(
         ``sklearn.model_selection.ParameterGrid``.
     """
     ks = list(np.asarray(n_clusters).tolist())
-
-    return [
-        (KMeans, {"n_clusters": ks}),
-        (
-            AgglomerativeClustering,
-            {"n_clusters": ks, "linkage": ["ward", "average", "single"]},
-        ),
-        (
-            SpectralClusteringCARVE,
-            {"n_clusters": ks, "affinity": ["self_tuning"]},
-        ),
-        (
-            SpectralClusteringCARVE,
-            {"n_clusters": ks, "affinity": ["rbf"], "gamma": estimate_knn_gamma(X)},
-        ),
+    
+    grids: list[GridSpec] = [                                                                                              
+        (KMeans, {"n_clusters": ks}),                                                                                      
+        (AgglomerativeClustering, {"n_clusters": ks, "linkage": ["ward"]}),                                                
+        (SpectralClusteringCARVE, {"n_clusters": ks, "affinity": ["self_tuning"]}),                                        
     ]
+    
+    if preset == "full":
+        grids.append(                                                                                                      
+            (AgglomerativeClustering,                                                                                      
+            {"n_clusters": ks, "linkage": ["average", "single", "complete"]}),
+        )
+        
+        grids.append(
+            (SpectralClusteringCARVE,                                                                                      
+            {"n_clusters": ks, "affinity": ["rbf"], "gamma": estimate_knn_gamma(X)}),                                     
+        )                                                                                                                  
+                                                                                                                             
+    return grids
+
+    # return [
+    #     (KMeans, {"n_clusters": ks}),
+    #     (
+    #         AgglomerativeClustering,
+    #         {"n_clusters": ks, "linkage": ["ward", "average", "single"]},
+    #     ),
+    #     (
+    #         SpectralClusteringCARVE,
+    #         {"n_clusters": ks, "affinity": ["self_tuning"]},
+    #     ),
+    #     (
+    #         SpectralClusteringCARVE,
+    #         {"n_clusters": ks, "affinity": ["rbf"], "gamma": estimate_knn_gamma(X)},
+    #     ),
+    # ]
 
 
 def default_normalization_options() -> list[PreprocSpec]:
