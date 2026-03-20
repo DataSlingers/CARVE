@@ -40,6 +40,7 @@ def select_best_row_by_rule(
     measure: Measure,
     rule: Rule,
     return_idx: bool = False,
+    not_two: bool = False,
 ) -> pd.Series:
     """Select the best row according to a selection rule.
 
@@ -56,12 +57,19 @@ def select_best_row_by_rule(
         score's quantile bounds.
     return_idx : bool, default=False
         If True, return the selected row index instead of the row itself.
+    not_two : bool, default=False
+        If True, exclude configurations with k=2 from selection.
 
     Returns
     -------
     row : pandas.Series or int
         Selected row (or row index if ``return_idx=True``).
     """
+    if not_two:
+        results_df = results_df[results_df["n_clusters"] != 2]
+        if results_df.empty:
+            raise ValueError("No configurations remain after excluding k=2.")
+
     y_col = MEASURE_MAP[measure]
     se_col = f"{y_col}_se"
     has_se = se_col in results_df.columns
@@ -101,6 +109,7 @@ def select_best_estimator(
     measure: Measure = "stability",
     rule: Rule = "max",
     k: int | None = None,
+    not_two: bool = False,
 ) -> ClusterMixin:
     """Reconstruct the best estimator from a results table.
 
@@ -119,6 +128,8 @@ def select_best_estimator(
         Selection rule.
     k : int or None, default=None
         Optional fixed number of clusters to filter by.
+    not_two : bool, default=False
+        If True, exclude configurations with k=2 from selection.
 
     Returns
     -------
@@ -129,7 +140,7 @@ def select_best_estimator(
         results_df = results_df[results_df["n_clusters"] == k]
 
     row = select_best_row_by_rule(
-        results_df, measure=measure, rule=rule, return_idx=False
+        results_df, measure=measure, rule=rule, return_idx=False, not_two=not_two,
     )
     return build_estimator_from_row(estimator_param_grids, row)
 
@@ -138,6 +149,7 @@ def select_best_k(
     results_df: pd.DataFrame,
     measure: Measure = "stability",
     rule: Rule = "max",
+    not_two: bool = False,
 ) -> int:
     """Select the best number of clusters from results.
 
@@ -152,6 +164,8 @@ def select_best_k(
         ``"misclassification"``.
     rule : Rule, default="max"
         Selection rule.
+    not_two : bool, default=False
+        If True, exclude configurations with k=2 from selection.
 
     Returns
     -------
@@ -159,7 +173,7 @@ def select_best_k(
         Selected number of clusters.
     """
     row = select_best_row_by_rule(
-        results_df, measure=measure, rule=rule, return_idx=False
+        results_df, measure=measure, rule=rule, return_idx=False, not_two=not_two,
     )
     return row["n_clusters"]
 

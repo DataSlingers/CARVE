@@ -66,6 +66,7 @@ def plot_metric_over_n_clusters(
     *,
     measure: str = "generalizability",
     rule: str = "1se",
+    not_two: bool = False,
     ax: Axes | None = None,
     figsize: tuple | None = None,
     title: str | None = None,
@@ -230,7 +231,7 @@ def plot_metric_over_n_clusters(
 
     # --- Vertical line at selected k ---
     try:
-        best_k = select_best_k(results_df, measure=measure, rule=rule)
+        best_k = select_best_k(results_df, measure=measure, rule=rule, not_two=not_two)
         rule_str = "1-SE" if rule == "1se" else rule.title()
         ax.axvline(
             best_k,

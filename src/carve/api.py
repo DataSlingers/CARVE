@@ -357,6 +357,7 @@ class CARVE(BaseEstimator):
         measure: str = "generalizability",
         rule: str = "1se",
         k: int | None = None,
+        not_two: bool = False,
         mode: Literal["default", "generalizability"] = "default",
         estimator: ClusterMixin | None = None,
     ) -> np.ndarray:
@@ -377,6 +378,9 @@ class CARVE(BaseEstimator):
         k : int or None, default=None
             Optional fixed number of clusters to select. If None, uses the
             value selected by ``measure`` and ``rule``.
+        not_two : bool, default=False
+            If True, exclude k=2 configurations during selection. Ignored
+            when ``k`` is explicitly provided.
         mode : Literal['default', 'generalizability'], default='default'
             Determines which consensus matrix is used to return labels.
         estimator : ClusterMixin or None, default=None
@@ -413,7 +417,7 @@ class CARVE(BaseEstimator):
 
         # --- Select best configuration ---
         if k is None:
-            row = select_best_row_by_rule(df, measure=measure, rule=rule)
+            row = select_best_row_by_rule(df, measure=measure, rule=rule, not_two=not_two)
             k = int(row["n_clusters"])
             best_idx = int(row.name)
 
@@ -484,6 +488,7 @@ class CARVE(BaseEstimator):
         *,
         measure: str = "generalizability",
         rule: str = "1se",
+        not_two: bool = False,
     ) -> int:
         """Return the best number of clusters.
 
@@ -499,6 +504,8 @@ class CARVE(BaseEstimator):
             highest score. ``"1se"`` picks the largest *k* within one
             standard error of the best score. ``"quantile"`` picks the
             largest *k* within the best score's quantile bounds.
+        not_two : bool, default=False
+            If True, exclude k=2 configurations during selection.
 
         Returns
         -------
@@ -513,13 +520,14 @@ class CARVE(BaseEstimator):
         if self.estimator_results_ is None:
             raise RuntimeError("Call fit() first.")
 
-        return select_best_k(self.estimator_results_, measure=measure, rule=rule)
+        return select_best_k(self.estimator_results_, measure=measure, rule=rule, not_two=not_two)
 
     def get_estimator(
         self,
         *,
         measure: str = "generalizability",
         rule: str = "1se",
+        not_two: bool = False,
     ) -> ClusterMixin:
         """Return the best estimator.
 
@@ -535,6 +543,8 @@ class CARVE(BaseEstimator):
             highest score. ``"1se"`` picks the largest *k* within one
             standard error of the best score. ``"quantile"`` picks the
             largest *k* within the best score's quantile bounds.
+        not_two : bool, default=False
+            If True, exclude k=2 configurations during selection.
 
         Returns
         -------
@@ -554,6 +564,7 @@ class CARVE(BaseEstimator):
             self.estimator_param_grids_,
             measure=measure,
             rule=rule,
+            not_two=not_two,
         )
 
     # ------------------------------------------------------------------ #
@@ -565,6 +576,7 @@ class CARVE(BaseEstimator):
         *,
         measure: str = "generalizability",
         rule: str = "1se",
+        not_two: bool = False,
         ax=None,
         figsize: tuple | None = None,
         title: str | None = None,
@@ -650,6 +662,7 @@ class CARVE(BaseEstimator):
             self.estimator_results_,
             measure=measure,
             rule=rule,
+            not_two=not_two,
             ax=ax,
             figsize=figsize,
             title=title,
@@ -669,6 +682,7 @@ class CARVE(BaseEstimator):
         *,
         measure: str = "generalizability",
         rule: str = "1se",
+        not_two: bool = False,
         mode: Literal["default", "stability", "generalizability"] = "default",
         k: int | None = None,
         ax=None,
@@ -744,7 +758,7 @@ class CARVE(BaseEstimator):
 
         df = self.estimator_results_
         if k is None:
-            row = select_best_row_by_rule(df, measure=measure, rule=rule)
+            row = select_best_row_by_rule(df, measure=measure, rule=rule, not_two=not_two)
         else:
             df_k = df[df["n_clusters"] == k]
             if df_k.empty:
@@ -787,6 +801,7 @@ class CARVE(BaseEstimator):
         source: Literal["gini", "ce", "misclassification"] = "gini",
         measure: str = "generalizability",
         rule: str = "1se",
+        not_two: bool = False,
         mode: Literal["default", "stability", "generalizability"] = "default",
         k: int | None = None,
         ax=None,
@@ -860,7 +875,7 @@ class CARVE(BaseEstimator):
 
         df = self.estimator_results_
         if k is None:
-            row = select_best_row_by_rule(df, measure=measure, rule=rule)
+            row = select_best_row_by_rule(df, measure=measure, rule=rule, not_two=not_two)
         else:
             df_k = df[df["n_clusters"] == k]
             if df_k.empty:
@@ -920,8 +935,8 @@ class CARVE(BaseEstimator):
 
         if ylabel is None:
             ylabel = default_ylabel
-            
-        # --- Build annotation ---                                                                                         
+
+        # --- Build annotation ---
         if annotation is True:
             annotation_text = _get_annotation(
                 measure=measure,
@@ -931,7 +946,7 @@ class CARVE(BaseEstimator):
                 row=row,
                 selected_k=selected_k
             )
-                
+
         elif isinstance(annotation, str):
             annotation_text = annotation
         else:
@@ -939,7 +954,7 @@ class CARVE(BaseEstimator):
 
         # TODO: fix bug where boxplot of generalizability scores isn't properly displayed
         # --- Debugging: print mean scores grouped by labels ---
-        # score_by_cluster = pd.DataFrame({  
+        # score_by_cluster = pd.DataFrame({
         #     'cluster': labels,
         #     'score': scores
         # }).groupby('cluster')['score'].agg(['count', 'mean', 'std', 'min', 'max'])
@@ -972,6 +987,7 @@ class CARVE(BaseEstimator):
         source: Literal["gini", "ce", "misclassification"] = "gini",
         measure: str = "generalizability",
         rule: str = "1se",
+        not_two: bool = False,
         mode: Literal["default", "stability", "generalizability"] = "default",
         k: int | None = None,
         ax=None,
@@ -1059,7 +1075,7 @@ class CARVE(BaseEstimator):
 
         df = self.estimator_results_
         if k is None:
-            row = select_best_row_by_rule(df, measure=measure, rule=rule)
+            row = select_best_row_by_rule(df, measure=measure, rule=rule, not_two=not_two)
         else:
             df_k = df[df["n_clusters"] == k]
             if df_k.empty:
@@ -1119,8 +1135,8 @@ class CARVE(BaseEstimator):
 
         if ylabel is None:
             ylabel = default_ylabel
-            
-        # --- Build annotation ---                                                                                         
+
+        # --- Build annotation ---
         if annotation is True:
             annotation_text = _get_annotation(
                 measure=measure,
@@ -1130,7 +1146,7 @@ class CARVE(BaseEstimator):
                 row=row,
                 selected_k=selected_k
             )
-                
+
         elif isinstance(annotation, str):
             annotation_text = annotation
         else:
@@ -1166,6 +1182,7 @@ class CARVE(BaseEstimator):
         source: Literal["gini", "ce", "misclassification"] = "gini",
         measure: str = "generalizability",
         rule: str = "1se",
+        not_two: bool = False,
         mode: Literal["default", "stability", "generalizability"] = "default",
         k: int | None = None,
         X: np.ndarray | None = None,
@@ -1261,7 +1278,7 @@ class CARVE(BaseEstimator):
 
         df = self.estimator_results_
         if k is None:
-            row = select_best_row_by_rule(df, measure=measure, rule=rule)
+            row = select_best_row_by_rule(df, measure=measure, rule=rule, not_two=not_two)
         else:
             df_k = df[df["n_clusters"] == k]
             if df_k.empty:
