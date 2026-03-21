@@ -74,7 +74,7 @@ def plot_metric_over_n_clusters(
     ylabel: str | None = None,
     legend: bool = True,
     legend_loc: str = "best",
-    palette: str | None = None,
+    palette: str = "Accent",
     show: bool = False,
     save: str | Path | None = None,
     dpi: int = 300,
@@ -113,8 +113,8 @@ def plot_metric_over_n_clusters(
         Whether to display a legend.
     legend_loc : str, default="best"
         Legend location (passed to ax.legend).
-    palette : str, optional
-        Matplotlib colormap name for line colors. Default is "tab10".
+    palette : str, default="Accent"
+        Matplotlib colormap name for line colors. Default is "Accent".
     show : bool, default=False
         Whether to call plt.show() before returning.
     save : str or Path, optional
@@ -194,8 +194,6 @@ def plot_metric_over_n_clusters(
     ]
     grouped = results_df.groupby(group_cols, dropna=False)
 
-    if palette is None:
-        palette = "tab10"
     colors = plt.cm.get_cmap(palette)(np.linspace(0, 1, len(grouped)))
 
     # --- Plot each estimator configuration ---
@@ -295,7 +293,7 @@ def plot_consensus_matrix(
     ax: Axes | None = None,
     figsize: tuple | None = None,
     cmap: str = "viridis",
-    palette: str = "tab20",
+    palette: str = "Accent",
     colorbar: bool = True,
     colorbar_label: str = "Consensus",
     title: str | None = None,
@@ -319,8 +317,8 @@ def plot_consensus_matrix(
         Figure size (width, height) in inches. Default is (6.5, 6.5).
     cmap : str, default="viridis"
         Colormap for the consensus heatmap.
-    palette : str, default="tab20"
-        Discrete colormap for the top cluster band.
+    palette : str, default="Accent"
+        Discrete colormap for the top cluster band. Default is "Accent".
     colorbar : bool, default=True
         Whether to draw a colorbar for the heatmap.
     colorbar_label : str, default="Consensus"
@@ -638,7 +636,7 @@ def plot_cluster_boxplot(
     ax: Axes | None = None,
     figsize: tuple | None = None,
     order: list[int | str] | None = None,
-    palette: str = "tab20",
+    palette: str = "Accent",
     showfliers: bool = False,
     width: float = 0.75,
     title: str | None = None,
@@ -665,8 +663,8 @@ def plot_cluster_boxplot(
         Figure size (width, height) in inches. Default is (6.5, 4.0).
     order : list of int or str, optional
         Explicit cluster ordering for the x-axis.
-    palette : str, default="tab20"
-        Discrete colormap for box colors.
+    palette : str, default="Accent"
+        Discrete colormap for the boxes.
     showfliers : bool, default=False
         Whether to show outlier points.
     width : float, default=0.75
@@ -758,7 +756,7 @@ def plot_cluster_violin(
     ax: Axes | None = None,
     figsize: tuple | None = None,
     order: list[int | str] | None = None,
-    palette: str = "tab20",
+    palette: str = "Accent",
     density_norm: Literal["width", "area", "count"] = "width",
     stripplot: bool = True,
     jitter: bool | float = True,
@@ -793,7 +791,7 @@ def plot_cluster_violin(
         Figure size (width, height) in inches. Default is (6.5, 4.0).
     order : list of int or str, optional
         Explicit cluster ordering for the x-axis.
-    palette : str, default="tab20"
+    palette : str, default="Accent"
         Discrete colormap for violin colors.
     density_norm : {"width", "area", "count"}, default="width"
         How to normalize violin widths.
@@ -932,7 +930,7 @@ def plot_cluster_scatter(
     embedding: np.ndarray | None = None,
     ax: Axes | None = None,
     figsize: tuple | None = None,
-    palette: str = "tab20",
+    palette: str = "Accent",
     alpha_range: tuple[float, float] | None = None,
     size_range: tuple[float, float] = (20.0, 100.0),
     sort_order: bool = True,
@@ -968,7 +966,7 @@ def plot_cluster_scatter(
         Axes object to plot on. If None, creates a new figure.
     figsize : tuple, optional
         Figure size (width, height) in inches. Default is (6.5, 5.0).
-    palette : str, default="tab20"
+    palette : str, default="Accent"
         Colormap for cluster colors.
     alpha_range : tuple of float, optional
         Min/max alpha for cluster-level score mapping. If None, maps

@@ -584,7 +584,7 @@ class CARVE(BaseEstimator):
         ylabel: str | None = None,
         legend: bool = True,
         legend_loc: str = "best",
-        palette: str | None = None,
+        palette: str = "Accent",
         show: bool = False,
         save: str | Path | None = None,
         dpi: int = 300,
@@ -621,8 +621,8 @@ class CARVE(BaseEstimator):
             Whether to display a legend showing estimator labels.
         legend_loc : str, default="best"
             Legend location (passed to matplotlib's ax.legend).
-        palette : str, optional
-            Matplotlib colormap name for line colors. Default is "tab10".
+        palette : str, default="Accent"
+            Matplotlib colormap name for line colors. Default is "Accent".
         show : bool, default=False
             Whether to call plt.show() before returning.
         save : str or Path, optional
@@ -688,7 +688,7 @@ class CARVE(BaseEstimator):
         ax=None,
         figsize: tuple | None = None,
         cmap: str = "viridis",
-        palette: str = "tab20",
+        palette: str = "Accent",
         colorbar: bool = True,
         colorbar_label: str = "Consensus",
         title: str | None = None,
@@ -717,7 +717,7 @@ class CARVE(BaseEstimator):
             Figure size in inches.
         cmap : str, default="viridis"
             Heatmap colormap.
-        palette : str, default="tab20"
+        palette : str, default="Accent"
             Discrete palette used for the top cluster band.
         colorbar : bool, default=True
             Whether to draw the heatmap colorbar.
@@ -807,7 +807,7 @@ class CARVE(BaseEstimator):
         ax=None,
         figsize: tuple | None = None,
         order: list[int | str] | None = None,
-        palette: str = "tab20",
+        palette: str = "Accent",
         showfliers: bool = False,
         width: float = 0.75,
         title: str | None = None,
@@ -842,7 +842,7 @@ class CARVE(BaseEstimator):
             Figure size in inches.
         order : list of int or str, optional
             Explicit cluster ordering for the x-axis.
-        palette : str, default="tab20"
+        palette : str, default="Accent"
             Discrete colormap for box colors.
         showfliers : bool, default=False
             Whether to show outlier points.
@@ -993,7 +993,7 @@ class CARVE(BaseEstimator):
         ax=None,
         figsize: tuple | None = None,
         order: list[int | str] | None = None,
-        palette: str = "tab20",
+        palette: str = "Accent",
         density_norm: Literal["width", "area", "count"] = "width",
         stripplot: bool = True,
         jitter: bool | float = True,
@@ -1034,7 +1034,7 @@ class CARVE(BaseEstimator):
             Figure size in inches.
         order : list of int or str, optional
             Explicit cluster ordering for the x-axis.
-        palette : str, default="tab20"
+        palette : str, default="Accent"
             Discrete colormap for violin colors.
         density_norm : {"width", "area", "count"}, default="width"
             How to normalize violin widths.
@@ -1189,7 +1189,7 @@ class CARVE(BaseEstimator):
         embedding: np.ndarray | None = None,
         ax=None,
         figsize: tuple | None = None,
-        palette: str = "tab20",
+        palette: str = "Accent",
         alpha_range: tuple[float, float] | None = None,
         size_range: tuple[float, float] = (20.0, 100.0),
         sort_order: bool = True,
@@ -1234,7 +1234,7 @@ class CARVE(BaseEstimator):
             Axes object to plot on. If None, creates a new figure.
         figsize : tuple, optional
             Figure size in inches.
-        palette : str, default="tab20"
+        palette : str, default="Accent"
             Colormap for cluster colors.
         alpha_range : tuple of float, optional
             Min/max alpha for cluster-level score mapping.
