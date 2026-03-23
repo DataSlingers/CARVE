@@ -47,9 +47,9 @@ Measure = Literal[
     "consensus_gini_stability",
     "ce",
     "consensus_ce_stability",
-    "misclass",
-    "misclassification",
-    "misclassification_generalizability",
+    "acc",
+    "accuracy",
+    "accuracy_generalizability",
 ]
 
 # Accepted selection rule names

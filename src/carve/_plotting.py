@@ -96,7 +96,7 @@ def plot_metric_over_n_clusters(
         Metric to plot. Options: "stability", "ari_stability", "generalizability",
         "ari_generalizability", "average", "ari_average", "pac",
         "consensus_pac_stability", "gini", "consensus_gini_stability",
-        "ce", "consensus_ce_stability", "misclassification", etc.
+        "ce", "consensus_ce_stability", "accuracy", etc.
     rule : str, default="1se"
         Selection rule for choosing best k. Options: "max", "1se", "quantile".
     ax : matplotlib.axes.Axes, optional
@@ -180,7 +180,7 @@ def plot_metric_over_n_clusters(
             for x in [
                 "ari_",
                 "consensus_",
-                "misclassification_",
+                "accuracy_",
                 "_se",
                 "_upper",
                 "_lower",
@@ -599,7 +599,7 @@ def _get_annotation(
             for x in [
                 "ari_",
                 "consensus_",
-                "misclassification_",
+                "accuracy_",
                 "_se",
                 "_upper",
                 "_lower",

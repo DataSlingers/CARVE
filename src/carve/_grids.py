@@ -95,22 +95,6 @@ def default_estimator_grids(
                                                                                                                              
     return grids
 
-    # return [
-    #     (KMeans, {"n_clusters": ks}),
-    #     (
-    #         AgglomerativeClustering,
-    #         {"n_clusters": ks, "linkage": ["ward", "average", "single"]},
-    #     ),
-    #     (
-    #         SpectralClusteringCARVE,
-    #         {"n_clusters": ks, "affinity": ["self_tuning"]},
-    #     ),
-    #     (
-    #         SpectralClusteringCARVE,
-    #         {"n_clusters": ks, "affinity": ["rbf"], "gamma": estimate_knn_gamma(X)},
-    #     ),
-    # ]
-
 
 def default_normalization_options() -> list[PreprocSpec]:
     """Return default normalization preprocessing options.

@@ -77,5 +77,5 @@ def results_df():
         "consensus_pac_stability": [0.95, 0.90, 0.80, 0.70],
         "consensus_gini_stability": [0.92, 0.87, 0.75, 0.65],
         "consensus_ce_stability": [0.91, 0.86, 0.74, 0.64],
-        "misclassification_generalizability": [0.88, 0.83, 0.68, 0.58],
+        "accuracy_generalizability": [0.88, 0.83, 0.68, 0.58],
     })

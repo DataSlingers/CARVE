@@ -278,7 +278,7 @@ class TestMeasureMap:
             "consensus_pac_stability",
             "consensus_gini_stability",
             "consensus_ce_stability",
-            "misclassification_generalizability",
+            "accuracy_generalizability",
         }
         assert set(MEASURE_MAP.values()) == expected_targets
 
@@ -289,4 +289,4 @@ class TestMeasureMap:
         assert MEASURE_MAP["pac"] == "consensus_pac_stability"
         assert MEASURE_MAP["gini"] == "consensus_gini_stability"
         assert MEASURE_MAP["ce"] == "consensus_ce_stability"
-        assert MEASURE_MAP["misclass"] == "misclassification_generalizability"
+        assert MEASURE_MAP["acc"] == "accuracy_generalizability"

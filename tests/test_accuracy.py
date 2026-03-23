@@ -1,9 +1,9 @@
-"""Tests for carve._misclassification module."""
+"""Tests for carve._accuracy module."""
 
 import numpy as np
 import pytest
 
-from carve._misclassification import compute_generalizability_scores
+from carve._accuracy import compute_generalizability_scores
 
 
 class TestComputeGeneralizabilityScores:

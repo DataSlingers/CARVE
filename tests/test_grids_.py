@@ -23,7 +23,7 @@ class TestDefaultEstimatorGrids:
         X = np.random.RandomState(0).randn(50, 5)
         grids = default_estimator_grids(X, n_clusters=np.array([2, 3]))
         assert isinstance(grids, list)
-        assert len(grids) == 4  # KMeans, Agglomerative, SpectralCARVE x2
+        assert len(grids) == 3  # KMeans, Agglomerative (ward), SpectralCARVE (self_tuning)
 
     def test_estimator_types(self):
         X = np.random.RandomState(0).randn(50, 5)
@@ -42,7 +42,7 @@ class TestDefaultEstimatorGrids:
 
     def test_gamma_values(self):
         X = np.random.RandomState(0).randn(50, 5)
-        grids = default_estimator_grids(X, n_clusters=np.array([2, 3]))
+        grids = default_estimator_grids(X, n_clusters=np.array([2, 3]), preset="full")
         # Find the RBF spectral entry (the one with gamma in its grid)
         rbf_grids = [(cls, g) for cls, g in grids if "gamma" in g]
         assert len(rbf_grids) == 1
@@ -68,7 +68,7 @@ class TestDefaultEstimatorGrids:
         grids = default_estimator_grids(X, n_clusters=np.array([2, 3]))
         agg_grid = next(g for cls, g in grids if cls is AgglomerativeClustering)
         assert "linkage" in agg_grid
-        assert set(agg_grid["linkage"]) == {"ward", "average", "single"}
+        assert set(agg_grid["linkage"]) == {"ward"}
 
     def test_param_grids_are_valid(self):
         """Verify each grid can be expanded by ParameterGrid."""
@@ -80,6 +80,34 @@ class TestDefaultEstimatorGrids:
             assert len(configs) > 0
             for config in configs:
                 assert "n_clusters" in config
+
+
+class TestFullPreset:
+    def test_full_preset_structure(self):
+        X = np.random.RandomState(0).randn(50, 5)
+        grids = default_estimator_grids(X, n_clusters=np.array([2, 3]), preset="full")
+        assert len(grids) == 5
+
+    def test_full_preset_agglomerative_linkages(self):
+        X = np.random.RandomState(0).randn(50, 5)
+        grids = default_estimator_grids(X, n_clusters=np.array([2, 3]), preset="full")
+        agg_grids = [g for cls, g in grids if cls is AgglomerativeClustering]
+        all_linkages = set()
+        for g in agg_grids:
+            all_linkages.update(g["linkage"])
+        assert all_linkages == {"ward", "average", "single", "complete"}
+
+    def test_full_preset_rbf_spectral(self):
+        X = np.random.RandomState(0).randn(50, 5)
+        grids = default_estimator_grids(X, n_clusters=np.array([2, 3]), preset="full")
+        rbf_grids = [
+            (cls, g) for cls, g in grids
+            if cls is SpectralClusteringCARVE and "gamma" in g
+        ]
+        assert len(rbf_grids) == 1
+        _, grid = rbf_grids[0]
+        assert grid["affinity"] == ["rbf"]
+        assert len(grid["gamma"]) == 3
 
 
 # -----------------------------------------------------------------------

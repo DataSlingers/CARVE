@@ -1,4 +1,4 @@
-"""Misclassification-based generalizability metrics."""
+"""Accuracy-based generalizability metrics."""
 
 import numpy as np
 

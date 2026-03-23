@@ -17,7 +17,7 @@ from tqdm.auto import tqdm
 
 from ._output import _log_config_progress
 from ._consensus import compute_consensus_matrix
-from ._misclassification import compute_generalizability_scores
+from ._accuracy import compute_generalizability_scores
 from ._pipeline import build_preprocessing_pipeline
 from ._utils import cluster_labels, split_subsample_indices, _summarize_ari_scores
 

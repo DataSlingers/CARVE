@@ -29,9 +29,9 @@ MEASURE_MAP = {
     "consensus_gini_stability": "consensus_gini_stability",
     "ce": "consensus_ce_stability",
     "consensus_ce_stability": "consensus_ce_stability",
-    "misclass": "misclassification_generalizability",
-    "misclassification": "misclassification_generalizability",
-    "misclassification_generalizability": "misclassification_generalizability",
+    "acc": "accuracy_generalizability",
+    "accuracy": "accuracy_generalizability",
+    "accuracy_generalizability": "accuracy_generalizability",
 }
 
 
@@ -123,7 +123,7 @@ def select_best_estimator(
         Metric key used for selection. Common aliases: ``"stability"`` /
         ``"s"``, ``"generalizability"`` / ``"g"``, ``"average"`` /
         ``"avg"``, ``"pac"``, ``"gini"``, ``"ce"``,
-        ``"misclassification"``.
+        ``"accuracy"``.
     rule : Rule, default="max"
         Selection rule.
     k : int or None, default=None
@@ -161,7 +161,7 @@ def select_best_k(
         Metric key used for selection. Common aliases: ``"stability"`` /
         ``"s"``, ``"generalizability"`` / ``"g"``, ``"average"`` /
         ``"avg"``, ``"pac"``, ``"gini"``, ``"ce"``,
-        ``"misclassification"``.
+        ``"accuracy"``.
     rule : Rule, default="max"
         Selection rule.
     not_two : bool, default=False

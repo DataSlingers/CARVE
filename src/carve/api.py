@@ -338,12 +338,12 @@ class CARVE(BaseEstimator):
             policy.run_generalizability and self.generalizability_scores_ is not None
         ):  # Default route
             gen_arr = np.vstack(self.generalizability_scores_)
-            self.estimator_results_["misclassification_generalizability"] = (
+            self.estimator_results_["accuracy_generalizability"] = (
                 gen_arr.mean(axis=1)
             )
 
         else:  # If not running generalizability, set these attributes to None/NaN
-            self.estimator_results_["misclassification_generalizability"] = np.full(
+            self.estimator_results_["accuracy_generalizability"] = np.full(
                 n_rows, np.nan
             )
 
@@ -369,7 +369,7 @@ class CARVE(BaseEstimator):
             Metric key used to select the best configuration. Common
             aliases: ``"stability"`` / ``"s"``, ``"generalizability"`` /
             ``"g"``, ``"average"`` / ``"avg"``, ``"pac"``, ``"gini"``,
-            ``"ce"``, ``"misclassification"``.
+            ``"ce"``, ``"accuracy"``.
         rule : str, default="1se"
             Selection rule. ``"max"`` picks the configuration with the
             highest score. ``"1se"`` picks the largest *k* within one
@@ -498,7 +498,7 @@ class CARVE(BaseEstimator):
             Metric key used to select the best configuration. Common
             aliases: ``"stability"`` / ``"s"``, ``"generalizability"`` /
             ``"g"``, ``"average"`` / ``"avg"``, ``"pac"``, ``"gini"``,
-            ``"ce"``, ``"misclassification"``.
+            ``"ce"``, ``"accuracy"``.
         rule : str, default="1se"
             Selection rule. ``"max"`` picks the configuration with the
             highest score. ``"1se"`` picks the largest *k* within one
@@ -537,7 +537,7 @@ class CARVE(BaseEstimator):
             Metric key used to select the best configuration. Common
             aliases: ``"stability"`` / ``"s"``, ``"generalizability"`` /
             ``"g"``, ``"average"`` / ``"avg"``, ``"pac"``, ``"gini"``,
-            ``"ce"``, ``"misclassification"``.
+            ``"ce"``, ``"accuracy"``.
         rule : str, default="1se"
             Selection rule. ``"max"`` picks the configuration with the
             highest score. ``"1se"`` picks the largest *k* within one
@@ -603,7 +603,7 @@ class CARVE(BaseEstimator):
             Metric to plot. Options include: "stability", "ari_stability",
             "generalizability", "ari_generalizability", "average", "ari_average",
             "pac", "consensus_pac_stability", "gini", "consensus_gini_stability",
-            "ce", "consensus_ce_stability", "misclassification", etc.
+            "ce", "consensus_ce_stability", "accuracy", etc.
         rule : str, default="1se"
             Selection rule for choosing the best k. Options: "max", "1se",
             "quantile".
@@ -798,7 +798,7 @@ class CARVE(BaseEstimator):
     def plot_cluster_boxplot(
         self,
         *,
-        source: Literal["gini", "ce", "misclassification"] = "gini",
+        source: Literal["gini", "ce", "accuracy"] = "gini",
         measure: str = "generalizability",
         rule: str = "1se",
         not_two: bool = False,
@@ -826,7 +826,7 @@ class CARVE(BaseEstimator):
 
         Parameters
         ----------
-        source : {"gini", "ce", "misclassification"}, default="gini"
+        source : {"gini", "ce", "accuracy"}, default="gini"
             Score source for per-sample values.
         measure : str, default="generalizability"
             Metric key used for model selection.
@@ -902,7 +902,7 @@ class CARVE(BaseEstimator):
             scores = np.asarray(self.stability_ce_scores_[best_idx], dtype=float)
             default_ylabel = "Cluster Stability (CE)"
 
-        elif source == "misclassification":
+        elif source == "accuracy":
             if self.generalizability_scores_ is None:
                 raise RuntimeError(
                     "Generalizability scores are not available for this run."
@@ -912,7 +912,7 @@ class CARVE(BaseEstimator):
 
         else:
             raise ValueError(
-                "source must be one of: 'misclassification', 'gini', 'ce'."
+                "source must be one of: 'accuracy', 'gini', 'ce'."
             )
 
         # --- Resolve labels mode and get labels ---
@@ -984,7 +984,7 @@ class CARVE(BaseEstimator):
     def plot_cluster_violin(
         self,
         *,
-        source: Literal["gini", "ce", "misclassification"] = "gini",
+        source: Literal["gini", "ce", "accuracy"] = "gini",
         measure: str = "generalizability",
         rule: str = "1se",
         not_two: bool = False,
@@ -1018,7 +1018,7 @@ class CARVE(BaseEstimator):
 
         Parameters
         ----------
-        source : {"gini", "ce", "misclassification"}, default="gini"
+        source : {"gini", "ce", "accuracy"}, default="gini"
             Score source for per-sample values.
         measure : str, default="generalizability"
             Metric key used for model selection.
@@ -1102,7 +1102,7 @@ class CARVE(BaseEstimator):
             scores = np.asarray(self.stability_ce_scores_[best_idx], dtype=float)
             default_ylabel = "Cluster Stability (CE)"
 
-        elif source == "misclassification":
+        elif source == "accuracy":
             if self.generalizability_scores_ is None:
                 raise RuntimeError(
                     "Generalizability scores are not available for this run."
@@ -1112,7 +1112,7 @@ class CARVE(BaseEstimator):
 
         else:
             raise ValueError(
-                "source must be one of: 'misclassification', 'gini', 'ce'."
+                "source must be one of: 'accuracy', 'gini', 'ce'."
             )
 
         # --- Resolve labels mode and get labels ---
@@ -1179,7 +1179,7 @@ class CARVE(BaseEstimator):
     def plot_cluster_scatter(
         self,
         *,
-        source: Literal["gini", "ce", "misclassification"] = "gini",
+        source: Literal["gini", "ce", "accuracy"] = "gini",
         measure: str = "generalizability",
         rule: str = "1se",
         not_two: bool = False,
@@ -1216,7 +1216,7 @@ class CARVE(BaseEstimator):
 
         Parameters
         ----------
-        source : {"gini", "ce", "misclassification"}, default="gini"
+        source : {"gini", "ce", "accuracy"}, default="gini"
             Score source for per-sample values.
         measure : str, default="generalizability"
             Metric key used for model selection.
@@ -1303,7 +1303,7 @@ class CARVE(BaseEstimator):
                 )
             scores = np.asarray(self.stability_ce_scores_[best_idx], dtype=float)
             scores_name = "CE Stability"
-        elif source == "misclassification":
+        elif source == "accuracy":
             if self.generalizability_scores_ is None:
                 raise RuntimeError(
                     "Generalizability scores are not available for this run."
@@ -1312,7 +1312,7 @@ class CARVE(BaseEstimator):
             scores_name = "Generalizability"
         else:
             raise ValueError(
-                "source must be one of: 'misclassification', 'gini', 'ce'."
+                "source must be one of: 'accuracy', 'gini', 'ce'."
             )
 
         # --- Resolve labels mode ---

@@ -113,7 +113,7 @@ class TestFit:
 
     def test_generalizability_scores_populated(self, fitted_carve):
         assert fitted_carve.generalizability_scores_ is not None
-        assert fitted_carve.misclassification_rates_ is not None
+        assert fitted_carve.generalizability_scores_ is not None
 
     def test_results_df_columns(self, fitted_carve):
         df = fitted_carve.estimator_results_
@@ -124,7 +124,7 @@ class TestFit:
             "consensus_pac_stability",
             "consensus_gini_stability",
             "consensus_ce_stability",
-            "misclassification_generalizability",
+            "accuracy_generalizability",
         ]
         for col in expected:
             assert col in df.columns, f"Missing column: {col}"
@@ -146,7 +146,7 @@ class TestFit:
         )
         with pytest.warns(RuntimeWarning, match="experimental"):
             carve.fit(X_two_clusters, mode="stability")
-        assert carve.misclassification_rates_ is None
+        assert all(s is None for s in carve.generalizability_scores_)
 
     def test_generalizability_mode(self, X_two_clusters):
         carve = CARVE(
@@ -388,7 +388,7 @@ class TestPlotting:
             carve.plot_consensus_matrix()
 
     def test_plot_cluster_boxplot(self, fitted_carve):
-        for source in ["gini", "ce", "misclassification"]:
+        for source in ["gini", "ce", "accuracy"]:
             ax = fitted_carve.plot_cluster_boxplot(source=source)
             assert ax is not None
 
@@ -399,7 +399,7 @@ class TestPlotting:
         assert path.exists()
 
     def test_plot_cluster_violin(self, fitted_carve):
-        for source in ["gini", "ce", "misclassification"]:
+        for source in ["gini", "ce", "accuracy"]:
             ax = fitted_carve.plot_cluster_violin(source=source)
             assert ax is not None
 
@@ -505,10 +505,12 @@ class TestRoundTrip:
             np.testing.assert_array_equal(
                 loaded.stability_ce_scores_, fitted_carve.stability_ce_scores_
             )
-        if fitted_carve.misclassification_rates_ is not None:
-            np.testing.assert_array_equal(
-                loaded.misclassification_rates_, fitted_carve.misclassification_rates_
-            )
+        if fitted_carve.generalizability_scores_ is not None:
+            for orig, loaded_arr in zip(
+                fitted_carve.generalizability_scores_,
+                loaded.generalizability_scores_,
+            ):
+                np.testing.assert_array_equal(loaded_arr, orig)
 
 
 # ---------------------------------------------------------------------------
