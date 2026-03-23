@@ -932,7 +932,7 @@ def plot_cluster_scatter(
     figsize: tuple | None = None,
     palette: str = "Accent",
     alpha_range: tuple[float, float] | None = None,
-    size_range: tuple[float, float] = (20.0, 100.0),
+    size_range: tuple[float, float] = (5.0, 60.0),
     sort_order: bool = True,
     legend: bool = True,
     legend_loc: str = "right margin",
@@ -971,7 +971,7 @@ def plot_cluster_scatter(
     alpha_range : tuple of float, optional
         Min/max alpha for cluster-level score mapping. If None, maps
         directly from scores.
-    size_range : tuple of float, default=(20.0, 100.0)
+    size_range : tuple of float, default=(5.0, 60.0)
         Min/max marker size for sample-level score mapping.
     sort_order : bool, default=True
         Whether to sort points by alpha so transparent points are drawn first.

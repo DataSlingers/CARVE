@@ -1191,7 +1191,7 @@ class CARVE(BaseEstimator):
         figsize: tuple | None = None,
         palette: str = "Accent",
         alpha_range: tuple[float, float] | None = None,
-        size_range: tuple[float, float] = (20.0, 100.0),
+        size_range: tuple[float, float] = (5.0, 60.0),
         sort_order: bool = True,
         legend: bool = True,
         legend_loc: str = "right margin",
@@ -1238,7 +1238,7 @@ class CARVE(BaseEstimator):
             Colormap for cluster colors.
         alpha_range : tuple of float, optional
             Min/max alpha for cluster-level score mapping.
-        size_range : tuple of float, default=(20.0, 100.0)
+        size_range : tuple of float, default=(5.0, 60.0)
             Min/max marker size for sample-level score mapping.
         sort_order : bool, default=True
             Whether to sort points by alpha so transparent points are drawn first.
