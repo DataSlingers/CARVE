@@ -140,7 +140,11 @@ def select_best_estimator(
         results_df = results_df[results_df["n_clusters"] == k]
 
     row = select_best_row_by_rule(
-        results_df, measure=measure, rule=rule, return_idx=False, not_two=not_two,
+        results_df,
+        measure=measure,
+        rule=rule,
+        return_idx=False,
+        not_two=not_two,
     )
     return build_estimator_from_row(estimator_param_grids, row)
 
@@ -173,7 +177,11 @@ def select_best_k(
         Selected number of clusters.
     """
     row = select_best_row_by_rule(
-        results_df, measure=measure, rule=rule, return_idx=False, not_two=not_two,
+        results_df,
+        measure=measure,
+        rule=rule,
+        return_idx=False,
+        not_two=not_two,
     )
     return row["n_clusters"]
 

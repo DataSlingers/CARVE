@@ -45,7 +45,9 @@ def estimate_knn_gamma(
     kth_dists = dists[:, -1]
     sigma = float(np.median(kth_dists))
     if sigma <= 0:
-        sigma = float(np.mean(kth_dists[kth_dists > 0])) if np.any(kth_dists > 0) else 1.0
+        sigma = (
+            float(np.mean(kth_dists[kth_dists > 0])) if np.any(kth_dists > 0) else 1.0
+        )
     return [float(1.0 / (2.0 * (m * sigma) ** 2)) for m in multipliers]
 
 
@@ -62,10 +64,10 @@ def default_estimator_grids(
         Input data used to derive data-driven hyperparameters (e.g., gamma).
     n_clusters : int or ndarray, default=10
         Number(s) of clusters to evaluate.
-    preset : {"light", "full"}, default="light"                                                                            
-        ``"light"`` includes KMeans, Ward-linkage agglomerative, and                                                       
-        self-tuning spectral clustering. ``"full"`` adds average- and                                                      
-        single-linkage agglomerative clustering and RBF-kernel spectral                                                    
+    preset : {"light", "full"}, default="light"
+        ``"light"`` includes KMeans, Ward-linkage agglomerative, and
+        self-tuning spectral clustering. ``"full"`` adds average- and
+        single-linkage agglomerative clustering and RBF-kernel spectral
         clustering with data-driven gamma.
 
     Returns
@@ -75,24 +77,28 @@ def default_estimator_grids(
         ``sklearn.model_selection.ParameterGrid``.
     """
     ks = list(np.asarray(n_clusters).tolist())
-    
-    grids: list[GridSpec] = [                                                                                              
-        (KMeans, {"n_clusters": ks}),                                                                                      
-        (AgglomerativeClustering, {"n_clusters": ks, "linkage": ["ward"]}),                                                
-        (SpectralClusteringCARVE, {"n_clusters": ks, "affinity": ["self_tuning"]}),                                        
+
+    grids: list[GridSpec] = [
+        (KMeans, {"n_clusters": ks}),
+        (AgglomerativeClustering, {"n_clusters": ks, "linkage": ["ward"]}),
+        (SpectralClusteringCARVE, {"n_clusters": ks, "affinity": ["self_tuning"]}),
     ]
-    
+
     if preset == "full":
-        grids.append(                                                                                                      
-            (AgglomerativeClustering,                                                                                      
-            {"n_clusters": ks, "linkage": ["average", "single", "complete"]}),
-        )
-        
         grids.append(
-            (SpectralClusteringCARVE,                                                                                      
-            {"n_clusters": ks, "affinity": ["rbf"], "gamma": estimate_knn_gamma(X)}),                                     
-        )                                                                                                                  
-                                                                                                                             
+            (
+                AgglomerativeClustering,
+                {"n_clusters": ks, "linkage": ["average", "single", "complete"]},
+            ),
+        )
+
+        grids.append(
+            (
+                SpectralClusteringCARVE,
+                {"n_clusters": ks, "affinity": ["rbf"], "gamma": estimate_knn_gamma(X)},
+            ),
+        )
+
     return grids
 
 

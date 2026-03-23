@@ -22,10 +22,7 @@ from ._selection import MEASURE_MAP, select_best_k
 
 
 def _build_estimator_label(
-    row: pd.Series,
-    exclude_cols: set,
-    *,
-    tight_layout: bool = False
+    row: pd.Series, exclude_cols: set, *, tight_layout: bool = False
 ) -> str:
     """Build a human-readable estimator label from a results row.
 
@@ -541,9 +538,14 @@ def _place_adaptive_annotation(
     if replace_legend:
         leg = ax.legend(**legend_kwargs)
     else:
-        leg = Legend(ax, legend_kwargs["handles"], legend_kwargs["labels"], **{
-            k: v for k, v in legend_kwargs.items() if k not in {"handles", "labels"}
-        })
+        leg = Legend(
+            ax,
+            legend_kwargs["handles"],
+            legend_kwargs["labels"],
+            **{
+                k: v for k, v in legend_kwargs.items() if k not in {"handles", "labels"}
+            },
+        )
         ax.add_artist(leg)
 
     leg.set_zorder(5)
@@ -622,10 +624,10 @@ def _get_annotation(
         annotation_text = (
             f"{model_label} (k = {selected_k})\n{measure_str}, {rule_str} rule"
         )
-    
+
     if tight_layout:
         annotation_text += "\n"
-        
+
     return annotation_text
 
 
@@ -979,15 +981,15 @@ def plot_cluster_scatter(
         Whether to display a legend.
     legend_loc : str, default="right margin"
         Legend location. "right margin" places the legend outside the axes.
-    annotation : str, optional                                                                                             
-        Text for an informational annotation box. When provided, the                                                       
-        annotation is displayed according to ``annotation_style``.                                                         
-    annotation_style : {"legend", "box"}, default="legend"                                                                 
-        How to display the annotation.  ``"legend"`` appends the text                                                      
-        to the cluster legend (overlaid on the legend area).                                                               
-        ``"box"`` places a free-floating annotation at the                                                                 
-        least-obstructed location, identical to the violin/boxplot                                                         
-        annotation boxes. 
+    annotation : str, optional
+        Text for an informational annotation box. When provided, the
+        annotation is displayed according to ``annotation_style``.
+    annotation_style : {"legend", "box"}, default="legend"
+        How to display the annotation.  ``"legend"`` appends the text
+        to the cluster legend (overlaid on the legend area).
+        ``"box"`` places a free-floating annotation at the
+        least-obstructed location, identical to the violin/boxplot
+        annotation boxes.
     title : str, optional
         Figure title.
     scores_name : str, default="Score"
@@ -1139,7 +1141,7 @@ def plot_cluster_scatter(
     # --- Legend ---
     if legend:
         handles = []
-        
+
         # Add cluster entries with mean score in the label and alpha in the marker
         for lab in uniq:
             col = cmap(label_to_idx[lab])
@@ -1160,7 +1162,7 @@ def plot_cluster_scatter(
                     markersize=7,
                 )
             )
-            
+
         # Place legend according to specified location
         base_title = f"Cluster, {scores_name}" if scores_name else "Cluster"
 
@@ -1183,7 +1185,7 @@ def plot_cluster_scatter(
             )
         else:
             ax.legend(**legend_kwargs, loc=legend_loc)
-            
+
     # Annotation as floating box (when not embedded in legend)
     if annotation is not None and annotation_style == "box":
         _place_adaptive_annotation(ax, annotation, replace_legend=not legend)

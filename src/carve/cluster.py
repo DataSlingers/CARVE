@@ -95,12 +95,16 @@ class SpectralClusteringCARVE(BaseEstimator, ClusterMixin):
         nn = NearestNeighbors(n_neighbors=self.n_neighbors)
         nn.fit(X)
         dists, _ = nn.kneighbors(X)
-        
+
         # dists[:, 0] is distance to self (0), dists[:, -1] is k-th neighbor
         kth_dists = dists[:, -1]
         sigma = float(np.median(kth_dists))
         if sigma == 0:
-            sigma = float(np.mean(kth_dists[kth_dists > 0])) if np.any(kth_dists > 0) else 1.0
+            sigma = (
+                float(np.mean(kth_dists[kth_dists > 0]))
+                if np.any(kth_dists > 0)
+                else 1.0
+            )
         return kth_dists, sigma
 
     def _compute_rbf_affinity(self, X: np.ndarray) -> np.ndarray:
@@ -133,7 +137,11 @@ class SpectralClusteringCARVE(BaseEstimator, ClusterMixin):
             kth_dists = dists[:, -1]
             sigma = float(np.median(kth_dists))
             if sigma == 0:
-                sigma = float(np.mean(kth_dists[kth_dists > 0])) if np.any(kth_dists > 0) else 1.0
+                sigma = (
+                    float(np.mean(kth_dists[kth_dists > 0]))
+                    if np.any(kth_dists > 0)
+                    else 1.0
+                )
             gamma = 1.0 / (2.0 * sigma**2)
             self.gamma_ = gamma
         else:
@@ -170,13 +178,15 @@ class SpectralClusteringCARVE(BaseEstimator, ClusterMixin):
         nn = NearestNeighbors(n_neighbors=self.n_neighbors)
         nn.fit(X)
         dists, indices = nn.kneighbors(X)
-        
+
         # k-th neighbor is at index -1 when n_neighbors=k
         sigma = dists[:, -1].copy()
-        
+
         # Handle zero sigmas
         if np.any(sigma == 0):
-            median_nonzero = float(np.median(sigma[sigma > 0])) if np.any(sigma > 0) else 1.0
+            median_nonzero = (
+                float(np.median(sigma[sigma > 0])) if np.any(sigma > 0) else 1.0
+            )
             sigma[sigma == 0] = median_nonzero
 
         n = X.shape[0]

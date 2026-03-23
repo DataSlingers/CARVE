@@ -60,11 +60,11 @@ class CARVE(BaseEstimator):
     subsample_ratio : float, default=0.8
         Fraction of samples drawn without replacement per resample.
         Must be in (0, 1).
-    estimator_param_grids : list of (Estimator, param_grid) tuples, or {"light", "full"}, default="light"                      
-        Clustering estimators and their parameter grids. ``"light"`` uses                                                      
-        KMeans, Ward-linkage agglomerative, and self-tuning spectral                                                           
-        clustering. ``"full"`` additionally includes average/single-linkage                                                    
-        agglomerative and RBF-kernel spectral clustering. A custom list                                                        
+    estimator_param_grids : list of (Estimator, param_grid) tuples, or {"light", "full"}, default="light"
+        Clustering estimators and their parameter grids. ``"light"`` uses
+        KMeans, Ward-linkage agglomerative, and self-tuning spectral
+        clustering. ``"full"`` additionally includes average/single-linkage
+        agglomerative and RBF-kernel spectral clustering. A custom list
         of (EstimatorClass, param_grid) tuples may also be passed.
     normalization_options : list of preprocessing specs, optional
         Normalization preprocessing options. If None, defaults include
@@ -233,9 +233,14 @@ class CARVE(BaseEstimator):
             self.reference_labels = ref_arr
 
         # --- Resolve default grids including n_clusters ---
-        if self.estimator_param_grids == "light" or self.estimator_param_grids == "full":  # Default estimator grids
+        if (
+            self.estimator_param_grids == "light"
+            or self.estimator_param_grids == "full"
+        ):  # Default estimator grids
             n_clusters_arr = _coerce_n_clusters(self.n_clusters)
-            estimator_param_grids = default_estimator_grids(X, n_clusters_arr, preset=self.estimator_param_grids)
+            estimator_param_grids = default_estimator_grids(
+                X, n_clusters_arr, preset=self.estimator_param_grids
+            )
 
         else:  # User-provided estimator grids (verify consistency of n_clusters)
             estimator_param_grids = self.estimator_param_grids
@@ -338,9 +343,7 @@ class CARVE(BaseEstimator):
             policy.run_generalizability and self.generalizability_scores_ is not None
         ):  # Default route
             gen_arr = np.vstack(self.generalizability_scores_)
-            self.estimator_results_["accuracy_generalizability"] = (
-                gen_arr.mean(axis=1)
-            )
+            self.estimator_results_["accuracy_generalizability"] = gen_arr.mean(axis=1)
 
         else:  # If not running generalizability, set these attributes to None/NaN
             self.estimator_results_["accuracy_generalizability"] = np.full(
@@ -417,7 +420,9 @@ class CARVE(BaseEstimator):
 
         # --- Select best configuration ---
         if k is None:
-            row = select_best_row_by_rule(df, measure=measure, rule=rule, not_two=not_two)
+            row = select_best_row_by_rule(
+                df, measure=measure, rule=rule, not_two=not_two
+            )
             k = int(row["n_clusters"])
             best_idx = int(row.name)
 
@@ -520,7 +525,9 @@ class CARVE(BaseEstimator):
         if self.estimator_results_ is None:
             raise RuntimeError("Call fit() first.")
 
-        return select_best_k(self.estimator_results_, measure=measure, rule=rule, not_two=not_two)
+        return select_best_k(
+            self.estimator_results_, measure=measure, rule=rule, not_two=not_two
+        )
 
     def get_estimator(
         self,
@@ -758,7 +765,9 @@ class CARVE(BaseEstimator):
 
         df = self.estimator_results_
         if k is None:
-            row = select_best_row_by_rule(df, measure=measure, rule=rule, not_two=not_two)
+            row = select_best_row_by_rule(
+                df, measure=measure, rule=rule, not_two=not_two
+            )
         else:
             df_k = df[df["n_clusters"] == k]
             if df_k.empty:
@@ -875,7 +884,9 @@ class CARVE(BaseEstimator):
 
         df = self.estimator_results_
         if k is None:
-            row = select_best_row_by_rule(df, measure=measure, rule=rule, not_two=not_two)
+            row = select_best_row_by_rule(
+                df, measure=measure, rule=rule, not_two=not_two
+            )
         else:
             df_k = df[df["n_clusters"] == k]
             if df_k.empty:
@@ -911,9 +922,7 @@ class CARVE(BaseEstimator):
             default_ylabel = "Cluster Generalizability"
 
         else:
-            raise ValueError(
-                "source must be one of: 'accuracy', 'gini', 'ce'."
-            )
+            raise ValueError("source must be one of: 'accuracy', 'gini', 'ce'.")
 
         # --- Resolve labels mode and get labels ---
         labels_mode: Literal["default", "generalizability"]
@@ -944,7 +953,7 @@ class CARVE(BaseEstimator):
                 k=k,
                 estimator_results=df,
                 row=row,
-                selected_k=selected_k
+                selected_k=selected_k,
             )
 
         elif isinstance(annotation, str):
@@ -1075,7 +1084,9 @@ class CARVE(BaseEstimator):
 
         df = self.estimator_results_
         if k is None:
-            row = select_best_row_by_rule(df, measure=measure, rule=rule, not_two=not_two)
+            row = select_best_row_by_rule(
+                df, measure=measure, rule=rule, not_two=not_two
+            )
         else:
             df_k = df[df["n_clusters"] == k]
             if df_k.empty:
@@ -1111,9 +1122,7 @@ class CARVE(BaseEstimator):
             default_ylabel = "Cluster Generalizability"
 
         else:
-            raise ValueError(
-                "source must be one of: 'accuracy', 'gini', 'ce'."
-            )
+            raise ValueError("source must be one of: 'accuracy', 'gini', 'ce'.")
 
         # --- Resolve labels mode and get labels ---
         labels_mode: Literal["default", "generalizability"]
@@ -1144,7 +1153,7 @@ class CARVE(BaseEstimator):
                 k=k,
                 estimator_results=df,
                 row=row,
-                selected_k=selected_k
+                selected_k=selected_k,
             )
 
         elif isinstance(annotation, str):
@@ -1246,12 +1255,12 @@ class CARVE(BaseEstimator):
             Whether to display a legend.
         legend_loc : str, default="right margin"
             Legend location.
-        annotation : bool or str, default=True                                                                             
-            Annotation text. ``True`` auto-generates from the selected                                                     
-            model/measure/rule.  A string is used verbatim.                                                                
-            ``False`` disables the annotation.                                                                             
-        annotation_style : {"legend", "box"}, default="legend"                                                             
-            ``"legend"`` appends the annotation to the cluster legend.                                                     
+        annotation : bool or str, default=True
+            Annotation text. ``True`` auto-generates from the selected
+            model/measure/rule.  A string is used verbatim.
+            ``False`` disables the annotation.
+        annotation_style : {"legend", "box"}, default="legend"
+            ``"legend"`` appends the annotation to the cluster legend.
             ``"box"`` places a free-floating annotation box.
         title : str, optional
             Figure title.
@@ -1278,7 +1287,9 @@ class CARVE(BaseEstimator):
 
         df = self.estimator_results_
         if k is None:
-            row = select_best_row_by_rule(df, measure=measure, rule=rule, not_two=not_two)
+            row = select_best_row_by_rule(
+                df, measure=measure, rule=rule, not_two=not_two
+            )
         else:
             df_k = df[df["n_clusters"] == k]
             if df_k.empty:
@@ -1311,9 +1322,7 @@ class CARVE(BaseEstimator):
             scores = np.asarray(self.generalizability_scores_[best_idx], dtype=float)
             scores_name = "Generalizability"
         else:
-            raise ValueError(
-                "source must be one of: 'accuracy', 'gini', 'ce'."
-            )
+            raise ValueError("source must be one of: 'accuracy', 'gini', 'ce'.")
 
         # --- Resolve labels mode ---
         labels_mode: Literal["default", "generalizability"]
@@ -1341,7 +1350,7 @@ class CARVE(BaseEstimator):
             )
 
         # --- Build annotation ---
-        tight_layout = annotation_style == 'legend'
+        tight_layout = annotation_style == "legend"
         if annotation is True:
             annotation_text = _get_annotation(
                 measure=measure,
@@ -1350,7 +1359,7 @@ class CARVE(BaseEstimator):
                 estimator_results=df,
                 row=row,
                 selected_k=selected_k,
-                tight_layout=tight_layout
+                tight_layout=tight_layout,
             )
         elif isinstance(annotation, str):
             annotation_text = annotation
