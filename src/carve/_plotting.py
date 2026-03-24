@@ -20,6 +20,8 @@ from sklearn.decomposition import PCA
 
 from ._selection import MEASURE_MAP, select_best_k
 
+_GROUPBY_NA_SENTINEL = "_NA_"
+
 
 def _build_estimator_label(
     row: pd.Series, exclude_cols: set, *, tight_layout: bool = False
@@ -43,7 +45,7 @@ def _build_estimator_label(
     parts = [row["estimator"]]
 
     for col in row.index:
-        if col not in exclude_cols and not pd.isna(row[col]):
+        if col not in exclude_cols and not pd.isna(row[col]) and row[col] != _GROUPBY_NA_SENTINEL:
             val = row[col]
             if isinstance(val, (int, np.integer)):
                 parts.append(f"{col}={val}")
@@ -189,7 +191,9 @@ def plot_metric_over_n_clusters(
     group_cols = [
         c for c in results_df.columns if c not in exclude_cols and c != "n_clusters"
     ]
-    grouped = results_df.groupby(group_cols, dropna=False)
+    results_df = results_df.copy()
+    results_df[group_cols] = results_df[group_cols].fillna(_GROUPBY_NA_SENTINEL)
+    grouped = results_df.groupby(group_cols)
 
     colors = plt.cm.get_cmap(palette)(np.linspace(0, 1, len(grouped)))
 

@@ -182,6 +182,27 @@ class TestPlotMetricOverNClusters:
         )
         assert ax is not None
 
+    def test_mixed_estimators_single_nan_group_col(self):
+        """Regression: custom grid with 2 estimators produces single NaN group column."""
+        df = pd.DataFrame({
+            "estimator": ["KMeans"] * 3 + ["SpectralClusteringCARVE"] * 3,
+            "n_clusters": [2, 3, 4, 2, 3, 4],
+            "affinity": [np.nan] * 3 + ["self_tuning"] * 3,
+            "ari_stability": [0.9, 0.85, 0.7, 0.88, 0.82, 0.68],
+            "ari_stability_se": [0.02, 0.03, 0.05, 0.02, 0.03, 0.05],
+            "ari_stability_upper": [0.92, 0.88, 0.75, 0.90, 0.85, 0.73],
+            "ari_stability_lower": [0.88, 0.82, 0.65, 0.86, 0.79, 0.63],
+            "ari_generalizability": [0.85, 0.80, 0.65, 0.83, 0.78, 0.63],
+            "ari_generalizability_se": [0.03, 0.04, 0.06, 0.03, 0.04, 0.06],
+            "ari_generalizability_upper": [0.88, 0.84, 0.71, 0.86, 0.82, 0.69],
+            "ari_generalizability_lower": [0.82, 0.76, 0.59, 0.80, 0.74, 0.57],
+        })
+        ax = plot_metric_over_n_clusters(df, measure="stability")
+        lines = [c for c in ax.get_children()
+                 if hasattr(c, 'get_linestyle') and hasattr(c, 'get_xydata')
+                 and len(c.get_xydata()) > 1]
+        assert len(lines) >= 2
+
     def test_custom_labels(self, metric_results_df):
         ax = plot_metric_over_n_clusters(
             metric_results_df,
