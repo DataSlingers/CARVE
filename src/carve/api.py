@@ -961,15 +961,6 @@ class CARVE(BaseEstimator):
         else:
             annotation_text = None
 
-        # TODO: fix bug where boxplot of generalizability scores isn't properly displayed
-        # --- Debugging: print mean scores grouped by labels ---
-        # score_by_cluster = pd.DataFrame({
-        #     'cluster': labels,
-        #     'score': scores
-        # }).groupby('cluster')['score'].agg(['count', 'mean', 'std', 'min', 'max'])
-
-        # print(f"Score statistics by cluster:\n{score_by_cluster}\n")
-
         # --- Plot ---
         return _plot_cluster_boxplot(
             scores,

@@ -298,6 +298,34 @@ class TestPlotClusterViolin:
         ax = plot_cluster_violin(scores, labels, inner="none")
         assert ax is not None
 
+    def test_violin_bodies_clipped_to_ylim(self):
+        """Violin polygon vertices must not exceed ylim boundaries."""
+        from matplotlib.collections import PolyCollection
+
+        rng = np.random.RandomState(42)
+        scores = np.concatenate([
+            rng.uniform(0.90, 0.99, size=50),
+            rng.uniform(0.85, 0.95, size=50),
+        ])
+        labels = np.array([0] * 50 + [1] * 50)
+        ax = plot_cluster_violin(scores, labels, ylim=(0.0, 1.0))
+
+        bodies = [c for c in ax.collections if isinstance(c, PolyCollection)]
+        assert len(bodies) > 0, "Expected violin body PolyCollections"
+
+        for body in bodies:
+            for path in body.get_paths():
+                y_vals = path.vertices[:, 1]
+                assert y_vals.min() >= 0.0 - 1e-9
+                assert y_vals.max() <= 1.0 + 1e-9
+
+    def test_violin_no_clip_when_ylim_none(self):
+        """When ylim is None, violin bodies should not be clipped."""
+        scores = np.array([0.95, 0.96, 0.97, 0.98, 0.99, 0.60, 0.61, 0.62])
+        labels = np.array([0, 0, 0, 0, 0, 1, 1, 1])
+        ax = plot_cluster_violin(scores, labels, ylim=None)
+        assert ax is not None
+
 
 # -----------------------------------------------------------------------
 # plot_cluster_scatter

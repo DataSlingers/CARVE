@@ -646,7 +646,7 @@ def plot_cluster_boxplot(
     ylabel: str = "Uncertainty",
     annotation: str | None = None,
     rotation: float | None = None,
-    ylim: tuple[float, float] = (0.0, 1.0),
+    ylim: tuple[float, float] = (-0.02, 1.02),
     show: bool = False,
     save: str | Path | None = None,
     dpi: int = 300,
@@ -681,8 +681,9 @@ def plot_cluster_boxplot(
         Text for adaptive annotation.
     rotation : float, optional
         Tick label rotation angle.
-    ylim : tuple of float, default=(0.0, 1.0)
-        Y-axis limits.
+    ylim : tuple of float, default=(-0.02, 1.02)
+        Y-axis limits. A small margin beyond [0, 1] prevents plot elements
+        at the boundary from being hidden behind axis spines.
     show : bool, default=False
         Whether to call plt.show() before returning.
     save : str or Path, optional
@@ -770,7 +771,7 @@ def plot_cluster_violin(
     ylabel: str = "Uncertainty",
     annotation: str | None = None,
     rotation: float | None = None,
-    ylim: tuple[float, float] = (0.0, 1.0),
+    ylim: tuple[float, float] = (-0.02, 1.02),
     show: bool = False,
     save: str | Path | None = None,
     dpi: int = 300,
@@ -817,8 +818,9 @@ def plot_cluster_violin(
         Text for adaptive annotation.
     rotation : float, optional
         Tick label rotation angle.
-    ylim : tuple of float, default=(0.0, 1.0)
-        Y-axis limits.
+    ylim : tuple of float, default=(-0.02, 1.02)
+        Y-axis limits. A small margin beyond [0, 1] prevents plot elements
+        at the boundary from being hidden behind axis spines.
     show : bool, default=False
         Whether to call plt.show() before returning.
     save : str or Path, optional
@@ -860,6 +862,14 @@ def plot_cluster_violin(
         body.set_edgecolor("black")
         body.set_linewidth(0.8)
         body.set_alpha(0.8)
+
+    # Clip violin polygon vertices to ylim to prevent KDE tails from
+    # visually extending beyond the axis boundaries.
+    if ylim is not None:
+        ymin, ymax = ylim
+        for body in vp["bodies"]:
+            for path in body.get_paths():
+                path.vertices[:, 1] = np.clip(path.vertices[:, 1], ymin, ymax)
 
     for pos, vals in enumerate(groups, start=1):
         # --- Inner annotation ---
