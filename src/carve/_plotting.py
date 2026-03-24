@@ -45,7 +45,11 @@ def _build_estimator_label(
     parts = [row["estimator"]]
 
     for col in row.index:
-        if col not in exclude_cols and not pd.isna(row[col]) and row[col] != _GROUPBY_NA_SENTINEL:
+        if (
+            col not in exclude_cols
+            and not pd.isna(row[col])
+            and row[col] != _GROUPBY_NA_SENTINEL
+        ):
             val = row[col]
             if isinstance(val, (int, np.integer)):
                 parts.append(f"{col}={val}")
