@@ -56,7 +56,7 @@ from sklearn.datasets import make_blobs
 X, y_true = make_blobs(n_samples=500, n_features=10, centers=5, random_state=42)
 
 # Fit CARVE
-carve = CARVE(n_clusters=10, n_resamples=50, subsample_ratio=0.8, n_jobs=-1)
+carve = CARVE(n_clusters=10, n_resamples=120, subsample_ratio=0.7, n_jobs=4)
 carve.fit(X)
 
 # Select best k and retrieve labels
