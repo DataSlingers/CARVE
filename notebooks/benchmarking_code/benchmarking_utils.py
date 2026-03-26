@@ -62,9 +62,9 @@ def align_labels(true_labels: np.ndarray, pred_labels: np.ndarray) -> np.ndarray
         np.ndarray: Aligned predicted labels with IDs permuted to best match true_labels.
     """
     cm = confusion_matrix(true_labels, pred_labels)
-    
+
     row_ind, col_ind = linear_sum_assignment(-cm)
-    
+
     label_map = {old: new for old, new in zip(col_ind, row_ind)}
     return np.array([label_map[l] if l in label_map else l for l in pred_labels])
 
@@ -90,7 +90,11 @@ def _pick_first(value_or_sequence: Any) -> Any:
     Returns:
         The first element if v is list/tuple; otherwise v.
     """
-    return value_or_sequence[0] if isinstance(value_or_sequence, (list, tuple)) else value_or_sequence
+    return (
+        value_or_sequence[0]
+        if isinstance(value_or_sequence, (list, tuple))
+        else value_or_sequence
+    )
 
 
 def _summary_stats(x: pd.Series, q=(0.05, 0.25, 0.50, 0.75, 0.95)) -> dict[str, float]:
@@ -133,7 +137,7 @@ def _build_estimator(
         for key, val in estimator_params.items():
             if key == "n_clusters":
                 continue
-            
+
             params[key] = _pick_first(val)
 
     # set k for this call
@@ -162,13 +166,13 @@ def get_rule(carve_metric: str) -> str:
     Returns:
         str: Rule identifier ('quantile', '1se', or 'max').
     """
-    if carve_metric.endswith('_quant'):
-        rule = 'quantile'
-    elif carve_metric.endswith('_1se'):
-        rule = '1se'
+    if carve_metric.endswith("_quant"):
+        rule = "quantile"
+    elif carve_metric.endswith("_1se"):
+        rule = "1se"
     else:
-        rule = 'max'
-        
+        rule = "max"
+
     return rule
 
 
@@ -182,15 +186,15 @@ def get_measure(carve_metric: str) -> str:
     Returns:
         str: Base measure name without suffix.
     """
-    if carve_metric.endswith('_1se'):
+    if carve_metric.endswith("_1se"):
         measure = carve_metric[:-4]
-    elif carve_metric.endswith('_quant'):
+    elif carve_metric.endswith("_quant"):
         measure = carve_metric[:-6]
     else:
         measure = carve_metric
-        
+
     return measure
-    
+
 
 def make_estimator_grids(
     estimator: str,
@@ -208,15 +212,25 @@ def make_estimator_grids(
         - spectral_quant (float): Quantile used for spectral gamma estimation (default: 0.5).
         - X (np.ndarray | None): Data matrix used to estimate spectral gamma when needed.
         - random_state (int): Random seed used for reproducibility.
-        
+
     Returns:
         list[tuple]: List of (EstimatorClass, param_grid) tuples.
     """
     if estimator == "agglomerative":
-        return [(AgglomerativeClustering, {"n_clusters": list(candidate_clusters), "linkage": ["ward"]})]
+        return [
+            (
+                AgglomerativeClustering,
+                {"n_clusters": list(candidate_clusters), "linkage": ["ward"]},
+            )
+        ]
     if estimator == "spectral":
         gamma = gamma_quantile_approx(X, q=spectral_quant, random_state=random_state)
-        return [(SpectralClustering, {"n_clusters": list(candidate_clusters), "gamma": [gamma]})]
+        return [
+            (
+                SpectralClustering,
+                {"n_clusters": list(candidate_clusters), "gamma": [gamma]},
+            )
+        ]
     return [(KMeans, {"n_clusters": list(candidate_clusters), "n_init": [10]})]
 
 
@@ -232,18 +246,28 @@ class LeidenClustering(BaseEstimator, ClusterMixin):
         linkage (str): Linkage method for hierarchical clustering ('ward', 'single', 'complete', 'average', etc.).
         random_state (int or None): Random seed.
     """
-    def __init__(self, n_clusters=None, n_neighbors=10, resolution=1.0, linkage='ward', random_state=None):
+
+    def __init__(
+        self,
+        n_clusters=None,
+        n_neighbors=10,
+        resolution=1.0,
+        linkage="ward",
+        random_state=None,
+    ):
         self.n_clusters = n_clusters
         self.n_neighbors = n_neighbors
         self.resolution = resolution
-        self.linkage = linkage  # may be set to 'ward', 'single', 'complete', 'average', etc.
+        self.linkage = (
+            linkage  # may be set to 'ward', 'single', 'complete', 'average', etc.
+        )
         self.random_state = random_state
 
     def fit(self, X, y=None):
         # Build kNN graph
-        knn = NearestNeighbors(n_neighbors=self.n_neighbors + 1, metric='euclidean')
+        knn = NearestNeighbors(n_neighbors=self.n_neighbors + 1, metric="euclidean")
         knn.fit(X)
-        knn_graph = knn.kneighbors_graph(X, mode='connectivity')
+        knn_graph = knn.kneighbors_graph(X, mode="connectivity")
         sources, targets = knn_graph.nonzero()
         edges = list(zip(sources.tolist(), targets.tolist()))
 
@@ -256,29 +280,33 @@ class LeidenClustering(BaseEstimator, ClusterMixin):
             g,
             leidenalg.RBConfigurationVertexPartition,
             resolution_parameter=self.resolution,
-            seed=self.random_state
+            seed=self.random_state,
         )
         self.labels_ = np.array(partition.membership)
 
         # Optionally, relabel to match n_clusters if specified
-        if self.n_clusters is not None and len(np.unique(self.labels_)) != self.n_clusters:
+        if (
+            self.n_clusters is not None
+            and len(np.unique(self.labels_)) != self.n_clusters
+        ):
             # Map largest clusters to 0..n_clusters-1, rest to -1
             # counts = np.bincount(self.labels_)
             # top = np.argsort(counts)[::-1][:self.n_clusters]
             # mapping = {old: new for new, old in enumerate(top)}
             # self.labels_ = np.array([mapping.get(l, -1) for l in self.labels_])
-            
-            
+
             # Merge clusters using Ward's linkage to match n_clusters
 
             # Compute pairwise distances between cluster centroids
             unique_labels = np.unique(self.labels_)
-            centroids = np.array([X[self.labels_ == label].mean(axis=0) for label in unique_labels])
-            distances = pdist(centroids, metric='euclidean')
+            centroids = np.array(
+                [X[self.labels_ == label].mean(axis=0) for label in unique_labels]
+            )
+            distances = pdist(centroids, metric="euclidean")
             Z = linkage(distances, method=self.linkage)
 
             # Cut dendrogram to get n_clusters
-            cluster_mapping = fcluster(Z, self.n_clusters, criterion='maxclust') - 1
+            cluster_mapping = fcluster(Z, self.n_clusters, criterion="maxclust") - 1
             label_map = {old: new for old, new in zip(unique_labels, cluster_mapping)}
             self.labels_ = np.array([label_map[l] for l in self.labels_])
 

@@ -21,14 +21,24 @@ import glasbey
 
 from umap import UMAP
 
-from benchmarking_utils import gamma_quantile_approx, LeidenClustering, align_labels, _build_estimator
+from benchmarking_utils import (
+    gamma_quantile_approx,
+    LeidenClustering,
+    align_labels,
+    _build_estimator,
+)
 from benchmarking_metrics import calculate_metric
 
 
 # --- Setup and basic handlers ---
 cluster_pallette = [
-    "#009ADE", "#00CD6C", 
-    "#FF1F5B", "#AF58BA", "#F28522", "#A6761D", "#A0B1BA"
+    "#009ADE",
+    "#00CD6C",
+    "#FF1F5B",
+    "#AF58BA",
+    "#F28522",
+    "#A6761D",
+    "#A0B1BA",
 ]
 
 
@@ -63,8 +73,9 @@ def _get_color_mapping(k: int) -> List[Any]:
     else:
         hex_cols = glasbey.create_palette(palette_size=k)
         cols = [mpl.colors.to_rgba(h) for h in hex_cols]
-        
+
     return cols
+
 
 def _cluster_color_map(labels: np.ndarray) -> dict[int, Any]:
     """
@@ -79,6 +90,7 @@ def _cluster_color_map(labels: np.ndarray) -> dict[int, Any]:
 
     return {cid: cols[i] for i, cid in enumerate(uniq)}
 
+
 def _metric_color_map(metric_names: Iterable[str]) -> dict[str, Any]:
     """
     okabe-ito for m<=7, tab20 for 8..20, hsv fallback.
@@ -92,7 +104,9 @@ def _metric_color_map(metric_names: Iterable[str]) -> dict[str, Any]:
     return {name: cols[i] for i, name in enumerate(names)}
 
 
-def _scatter_clusters(ax, Z: np.ndarray, labels: np.ndarray, title: str, subtitle: str = ""):
+def _scatter_clusters(
+    ax, Z: np.ndarray, labels: np.ndarray, title: str, subtitle: str = ""
+):
     labels = np.asarray(labels)
     cmap = _cluster_color_map(labels)
 
@@ -128,6 +142,7 @@ def _pretty_metric_name(metric: str) -> str:
     }
     return pretty.get(metric, metric)
 
+
 def _pretty_model_label(estimator_cls, params: dict[str, Any]) -> str:
     name = estimator_cls.__name__.replace("Clustering", "")
     bits = []
@@ -149,6 +164,7 @@ def _unique_in_order(x):
             out.append(v)
             seen.add(v)
     return out
+
 
 def _hex_to_rgba(hex_color, a=0.35):
     hex_color = hex_color.lstrip("#")
@@ -209,23 +225,23 @@ def _baseline_metric_iter(
         )
 
     return rows
-    
+
 
 # --- Main plotting functions for case studies ---
 def plot_dim_red(
-    X: np.ndarray, 
-    *, 
-    y: np.ndarray, 
-    method: Literal['pca', 'tsne', 'umap'] = 'pca',
-    label_col: str = 'label', 
+    X: np.ndarray,
+    *,
+    y: np.ndarray,
+    method: Literal["pca", "tsne", "umap"] = "pca",
+    label_col: str = "label",
     s: int = 50,
     alpha: float = 0.8,
     linewidth: float = 0.1,
     hide_axes: bool = True,
     figsize: tuple[float, float] = (12, 10),
-    title: str = 'PCA of raw cell counts (colored by stage label)', 
+    title: str = "PCA of raw cell counts (colored by stage label)",
     show_legend: bool = True,
-    legend_title: str = 'stage',
+    legend_title: str = "stage",
     show_axis_labels: bool = True,
     ax: plt.Axes | None = None,
     show: bool = True,
@@ -239,25 +255,25 @@ def plot_dim_red(
         y = y.to_numpy()
     else:
         y = np.asarray(y)
-        
-    if method == 'pca':
-         # Get PCs
+
+    if method == "pca":
+        # Get PCs
         pca = PCA(n_components=2, random_state=0)
         pcs = pca.fit_transform(X)
-    elif method == 'tsne':
+    elif method == "tsne":
         tsne = TSNE(n_components=2, random_state=0)
         pcs = tsne.fit_transform(X)
-    elif method == 'umap':
+    elif method == "umap":
         umap = UMAP(n_components=2, random_state=0)
         pcs = umap.fit_transform(X)
     else:
         raise ValueError(f"unsupported method: {method}")
 
     # Construct data frame
-    pc_df = pd.DataFrame(pcs, columns=['PC1', 'PC2'])
+    pc_df = pd.DataFrame(pcs, columns=["PC1", "PC2"])
     pc_df[label_col] = y
-    
-    # Get colors 
+
+    # Get colors
     cat = pd.Categorical(pc_df[label_col])
     if hasattr(cat, "remove_unused_categories"):
         cat = cat.remove_unused_categories()
@@ -277,44 +293,49 @@ def plot_dim_red(
     for lab in cat.categories:
         sel = pc_df[pc_df[label_col] == lab]
         ax.scatter(
-            sel['PC1'], sel['PC2'],
-            label=lab, color=color_map[lab],
-            s=s, alpha=alpha, edgecolor='k', linewidths=linewidth
+            sel["PC1"],
+            sel["PC2"],
+            label=lab,
+            color=color_map[lab],
+            s=s,
+            alpha=alpha,
+            edgecolor="k",
+            linewidths=linewidth,
         )
 
     # Set title, axis labels, legend
     ax.set_title(title)
     if show_axis_labels:
-        if method == 'pca':
-            ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.2f}% var)")
-            ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.2f}% var)")
-        elif method == 'tsne':
+        if method == "pca":
+            ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0] * 100:.2f}% var)")
+            ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1] * 100:.2f}% var)")
+        elif method == "tsne":
             ax.set_xlabel("t-SNE 1")
             ax.set_ylabel("t-SNE 2")
-        elif method == 'umap':
+        elif method == "umap":
             ax.set_xlabel("UMAP 1")
             ax.set_ylabel("UMAP 2")
-    
+
     if show_legend:
-        ax.legend(title=legend_title, bbox_to_anchor=(1.02, 1), loc='upper left')
-    
+        ax.legend(title=legend_title, bbox_to_anchor=(1.02, 1), loc="upper left")
+
     if hide_axes:
         ax.set_xticks([])
         ax.set_yticks([])
         for spine in ax.spines.values():
             spine.set_visible(False)
-    
+
     fig.tight_layout()
     if show:
         plt.show()
     return fig, ax
-    
+
 
 def calculate_baseline_aris_and_plot(
     X: np.ndarray,
     *,
     y: np.ndarray,
-    label_col: str = 'label', 
+    label_col: str = "label",
     spectral_quant: float = 0.5,
     s: int = 50,
     alpha: float = 0.8,
@@ -334,7 +355,7 @@ def calculate_baseline_aris_and_plot(
         y_arr = y.to_numpy()
     else:
         y_arr = np.asarray(y)
-        
+
     n_clusters = len(np.unique(y_arr))
 
     # KMeans
@@ -343,12 +364,12 @@ def calculate_baseline_aris_and_plot(
     ari_kmeans = adjusted_rand_score(y_arr, kmeans_labels)
 
     # Agglomerative (Ward linkage)
-    agg_w = AgglomerativeClustering(n_clusters=n_clusters, linkage='ward')
+    agg_w = AgglomerativeClustering(n_clusters=n_clusters, linkage="ward")
     agg_w_labels = agg_w.fit_predict(X_arr)
     ari_agg_w = adjusted_rand_score(y_arr, agg_w_labels)
 
     # Agglomerative (single linkage)
-    agg_s = AgglomerativeClustering(n_clusters=n_clusters, linkage='single')
+    agg_s = AgglomerativeClustering(n_clusters=n_clusters, linkage="single")
     agg_s_labels = agg_s.fit_predict(X_arr)
     ari_agg_s = adjusted_rand_score(y_arr, agg_s_labels)
 
@@ -359,19 +380,21 @@ def calculate_baseline_aris_and_plot(
 
     # Spectral Clustering (median heuristic for gamma)
     gamma = gamma_quantile_approx(X_arr, q=spectral_quant, random_state=random_state)
-    spectral = SpectralClustering(n_clusters=n_clusters, affinity='rbf', gamma=gamma, random_state=random_state)
+    spectral = SpectralClustering(
+        n_clusters=n_clusters, affinity="rbf", gamma=gamma, random_state=random_state
+    )
     spectral_labels = spectral.fit_predict(X_arr)
     ari_spectral = adjusted_rand_score(y_arr, spectral_labels)
-    
+
     # Get PCs
     pca = PCA(n_components=2, random_state=0)
     pcs = pca.fit_transform(X_arr)
 
     # Construct data frame
-    pc_df = pd.DataFrame(pcs, columns=['PC1', 'PC2'])
+    pc_df = pd.DataFrame(pcs, columns=["PC1", "PC2"])
     pc_df[label_col] = y_arr
-    
-    # Plot PCA with labels 
+
+    # Plot PCA with labels
     _, axes = plt.subplots(2, 3, figsize=figsize, sharex=True, sharey=True)
 
     y_cat = pd.Categorical(y_arr)
@@ -379,50 +402,71 @@ def calculate_baseline_aris_and_plot(
         y_cat = y_cat.remove_unused_categories()
     y_codes = y_cat.codes
     y_code_colors = _cluster_color_map(y_codes)
-    y_color_map = {lab: y_code_colors[code] for lab, code in zip(y_cat.categories, range(len(y_cat.categories)))}
+    y_color_map = {
+        lab: y_code_colors[code]
+        for lab, code in zip(y_cat.categories, range(len(y_cat.categories)))
+    }
 
     # Plot true labels
     ax_true = axes[0, 0]
     for lab in y_cat.categories:
         sel = pc_df[label_col] == lab
         ax_true.scatter(
-            pc_df.loc[sel, 'PC1'],
-            pc_df.loc[sel, 'PC2'],
-            s=s, alpha=alpha, edgecolor='k', linewidth=linewidth,
+            pc_df.loc[sel, "PC1"],
+            pc_df.loc[sel, "PC2"],
+            s=s,
+            alpha=alpha,
+            edgecolor="k",
+            linewidth=linewidth,
             color=y_color_map[lab],
-            label=lab
+            label=lab,
         )
     ax_true.set_title("True Cell Type Labels")
-    
+
     if show_legend:
-        ax_true.legend(markerscale=1.5, bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=10)
+        ax_true.legend(
+            markerscale=1.5, bbox_to_anchor=(1.02, 1), loc="upper left", fontsize=10
+        )
 
     titles = [
         f"KMeans (ARI={ari_kmeans:.3f})",
         f"Agglomerative (Ward) (ARI={ari_agg_w:.3f})",
         f"Agglomerative (Single Linkage) (ARI={ari_agg_s:.3f})",
         f"Leiden (ARI={ari_leiden:.3f})",
-        f"Spectral (ARI={ari_spectral:.3f})"
+        f"Spectral (ARI={ari_spectral:.3f})",
     ]
-    clusterings = [kmeans_labels, agg_w_labels, agg_s_labels, leiden_labels, spectral_labels]
-    aligned_clusterings = [align_labels(pd.Categorical(y).codes, labels) for labels in clusterings]
+    clusterings = [
+        kmeans_labels,
+        agg_w_labels,
+        agg_s_labels,
+        leiden_labels,
+        spectral_labels,
+    ]
+    aligned_clusterings = [
+        align_labels(pd.Categorical(y).codes, labels) for labels in clusterings
+    ]
 
     for ax, labels, title in zip(axes.flat[1:], aligned_clusterings, titles):
         cluster_color_map = _cluster_color_map(labels)
         for cluster in np.unique(labels):
             sel = labels == cluster
             ax.scatter(
-                pc_df.loc[sel, 'PC1'],
-                pc_df.loc[sel, 'PC2'],
-                s=s, alpha=alpha, edgecolor='k', linewidth=linewidth,
+                pc_df.loc[sel, "PC1"],
+                pc_df.loc[sel, "PC2"],
+                s=s,
+                alpha=alpha,
+                edgecolor="k",
+                linewidth=linewidth,
                 color=cluster_color_map[int(cluster)],
-                label=f"Cluster {cluster}"
+                label=f"Cluster {cluster}",
             )
         ax.set_title(title)
-        
+
         if show_legend:
-            ax.legend(markerscale=1.5, bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=10)
-    
+            ax.legend(
+                markerscale=1.5, bbox_to_anchor=(1.02, 1), loc="upper left", fontsize=10
+            )
+
     if hide_axes:
         for ax in axes.flat:
             ax.set_xticks([])
@@ -469,11 +513,16 @@ def baseline_metrics_over_k(
 
         # expand non-k params (but keep it minimal)
         other_keys = [k for k in grid.keys() if k != "n_clusters"]
-        other_vals = [grid[k] if isinstance(grid[k], (list, tuple, np.ndarray)) else [grid[k]] for k in other_keys]
+        other_vals = [
+            grid[k] if isinstance(grid[k], (list, tuple, np.ndarray)) else [grid[k]]
+            for k in other_keys
+        ]
         combos = list(product(*other_vals)) if other_keys else [()]
 
         for combo in combos:
-            fixed_params = {k: v for k, v in zip(other_keys, combo)} if other_keys else {}
+            fixed_params = (
+                {k: v for k, v in zip(other_keys, combo)} if other_keys else {}
+            )
             model_label = _pretty_model_label(estimator_cls, fixed_params)
 
             for k in ks:
@@ -501,7 +550,13 @@ def baseline_metrics_over_k(
         gg = g[np.isfinite(g["score"])].copy()
         if gg.empty:
             best_rows.append(
-                {"metric": metric, "best_model": None, "best_k": np.nan, "best_score": np.nan, "best_ari": np.nan}
+                {
+                    "metric": metric,
+                    "best_model": None,
+                    "best_k": np.nan,
+                    "best_score": np.nan,
+                    "best_ari": np.nan,
+                }
             )
             continue
 
@@ -532,7 +587,9 @@ def baseline_metrics_over_k(
                 print(f"  - {m}: no valid scores")
             else:
                 if np.isfinite(ba):
-                    print(f"  - {m}: k={bk}, score={bs:.{decimals}f}, ari={ba:.{decimals}f}   [{bm}]")
+                    print(
+                        f"  - {m}: k={bk}, score={bs:.{decimals}f}, ari={ba:.{decimals}f}   [{bm}]"
+                    )
                 else:
                     print(f"  - {m}: k={bk}, score={bs:.{decimals}f}   [{bm}]")
 
@@ -639,8 +696,8 @@ def plot_label_split_counts(
 
     plt.tight_layout()
     plt.show()
-    
-    
+
+
 def fragmentation_report(
     y_true,
     labels_a,
@@ -655,6 +712,7 @@ def fragmentation_report(
     Returns:
         (summ_a, splits_a, dist_a, top_a), (summ_b, splits_b, dist_b, top_b)
     """
+
     def fragmentation_by_label(y_true, y_pred):
         y_true = np.asarray(y_true)
         y_pred = np.asarray(y_pred)
@@ -675,23 +733,18 @@ def fragmentation_report(
         out = {
             "name": name,
             "L_total_labels": int(L),
-
             "n_intact": int((arr == 1).sum()),
             "pct_intact": float((arr == 1).mean() * 100),
-
             "n_split_ge2": int((arr >= 2).sum()),
             "pct_split_ge2": float((arr >= 2).mean() * 100),
-
             "mean_splits": float(arr.mean()),
             "median_splits": float(np.median(arr)),
             "q25_splits": float(np.quantile(arr, 0.25)),
             "q75_splits": float(np.quantile(arr, 0.75)),
             "q90_splits": float(np.quantile(arr, 0.90)),
             "q95_splits": float(np.quantile(arr, 0.95)),
-
             "max_splits": int(arr.max()),
             "n_at_max": int((arr == arr.max()).sum()),
-
             "n_split_ge3": int((arr >= 3).sum()),
             "n_split_ge5": int((arr >= 5).sum()),
             "n_split_ge8": int((arr >= 8).sum()),
@@ -780,10 +833,18 @@ def fragmentation_report(
         summ_b, *_ = res_b
         print("\n" + "-" * 80)
         print("Comparison (A minus B):")
-        print(f"Change in intact labels (split into 1 cluster): {summ_a['n_intact'] - summ_b['n_intact']}")
-        print(f"Change in intact label percentage: {summ_a['pct_intact'] - summ_b['pct_intact']:.2f} percentage points")
-        print(f"Change in average # of clusters per true label: {summ_a['mean_splits'] - summ_b['mean_splits']:.3f}")
-        print(f"Change in max # of clusters for any true label: {summ_a['max_splits'] - summ_b['max_splits']}")
+        print(
+            f"Change in intact labels (split into 1 cluster): {summ_a['n_intact'] - summ_b['n_intact']}"
+        )
+        print(
+            f"Change in intact label percentage: {summ_a['pct_intact'] - summ_b['pct_intact']:.2f} percentage points"
+        )
+        print(
+            f"Change in average # of clusters per true label: {summ_a['mean_splits'] - summ_b['mean_splits']:.3f}"
+        )
+        print(
+            f"Change in max # of clusters for any true label: {summ_a['max_splits'] - summ_b['max_splits']}"
+        )
 
     return res_a, res_b
 
@@ -878,7 +939,9 @@ def merging_report(
             members = y_true[y_pred == cl]
             merge_counts[cl] = pd.unique(members).size
 
-        merges = pd.Series(merge_counts, name="n_true_labels").sort_values(ascending=False)
+        merges = pd.Series(merge_counts, name="n_true_labels").sort_values(
+            ascending=False
+        )
         return merges
 
     def purity_by_cluster(y_true, y_pred):
@@ -902,27 +965,21 @@ def merging_report(
         out = {
             "name": name,
             "K_total_clusters": int(K),
-
             "n_pure": int((arr == 1).sum()),
             "pct_pure": float((arr == 1).mean() * 100),
-
             "n_merged_ge2": int((arr >= 2).sum()),
             "pct_merged_ge2": float((arr >= 2).mean() * 100),
-
             "mean_merges": float(arr.mean()),
             "median_merges": float(np.median(arr)),
             "q25_merges": float(np.quantile(arr, 0.25)),
             "q75_merges": float(np.quantile(arr, 0.75)),
             "q90_merges": float(np.quantile(arr, 0.90)),
             "q95_merges": float(np.quantile(arr, 0.95)),
-
             "max_merges": int(arr.max()),
             "n_at_max": int((arr == arr.max()).sum()),
-
             "n_merged_ge3": int((arr >= 3).sum()),
             "n_merged_ge5": int((arr >= 5).sum()),
             "n_merged_ge8": int((arr >= 8).sum()),
-
             # purity statistics
             "mean_purity": float(pur.mean()),
             "median_purity": float(np.median(pur)),
@@ -1025,11 +1082,21 @@ def merging_report(
         summ_b, *_ = res_b
         print("\n" + "-" * 80)
         print("Comparison (A minus B):")
-        print(f"Change in pure clusters (contain 1 true label): {summ_a['n_pure'] - summ_b['n_pure']}")
-        print(f"Change in pure cluster percentage: {summ_a['pct_pure'] - summ_b['pct_pure']:.2f} percentage points")
-        print(f"Change in average # true labels per cluster: {summ_a['mean_merges'] - summ_b['mean_merges']:.3f}")
-        print(f"Change in max # true labels in any cluster: {summ_a['max_merges'] - summ_b['max_merges']}")
-        print(f"Change in mean cluster purity: {summ_a['mean_purity'] - summ_b['mean_purity']:.3f}")
+        print(
+            f"Change in pure clusters (contain 1 true label): {summ_a['n_pure'] - summ_b['n_pure']}"
+        )
+        print(
+            f"Change in pure cluster percentage: {summ_a['pct_pure'] - summ_b['pct_pure']:.2f} percentage points"
+        )
+        print(
+            f"Change in average # true labels per cluster: {summ_a['mean_merges'] - summ_b['mean_merges']:.3f}"
+        )
+        print(
+            f"Change in max # true labels in any cluster: {summ_a['max_merges'] - summ_b['max_merges']}"
+        )
+        print(
+            f"Change in mean cluster purity: {summ_a['mean_purity'] - summ_b['mean_purity']:.3f}"
+        )
 
     return res_a, res_b
 
@@ -1069,20 +1136,25 @@ def alluvial_compare(
 
     # --- colors: assign a stable color per TRUE label ---
     cmap = plt.get_cmap(palette_name)
-    true_colors = {lab: "#{:02x}{:02x}{:02x}".format(
-        int(255*cmap(i % cmap.N)[0]),
-        int(255*cmap(i % cmap.N)[1]),
-        int(255*cmap(i % cmap.N)[2]),
-    ) for i, lab in enumerate(true_order)}
+    true_colors = {
+        lab: "#{:02x}{:02x}{:02x}".format(
+            int(255 * cmap(i % cmap.N)[0]),
+            int(255 * cmap(i % cmap.N)[1]),
+            int(255 * cmap(i % cmap.N)[2]),
+        )
+        for i, lab in enumerate(true_order)
+    }
 
     # --- helper: compute purity + share and dominant true label per predicted cluster ---
     def cluster_stats(pred):
         df = pd.DataFrame({"pred": pred, "true": y_true})
-        ct = pd.crosstab(df["pred"], df["true"]).reindex(index=sorted(df["pred"].unique()), columns=true_order, fill_value=0)
+        ct = pd.crosstab(df["pred"], df["true"]).reindex(
+            index=sorted(df["pred"].unique()), columns=true_order, fill_value=0
+        )
         sizes = ct.sum(axis=1).to_numpy()
         shares = sizes / n
         dom_true = ct.idxmax(axis=1).to_numpy()
-        purities = (ct.max(axis=1).to_numpy() / np.maximum(sizes, 1))
+        purities = ct.max(axis=1).to_numpy() / np.maximum(sizes, 1)
         return ct, sizes, shares, dom_true, purities
 
     ct_left, _, share_left, dom_left, pur_left = cluster_stats(left_labels)
@@ -1094,7 +1166,7 @@ def alluvial_compare(
     for i, k in enumerate(left_order):
         purity = pur_left[i]
         share = share_left[i]
-        left_node_labels.append(f"{k+1}<br>{purity*100:.0f}%<br>{share*100:.0f}%")
+        left_node_labels.append(f"{k + 1}<br>{purity * 100:.0f}%<br>{share * 100:.0f}%")
         left_node_colors.append(true_colors[dom_left[i]])
 
     true_node_labels = [lab for lab in true_order]
@@ -1105,7 +1177,9 @@ def alluvial_compare(
     for i, k in enumerate(right_order):
         purity = pur_right[i]
         share = share_right[i]
-        right_node_labels.append(f"{k+1}<br>{purity*100:.0f}%<br>{share*100:.0f}%")
+        right_node_labels.append(
+            f"{k + 1}<br>{purity * 100:.0f}%<br>{share * 100:.0f}%"
+        )
         right_node_colors.append(true_colors[dom_right[i]])
 
     # --- node indexing ---
@@ -1126,7 +1200,11 @@ def alluvial_compare(
     # left -> true
     for k in left_order:
         for lab in true_order:
-            v = int(ct_left.loc[k, lab]) if (k in ct_left.index and lab in ct_left.columns) else 0
+            v = (
+                int(ct_left.loc[k, lab])
+                if (k in ct_left.index and lab in ct_left.columns)
+                else 0
+            )
             if v > 0:
                 sources.append(idx_left[k])
                 targets.append(idx_true[lab])
@@ -1134,7 +1212,9 @@ def alluvial_compare(
                 colors.append(_hex_to_rgba(true_colors[lab], link_alpha))
 
     # true -> right
-    ct_tr = pd.crosstab(pd.Series(y_true, name="true"), pd.Series(right_labels, name="pred")).reindex(index=true_order, columns=right_order, fill_value=0)
+    ct_tr = pd.crosstab(
+        pd.Series(y_true, name="true"), pd.Series(right_labels, name="pred")
+    ).reindex(index=true_order, columns=right_order, fill_value=0)
     for lab in true_order:
         for k in right_order:
             v = int(ct_tr.loc[lab, k])
@@ -1150,27 +1230,29 @@ def alluvial_compare(
             return [0.5]
         return list(np.linspace(top, bottom, m))
 
-    x = ([0.0]*nL) + ([0.5]*nT) + ([1.0]*nR)
+    x = ([0.0] * nL) + ([0.5] * nT) + ([1.0] * nR)
     y = (col_positions(nL)) + (col_positions(nT)) + (col_positions(nR))
 
-    fig = go.Figure(go.Sankey(
-        arrangement="fixed",
-        node=dict(
-            pad=node_pad,
-            thickness=node_thickness,
-            line=dict(color="rgba(0,0,0,0.25)", width=0.5),
-            label=left_node_labels + true_node_labels + right_node_labels,
-            color=left_node_colors + true_node_colors + right_node_colors,
-            x=x,
-            y=y,
-        ),
-        link=dict(
-            source=sources,
-            target=targets,
-            value=values,
-            color=colors,
+    fig = go.Figure(
+        go.Sankey(
+            arrangement="fixed",
+            node=dict(
+                pad=node_pad,
+                thickness=node_thickness,
+                line=dict(color="rgba(0,0,0,0.25)", width=0.5),
+                label=left_node_labels + true_node_labels + right_node_labels,
+                color=left_node_colors + true_node_colors + right_node_colors,
+                x=x,
+                y=y,
+            ),
+            link=dict(
+                source=sources,
+                target=targets,
+                value=values,
+                color=colors,
+            ),
         )
-    ))
+    )
 
     fig.update_layout(
         font=dict(size=font_size, family="Arial"),
@@ -1178,11 +1260,37 @@ def alluvial_compare(
         plot_bgcolor="white",
         width=width,
         height=height,
-        margin=dict(l=40, r=40, t=max(int(vertical_margin), 80), b=int(vertical_margin)),
+        margin=dict(
+            l=40, r=40, t=max(int(vertical_margin), 80), b=int(vertical_margin)
+        ),
         annotations=[
-            dict(x=0.0, y=title_y, xref="paper", yref="paper", text=left_title, showarrow=False, font=dict(size=font_size+2)),
-            dict(x=0.5, y=title_y, xref="paper", yref="paper", text=true_title, showarrow=False, font=dict(size=font_size+2)),
-            dict(x=1.0, y=title_y, xref="paper", yref="paper", text=right_title, showarrow=False, font=dict(size=font_size+2)),
+            dict(
+                x=0.0,
+                y=title_y,
+                xref="paper",
+                yref="paper",
+                text=left_title,
+                showarrow=False,
+                font=dict(size=font_size + 2),
+            ),
+            dict(
+                x=0.5,
+                y=title_y,
+                xref="paper",
+                yref="paper",
+                text=true_title,
+                showarrow=False,
+                font=dict(size=font_size + 2),
+            ),
+            dict(
+                x=1.0,
+                y=title_y,
+                xref="paper",
+                yref="paper",
+                text=right_title,
+                showarrow=False,
+                font=dict(size=font_size + 2),
+            ),
         ],
     )
     return fig
@@ -1194,12 +1302,17 @@ def alluvial_compare(
 
 # --- Color constants for composite figure ---
 CARVE_GREEN = "#009E73"
-CARVE_BLUE  = "#0072B2"
+CARVE_BLUE = "#0072B2"
 CARVE_GREEN_LIGHT = "#66C2A5"
 
 CARVE_LINE_COLORS = {"generalizability": CARVE_GREEN, "stability": CARVE_BLUE}
 
-BASELINE_WARM = ["#E0457B", "#A8389E", "#D6292E", "#F28522"]  # pink, reddish-purple, red, orange
+BASELINE_WARM = [
+    "#E0457B",
+    "#A8389E",
+    "#D6292E",
+    "#F28522",
+]  # pink, reddish-purple, red, orange
 
 
 def _pca_project(X: np.ndarray) -> tuple[np.ndarray, PCA]:
@@ -1262,16 +1375,20 @@ def plot_cluster_scatter(
         m = labels == cid
         c = color_map.get(cid, (0.5, 0.5, 0.5, 1.0))
         ax.scatter(
-            Z[m, 0], Z[m, 1],
-            s=s, alpha=alpha,
-            c=[c], edgecolors=edgecolor, linewidths=linewidth,
+            Z[m, 0],
+            Z[m, 1],
+            s=s,
+            alpha=alpha,
+            c=[c],
+            edgecolors=edgecolor,
+            linewidths=linewidth,
             label=f"C{cid}",
         )
 
     ax.set_title(title, fontsize=13)
     if pca_obj is not None and not hide_axes:
-        ax.set_xlabel(f"PC1 ({pca_obj.explained_variance_ratio_[0]*100:.1f}%)")
-        ax.set_ylabel(f"PC2 ({pca_obj.explained_variance_ratio_[1]*100:.1f}%)")
+        ax.set_xlabel(f"PC1 ({pca_obj.explained_variance_ratio_[0] * 100:.1f}%)")
+        ax.set_ylabel(f"PC2 ({pca_obj.explained_variance_ratio_[1] * 100:.1f}%)")
 
     if hide_axes:
         ax.set_xticks([])
@@ -1332,7 +1449,9 @@ def plot_baseline_best_lines(
         if model is None or pd.isna(best_k):
             continue
 
-        sub = curves_df[(curves_df["metric"] == metric) & (curves_df["model"] == model)].sort_values("k")
+        sub = curves_df[
+            (curves_df["metric"] == metric) & (curves_df["model"] == model)
+        ].sort_values("k")
         if sub.empty:
             continue
 
@@ -1351,14 +1470,30 @@ def plot_baseline_best_lines(
         label = f"{_pretty_metric_name(metric)} — {model}"
         c = colors[i % len(colors)]
 
-        ax.plot(x, y, marker=marker, linewidth=linewidth, color=c, label=label, zorder=2)
+        ax.plot(
+            x, y, marker=marker, linewidth=linewidth, color=c, label=label, zorder=2
+        )
 
         if annotate and np.isfinite(best_k):
             idx_best = np.argmin(np.abs(sub["k"].to_numpy() - int(best_k)))
             best_score_plot = y[idx_best]
-            ax.axvline(int(best_k), linestyle="--", linewidth=1.0, color=c, alpha=0.35, zorder=0)
-            ax.scatter([int(best_k)], [best_score_plot], s=60, color=c, edgecolor="black",
-                       linewidths=0.6, zorder=5)
+            ax.axvline(
+                int(best_k),
+                linestyle="--",
+                linewidth=1.0,
+                color=c,
+                alpha=0.35,
+                zorder=0,
+            )
+            ax.scatter(
+                [int(best_k)],
+                [best_score_plot],
+                s=60,
+                color=c,
+                edgecolor="black",
+                linewidths=0.6,
+                zorder=5,
+            )
 
     ax.set_xlabel("k", fontsize=12)
     ax.set_ylabel("Score (normalized)" if normalize else "Score", fontsize=12)
@@ -1367,8 +1502,10 @@ def plot_baseline_best_lines(
     ax.grid(axis="y", alpha=grid_alpha)
     ax.xaxis.set_major_locator(mpl.ticker.MaxNLocator(integer=True))
     ax.legend(
-        fontsize=11, frameon=False,
-        loc="upper center", bbox_to_anchor=(0.5, -0.18),
+        fontsize=11,
+        frameon=False,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.18),
         ncol=2,
     )
     return ax
@@ -1430,7 +1567,9 @@ def plot_carve_best_line(
     y = df_best[y_col].astype(float).to_numpy()
     label = str(df_best["_method_label"].iloc[0])
 
-    ax.plot(x, y, marker=marker, linewidth=linewidth, color=color, label=label, zorder=3)
+    ax.plot(
+        x, y, marker=marker, linewidth=linewidth, color=color, label=label, zorder=3
+    )
 
     if show_1se and has_se:
         se = df_best[se_col].astype(float).to_numpy()
@@ -1440,12 +1579,29 @@ def plot_carve_best_line(
     # mark selected k
     if annotate:
         sel_y = float(best_row[y_col])
-        ax.axvline(best_k, linestyle="--", linewidth=1.0, color=color, alpha=0.35, zorder=0)
-        ax.scatter([best_k], [sel_y], s=60, color=color, edgecolor="black", linewidths=0.6, zorder=5)
+        ax.axvline(
+            best_k, linestyle="--", linewidth=1.0, color=color, alpha=0.35, zorder=0
+        )
+        ax.scatter(
+            [best_k],
+            [sel_y],
+            s=60,
+            color=color,
+            edgecolor="black",
+            linewidths=0.6,
+            zorder=5,
+        )
         ax.text(
-            0.02, 0.98, f"Selected: k*={best_k}\n{label}",
-            transform=ax.transAxes, ha="left", va="top", fontsize=8,
-            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="none", alpha=0.9),
+            0.02,
+            0.98,
+            f"Selected: k*={best_k}\n{label}",
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=8,
+            bbox=dict(
+                boxstyle="round,pad=0.3", facecolor="white", edgecolor="none", alpha=0.9
+            ),
             zorder=10,
         )
 
@@ -1507,7 +1663,9 @@ def plot_carve_best_lines(
     for measure, rule in measures:
         color = colors.get(measure, CARVE_GREEN)
 
-        best_row = select_best_row_by_rule(df, measure=measure, rule=rule, return_idx=False)
+        best_row = select_best_row_by_rule(
+            df, measure=measure, rule=rule, return_idx=False
+        )
         best_mid = str(best_row["_method_id"])
         best_k = int(best_row["n_clusters"])
 
@@ -1523,24 +1681,51 @@ def plot_carve_best_lines(
         pretty_measure = measure.replace("_", " ").title()
         line_label = f"{pretty_measure} ({rule}) — {method_label}"
 
-        ax.plot(x, y_vals, marker=marker, linewidth=linewidth, color=color, label=line_label, zorder=3)
+        ax.plot(
+            x,
+            y_vals,
+            marker=marker,
+            linewidth=linewidth,
+            color=color,
+            label=line_label,
+            zorder=3,
+        )
 
         if show_1se and has_se:
             se = df_best[se_col].astype(float).to_numpy()
             lo, hi = y_vals - se, y_vals + se
-            ax.fill_between(x, lo, hi, color=color, alpha=alpha_band, linewidth=0, zorder=1)
+            ax.fill_between(
+                x, lo, hi, color=color, alpha=alpha_band, linewidth=0, zorder=1
+            )
 
         if annotate:
             sel_y = float(best_row[y_col])
-            ax.axvline(best_k, linestyle="--", linewidth=1.0, color=color, alpha=0.4, zorder=0)
-            ax.scatter([best_k], [sel_y], s=60, color=color, edgecolor="black", linewidths=0.6, zorder=5)
+            ax.axvline(
+                best_k, linestyle="--", linewidth=1.0, color=color, alpha=0.4, zorder=0
+            )
+            ax.scatter(
+                [best_k],
+                [sel_y],
+                s=60,
+                color=color,
+                edgecolor="black",
+                linewidths=0.6,
+                zorder=5,
+            )
             annotations_text.append(f"{pretty_measure}: k*={best_k}")
 
     if annotate and annotations_text:
         ax.text(
-            0.02, 0.98, "\n".join(annotations_text),
-            transform=ax.transAxes, ha="left", va="top", fontsize=8,
-            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="none", alpha=0.9),
+            0.02,
+            0.98,
+            "\n".join(annotations_text),
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=8,
+            bbox=dict(
+                boxstyle="round,pad=0.3", facecolor="white", edgecolor="none", alpha=0.9
+            ),
             zorder=10,
         )
 
@@ -1551,8 +1736,10 @@ def plot_carve_best_lines(
     ax.grid(axis="y", alpha=grid_alpha)
     ax.xaxis.set_major_locator(mpl.ticker.MaxNLocator(integer=True))
     ax.legend(
-        fontsize=11, frameon=False,
-        loc="upper center", bbox_to_anchor=(0.5, -0.18),
+        fontsize=11,
+        frameon=False,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.18),
         ncol=1,
     )
     return ax
@@ -1560,11 +1747,16 @@ def plot_carve_best_lines(
 
 def _rgba_to_plotly_hex(rgba_tuple) -> str:
     """Convert an RGBA tuple (0..1 floats) to a '#RRGGBB' hex string."""
-    r, g, b = int(rgba_tuple[0] * 255), int(rgba_tuple[1] * 255), int(rgba_tuple[2] * 255)
+    r, g, b = (
+        int(rgba_tuple[0] * 255),
+        int(rgba_tuple[1] * 255),
+        int(rgba_tuple[2] * 255),
+    )
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
 # ---- Matplotlib alluvial helpers ----
+
 
 def _luminance(color) -> float:
     """Relative luminance of a color (RGBA tuple or hex string)."""
@@ -1656,7 +1848,9 @@ def _draw_alluvial_mpl(
     def _purity(pred, order):
         df_tmp = pd.DataFrame({"pred": pred, "true": y_true_str})
         ct = pd.crosstab(df_tmp["pred"], df_tmp["true"]).reindex(
-            index=order, columns=true_order, fill_value=0,
+            index=order,
+            columns=true_order,
+            fill_value=0,
         )
         sizes_tmp = ct.sum(axis=1).to_numpy()
         return ct.max(axis=1).to_numpy() / np.maximum(sizes_tmp, 1)
@@ -1670,21 +1864,32 @@ def _draw_alluvial_mpl(
             yb, yt = positions[i]
             color = cmap.get(key, (0.5, 0.5, 0.5, 1.0))
             ax.fill_betweenx(
-                [yb, yt], x_c - hw, x_c + hw,
-                color=color, edgecolor="white", linewidth=0.5, zorder=2,
+                [yb, yt],
+                x_c - hw,
+                x_c + hw,
+                color=color,
+                edgecolor="white",
+                linewidth=0.5,
+                zorder=2,
             )
-            pur_text = f"  {purities[i]*100:.0f}%" if purities is not None else ""
+            pur_text = f"  {purities[i] * 100:.0f}%" if purities is not None else ""
             if side == "left":
                 ax.text(
-                    x_c - hw - 0.012, (yb + yt) / 2,
-                    f"C{int(key)+1}{pur_text}",
-                    ha="right", va="center", fontsize=font_size,
+                    x_c - hw - 0.012,
+                    (yb + yt) / 2,
+                    f"C{int(key) + 1}{pur_text}",
+                    ha="right",
+                    va="center",
+                    fontsize=font_size,
                 )
             elif side == "right":
                 ax.text(
-                    x_c + hw + 0.012, (yb + yt) / 2,
-                    f"C{int(key)+1}{pur_text}",
-                    ha="left", va="center", fontsize=font_size,
+                    x_c + hw + 0.012,
+                    (yb + yt) / 2,
+                    f"C{int(key) + 1}{pur_text}",
+                    ha="left",
+                    va="center",
+                    fontsize=font_size,
                 )
 
     def _draw_true_bars(order, positions, x_c, cmap):
@@ -1692,14 +1897,24 @@ def _draw_alluvial_mpl(
             yb, yt = positions[i]
             color = cmap.get(lab, (0.5, 0.5, 0.5, 1.0))
             ax.fill_betweenx(
-                [yb, yt], x_c - hw, x_c + hw,
-                color=color, edgecolor="white", linewidth=0.5, zorder=2,
+                [yb, yt],
+                x_c - hw,
+                x_c + hw,
+                color=color,
+                edgecolor="white",
+                linewidth=0.5,
+                zorder=2,
             )
             txt_color = "white" if _luminance(color) < 0.45 else "black"
             ax.text(
-                x_c, (yb + yt) / 2, str(lab),
-                ha="center", va="center", fontsize=font_size,
-                fontweight="normal", color=txt_color,
+                x_c,
+                (yb + yt) / 2,
+                str(lab),
+                ha="center",
+                va="center",
+                fontsize=font_size,
+                fontweight="normal",
+                color=txt_color,
             )
 
     _draw_bars(left_order, left_pos, x_L, left_cmap, pur_left, "left")
@@ -1730,17 +1945,34 @@ def _draw_alluvial_mpl(
             h_t = yt_t - yb_t
 
             frac_s = v / left_sizes[i_l] if left_sizes[i_l] > 0 else 0
-            s_top = yt_l - (left_used[k] / left_sizes[i_l]) * h_l if left_sizes[i_l] > 0 else yt_l
+            s_top = (
+                yt_l - (left_used[k] / left_sizes[i_l]) * h_l
+                if left_sizes[i_l] > 0
+                else yt_l
+            )
             s_bot = s_top - frac_s * h_l
             left_used[k] += v
 
             frac_t = v / true_sizes[i_t] if true_sizes[i_t] > 0 else 0
-            t_top = yt_t - (true_used_l[lab] / true_sizes[i_t]) * h_t if true_sizes[i_t] > 0 else yt_t
+            t_top = (
+                yt_t - (true_used_l[lab] / true_sizes[i_t]) * h_t
+                if true_sizes[i_t] > 0
+                else yt_t
+            )
             t_bot = t_top - frac_t * h_t
             true_used_l[lab] += v
 
-            _draw_flow(ax, x_L + hw, s_top, s_bot, x_T - hw, t_top, t_bot,
-                       true_cmap.get(lab, (0.5, 0.5, 0.5, 1.0)), link_alpha)
+            _draw_flow(
+                ax,
+                x_L + hw,
+                s_top,
+                s_bot,
+                x_T - hw,
+                t_top,
+                t_bot,
+                true_cmap.get(lab, (0.5, 0.5, 0.5, 1.0)),
+                link_alpha,
+            )
 
     # --- True → Right flows ---
     for i_t, lab in enumerate(true_order):
@@ -1754,25 +1986,63 @@ def _draw_alluvial_mpl(
             h_r = yt_r - yb_r
 
             frac_s = v / true_sizes[i_t] if true_sizes[i_t] > 0 else 0
-            s_top = yt_t - (true_used_r[lab] / true_sizes[i_t]) * h_t if true_sizes[i_t] > 0 else yt_t
+            s_top = (
+                yt_t - (true_used_r[lab] / true_sizes[i_t]) * h_t
+                if true_sizes[i_t] > 0
+                else yt_t
+            )
             s_bot = s_top - frac_s * h_t
             true_used_r[lab] += v
 
             frac_t = v / right_sizes[i_r] if right_sizes[i_r] > 0 else 0
-            t_top = yt_r - (right_used[k] / right_sizes[i_r]) * h_r if right_sizes[i_r] > 0 else yt_r
+            t_top = (
+                yt_r - (right_used[k] / right_sizes[i_r]) * h_r
+                if right_sizes[i_r] > 0
+                else yt_r
+            )
             t_bot = t_top - frac_t * h_r
             right_used[k] += v
 
-            _draw_flow(ax, x_T + hw, s_top, s_bot, x_R - hw, t_top, t_bot,
-                       true_cmap.get(lab, (0.5, 0.5, 0.5, 1.0)), link_alpha)
+            _draw_flow(
+                ax,
+                x_T + hw,
+                s_top,
+                s_bot,
+                x_R - hw,
+                t_top,
+                t_bot,
+                true_cmap.get(lab, (0.5, 0.5, 0.5, 1.0)),
+                link_alpha,
+            )
 
     # --- Column titles ---
-    ax.text(x_L, 1.06, left_title, ha="center", va="bottom",
-            fontsize=font_size + 4, fontweight="normal")
-    ax.text(x_T, 1.06, true_title, ha="center", va="bottom",
-            fontsize=font_size + 4, fontweight="normal")
-    ax.text(x_R, 1.06, right_title, ha="center", va="bottom",
-            fontsize=font_size + 4, fontweight="normal")
+    ax.text(
+        x_L,
+        1.06,
+        left_title,
+        ha="center",
+        va="bottom",
+        fontsize=font_size + 4,
+        fontweight="normal",
+    )
+    ax.text(
+        x_T,
+        1.06,
+        true_title,
+        ha="center",
+        va="bottom",
+        fontsize=font_size + 4,
+        fontweight="normal",
+    )
+    ax.text(
+        x_R,
+        1.06,
+        right_title,
+        ha="center",
+        va="bottom",
+        fontsize=font_size + 4,
+        fontweight="normal",
+    )
 
     ax.set_xlim(-0.18, 1.18)
     ax.set_ylim(-0.02, 1.12)
@@ -1865,6 +2135,7 @@ def plot_composite_figure(
 
     # --- Align cluster labels to true labels via Hungarian ---
     from benchmarking_utils import align_labels as _align_labels
+
     y_codes = pd.Categorical(y_arr).codes
     carve_labels = _align_labels(y_codes, carve_labels)
     silhouette_labels = _align_labels(y_codes, silhouette_labels)
@@ -1897,17 +2168,20 @@ def plot_composite_figure(
     fig = plt.figure(figsize=(fig_w, fig_h * 1.15), constrained_layout=False)
 
     gs = fig.add_gridspec(
-        n_rows, 6, height_ratios=height_ratios,
-        hspace=0.5, wspace=0.4,
+        n_rows,
+        6,
+        height_ratios=height_ratios,
+        hspace=0.5,
+        wspace=0.4,
     )
 
     # Manually tighten row 0→1 gap and widen row 1→2 gap
     # by adjusting subplot positions after creation
-    ax_a = fig.add_subplot(gs[0, 0:2])   # true labels
-    ax_b = fig.add_subplot(gs[0, 2:4])   # CARVE clusters
-    ax_c = fig.add_subplot(gs[0, 4:6])   # baseline clusters
-    ax_d = fig.add_subplot(gs[1, 0:3])   # CARVE lines
-    ax_e = fig.add_subplot(gs[1, 3:6])   # baseline lines
+    ax_a = fig.add_subplot(gs[0, 0:2])  # true labels
+    ax_b = fig.add_subplot(gs[0, 2:4])  # CARVE clusters
+    ax_c = fig.add_subplot(gs[0, 4:6])  # baseline clusters
+    ax_d = fig.add_subplot(gs[1, 0:3])  # CARVE lines
+    ax_e = fig.add_subplot(gs[1, 3:6])  # baseline lines
 
     # Nudge scatter row down and lineplot row up to reduce their gap
     for ax in (ax_a, ax_b, ax_c):
@@ -1921,11 +2195,16 @@ def plot_composite_figure(
     # (A) PCA with true labels
     # =============================================================
     plot_dim_red(
-        X, y=y_arr,
-        ax=ax_a, show=False,
-        title="True Labels", legend_title=true_label_legend_title,
-        s=scatter_s, alpha=scatter_alpha,
-        show_legend=False, hide_axes=True,
+        X,
+        y=y_arr,
+        ax=ax_a,
+        show=False,
+        title="True Labels",
+        legend_title=true_label_legend_title,
+        s=scatter_s,
+        alpha=scatter_alpha,
+        show_legend=False,
+        hide_axes=True,
     )
     ax_a.set_title("True Labels", fontsize=13)
     # Strip PCA axis labels
@@ -1940,37 +2219,53 @@ def plot_composite_figure(
     leg_labels = [str(c) for c in y_cat_leg.categories]
     if len(handles) >= len(leg_labels):
         ax_a.legend(
-            handles[:len(leg_labels)], leg_labels,
-            loc="upper center", bbox_to_anchor=(0.5, -0.06),
-            ncol=len(leg_labels), frameon=False, fontsize=11,
-            columnspacing=1.0, handletextpad=0.4,
+            handles[: len(leg_labels)],
+            leg_labels,
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.06),
+            ncol=len(leg_labels),
+            frameon=False,
+            fontsize=11,
+            columnspacing=1.0,
+            handletextpad=0.4,
         )
 
     # =============================================================
     # (B) CARVE consensus clustering scatter
     # =============================================================
     plot_cluster_scatter(
-        X, carve_labels,
-        ax=ax_b, color_map=carve_cmap,
-        s=scatter_s, alpha=scatter_alpha,
-        title=carve_title, Z=Z, pca_obj=pca_obj,
+        X,
+        carve_labels,
+        ax=ax_b,
+        color_map=carve_cmap,
+        s=scatter_s,
+        alpha=scatter_alpha,
+        title=carve_title,
+        Z=Z,
+        pca_obj=pca_obj,
     )
 
     # =============================================================
     # (C) Baseline clustering scatter
     # =============================================================
     plot_cluster_scatter(
-        X, silhouette_labels,
-        ax=ax_c, color_map=sil_cmap,
-        s=scatter_s, alpha=scatter_alpha,
-        title=baseline_title, Z=Z, pca_obj=pca_obj,
+        X,
+        silhouette_labels,
+        ax=ax_c,
+        color_map=sil_cmap,
+        s=scatter_s,
+        alpha=scatter_alpha,
+        title=baseline_title,
+        Z=Z,
+        pca_obj=pca_obj,
     )
 
     # =============================================================
     # (D) CARVE metric-over-k (multiple measures)
     # =============================================================
     plot_carve_best_lines(
-        carve_obj, ax=ax_d,
+        carve_obj,
+        ax=ax_d,
         measures=carve_measures,
         colors=carve_line_colors,
         title=carve_line_title,
@@ -1982,15 +2277,16 @@ def plot_composite_figure(
     # (E) Baseline metrics (normalized)
     # =============================================================
     plot_baseline_best_lines(
-        curves_df, best_df,
-        ax=ax_e, colors=baseline_colors,
+        curves_df,
+        best_df,
+        ax=ax_e,
+        colors=baseline_colors,
         title=baseline_line_title,
         normalize=normalize_baseline,
     )
 
     # --- Panel letter labels ---
-    panel_axes = [(ax_a, "A"), (ax_b, "B"), (ax_c, "C"),
-                  (ax_d, "D"), (ax_e, "E")]
+    panel_axes = [(ax_a, "A"), (ax_b, "B"), (ax_c, "C"), (ax_d, "D"), (ax_e, "E")]
 
     # =============================================================
     # (F) Alluvial (matplotlib, centered in bottom row)
@@ -2016,9 +2312,14 @@ def plot_composite_figure(
         # Panel F: place letter closer to content (alluvial has internal padding)
         x_off = 0.05 if letter == "F" else -0.05
         ax.text(
-            x_off, 1.08, letter,
+            x_off,
+            1.08,
+            letter,
             transform=ax.transAxes,
-            fontsize=18, fontweight="bold", va="top", ha="right",
+            fontsize=18,
+            fontweight="bold",
+            va="top",
+            ha="right",
         )
 
     if save_path is not None:
@@ -2092,6 +2393,7 @@ def plot_composite_figure_with_splits(
 
     # Align labels via Hungarian for scatter plots
     from benchmarking_utils import align_labels as _align_labels
+
     y_codes = pd.Categorical(y_arr).codes
     carve_labels = _align_labels(y_codes, carve_labels)
     silhouette_labels = _align_labels(y_codes, silhouette_labels)
@@ -2113,17 +2415,20 @@ def plot_composite_figure_with_splits(
     fig = plt.figure(figsize=(fig_w, fig_h), constrained_layout=False)
 
     gs = fig.add_gridspec(
-        3, 6, height_ratios=height_ratios,
-        hspace=0.55, wspace=0.4,
+        3,
+        6,
+        height_ratios=height_ratios,
+        hspace=0.55,
+        wspace=0.4,
     )
 
-    ax_a = fig.add_subplot(gs[0, 0:2])   # true labels
-    ax_b = fig.add_subplot(gs[0, 2:4])   # CARVE clusters
-    ax_c = fig.add_subplot(gs[0, 4:6])   # baseline clusters
-    ax_d = fig.add_subplot(gs[1, 0:3])   # CARVE lines
-    ax_e = fig.add_subplot(gs[1, 3:6])   # baseline lines
-    ax_f = fig.add_subplot(gs[2, 0:3])   # split bars CARVE
-    ax_g = fig.add_subplot(gs[2, 3:6])   # split bars baseline
+    ax_a = fig.add_subplot(gs[0, 0:2])  # true labels
+    ax_b = fig.add_subplot(gs[0, 2:4])  # CARVE clusters
+    ax_c = fig.add_subplot(gs[0, 4:6])  # baseline clusters
+    ax_d = fig.add_subplot(gs[1, 0:3])  # CARVE lines
+    ax_e = fig.add_subplot(gs[1, 3:6])  # baseline lines
+    ax_f = fig.add_subplot(gs[2, 0:3])  # split bars CARVE
+    ax_g = fig.add_subplot(gs[2, 3:6])  # split bars baseline
 
     # Nudge scatter row down and lineplot row up
     for ax in (ax_a, ax_b, ax_c):
@@ -2136,14 +2441,20 @@ def plot_composite_figure_with_splits(
     # =========  Row 0: Scatter plots  =========
     # (A) True labels
     plot_dim_red(
-        X, y=y_arr,
-        ax=ax_a, show=False,
-        title="True Labels", legend_title=true_label_legend_title,
-        s=scatter_s, alpha=scatter_alpha,
-        show_legend=False, hide_axes=True,
+        X,
+        y=y_arr,
+        ax=ax_a,
+        show=False,
+        title="True Labels",
+        legend_title=true_label_legend_title,
+        s=scatter_s,
+        alpha=scatter_alpha,
+        show_legend=False,
+        hide_axes=True,
     )
     ax_a.set_title("True Labels", fontsize=13)
-    ax_a.set_xlabel(""); ax_a.set_ylabel("")
+    ax_a.set_xlabel("")
+    ax_a.set_ylabel("")
     if show_true_legend:
         handles = ax_a.collections
         y_cat_leg = pd.Categorical(y_arr)
@@ -2152,32 +2463,48 @@ def plot_composite_figure_with_splits(
         leg_labels = [str(c) for c in y_cat_leg.categories]
         if len(handles) >= len(leg_labels):
             ax_a.legend(
-                handles[:len(leg_labels)], leg_labels,
-                loc="upper center", bbox_to_anchor=(0.5, -0.06),
-                ncol=min(len(leg_labels), 8), frameon=False, fontsize=8,
-                columnspacing=0.8, handletextpad=0.3,
+                handles[: len(leg_labels)],
+                leg_labels,
+                loc="upper center",
+                bbox_to_anchor=(0.5, -0.06),
+                ncol=min(len(leg_labels), 8),
+                frameon=False,
+                fontsize=8,
+                columnspacing=0.8,
+                handletextpad=0.3,
             )
 
     # (B) CARVE
     plot_cluster_scatter(
-        X, carve_labels,
-        ax=ax_b, color_map=carve_cmap,
-        s=scatter_s, alpha=scatter_alpha,
-        title=carve_title, Z=Z, pca_obj=pca_obj,
+        X,
+        carve_labels,
+        ax=ax_b,
+        color_map=carve_cmap,
+        s=scatter_s,
+        alpha=scatter_alpha,
+        title=carve_title,
+        Z=Z,
+        pca_obj=pca_obj,
     )
 
     # (C) Baseline
     plot_cluster_scatter(
-        X, silhouette_labels,
-        ax=ax_c, color_map=sil_cmap,
-        s=scatter_s, alpha=scatter_alpha,
-        title=baseline_title, Z=Z, pca_obj=pca_obj,
+        X,
+        silhouette_labels,
+        ax=ax_c,
+        color_map=sil_cmap,
+        s=scatter_s,
+        alpha=scatter_alpha,
+        title=baseline_title,
+        Z=Z,
+        pca_obj=pca_obj,
     )
 
     # =========  Row 1: Line plots  =========
     # (D) CARVE
     plot_carve_best_lines(
-        carve_obj, ax=ax_d,
+        carve_obj,
+        ax=ax_d,
         measures=carve_measures,
         colors=carve_line_colors,
         title=carve_line_title,
@@ -2187,8 +2514,10 @@ def plot_composite_figure_with_splits(
 
     # (E) Baseline
     plot_baseline_best_lines(
-        curves_df, best_df,
-        ax=ax_e, colors=baseline_colors,
+        curves_df,
+        best_df,
+        ax=ax_e,
+        colors=baseline_colors,
         title=baseline_line_title,
         normalize=normalize_baseline,
     )
@@ -2230,7 +2559,15 @@ def plot_composite_figure_with_splits(
         # annotate counts on bars
         for xv, ct in zip(all_x, bar_counts):
             if ct > 0:
-                ax.text(xv, ct + 0.3, str(ct), ha="center", va="bottom", fontsize=10, fontweight="bold")
+                ax.text(
+                    xv,
+                    ct + 0.3,
+                    str(ct),
+                    ha="center",
+                    va="bottom",
+                    fontsize=10,
+                    fontweight="bold",
+                )
 
     _plot_split_bars(ax_f, splits_carve, split_title_a, split_color_a, all_x)
     ax_f.set_ylabel("Number of true labels", fontsize=11)
@@ -2245,15 +2582,24 @@ def plot_composite_figure_with_splits(
 
     # --- Panel letter labels ---
     panel_axes = [
-        (ax_a, "A"), (ax_b, "B"), (ax_c, "C"),
-        (ax_d, "D"), (ax_e, "E"),
-        (ax_f, "F"), (ax_g, "G"),
+        (ax_a, "A"),
+        (ax_b, "B"),
+        (ax_c, "C"),
+        (ax_d, "D"),
+        (ax_e, "E"),
+        (ax_f, "F"),
+        (ax_g, "G"),
     ]
     for ax, letter in panel_axes:
         ax.text(
-            -0.05, 1.08, letter,
+            -0.05,
+            1.08,
+            letter,
             transform=ax.transAxes,
-            fontsize=18, fontweight="bold", va="top", ha="right",
+            fontsize=18,
+            fontweight="bold",
+            va="top",
+            ha="right",
         )
 
     if save_path is not None:
@@ -2324,7 +2670,9 @@ def _build_alluvial_from_labels(
     # Node labels & colors
     left_node_labels, left_node_colors = [], []
     for i, k in enumerate(left_order):
-        left_node_labels.append(f"{k+1}<br>{pur_left[i]*100:.0f}%<br>{share_left[i]*100:.0f}%")
+        left_node_labels.append(
+            f"{k + 1}<br>{pur_left[i] * 100:.0f}%<br>{share_left[i] * 100:.0f}%"
+        )
         left_node_colors.append(left_color_map.get(k, "#999999"))
 
     true_node_labels = list(true_order)
@@ -2332,7 +2680,9 @@ def _build_alluvial_from_labels(
 
     right_node_labels, right_node_colors = [], []
     for i, k in enumerate(right_order):
-        right_node_labels.append(f"{k+1}<br>{pur_right[i]*100:.0f}%<br>{share_right[i]*100:.0f}%")
+        right_node_labels.append(
+            f"{k + 1}<br>{pur_right[i] * 100:.0f}%<br>{share_right[i] * 100:.0f}%"
+        )
         right_node_colors.append(right_color_map.get(k, "#999999"))
 
     nL, nT, nR = len(left_order), len(true_order), len(right_order)
@@ -2345,7 +2695,11 @@ def _build_alluvial_from_labels(
     # left → true
     for k in left_order:
         for lab in true_order:
-            v = int(ct_left.loc[k, lab]) if (k in ct_left.index and lab in ct_left.columns) else 0
+            v = (
+                int(ct_left.loc[k, lab])
+                if (k in ct_left.index and lab in ct_left.columns)
+                else 0
+            )
             if v > 0:
                 sources.append(idx_left[k])
                 targets.append(idx_true[lab])
@@ -2374,19 +2728,21 @@ def _build_alluvial_from_labels(
     x = [0.0] * nL + [0.5] * nT + [1.0] * nR
     y_pos = col_positions(nL) + col_positions(nT) + col_positions(nR)
 
-    fig = go.Figure(go.Sankey(
-        arrangement="fixed",
-        node=dict(
-            pad=node_pad,
-            thickness=node_thickness,
-            line=dict(color="rgba(0,0,0,0.25)", width=0.5),
-            label=left_node_labels + true_node_labels + right_node_labels,
-            color=left_node_colors + true_node_colors + right_node_colors,
-            x=x,
-            y=y_pos,
-        ),
-        link=dict(source=sources, target=targets, value=values, color=colors),
-    ))
+    fig = go.Figure(
+        go.Sankey(
+            arrangement="fixed",
+            node=dict(
+                pad=node_pad,
+                thickness=node_thickness,
+                line=dict(color="rgba(0,0,0,0.25)", width=0.5),
+                label=left_node_labels + true_node_labels + right_node_labels,
+                color=left_node_colors + true_node_colors + right_node_colors,
+                x=x,
+                y=y_pos,
+            ),
+            link=dict(source=sources, target=targets, value=values, color=colors),
+        )
+    )
 
     fig.update_layout(
         font=dict(size=font_size, family="Arial"),
@@ -2394,14 +2750,37 @@ def _build_alluvial_from_labels(
         plot_bgcolor="white",
         width=width,
         height=height,
-        margin=dict(l=40, r=40, t=max(int(vertical_margin), 80), b=int(vertical_margin)),
+        margin=dict(
+            l=40, r=40, t=max(int(vertical_margin), 80), b=int(vertical_margin)
+        ),
         annotations=[
-            dict(x=0.0, y=title_y, xref="paper", yref="paper",
-                 text=left_title, showarrow=False, font=dict(size=font_size + 2)),
-            dict(x=0.5, y=title_y, xref="paper", yref="paper",
-                 text=true_title, showarrow=False, font=dict(size=font_size + 2)),
-            dict(x=1.0, y=title_y, xref="paper", yref="paper",
-                 text=right_title, showarrow=False, font=dict(size=font_size + 2)),
+            dict(
+                x=0.0,
+                y=title_y,
+                xref="paper",
+                yref="paper",
+                text=left_title,
+                showarrow=False,
+                font=dict(size=font_size + 2),
+            ),
+            dict(
+                x=0.5,
+                y=title_y,
+                xref="paper",
+                yref="paper",
+                text=true_title,
+                showarrow=False,
+                font=dict(size=font_size + 2),
+            ),
+            dict(
+                x=1.0,
+                y=title_y,
+                xref="paper",
+                yref="paper",
+                text=right_title,
+                showarrow=False,
+                font=dict(size=font_size + 2),
+            ),
         ],
     )
     return fig

@@ -163,8 +163,7 @@ def plot_metric_over_n_clusters(
 
     if measure_col not in results_df.columns:
         raise ValueError(f"Metric column {measure_col!r} not found in results_df.")
-    if se_col not in results_df.columns:
-        raise ValueError(f"Standard error column {se_col!r} not found in results_df.")
+    has_se = se_col in results_df.columns
 
     # --- Figure setup ---
     if ax is None:
@@ -214,7 +213,7 @@ def plot_metric_over_n_clusters(
 
         x = group_df_sorted["n_clusters"].values
         y = group_df_sorted[measure_col].values
-        yerr = group_df_sorted[se_col].values
+        yerr = group_df_sorted[se_col].values if has_se else None
         color = colors[color_idx % len(colors)]
 
         ax.errorbar(

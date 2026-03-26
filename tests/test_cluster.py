@@ -14,16 +14,19 @@ from carve.cluster import SpectralClusteringCARVE
 def X_blobs():
     """Well-separated blobs for spectral clustering."""
     rng = np.random.RandomState(42)
-    return np.vstack([
-        rng.randn(30, 3) + [5, 0, 0],
-        rng.randn(30, 3) + [0, 5, 0],
-        rng.randn(30, 3) + [0, 0, 5],
-    ])
+    return np.vstack(
+        [
+            rng.randn(30, 3) + [5, 0, 0],
+            rng.randn(30, 3) + [0, 5, 0],
+            rng.randn(30, 3) + [0, 0, 5],
+        ]
+    )
 
 
 # -----------------------------------------------------------------------
 # Interface
 # -----------------------------------------------------------------------
+
 
 class TestInterface:
     def test_is_sklearn_estimator(self):
@@ -53,6 +56,7 @@ class TestInterface:
 # -----------------------------------------------------------------------
 # fit / fit_predict
 # -----------------------------------------------------------------------
+
 
 class TestFitPredict:
     def test_fit_returns_self(self, X_blobs):
@@ -97,10 +101,12 @@ class TestFitPredict:
 
     def test_two_clusters(self):
         rng = np.random.RandomState(0)
-        X = np.vstack([
-            rng.randn(25, 2) + [5, 0],
-            rng.randn(25, 2) + [0, 5],
-        ])
+        X = np.vstack(
+            [
+                rng.randn(25, 2) + [5, 0],
+                rng.randn(25, 2) + [0, 5],
+            ]
+        )
         labels = SpectralClusteringCARVE(n_clusters=2, random_state=0).fit_predict(X)
         assert len(np.unique(labels)) == 2
 
@@ -116,6 +122,7 @@ class TestFitPredict:
 # Affinities
 # -----------------------------------------------------------------------
 
+
 class TestAffinities:
     def test_rbf_affinity(self, X_blobs):
         est = SpectralClusteringCARVE(n_clusters=3, affinity="rbf", random_state=0)
@@ -130,7 +137,9 @@ class TestAffinities:
 
     def test_self_tuning_affinity(self, X_blobs):
         est = SpectralClusteringCARVE(
-            n_clusters=3, affinity="self_tuning", random_state=0,
+            n_clusters=3,
+            affinity="self_tuning",
+            random_state=0,
         )
         est.fit(X_blobs)
         assert est.affinity_.shape == (90, 90)
@@ -142,7 +151,10 @@ class TestAffinities:
 
     def test_custom_gamma(self, X_blobs):
         est = SpectralClusteringCARVE(
-            n_clusters=3, affinity="rbf", gamma=0.1, random_state=0,
+            n_clusters=3,
+            affinity="rbf",
+            gamma=0.1,
+            random_state=0,
         )
         est.fit(X_blobs)
         assert est.labels_.shape == (90,)
@@ -157,11 +169,15 @@ class TestAffinities:
 # k-NN gamma heuristic
 # -----------------------------------------------------------------------
 
+
 class TestKnnGammaHeuristic:
     def test_gamma_auto_rbf(self, X_blobs):
         """When gamma=None with rbf affinity, gamma_ should be set."""
         est = SpectralClusteringCARVE(
-            n_clusters=3, affinity="rbf", gamma=None, random_state=0,
+            n_clusters=3,
+            affinity="rbf",
+            gamma=None,
+            random_state=0,
         )
         est.fit(X_blobs)
         assert hasattr(est, "gamma_")
@@ -171,7 +187,10 @@ class TestKnnGammaHeuristic:
     def test_gamma_auto_knn(self, X_blobs):
         """When gamma=None with knn affinity, gamma_ should be set."""
         est = SpectralClusteringCARVE(
-            n_clusters=3, affinity="knn", gamma=None, random_state=0,
+            n_clusters=3,
+            affinity="knn",
+            gamma=None,
+            random_state=0,
         )
         est.fit(X_blobs)
         assert hasattr(est, "gamma_")
@@ -181,7 +200,10 @@ class TestKnnGammaHeuristic:
     def test_gamma_explicit(self, X_blobs):
         """When gamma is explicitly set, gamma_ should match."""
         est = SpectralClusteringCARVE(
-            n_clusters=3, affinity="rbf", gamma=0.5, random_state=0,
+            n_clusters=3,
+            affinity="rbf",
+            gamma=0.5,
+            random_state=0,
         )
         est.fit(X_blobs)
         assert est.gamma_ == 0.5
@@ -189,7 +211,9 @@ class TestKnnGammaHeuristic:
     def test_gamma_self_tuning_is_none(self, X_blobs):
         """Self-tuning affinity doesn't use a global gamma."""
         est = SpectralClusteringCARVE(
-            n_clusters=3, affinity="self_tuning", random_state=0,
+            n_clusters=3,
+            affinity="self_tuning",
+            random_state=0,
         )
         est.fit(X_blobs)
         assert est.gamma_ is None
@@ -199,12 +223,15 @@ class TestKnnGammaHeuristic:
 # Non-convex clusters
 # -----------------------------------------------------------------------
 
+
 class TestNonConvex:
     def test_moons_self_tuning(self):
         """Self-tuning spectral clustering should handle moons well."""
         X, y_true = make_moons(500, noise=0.08, random_state=42)
         labels = SpectralClusteringCARVE(
-            n_clusters=2, affinity="self_tuning", random_state=0,
+            n_clusters=2,
+            affinity="self_tuning",
+            random_state=0,
         ).fit_predict(X)
         ari = adjusted_rand_score(y_true, labels)
         assert ari > 0.95
@@ -213,7 +240,10 @@ class TestNonConvex:
         """RBF with k-NN gamma heuristic should also handle moons."""
         X, y_true = make_moons(500, noise=0.08, random_state=42)
         labels = SpectralClusteringCARVE(
-            n_clusters=2, affinity="rbf", gamma=None, random_state=0,
+            n_clusters=2,
+            affinity="rbf",
+            gamma=None,
+            random_state=0,
         ).fit_predict(X)
         ari = adjusted_rand_score(y_true, labels)
         assert ari > 0.90

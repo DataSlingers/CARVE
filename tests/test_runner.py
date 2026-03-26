@@ -48,6 +48,7 @@ def generalizability_policy():
 # ResampleResult
 # -----------------------------------------------------------------------
 
+
 class TestResampleResult:
     def test_is_namedtuple(self):
         r = ResampleResult(
@@ -77,6 +78,7 @@ class TestResampleResult:
 # _compute_stability_ari
 # -----------------------------------------------------------------------
 
+
 class TestComputeStabilityAri:
     def test_basic(self, default_policy):
         # Overlapping indices [1, 2] with identical labels
@@ -94,7 +96,11 @@ class TestComputeStabilityAri:
         idx = np.array([0, 1, 2, 3])
         labels = np.array([0, 0, 1, 1])
         ari = _compute_stability_ari(
-            default_policy, idx, idx, labels, labels,
+            default_policy,
+            idx,
+            idx,
+            labels,
+            labels,
         )
         assert ari == pytest.approx(1.0)
 
@@ -113,16 +119,22 @@ class TestComputeStabilityAri:
 # _compute_generalizability_ari
 # -----------------------------------------------------------------------
 
+
 class TestComputeGeneralizabilityAri:
     def test_basic(self, default_policy):
         rng = np.random.RandomState(0)
         X_train = np.vstack([rng.randn(20, 3) + [3, 0, 0], rng.randn(20, 3)])
         X_test = np.vstack([rng.randn(5, 3) + [3, 0, 0], rng.randn(5, 3)])
-        labels_train = np.array([0]*20 + [1]*20)
-        labels_test = np.array([0]*5 + [1]*5)
+        labels_train = np.array([0] * 20 + [1] * 20)
+        labels_test = np.array([0] * 5 + [1] * 5)
 
         labels_pred, ari = _compute_generalizability_ari(
-            default_policy, X_train, X_test, labels_train, labels_test, seed=0,
+            default_policy,
+            X_train,
+            X_test,
+            labels_train,
+            labels_test,
+            seed=0,
         )
         assert labels_pred is not None
         assert labels_pred.shape == (10,)
@@ -130,7 +142,12 @@ class TestComputeGeneralizabilityAri:
 
     def test_skipped(self, stability_policy):
         labels_pred, ari = _compute_generalizability_ari(
-            stability_policy, None, None, None, None, seed=0,
+            stability_policy,
+            None,
+            None,
+            None,
+            None,
+            seed=0,
         )
         assert labels_pred is None
         assert np.isnan(ari)
@@ -139,6 +156,7 @@ class TestComputeGeneralizabilityAri:
 # -----------------------------------------------------------------------
 # validation_iter
 # -----------------------------------------------------------------------
+
 
 class TestValidationIter:
     def test_basic(self, X_two_clusters):
@@ -201,6 +219,7 @@ class TestValidationIter:
 # -----------------------------------------------------------------------
 # run_validation
 # -----------------------------------------------------------------------
+
 
 class TestRunValidation:
     def test_basic(self, X_two_clusters):

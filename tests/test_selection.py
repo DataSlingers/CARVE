@@ -23,6 +23,7 @@ from carve._selection import (
 # select_best_row_max
 # -----------------------------------------------------------------------
 
+
 class TestSelectBestRowMax:
     def test_basic(self, results_df):
         row = select_best_row_max(results_df, measure="stability")
@@ -49,6 +50,7 @@ class TestSelectBestRowMax:
 # select_best_row_1se
 # -----------------------------------------------------------------------
 
+
 class TestSelectBestRow1se:
     def test_basic(self, results_df):
         row = select_best_row_1se(results_df, measure="stability")
@@ -57,12 +59,14 @@ class TestSelectBestRow1se:
         assert row["n_clusters"] == 2
 
     def test_wider_se(self):
-        df = pd.DataFrame({
-            "estimator": ["KMeans"] * 4,
-            "n_clusters": [2, 3, 4, 5],
-            "ari_stability": [0.90, 0.89, 0.88, 0.50],
-            "ari_stability_se": [0.05, 0.04, 0.03, 0.02],
-        })
+        df = pd.DataFrame(
+            {
+                "estimator": ["KMeans"] * 4,
+                "n_clusters": [2, 3, 4, 5],
+                "ari_stability": [0.90, 0.89, 0.88, 0.50],
+                "ari_stability_se": [0.05, 0.04, 0.03, 0.02],
+            }
+        )
         row = select_best_row_1se(df, measure="stability")
         # Threshold: 0.90 - 0.05 = 0.85; k=2,3,4 all >= 0.85
         # Largest k within 1se is 4
@@ -81,6 +85,7 @@ class TestSelectBestRow1se:
 # select_best_row_quantile
 # -----------------------------------------------------------------------
 
+
 class TestSelectBestRowQuantile:
     def test_basic(self, results_df):
         row = select_best_row_quantile(results_df, measure="stability")
@@ -89,14 +94,16 @@ class TestSelectBestRowQuantile:
         assert row["n_clusters"] == 2
 
     def test_wider_bounds(self):
-        df = pd.DataFrame({
-            "estimator": ["KMeans"] * 3,
-            "n_clusters": [2, 3, 4],
-            "ari_stability": [0.85, 0.83, 0.80],
-            "ari_stability_se": [0.03, 0.03, 0.03],
-            "ari_stability_upper": [0.90, 0.88, 0.85],
-            "ari_stability_lower": [0.80, 0.78, 0.75],
-        })
+        df = pd.DataFrame(
+            {
+                "estimator": ["KMeans"] * 3,
+                "n_clusters": [2, 3, 4],
+                "ari_stability": [0.85, 0.83, 0.80],
+                "ari_stability_se": [0.03, 0.03, 0.03],
+                "ari_stability_upper": [0.90, 0.88, 0.85],
+                "ari_stability_lower": [0.80, 0.78, 0.75],
+            }
+        )
         row = select_best_row_quantile(df, measure="stability")
         # Best at k=2: bounds [0.80, 0.90]; k=3 (0.83) and k=4 (0.80)
         # are within bounds => largest k is 4
@@ -104,7 +111,9 @@ class TestSelectBestRowQuantile:
 
     def test_return_idx(self, results_df):
         idx = select_best_row_quantile(
-            results_df, measure="stability", return_idx=True,
+            results_df,
+            measure="stability",
+            return_idx=True,
         )
         assert isinstance(idx, (int, np.integer))
 
@@ -114,15 +123,17 @@ class TestSelectBestRowQuantile:
 
     def test_empty_fallback(self):
         """When no rows fall within quantile bounds, fall back to max."""
-        df = pd.DataFrame({
-            "estimator": ["KMeans"] * 2,
-            "n_clusters": [2, 3],
-            "ari_stability": [0.5, 0.3],
-            "ari_stability_se": [0.01, 0.01],
-            # Inverted bounds so that no row satisfies >= lower AND <= upper
-            "ari_stability_upper": [0.40, 0.20],
-            "ari_stability_lower": [0.60, 0.40],
-        })
+        df = pd.DataFrame(
+            {
+                "estimator": ["KMeans"] * 2,
+                "n_clusters": [2, 3],
+                "ari_stability": [0.5, 0.3],
+                "ari_stability_se": [0.01, 0.01],
+                # Inverted bounds so that no row satisfies >= lower AND <= upper
+                "ari_stability_upper": [0.40, 0.20],
+                "ari_stability_lower": [0.60, 0.40],
+            }
+        )
         with pytest.warns(RuntimeWarning, match="falling back to max"):
             row = select_best_row_quantile(df, measure="stability")
         assert row["n_clusters"] == 2
@@ -131,6 +142,7 @@ class TestSelectBestRowQuantile:
 # -----------------------------------------------------------------------
 # select_best_row_by_rule
 # -----------------------------------------------------------------------
+
 
 class TestSelectBestRowByRule:
     def test_max_rule(self, results_df):
@@ -151,18 +163,23 @@ class TestSelectBestRowByRule:
 
     def test_missing_se_fallback(self):
         """Missing SE column should warn and fall back to max."""
-        df = pd.DataFrame({
-            "estimator": ["KMeans"] * 2,
-            "n_clusters": [2, 3],
-            "ari_stability": [0.9, 0.8],
-        })
+        df = pd.DataFrame(
+            {
+                "estimator": ["KMeans"] * 2,
+                "n_clusters": [2, 3],
+                "ari_stability": [0.9, 0.8],
+            }
+        )
         with pytest.warns(RuntimeWarning, match="not found.*falling back"):
             row = select_best_row_by_rule(df, measure="stability", rule="1se")
         assert row["n_clusters"] == 2
 
     def test_return_idx(self, results_df):
         idx = select_best_row_by_rule(
-            results_df, measure="stability", rule="max", return_idx=True,
+            results_df,
+            measure="stability",
+            rule="max",
+            return_idx=True,
         )
         assert isinstance(idx, (int, np.integer))
 
@@ -170,6 +187,7 @@ class TestSelectBestRowByRule:
 # -----------------------------------------------------------------------
 # select_best_k
 # -----------------------------------------------------------------------
+
 
 class TestSelectBestK:
     def test_basic(self, results_df):
@@ -185,6 +203,7 @@ class TestSelectBestK:
 # -----------------------------------------------------------------------
 # select_best_estimator
 # -----------------------------------------------------------------------
+
 
 class TestSelectBestEstimator:
     def test_basic(self, results_df):
@@ -203,6 +222,7 @@ class TestSelectBestEstimator:
 # build_estimator_from_row
 # -----------------------------------------------------------------------
 
+
 class TestBuildEstimatorFromRow:
     def test_basic(self):
         grids = [(KMeans, {"n_clusters": [2]})]
@@ -213,11 +233,13 @@ class TestBuildEstimatorFromRow:
 
     def test_with_extra_columns(self):
         grids = [(KMeans, {"n_clusters": [2]})]
-        row = pd.Series({
-            "estimator": "KMeans",
-            "n_clusters": 4,
-            "ari_stability": 0.9,  # should be ignored
-        })
+        row = pd.Series(
+            {
+                "estimator": "KMeans",
+                "n_clusters": 4,
+                "ari_stability": 0.9,  # should be ignored
+            }
+        )
         est = build_estimator_from_row(grids, row)
         assert est.n_clusters == 4
 
@@ -225,6 +247,7 @@ class TestBuildEstimatorFromRow:
 # -----------------------------------------------------------------------
 # get_estimator_param_names
 # -----------------------------------------------------------------------
+
 
 class TestGetEstimatorParamNames:
     def test_kmeans(self):
@@ -241,6 +264,7 @@ class TestGetEstimatorParamNames:
 # -----------------------------------------------------------------------
 # row_to_estimator_params
 # -----------------------------------------------------------------------
+
 
 class TestRowToEstimatorParams:
     def test_basic(self):
@@ -268,6 +292,7 @@ class TestRowToEstimatorParams:
 # -----------------------------------------------------------------------
 # MEASURE_MAP
 # -----------------------------------------------------------------------
+
 
 class TestMeasureMap:
     def test_all_aliases_resolve(self):

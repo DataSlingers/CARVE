@@ -18,12 +18,15 @@ from carve._grids import (
 # default_estimator_grids
 # -----------------------------------------------------------------------
 
+
 class TestDefaultEstimatorGrids:
     def test_basic_structure(self):
         X = np.random.RandomState(0).randn(50, 5)
         grids = default_estimator_grids(X, n_clusters=np.array([2, 3]))
         assert isinstance(grids, list)
-        assert len(grids) == 3  # KMeans, Agglomerative (ward), SpectralCARVE (self_tuning)
+        assert (
+            len(grids) == 3
+        )  # KMeans, Agglomerative (ward), SpectralCARVE (self_tuning)
 
     def test_estimator_types(self):
         X = np.random.RandomState(0).randn(50, 5)
@@ -56,7 +59,8 @@ class TestDefaultEstimatorGrids:
         grids = default_estimator_grids(X, n_clusters=np.array([2, 3]))
         # Find the self-tuning entry (has affinity but no gamma)
         st_grids = [
-            (cls, g) for cls, g in grids
+            (cls, g)
+            for cls, g in grids
             if cls is SpectralClusteringCARVE and "gamma" not in g
         ]
         assert len(st_grids) == 1
@@ -73,6 +77,7 @@ class TestDefaultEstimatorGrids:
     def test_param_grids_are_valid(self):
         """Verify each grid can be expanded by ParameterGrid."""
         from sklearn.model_selection import ParameterGrid
+
         X = np.random.RandomState(0).randn(50, 5)
         grids = default_estimator_grids(X, n_clusters=np.array([2, 3]))
         for cls, grid in grids:
@@ -101,7 +106,8 @@ class TestFullPreset:
         X = np.random.RandomState(0).randn(50, 5)
         grids = default_estimator_grids(X, n_clusters=np.array([2, 3]), preset="full")
         rbf_grids = [
-            (cls, g) for cls, g in grids
+            (cls, g)
+            for cls, g in grids
             if cls is SpectralClusteringCARVE and "gamma" in g
         ]
         assert len(rbf_grids) == 1
@@ -114,6 +120,7 @@ class TestFullPreset:
 # default_normalization_options
 # -----------------------------------------------------------------------
 
+
 class TestDefaultNormalizationOptions:
     def test_structure(self):
         options = default_normalization_options()
@@ -123,8 +130,7 @@ class TestDefaultNormalizationOptions:
     def test_contains_identity(self):
         options = default_normalization_options()
         has_identity = any(
-            cls is FunctionTransformer and params == {}
-            for cls, params in options
+            cls is FunctionTransformer and params == {} for cls, params in options
         )
         assert has_identity
 
@@ -146,6 +152,7 @@ class TestDefaultNormalizationOptions:
 # default_dim_reduction_options
 # -----------------------------------------------------------------------
 
+
 class TestDefaultDimReductionOptions:
     def test_structure(self):
         X = np.random.RandomState(0).randn(100, 10)
@@ -157,8 +164,7 @@ class TestDefaultDimReductionOptions:
         X = np.random.RandomState(0).randn(100, 10)
         options = default_dim_reduction_options(X)
         has_identity = any(
-            cls is FunctionTransformer and params == {}
-            for cls, params in options
+            cls is FunctionTransformer and params == {} for cls, params in options
         )
         assert has_identity
 
@@ -171,9 +177,7 @@ class TestDefaultDimReductionOptions:
     def test_pca_components_respect_data(self):
         X = np.random.RandomState(0).randn(50, 5)
         options = default_dim_reduction_options(X, subsample_ratio=0.6)
-        pca_option = next(
-            (cls, params) for cls, params in options if cls is PCA
-        )
+        pca_option = next((cls, params) for cls, params in options if cls is PCA)
         n_components = pca_option[1]["n_components"]
         # Should respect min(min_n, p) where min_n = round(50 * 0.4) - 1
         assert all(c >= 2 for c in n_components)

@@ -20,6 +20,7 @@ from carve._utils import (
 # split_subsample_indices
 # -----------------------------------------------------------------------
 
+
 class TestSplitSubsampleIndices:
     def test_basic_split(self):
         train, test = split_subsample_indices(100, subsample_ratio=0.8, random_state=0)
@@ -45,7 +46,9 @@ class TestSplitSubsampleIndices:
     def test_various_ratios(self):
         for ratio in [0.1, 0.3, 0.5, 0.7, 0.9]:
             train, test = split_subsample_indices(
-                100, subsample_ratio=ratio, random_state=0,
+                100,
+                subsample_ratio=ratio,
+                random_state=0,
             )
             assert len(train) == int(np.float64(ratio * 100))
             assert len(test) == 100 - len(train)
@@ -58,6 +61,7 @@ class TestSplitSubsampleIndices:
 # -----------------------------------------------------------------------
 # _coerce_n_clusters
 # -----------------------------------------------------------------------
+
 
 class TestCoerceNClusters:
     def test_int_input(self):
@@ -102,6 +106,7 @@ class TestCoerceNClusters:
 # _summarize_ari_scores
 # -----------------------------------------------------------------------
 
+
 class TestSummarizeAriScores:
     def test_normal(self):
         scores = [0.8, 0.85, 0.9, 0.82, 0.88]
@@ -138,6 +143,7 @@ class TestSummarizeAriScores:
 # cluster_labels
 # -----------------------------------------------------------------------
 
+
 class TestClusterLabels:
     def test_kmeans(self, X_two_clusters):
         labels = cluster_labels(X_two_clusters, KMeans, random_state=0, n_clusters=2)
@@ -146,7 +152,9 @@ class TestClusterLabels:
 
     def test_agglomerative(self, X_two_clusters):
         labels = cluster_labels(
-            X_two_clusters, AgglomerativeClustering, n_clusters=2,
+            X_two_clusters,
+            AgglomerativeClustering,
+            n_clusters=2,
         )
         assert labels.shape == (60,)
         assert len(np.unique(labels)) == 2
@@ -160,6 +168,7 @@ class TestClusterLabels:
 # -----------------------------------------------------------------------
 # align_cluster_labels
 # -----------------------------------------------------------------------
+
 
 class TestAlignClusterLabels:
     def test_already_aligned(self):
@@ -190,6 +199,7 @@ class TestAlignClusterLabels:
 # -----------------------------------------------------------------------
 # ensure_2d_array
 # -----------------------------------------------------------------------
+
 
 class TestEnsure2dArray:
     def test_2d_ndarray(self):

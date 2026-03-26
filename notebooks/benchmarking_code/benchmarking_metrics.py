@@ -4,12 +4,19 @@ import numpy as np
 
 from sklearn.base import ClusterMixin
 from sklearn.cluster import KMeans
-from sklearn.metrics import calinski_harabasz_score, davies_bouldin_score, pairwise_distances, silhouette_score
+from sklearn.metrics import (
+    calinski_harabasz_score,
+    davies_bouldin_score,
+    pairwise_distances,
+    silhouette_score,
+)
 
 from benchmarking_utils import _build_estimator
 
 
-def compute_dispersion(X: np.ndarray, labels: np.ndarray, metric: str = 'euclidean') -> float:
+def compute_dispersion(
+    X: np.ndarray, labels: np.ndarray, metric: str = "euclidean"
+) -> float:
     """
     Computes the within-cluster dispersion measure W_k for a clustering solution.
 
@@ -23,16 +30,16 @@ def compute_dispersion(X: np.ndarray, labels: np.ndarray, metric: str = 'euclide
     """
     unique_labels = np.unique(labels)
     W_k = 0.0
-    
+
     for label in unique_labels:
         cluster_points = X[labels == label]
-        
+
         if len(cluster_points) <= 1:
             continue
-        
+
         distances = pairwise_distances(cluster_points, metric=metric, squared=True)
         W_k += np.sum(distances) / (2 * cluster_points.shape[0])
-    
+
     return W_k
 
 
@@ -139,7 +146,7 @@ def calculate_metric(
     Returns:
         float: Value of the requested clustering metric.
     """
-    if metric == 'gap':
+    if metric == "gap":
         return gap_statistic(
             X,
             labels,
@@ -148,15 +155,14 @@ def calculate_metric(
             random_state=random_state,
         )
 
-    elif metric == 'silhouette':
+    elif metric == "silhouette":
         return silhouette_score(X, labels, random_state=random_state)
 
-    elif metric == 'davies_bouldin' or metric == 'DB':
+    elif metric == "davies_bouldin" or metric == "DB":
         return davies_bouldin_inv(X, labels)
 
-    elif metric == 'calinski_harabasz' or metric == 'CH':
+    elif metric == "calinski_harabasz" or metric == "CH":
         return calinski_harabasz_score(X, labels)
-    
+
     else:
         raise ValueError(f"Unknown metric: {metric}")
-

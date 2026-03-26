@@ -21,40 +21,44 @@ CLASSICAL = [
 ]
 
 METRIC_DISPLAY_NAMES = {
-    "baseline_oracle":              "Baseline (Oracle)",
+    "baseline_oracle": "Baseline (Oracle)",
     # CARVE – selected
-    "ari_generalizability_1se":     "ARI (gen, 1SE)",
-    "ari_stability_quant":          "ARI (stab, quantile)",
+    "ari_generalizability_1se": "ARI (gen, 1SE)",
+    "ari_stability_quant": "ARI (stab, quantile)",
     # CARVE – other selection rules
-    "ari_stability":                "ARI (stab, max)",
-    "ari_generalizability":         "ARI (gen, max)",
-    "ari_average":                  "ARI (avg, max)",
-    "ari_stability_1se":            "ARI (stab, 1SE)",
-    "ari_average_1se":              "ARI (avg, 1SE)",
-    "ari_generalizability_quant":   "ARI (gen, quantile)",
-    "ari_average_quant":            "ARI (avg, quantile)",
+    "ari_stability": "ARI (stab, max)",
+    "ari_generalizability": "ARI (gen, max)",
+    "ari_average": "ARI (avg, max)",
+    "ari_stability_1se": "ARI (stab, 1SE)",
+    "ari_average_1se": "ARI (avg, 1SE)",
+    "ari_generalizability_quant": "ARI (gen, quantile)",
+    "ari_average_quant": "ARI (avg, quantile)",
     # Consensus metrics
-    "consensus_pac_stability":      "PAC (stab)",
-    "consensus_gini_stability":     "Gini (stab)",
-    "consensus_ce_stability":       "CE (stab)",
+    "consensus_pac_stability": "PAC (stab)",
+    "consensus_gini_stability": "Gini (stab)",
+    "consensus_ce_stability": "CE (stab)",
     # Misclassification
     "misclassification_generalizability": "Misclass. (gen)",
     # Classical
-    "silhouette":                   "Silhouette",
-    "gap":                          "Gap",
-    "davies_bouldin":               "DB",
-    "calinski_harabasz":            "CH",
+    "silhouette": "Silhouette",
+    "gap": "Gap",
+    "davies_bouldin": "DB",
+    "calinski_harabasz": "CH",
 }
 
 EXCLUDE = [
-    "ari_average", "ari_average_1se", "ari_average_quant",
-    "consensus_pac_stability", "consensus_ce_stability",
+    "ari_average",
+    "ari_average_1se",
+    "ari_average_quant",
+    "consensus_pac_stability",
+    "consensus_ce_stability",
 ]
 
 
 # ---------------------------------------------------------------------------
 # Private helper: summarize a single (already-filtered) slice of results
 # ---------------------------------------------------------------------------
+
 
 def _summarize_single_group(
     df: pd.DataFrame,
@@ -105,15 +109,17 @@ def _summarize_single_group(
         ari_stats = _summary_stats(sub["metric_ari"])
 
         # delta to oracle
-        delta = (
-            pd.to_numeric(sub["baseline_ari"], errors="coerce")
-            - pd.to_numeric(sub["metric_ari"], errors="coerce")
+        delta = pd.to_numeric(sub["baseline_ari"], errors="coerce") - pd.to_numeric(
+            sub["metric_ari"], errors="coerce"
         )
         delta_stats = _summary_stats(delta)
 
         # k recovery (as stored: is_correct)
         k_success = int(
-            pd.to_numeric(sub["is_correct"], errors="coerce").fillna(0).astype(int).sum()
+            pd.to_numeric(sub["is_correct"], errors="coerce")
+            .fillna(0)
+            .astype(int)
+            .sum()
         )
         k_lo, k_hi = _wilson_ci(k_success, n)
 
@@ -126,65 +132,71 @@ def _summarize_single_group(
         under = float((kbias < 0).mean()) if n else np.nan
         over = float((kbias > 0).mean()) if n else np.nan
 
-        rows.append({
-            "metric": m,
-            "B_datasets": n,
-            "ari_mean": ari_stats["mean"],
-            "ari_sd": ari_stats["sd"],
-            "ari_median": ari_stats["median"],
-            "ari_q25": ari_stats["q25"],
-            "ari_q75": ari_stats["q75"],
-            "ari_q05": ari_stats["q05"],
-            "ari_q95": ari_stats["q95"],
-            "delta_mean": delta_stats["mean"],
-            "delta_sd": delta_stats["sd"],
-            "delta_median": delta_stats["median"],
-            "delta_q25": delta_stats["q25"],
-            "delta_q75": delta_stats["q75"],
-            "delta_q05": delta_stats["q05"],
-            "delta_q95": delta_stats["q95"],
-            "k_recovery": (k_success / n) if n else np.nan,
-            "k_rec_lo95": k_lo,
-            "k_rec_hi95": k_hi,
-            "k_rec_num": float(k_success),
-            "k_rec_den": float(n),
-            "kbias_mean": kbias_stats["mean"],
-            "kbias_median": kbias_stats["median"],
-            "p_under": under,
-            "p_over": over,
-        })
+        rows.append(
+            {
+                "metric": m,
+                "B_datasets": n,
+                "ari_mean": ari_stats["mean"],
+                "ari_sd": ari_stats["sd"],
+                "ari_median": ari_stats["median"],
+                "ari_q25": ari_stats["q25"],
+                "ari_q75": ari_stats["q75"],
+                "ari_q05": ari_stats["q05"],
+                "ari_q95": ari_stats["q95"],
+                "delta_mean": delta_stats["mean"],
+                "delta_sd": delta_stats["sd"],
+                "delta_median": delta_stats["median"],
+                "delta_q25": delta_stats["q25"],
+                "delta_q75": delta_stats["q75"],
+                "delta_q05": delta_stats["q05"],
+                "delta_q95": delta_stats["q95"],
+                "k_recovery": (k_success / n) if n else np.nan,
+                "k_rec_lo95": k_lo,
+                "k_rec_hi95": k_hi,
+                "k_rec_num": float(k_success),
+                "k_rec_den": float(n),
+                "kbias_mean": kbias_stats["mean"],
+                "kbias_median": kbias_stats["median"],
+                "p_under": under,
+                "p_over": over,
+            }
+        )
 
     overall = pd.DataFrame(rows)
 
     # baseline summary row (context)
     base_stats = _summary_stats(base["baseline_ari"])
-    baseline_row = pd.DataFrame([{
-        "metric": "baseline_oracle",
-        "B_datasets": int(len(base)),
-        "ari_mean": base_stats["mean"],
-        "ari_sd": base_stats["sd"],
-        "ari_median": base_stats["median"],
-        "ari_q25": base_stats["q25"],
-        "ari_q75": base_stats["q75"],
-        "ari_q05": base_stats["q05"],
-        "ari_q95": base_stats["q95"],
-        "delta_mean": np.nan,
-        "delta_sd": np.nan,
-        "delta_median": np.nan,
-        "delta_q25": np.nan,
-        "delta_q75": np.nan,
-        "delta_q05": np.nan,
-        "delta_q95": np.nan,
-        "k_recovery": np.nan,
-        "k_rec_lo95": np.nan,
-        "k_rec_hi95": np.nan,
-        "k_rec_num": np.nan,
-        "k_rec_den": np.nan,
-        "kbias_mean": np.nan,
-        "kbias_median": np.nan,
-        "p_under": np.nan,
-        "p_over": np.nan,
-    }])
+    baseline_row = pd.DataFrame(
+        [
+            {
+                "metric": "baseline_oracle",
+                "B_datasets": int(len(base)),
+                "ari_mean": base_stats["mean"],
+                "ari_sd": base_stats["sd"],
+                "ari_median": base_stats["median"],
+                "ari_q25": base_stats["q25"],
+                "ari_q75": base_stats["q75"],
+                "ari_q05": base_stats["q05"],
+                "ari_q95": base_stats["q95"],
+                "delta_mean": np.nan,
+                "delta_sd": np.nan,
+                "delta_median": np.nan,
+                "delta_q25": np.nan,
+                "delta_q75": np.nan,
+                "delta_q05": np.nan,
+                "delta_q95": np.nan,
+                "k_recovery": np.nan,
+                "k_rec_lo95": np.nan,
+                "k_rec_hi95": np.nan,
+                "k_rec_num": np.nan,
+                "k_rec_den": np.nan,
+                "kbias_mean": np.nan,
+                "kbias_median": np.nan,
+                "p_under": np.nan,
+                "p_over": np.nan,
+            }
+        ]
+    )
 
     overall = pd.concat([baseline_row, overall], ignore_index=True)
 
@@ -192,7 +204,9 @@ def _summarize_single_group(
     if "ari_mean" in overall.columns:
         base_mask = overall["metric"].eq("baseline_oracle")
         overall_base = overall.loc[base_mask]
-        overall_methods = overall.loc[~base_mask].sort_values("ari_mean", ascending=False)
+        overall_methods = overall.loc[~base_mask].sort_values(
+            "ari_mean", ascending=False
+        )
         overall = pd.concat([overall_base, overall_methods], ignore_index=True)
 
     # ----- by true_k (SI-friendly) -----
@@ -205,37 +219,41 @@ def _summarize_single_group(
             n = int(len(sub))
 
             ari_stats = _summary_stats(sub["metric_ari"])
-            delta = (
-                pd.to_numeric(sub["baseline_ari"], errors="coerce")
-                - pd.to_numeric(sub["metric_ari"], errors="coerce")
+            delta = pd.to_numeric(sub["baseline_ari"], errors="coerce") - pd.to_numeric(
+                sub["metric_ari"], errors="coerce"
             )
             delta_stats = _summary_stats(delta)
 
             k_success = int(
-                pd.to_numeric(sub["is_correct"], errors="coerce").fillna(0).astype(int).sum()
+                pd.to_numeric(sub["is_correct"], errors="coerce")
+                .fillna(0)
+                .astype(int)
+                .sum()
             )
             k_lo, k_hi = _wilson_ci(k_success, n)
 
-            out_rows.append({
-                "metric": m,
-                by: gval,
-                "B_datasets": n,
-                "ari_mean": ari_stats["mean"],
-                "ari_median": ari_stats["median"],
-                "ari_q25": ari_stats["q25"],
-                "ari_q75": ari_stats["q75"],
-                "ari_q05": ari_stats["q05"],
-                "ari_q95": ari_stats["q95"],
-                "delta_mean": delta_stats["mean"],
-                "delta_median": delta_stats["median"],
-                "delta_q25": delta_stats["q25"],
-                "delta_q75": delta_stats["q75"],
-                "k_recovery": (k_success / n) if n else np.nan,
-                "k_rec_lo95": k_lo,
-                "k_rec_hi95": k_hi,
-                "k_rec_num": float(k_success),
-                "k_rec_den": float(n),
-            })
+            out_rows.append(
+                {
+                    "metric": m,
+                    by: gval,
+                    "B_datasets": n,
+                    "ari_mean": ari_stats["mean"],
+                    "ari_median": ari_stats["median"],
+                    "ari_q25": ari_stats["q25"],
+                    "ari_q75": ari_stats["q75"],
+                    "ari_q05": ari_stats["q05"],
+                    "ari_q95": ari_stats["q95"],
+                    "delta_mean": delta_stats["mean"],
+                    "delta_median": delta_stats["median"],
+                    "delta_q25": delta_stats["q25"],
+                    "delta_q75": delta_stats["q75"],
+                    "k_recovery": (k_success / n) if n else np.nan,
+                    "k_rec_lo95": k_lo,
+                    "k_rec_hi95": k_hi,
+                    "k_rec_num": float(k_success),
+                    "k_rec_den": float(n),
+                }
+            )
 
         return pd.DataFrame(out_rows).sort_values(["metric", by])
 
@@ -312,6 +330,7 @@ def _summarize_single_group(
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def _resolve_difficulty_col(df: pd.DataFrame) -> str:
     """Return the name of the difficulty-level column, handling both schemas."""
     if "difficulty_level" in df.columns:
@@ -364,8 +383,13 @@ def summarize_benchmark_regime(
         Compatible with ``render_tex_table(out["easy"])`` etc.
     """
     needed = {
-        "metric_name", "is_optimal", "metric_ari",
-        "baseline_ari", "is_correct", "k", "true_k",
+        "metric_name",
+        "is_optimal",
+        "metric_ari",
+        "baseline_ari",
+        "is_correct",
+        "k",
+        "true_k",
     }
     missing = sorted(c for c in needed if c not in results_df.columns)
     if missing:
@@ -457,10 +481,12 @@ def render_tex_table(out: dict) -> str:
     # --- TeX escaping ---
     df_tex = formatted.copy()
     df_tex["metric"] = df_tex["metric"].astype(str).str.replace("_", r"\_", regex=False)
-    df_tex = df_tex.rename(columns={
-        "\u0394 mean (sd)": r"$\Delta$ mean (sd)",
-        "B_datasets": r"$B_{\mathrm{datasets}}$",
-    })
+    df_tex = df_tex.rename(
+        columns={
+            "\u0394 mean (sd)": r"$\Delta$ mean (sd)",
+            "B_datasets": r"$B_{\mathrm{datasets}}$",
+        }
+    )
 
     def escape_header(s: str) -> str:
         if ("$" in s) or ("\\" in s):
@@ -485,6 +511,7 @@ def render_tex_table(out: dict) -> str:
 # ---------------------------------------------------------------------------
 # New: per-(k*, difficulty) regime summary tables
 # ---------------------------------------------------------------------------
+
 
 def _display_name(metric: str) -> str:
     """Map internal metric name to a human-readable row label."""
@@ -564,14 +591,32 @@ def summarize_regime_tables(
     krec_rows: list[dict] = []
 
     # Baseline oracle row
-    bl_ari_row: dict[str, object] = {"_metric_raw": "baseline_oracle", "Metric": _display_name("baseline_oracle")}
-    bl_krec_row: dict[str, object] = {"_metric_raw": "baseline_oracle", "Metric": _display_name("baseline_oracle")}
-    id_cols = [c for c in ["difficulty_level", "true_k", "dataset_iteration", "dataset_id"] if c in df.columns]
+    bl_ari_row: dict[str, object] = {
+        "_metric_raw": "baseline_oracle",
+        "Metric": _display_name("baseline_oracle"),
+    }
+    bl_krec_row: dict[str, object] = {
+        "_metric_raw": "baseline_oracle",
+        "Metric": _display_name("baseline_oracle"),
+    }
+    id_cols = [
+        c
+        for c in ["difficulty_level", "true_k", "dataset_iteration", "dataset_id"]
+        if c in df.columns
+    ]
     id_cols_diff = [diff_col if c == "difficulty_level" else c for c in id_cols]
-    base = df.drop_duplicates(subset=[diff_col, "true_k", "dataset_iteration"] if "dataset_iteration" in df.columns else [diff_col, "true_k"])
+    base = df.drop_duplicates(
+        subset=[diff_col, "true_k", "dataset_iteration"]
+        if "dataset_iteration" in df.columns
+        else [diff_col, "true_k"]
+    )
     for k, lbl, lvl_int in col_tuples:
-        cell = base.loc[(base["true_k"] == k) & (base[diff_col] == lvl_int), "baseline_ari"]
-        bl_ari_row[(k, lbl)] = round(float(cell.mean()), decimals) if len(cell) else np.nan
+        cell = base.loc[
+            (base["true_k"] == k) & (base[diff_col] == lvl_int), "baseline_ari"
+        ]
+        bl_ari_row[(k, lbl)] = (
+            round(float(cell.mean()), decimals) if len(cell) else np.nan
+        )
         bl_krec_row[(k, lbl)] = np.nan  # baseline has no k-selection
     ari_rows.append(bl_ari_row)
     krec_rows.append(bl_krec_row)
@@ -583,8 +628,16 @@ def summarize_regime_tables(
         k_row: dict[str, object] = {"_metric_raw": m, "Metric": _display_name(m)}
         for k, lbl, lvl_int in col_tuples:
             cell = sub.loc[(sub["true_k"] == k) & (sub[diff_col] == lvl_int)]
-            a_row[(k, lbl)] = round(float(cell["metric_ari"].mean()), decimals) if len(cell) else np.nan
-            k_row[(k, lbl)] = round(float(cell["is_correct"].astype(float).mean()), decimals) if len(cell) else np.nan
+            a_row[(k, lbl)] = (
+                round(float(cell["metric_ari"].mean()), decimals)
+                if len(cell)
+                else np.nan
+            )
+            k_row[(k, lbl)] = (
+                round(float(cell["is_correct"].astype(float).mean()), decimals)
+                if len(cell)
+                else np.nan
+            )
         ari_rows.append(a_row)
         krec_rows.append(k_row)
 
@@ -597,7 +650,14 @@ def summarize_regime_tables(
         selected = [m for m in SELECTED_CARVE if m in present]
         classical = [m for m in CLASSICAL if m in present]
         exclude = [m for m in EXCLUDE if m in present]
-        others = [m for m in present if m not in {"baseline_oracle"} and m not in selected and m not in classical and m not in exclude]
+        others = [
+            m
+            for m in present
+            if m not in {"baseline_oracle"}
+            and m not in selected
+            and m not in classical
+            and m not in exclude
+        ]
 
         # Sort each group by overall mean (descending) using the ARI table values
         selected = _order_metrics_in_group(selected, ari_flat)
@@ -610,7 +670,9 @@ def summarize_regime_tables(
 
         ordered_rows = []
         # Baseline
-        ordered_rows.append(flat_df.loc[flat_df["_metric_raw"] == "baseline_oracle"].iloc[0])
+        ordered_rows.append(
+            flat_df.loc[flat_df["_metric_raw"] == "baseline_oracle"].iloc[0]
+        )
         # Separator
         ordered_rows.append(pd.Series(sep))
         # Selected CARVE
@@ -651,8 +713,12 @@ def summarize_regime_tables(
 
     # ---- LaTeX rendering ------------------------------------------------
     # Pass value_cols explicitly so the renderer doesn't rely on column name matching
-    ari_tex = _render_grouped_tex(ari_df, value_cols=value_cols, decimals=decimals, caption="Mean ARI")
-    krec_tex = _render_grouped_tex(krec_df, value_cols=value_cols, decimals=decimals, caption="$k$-Recovery Rate")
+    ari_tex = _render_grouped_tex(
+        ari_df, value_cols=value_cols, decimals=decimals, caption="Mean ARI"
+    )
+    krec_tex = _render_grouped_tex(
+        krec_df, value_cols=value_cols, decimals=decimals, caption="$k$-Recovery Rate"
+    )
 
     # Drop internal helper column from the returned DataFrames
     # Use .pop() to avoid MultiIndex drop issues
@@ -724,7 +790,11 @@ def _render_grouped_tex(
     # Format remaining numeric cells
     for col in val_data.columns:
         val_data[col] = val_data[col].apply(
-            lambda v: f"{v:.{decimals}f}" if isinstance(v, (int, float)) and np.isfinite(v) else (v if isinstance(v, str) else "")
+            lambda v: (
+                f"{v:.{decimals}f}"
+                if isinstance(v, (int, float)) and np.isfinite(v)
+                else (v if isinstance(v, str) else "")
+            )
         )
 
     # ---- Build the LaTeX string manually --------------------------------

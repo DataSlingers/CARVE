@@ -18,6 +18,7 @@ from carve._pipeline import (
 # build_preprocessing_pipeline
 # -----------------------------------------------------------------------
 
+
 class TestBuildPreprocessingPipeline:
     def test_identity_when_not_randomized(self):
         pipeline, norm_p, dr_p, norm_name, dr_name = build_preprocessing_pipeline(
@@ -69,10 +70,16 @@ class TestBuildPreprocessingPipeline:
         dr_opts = [(FunctionTransformer, {})]
 
         _, _, _, name1, _ = build_preprocessing_pipeline(
-            True, norm_opts, dr_opts, seed=42,
+            True,
+            norm_opts,
+            dr_opts,
+            seed=42,
         )
         _, _, _, name2, _ = build_preprocessing_pipeline(
-            True, norm_opts, dr_opts, seed=42,
+            True,
+            norm_opts,
+            dr_opts,
+            seed=42,
         )
         assert name1 == name2
 
@@ -81,12 +88,15 @@ class TestBuildPreprocessingPipeline:
 # sample_preprocessing_pipeline
 # -----------------------------------------------------------------------
 
+
 class TestSamplePreprocessingPipeline:
     def test_basic(self):
         norm_opts = [(StandardScaler, {})]
         dr_opts = [(FunctionTransformer, {})]
         pipeline, norm_p, dr_p, norm_name, dr_name = sample_preprocessing_pipeline(
-            norm_opts, dr_opts, seed=0,
+            norm_opts,
+            dr_opts,
+            seed=0,
         )
         assert isinstance(pipeline, Pipeline)
         assert len(pipeline.steps) == 2
@@ -106,6 +116,7 @@ class TestSamplePreprocessingPipeline:
 # -----------------------------------------------------------------------
 # _choose_preprocessor
 # -----------------------------------------------------------------------
+
 
 class TestChoosePreprocessor:
     def test_tuple2(self):

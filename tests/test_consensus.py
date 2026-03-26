@@ -16,6 +16,7 @@ from carve._consensus import (
 # compute_consensus_matrix
 # -----------------------------------------------------------------------
 
+
 class TestComputeConsensusMatrix:
     def test_basic(self):
         runs = [
@@ -41,7 +42,9 @@ class TestComputeConsensusMatrix:
             (np.array([0, 1, 2]), np.array([0, 0, 1])),
         ]
         M, co_cluster, co_sample = compute_consensus_matrix(
-            3, runs, return_counts=True,
+            3,
+            runs,
+            return_counts=True,
         )
         assert co_sample[0, 1] == 2
         assert co_cluster[0, 1] == 2
@@ -64,7 +67,7 @@ class TestComputeConsensusMatrix:
         assert np.isnan(M[1, 3])
 
     def test_perfect_consensus(self):
-        runs = [(np.arange(10), np.array([0]*5 + [1]*5))] * 5
+        runs = [(np.arange(10), np.array([0] * 5 + [1] * 5))] * 5
         M = compute_consensus_matrix(10, runs)
         for i in range(5):
             for j in range(5):
@@ -99,6 +102,7 @@ class TestComputeConsensusMatrix:
 # reorder_consensus_matrix
 # -----------------------------------------------------------------------
 
+
 class TestReorderConsensusMatrix:
     def test_basic(self):
         M = np.zeros((6, 6))
@@ -127,6 +131,7 @@ class TestReorderConsensusMatrix:
 # -----------------------------------------------------------------------
 # stability_from_consensus
 # -----------------------------------------------------------------------
+
 
 class TestStabilityFromConsensus:
     def test_perfect_consensus(self):
@@ -158,11 +163,13 @@ class TestStabilityFromConsensus:
         assert np.all(ce >= 0.0) and np.all(ce <= 1.0)
 
     def test_nan_entries(self):
-        M = np.array([
-            [1.0, 0.8, np.nan],
-            [0.8, 1.0, 0.2],
-            [np.nan, 0.2, 1.0],
-        ])
+        M = np.array(
+            [
+                [1.0, 0.8, np.nan],
+                [0.8, 1.0, 0.2],
+                [np.nan, 0.2, 1.0],
+            ]
+        )
         gini, ce = stability_from_consensus(M)
         assert gini.shape == (3,)
         assert not np.any(np.isnan(gini))
@@ -171,6 +178,7 @@ class TestStabilityFromConsensus:
 # -----------------------------------------------------------------------
 # compute_consensus_pac
 # -----------------------------------------------------------------------
+
 
 class TestComputeConsensusPac:
     def test_perfect_matrix(self):
@@ -187,11 +195,13 @@ class TestComputeConsensusPac:
         assert score == pytest.approx(0.0)
 
     def test_custom_tau(self):
-        M = np.array([
-            [1.0, 0.03, 0.97],
-            [0.03, 1.0, 0.03],
-            [0.97, 0.03, 1.0],
-        ])
+        M = np.array(
+            [
+                [1.0, 0.03, 0.97],
+                [0.03, 1.0, 0.03],
+                [0.97, 0.03, 1.0],
+            ]
+        )
         score = compute_consensus_pac(M, tau=0.05)
         assert score == 1.0
 
@@ -213,6 +223,7 @@ class TestComputeConsensusPac:
 # -----------------------------------------------------------------------
 # compute_consensus_metrics
 # -----------------------------------------------------------------------
+
 
 class TestComputeConsensusMetrics:
     def test_basic(self):
