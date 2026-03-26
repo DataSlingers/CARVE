@@ -9,7 +9,7 @@
 Choosing the number of clusters is a recurring challenge in unsupervides machine learning more generally, as well as in biological data analysis. Yet, widely used internal clustering validation indices (CVIs) can be brittle in high-dimensional, noisy, or nonlinear settings. CARVE quantifies clustering robustness via two resampling-based concepts: **stability** (reproducibility of cluster assignments under data perturbation) and **generalizability** (agreement between held-out clusterings and predictions from an classifier trained on the clustering). It produces global, cluster-level, and sample-level diagnostics alongside easy-to-use visualizations — all through a scikit-learn-compatible API.
 
 <p align="center">
-  <img src="vis/carve_overview.png" width="700" alt="CARVE overview">
+  <img src="carve_overview.png" width="700" alt="CARVE overview">
 </p>
 
 ## Key Features
