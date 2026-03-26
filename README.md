@@ -6,7 +6,7 @@
 
 **Clustering Analysis with Resampling for Validation and Exploration**
 
-Choosing the number of clusters is a recurring challenge in biological data analysis, yet widely used internal criteria can be brittle in high-dimensional, noisy, or nonlinearly embedded settings. CARVE quantifies clustering robustness via two resampling-based concepts: **stability** (reproducibility of cluster assignments under data perturbation) and **generalizability** (agreement between held-out clusterings and predictions from an in-sample model). It produces global, cluster-level, and sample-level diagnostics alongside publication-quality visualizations — all through a scikit-learn-compatible API.
+Choosing the number of clusters is a recurring challenge in unsupervides machine learning more generally, as well as in biological data analysis. Yet, widely used internal clustering validation indices (CVIs) can be brittle in high-dimensional, noisy, or nonlinear settings. CARVE quantifies clustering robustness via two resampling-based concepts: **stability** (reproducibility of cluster assignments under data perturbation) and **generalizability** (agreement between held-out clusterings and predictions from an classifier trained on the clustering). It produces global, cluster-level, and sample-level diagnostics alongside easy-to-use visualizations — all through a scikit-learn-compatible API.
 
 <p align="center">
   <img src="vis/carve_overview.png" width="700" alt="CARVE overview">
@@ -15,13 +15,13 @@ Choosing the number of clusters is a recurring challenge in biological data anal
 ## Key Features
 
 - **Scikit-learn-compatible API** — `CARVE` extends `BaseEstimator`; standard `fit` / `get_labels` / `get_k` workflow
-- **Dual validation** — stability (intra-subsample ARI + consensus metrics) and generalizability (held-out prediction accuracy)
-- **Multi-level diagnostics** — global, per-cluster, and per-sample scores for fine-grained interpretation
-- **Multiple metrics** — ARI, PAC, Gini impurity, cross-entropy, and accuracy
+- **Dual validation** — stability (intra-subsample ARI) and generalizability (held-out prediction accuracy)
+- **Multi-level diagnostics** — global, per-cluster, and per-sample scores for fine-grained analyses
+- **Multiple metrics** — ARIs, Consensus PAC, Gini, and cross-entropy, and predictive accuracy
 - **Selection rules** — `max`, `1se` (one-standard-error), and `quantile` for principled choice of *k*
-- **Built-in clustering algorithms** — KMeans, Agglomerative (Ward / average / single / complete), and a custom spectral clustering with self-tuning affinity
+- **Built-in clustering algorithms** — CARVE uses a custom spectral clustering with self-tuning affinity (based on <TODO – citation>)
 - **Flexible preprocessing** — normalization (identity, StandardScaler, log1p) and dimensionality reduction (identity, PCA, t-SNE, UMAP), with optional randomized preprocessing per resample
-- **Publication-quality visualization** — metric-over-*k* curves, consensus heatmaps, box plots, violin plots, and 2D scatter plots with score-encoded opacity
+- **High-quality visualization** — metric-over-*k* curves, consensus heatmaps, box plots, violin plots, and scatter plots
 - **Parallelized** — joblib-backed parallel resampling via `n_jobs`
 
 ## Installation
