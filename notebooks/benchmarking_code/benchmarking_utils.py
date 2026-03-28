@@ -9,45 +9,16 @@ import igraph as ig
 
 import leidenalg
 
+from carve.cluster import SpectralClusteringCARVE
+
 from sklearn.base import BaseEstimator, ClusterMixin
-from sklearn.cluster import AgglomerativeClustering, KMeans, SpectralClustering
-from sklearn.metrics import confusion_matrix, pairwise_distances
+from sklearn.cluster import AgglomerativeClustering, KMeans
+from sklearn.metrics import confusion_matrix
 from sklearn.neighbors import NearestNeighbors
-from sklearn.utils import check_random_state
 
 from scipy.optimize import linear_sum_assignment
 from scipy.cluster.hierarchy import linkage, fcluster
 from scipy.spatial.distance import pdist
-
-
-def gamma_quantile_approx(
-    X: np.ndarray,
-    q: float = 0.50,
-    max_points: int = 500,
-    random_state: int = 0,
-) -> float:
-    """
-    Approximates the gamma hyperparameter for spectral clustering using a quantile of pairwise squared distances.
-
-    Args:
-        - X (np.ndarray): Data matrix with samples as rows and features as columns.
-        - q (float): Quantile of pairwise squared distances to use (default: 0.50).
-        - max_points (int): Maximum number of points sampled to estimate distances (default: 500).
-        - random_state (int): Seed for reproducible sampling (default: 0).
-
-    Returns:
-        float: Gamma approximation based on the selected distance quantile.
-    """
-    rng = check_random_state(random_state)
-    n = X.shape[0]
-    Xs = X[rng.choice(n, size=max_points, replace=False)] if n > max_points else X
-
-    D2 = pairwise_distances(Xs, metric="sqeuclidean")
-    d2 = D2[np.triu_indices_from(D2, k=1)]
-    d2 = d2[np.isfinite(d2)]
-    if d2.size == 0:
-        return 1.0
-    return float(1.0 / (2.0 * np.quantile(d2, q)))
 
 
 def align_labels(true_labels: np.ndarray, pred_labels: np.ndarray) -> np.ndarray:
@@ -199,9 +170,6 @@ def get_measure(carve_metric: str) -> str:
 def make_estimator_grids(
     estimator: str,
     candidate_clusters: Iterable[int],
-    spectral_quant: float = 0.5,
-    X: np.ndarray | None = None,
-    random_state: int = 0,
 ) -> list[tuple[Type[ClusterMixin], dict[str, list[Any]]]]:
     """
     Creates parameter grids for supported clustering estimators.
@@ -224,11 +192,10 @@ def make_estimator_grids(
             )
         ]
     if estimator == "spectral":
-        gamma = gamma_quantile_approx(X, q=spectral_quant, random_state=random_state)
         return [
             (
-                SpectralClustering,
-                {"n_clusters": list(candidate_clusters), "gamma": [gamma]},
+                SpectralClusteringCARVE,
+                {"n_clusters": list(candidate_clusters), "affinity": ["self_tuning"]},
             )
         ]
     return [(KMeans, {"n_clusters": list(candidate_clusters), "n_init": [10]})]

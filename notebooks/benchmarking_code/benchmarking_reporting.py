@@ -38,7 +38,7 @@ METRIC_DISPLAY_NAMES = {
     "consensus_gini_stability": "Gini (stab)",
     "consensus_ce_stability": "CE (stab)",
     # Misclassification
-    "misclassification_generalizability": "Misclass. (gen)",
+    "accuracy_generalizability": "Accuracy (gen)",
     # Classical
     "silhouette": "Silhouette",
     "gap": "Gap",

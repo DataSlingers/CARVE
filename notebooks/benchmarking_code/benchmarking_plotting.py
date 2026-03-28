@@ -10,13 +10,14 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 
-from sklearn.cluster import AgglomerativeClustering, KMeans, SpectralClustering
+from sklearn.cluster import AgglomerativeClustering, KMeans
+from carve.cluster import SpectralClusteringCARVE
 from sklearn.decomposition import PCA
 from sklearn.metrics import adjusted_rand_score
 
 from carve.sim import simulate_clusters
 
-from benchmarking_utils import gamma_quantile_approx, _wilson_ci
+from benchmarking_utils import _wilson_ci
 import warnings
 
 
@@ -179,7 +180,6 @@ def _pretty_metric_name(metric: str) -> str:
         "gap": "Gap Statistic",
         "davies_bouldin": "Davies–Bouldin",
         "calinski_harabasz": "Calinski–Harabasz",
-        "misclassification_generalizability": "Misclassification (Global)",
     }
     return pretty.get(metric, metric)
 
@@ -193,7 +193,6 @@ def _plotting_iter(
     true_k: int,
     true_cluster_counts: np.ndarray,
     estimator_type: str,
-    spectral_quant: float,
     sampler: Literal["default", "scaling"],
     seed: int,
     random_state: int,
@@ -247,9 +246,8 @@ def _plotting_iter(
     if estimator_type == "agglomerative":
         estimator = AgglomerativeClustering(n_clusters=true_k)
     elif estimator_type == "spectral":
-        gamma = gamma_quantile_approx(X, q=spectral_quant, random_state=benchmark_seed)
-        estimator = SpectralClustering(
-            n_clusters=true_k, affinity="rbf", gamma=gamma, random_state=benchmark_seed
+        estimator = SpectralClusteringCARVE(
+            n_clusters=true_k, affinity="self_tuning", random_state=benchmark_seed                                             
         )
     else:
         estimator = KMeans(n_clusters=true_k, n_init=10, random_state=benchmark_seed)
@@ -269,7 +267,6 @@ def plot_examples(
     levels: List[Any] = ["easy", "medium", "hard"],
     n_seeds_per_dataset: int = 20,
     estimator_type: str = "kmeans",
-    spectral_quant: float = 0.5,
     example_title: str = "Gaussian Mixtures",
     sampler: Literal["default", "scaling"] = "default",
     n_jobs: int = 1,
@@ -286,7 +283,6 @@ def plot_examples(
         - difficulty_levels (List[str]): List of difficulty levels.
         - n_seeds_per_dataset (int): Number of replicates for baseline ARI estimation.
         - estimator_type (str): Clustering algorithm type ('kmeans', 'agglomerative' or 'spectral').
-        - spectral_quant (float): Quantile used for spectral gamma estimation (default: 0.5).
         - example_title (str): Title for the figure.
         - random_state (int): Seed for reproducibility.
 
@@ -321,7 +317,6 @@ def plot_examples(
                     true_k=true_k,
                     true_cluster_counts=true_cluster_counts,
                     estimator_type=estimator_type,
-                    spectral_quant=spectral_quant,
                     sampler=sampler,
                     seed=seed,
                     random_state=random_state,

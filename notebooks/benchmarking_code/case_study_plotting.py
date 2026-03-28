@@ -12,7 +12,9 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 
-from sklearn.cluster import AgglomerativeClustering, KMeans, SpectralClustering
+from carve.cluster import SpectralClusteringCARVE
+
+from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.metrics import adjusted_rand_score
@@ -22,7 +24,6 @@ import glasbey
 from umap import UMAP
 
 from benchmarking_utils import (
-    gamma_quantile_approx,
     LeidenClustering,
     align_labels,
     _build_estimator,
@@ -138,7 +139,7 @@ def _pretty_metric_name(metric: str) -> str:
         "gap": "Gap Statistic",
         "davies_bouldin": "Davies–Bouldin",
         "calinski_harabasz": "Calinski–Harabasz",
-        "misclassification_generalizability": "Misclassification (Global)",
+        "accuracy_generalizability": "Accuracy (Global)",
     }
     return pretty.get(metric, metric)
 
@@ -336,7 +337,6 @@ def calculate_baseline_aris_and_plot(
     *,
     y: np.ndarray,
     label_col: str = "label",
-    spectral_quant: float = 0.5,
     s: int = 50,
     alpha: float = 0.8,
     linewidth: float = 0.1,
@@ -379,9 +379,8 @@ def calculate_baseline_aris_and_plot(
     ari_leiden = adjusted_rand_score(y_arr, leiden_labels)
 
     # Spectral Clustering (median heuristic for gamma)
-    gamma = gamma_quantile_approx(X_arr, q=spectral_quant, random_state=random_state)
-    spectral = SpectralClustering(
-        n_clusters=n_clusters, affinity="rbf", gamma=gamma, random_state=random_state
+    spectral = SpectralClusteringCARVE(                                                                                        
+        n_clusters=n_clusters, affinity="self_tuning", random_state=random_state
     )
     spectral_labels = spectral.fit_predict(X_arr)
     ari_spectral = adjusted_rand_score(y_arr, spectral_labels)

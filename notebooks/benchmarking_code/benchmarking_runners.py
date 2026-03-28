@@ -35,7 +35,6 @@ def benchmark_cluster_metrics(
     difficulty_levels: int = 10,
     n_seeds_per_dataset: int = 20,
     estimator: str = "kmeans",
-    spectral_quant: float = 0.5,
     estimator_grids: Optional[list[tuple[type, dict[str, list[Any]]]]] = None,
     true_cluster_counts: Sequence[int] = (3, 4),
     candidate_clusters: Sequence[int] = range(2, 8),
@@ -59,7 +58,6 @@ def benchmark_cluster_metrics(
         - difficulty_levels (int): Number of difficulty levels/datasets.
         - n_seeds_per_dataset (int): Number of seeds per dataset family.
         - estimator (str): Clustering estimator key ('kmeans', 'agglomerative', 'spectral').
-        - spectral_quant (float): Quantile used for spectral gamma estimation (default: 0.5).
         - estimator_grids (Optional[list[tuple[type, dict]]]): Optional pre-built estimator grids.
         - true_cluster_counts (Sequence[int]): True cluster counts to simulate.
         - candidate_clusters (Sequence[int]): Candidate k values to evaluate.
@@ -92,7 +90,7 @@ def benchmark_cluster_metrics(
         "consensus_pac_stability",
         "consensus_gini_stability",
         "consensus_ce_stability",
-        "misclassification_generalizability",
+        "accuracy_generalizability",
     ]
 
     total_steps = difficulty_levels * n_seeds_per_dataset * len(true_cluster_counts)
@@ -129,10 +127,7 @@ def benchmark_cluster_metrics(
                 # --- 2) Get baseline ARI ---
                 estimator_grids = make_estimator_grids(
                     estimator=estimator,
-                    candidate_clusters=candidate_clusters,
-                    spectral_quant=spectral_quant,
-                    X=X,
-                    random_state=benchmark_seed,
+                    candidate_clusters=candidate_clusters
                 )
                 estimator_cls, estimator_param_grid = estimator_grids[0]
 
@@ -311,7 +306,6 @@ def benchmark_scaling(
     granularity: int = 10,
     n_seeds_per_value: int = 20,
     estimator: str = "kmeans",
-    spectral_quant: float = 0.5,
     true_cluster_counts: Sequence[int] = (3, 4),
     candidate_clusters: Sequence[int] = range(2, 8),
     external_metrics: Sequence[str] = (
@@ -332,7 +326,6 @@ def benchmark_scaling(
         - axis_name (str): Scaling axis name ('n_total', 'p', or 'embed_dim').
         - n_seeds_per_value (int): Number of seeds per x_value and true_k.
         - estimator (str): Clustering estimator key for CARVE grids.
-        - spectral_quant (float): Quantile used for spectral gamma estimation (default: 0.5).
         - true_cluster_counts (Sequence[int]): True cluster counts to simulate.
         - candidate_clusters (Sequence[int]): Candidate k values to evaluate.
         - external_metrics (Sequence[str]): External metrics to evaluate.
@@ -355,7 +348,7 @@ def benchmark_scaling(
         "ari_generalizability",
         "ari_generalizability_1se",
         "ari_generalizability_quant",
-        "misclassification_generalizability",
+        "accuracy_generalizability",
     ]
 
     if axis_name == "n_total":
@@ -408,10 +401,7 @@ def benchmark_scaling(
                 # --- 2) Get baseline ARI ---
                 estimator_grids = make_estimator_grids(
                     estimator=estimator,
-                    candidate_clusters=candidate_clusters,
-                    spectral_quant=spectral_quant,
-                    X=X,
-                    random_state=benchmark_seed,
+                    candidate_clusters=candidate_clusters
                 )
                 estimator_cls, estimator_param_grid = estimator_grids[0]
 
