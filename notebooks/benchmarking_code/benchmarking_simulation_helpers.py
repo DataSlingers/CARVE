@@ -1,101 +1,119 @@
-from typing import Any, Dict, List, Tuple
+"""Simulation helpers for benchmarking experiments.
+
+Provides functions that interpolate between calibrated anchor settings
+and call ``simulate_clusters`` to generate synthetic data.
+"""
+
+from typing import Any, Dict, Tuple
 
 import numpy as np
-from torch import seed
 
 from carve.sim import simulate_clusters
 
 
+# ── Generic 3-anchor interpolation ────────────────────────────────────────────
+
+
+def _interpolate_settings(
+    anchors: Dict[str, Dict[str, Any]],
+    anchor_order: Tuple[str, str, str],
+    stage: int,
+    total_stages: int,
+) -> dict:
+    """Piecewise-linear interpolation between three anchor settings dicts.
+
+    Given three ordered anchors (e.g. easy/medium/hard or start/middle/end),
+    returns the interpolated settings dict for a given *stage* index.
+
+    * ``stage == 0``                  → first anchor (verbatim)
+    * ``stage == total_stages // 2``  → second anchor (verbatim)
+    * ``stage == total_stages - 1``   → third anchor (verbatim)
+    * intermediate stages             → linear blend of the surrounding anchors
+
+    Args:
+        anchors: Mapping from anchor name to parameter dict.
+        anchor_order: 3-tuple of anchor names in order (first, middle, last).
+        stage: Current stage index (0-based).
+        total_stages: Total number of stages.
+
+    Returns:
+        Parameter dict for the given stage.
+    """
+    if total_stages < 3:
+        raise ValueError(f"total_stages must be >= 3, got {total_stages}")
+    if not (0 <= stage < total_stages):
+        raise ValueError(
+            f"stage must be in [0, {total_stages - 1}], got {stage}"
+        )
+
+    mid = total_stages // 2
+    a_name, b_name, c_name = anchor_order
+
+    # Exact anchor positions
+    if stage == 0:
+        return dict(anchors[a_name])
+    if stage == mid:
+        return dict(anchors[b_name])
+    if stage == total_stages - 1:
+        return dict(anchors[c_name])
+
+    # Interpolation between two surrounding anchors
+    if stage < mid:
+        frac = stage / mid
+        lo, hi = anchors[a_name], anchors[b_name]
+    else:
+        frac = (stage - mid) / (total_stages - 1 - mid)
+        lo, hi = anchors[b_name], anchors[c_name]
+
+    interpolated = {}
+    for key in lo:
+        v_lo = np.array(lo[key])
+        v_hi = np.array(hi[key])
+        interpolated[key] = ((1 - frac) * v_lo + frac * v_hi).tolist()
+    return interpolated
+
+
+# ── Public simulation wrappers ────────────────────────────────────────────────
+
+
 def parse_difficulty_and_simulate(
-    settings_by_k: Dict[int, Dict[str, List[float]]],
+    settings_by_k: Dict[str, Dict[str, Any]],
     other_settings: Dict,
     difficulty_levels: int,
     difficulty_level: int,
     true_cluster_count: int,
     seed: int,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Simulates clustered datasets based on difficulty level by interpolating settings.
+    """Simulate clustered data at a given difficulty level.
+
+    Interpolates between the ``easy`` / ``medium`` / ``hard`` anchors in
+    *settings_by_k* and calls :func:`simulate_clusters`.
 
     Args:
-        - settings_by_k (Dict[int, Dict[str, List[float]]]): Dictionary mapping difficulty levels to simulation settings.
-        - other_settings (Dict): Additional simulation settings.
-        - difficulty_levels (int): Total number of difficulty levels/datasets.
-        - difficulty_level (int): Difficulty level (0=easy, middle=medium, last=difficult).
-        - true_cluster_count (int): True number of clusters to simulate.
-        - seed (int): Random seed for reproducibility.
+        settings_by_k: Mapping from difficulty anchor name to parameter dict.
+        other_settings: Additional keyword arguments forwarded to ``simulate_clusters``.
+        difficulty_levels: Total number of difficulty levels.
+        difficulty_level: Current difficulty index (0 = easy, last = hard).
+        true_cluster_count: Number of clusters to simulate.
+        seed: Random seed.
 
     Returns:
-        Tuple[np.ndarray, np.ndarray]: Simulated data matrix X and cluster labels y.
+        Tuple of (X, y) — data matrix and ground-truth labels.
     """
-    if (
-        difficulty_level == 0
-        or difficulty_level == difficulty_levels - 1
-        or difficulty_level == int(round(difficulty_levels // 2))
-    ):
-        if difficulty_level == 0:
-            level = "easy"
-        elif difficulty_level == difficulty_levels - 1:
-            level = "hard"
-        elif difficulty_level == int(round(difficulty_levels // 2)):
-            level = "medium"
+    settings = _interpolate_settings(
+        settings_by_k,
+        ("easy", "medium", "hard"),
+        difficulty_level,
+        difficulty_levels,
+    )
 
-        X, y = simulate_clusters(
-            k=true_cluster_count,
-            plotting=False,
-            random_state=seed,
-            **settings_by_k[level],
-            **other_settings,
-        )
-
-    else:
-        if difficulty_level > 0 and difficulty_level < int(
-            round(difficulty_levels // 2)
-        ):
-            # Linear interpolation between 'easy' and 'medium' settings
-            frac = difficulty_level / int(round(difficulty_levels // 2))
-            easy_settings = settings_by_k["easy"]
-            medium_settings = settings_by_k["medium"]
-
-            interpolated_settings = {}
-            for key in easy_settings:
-                v_easy = np.array(easy_settings[key])
-                v_medium = np.array(medium_settings[key])
-                interpolated = (1 - frac) * v_easy + frac * v_medium
-                interpolated_settings[key] = interpolated.tolist()
-
-        elif difficulty_level > int(
-            round(difficulty_levels // 2)
-        ) and difficulty_level < (difficulty_levels - 1):
-            # Linear interpolation between 'medium' and 'difficult' settings
-            frac = (difficulty_level - int(round(difficulty_levels // 2))) / (
-                difficulty_levels - 1 - int(round(difficulty_levels // 2))
-            )
-            medium_settings = settings_by_k["medium"]
-            difficult_settings = settings_by_k["hard"]
-
-            interpolated_settings = {}
-            for key in medium_settings:
-                v_medium = np.array(medium_settings[key])
-                v_difficult = np.array(difficult_settings[key])
-                interpolated = (1 - frac) * v_medium + frac * v_difficult
-                interpolated_settings[key] = interpolated.tolist()
-
-        else:
-            raise ValueError(
-                f"Got difficulty_level={difficulty_level} but expected 0, "
-                f"{difficulty_levels - 1}, {int(round(difficulty_levels // 2))}, "
-                "or a value in between those."
-            )
-
-        X, y = simulate_clusters(
-            k=true_cluster_count,
-            plotting=False,
-            random_state=seed,
-            **interpolated_settings,
-            **other_settings,
-        )
-
+    X, y = simulate_clusters(
+        k=true_cluster_count,
+        plotting=False,
+        random_state=seed,
+        **settings,
+        **other_settings,
+    )
     return X, y
 
 
@@ -110,25 +128,36 @@ def parse_range_and_simulate(
     axis_value: int,
     random_state: int = 0,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Simulates a dataset for scaling experiments by varying one axis (n_total, p, or embed_dim).
+    """Simulate data for a scaling benchmark at a given axis value.
+
+    Interpolates between the ``start`` / ``middle`` / ``end`` anchors in
+    *settings_by_k*, overrides the scaling axis with *axis_value*, and
+    calls :func:`simulate_clusters`.
 
     Args:
-        - settings_by_k (Dict): Simulation regime settings keyed by true_k.
-        - other_settings (Dict): Other simulation settings.
-        - total_stages (int): Total number of stages in the benchmark.
-        - stage (int): Current stage index (0-based).
-        - true_cluster_count (int): True number of clusters.
-        - axis_name (str): Scaling axis name ('n_total', 'p', or 'embed_dim').
-        - axis_value (int): Value to set for the chosen scaling axis.
-        - base_random_state (int): Base seed for reproducibility (default: 0).
+        settings_by_k: Mapping from stage anchor name to parameter dict.
+        other_settings: Additional keyword arguments forwarded to ``simulate_clusters``.
+        total_stages: Total number of stages in the benchmark.
+        stage: Current stage index (0-based).
+        true_cluster_count: Number of clusters to simulate.
+        axis_name: Scaling axis ('n_total', 'p', or 'embed_dim').
+        axis_value: Value for the scaling axis at this stage.
+        random_state: Random seed.
 
     Returns:
-        Tuple[np.ndarray, np.ndarray]: Simulated data matrix X and cluster labels y.
+        Tuple of (X, y) — data matrix and ground-truth labels.
     """
     if axis_name not in {"n_total", "p", "embed_dim"}:
         raise ValueError("axis_name must be 'n_total', 'p', or 'embed_dim'")
 
+    settings = _interpolate_settings(
+        settings_by_k,
+        ("start", "middle", "end"),
+        stage,
+        total_stages,
+    )
+
+    # Read defaults from other_settings, then override the scaling axis
     n_total = int(other_settings.get("n_total", 500))
     p = int(other_settings.get("p", 50))
     embed_dim = int(other_settings.get("embed_dim", 64))
@@ -139,75 +168,19 @@ def parse_range_and_simulate(
         p = int(axis_value)
     elif axis_name == "embed_dim":
         embed_dim = int(axis_value)
-    else:
-        raise ValueError("axis_name must be 'n_total', 'p', or 'embed_dim'")
 
-    if (
-        stage == 0
-        or stage == total_stages - 1
-        or stage == int(round(total_stages // 2))
-    ):
-        if stage == 0:
-            level = "start"
-        elif stage == total_stages - 1:
-            level = "end"
-        elif stage == int(round(total_stages // 2)):
-            level = "middle"
+    # Filter axis keys from other_settings to prevent duplicate keyword args
+    filtered_other = {
+        k: v for k, v in other_settings.items() if k not in ("n_total", "p", "embed_dim")
+    }
 
-        return simulate_clusters(
-            n_total=n_total,
-            p=p,
-            embed_dim=embed_dim,
-            k=int(true_cluster_count),
-            plotting=False,
-            random_state=random_state,
-            **settings_by_k[level],
-            **other_settings,
-        )
-
-    else:
-        if stage > 0 and stage < int(round(total_stages // 2)):
-            # Linear interpolation between 'start' and 'middle' settings
-            frac = stage / int(round(total_stages // 2))
-            start_settings = settings_by_k["start"]
-            middle_settings = settings_by_k["middle"]
-
-            interpolated_settings = {}
-            for key in start_settings:
-                v_start = np.array(start_settings[key])
-                v_middle = np.array(middle_settings[key])
-                interpolated = (1 - frac) * v_start + frac * v_middle
-                interpolated_settings[key] = interpolated.tolist()
-
-        elif stage > int(round(total_stages // 2)) and stage < (total_stages - 1):
-            # Linear interpolation between 'middle' and 'end' settings
-            frac = (stage - int(round(total_stages // 2))) / (
-                total_stages - 1 - int(round(total_stages // 2))
-            )
-            middle_settings = settings_by_k["middle"]
-            end_settings = settings_by_k["end"]
-
-            interpolated_settings = {}
-            for key in middle_settings:
-                v_middle = np.array(middle_settings[key])
-                v_end = np.array(end_settings[key])
-                interpolated = (1 - frac) * v_middle + frac * v_end
-                interpolated_settings[key] = interpolated.tolist()
-
-        else:
-            raise ValueError(
-                f"Got stage={stage} but expected 0, "
-                f"{total_stages - 1}, {int(round(total_stages // 2))}, "
-                "or a value in between those."
-            )
-
-        return simulate_clusters(
-            n_total=n_total,
-            p=p,
-            embed_dim=embed_dim,
-            k=int(true_cluster_count),
-            plotting=False,
-            random_state=random_state,
-            **interpolated_settings,
-            **other_settings,
-        )
+    return simulate_clusters(
+        n_total=n_total,
+        p=p,
+        embed_dim=embed_dim,
+        k=int(true_cluster_count),
+        plotting=False,
+        random_state=random_state,
+        **settings,
+        **filtered_other,
+    )

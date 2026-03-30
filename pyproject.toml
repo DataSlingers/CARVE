@@ -46,3 +46,8 @@ notebooks = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[dependency-groups]
+dev = [
+    "optuna>=4.8.0",
+]

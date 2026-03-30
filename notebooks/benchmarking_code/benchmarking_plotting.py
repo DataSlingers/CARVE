@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Dict, Iterable, List, Literal, Literal, Mapping, Sequence
+from typing import Any, Dict, Iterable, List, Literal, Mapping, Sequence
 
 from joblib import Parallel, delayed
 
@@ -17,8 +17,8 @@ from sklearn.metrics import adjusted_rand_score
 
 from carve.sim import simulate_clusters
 
+from benchmarking_config import SCALING_RANGES, METRIC_DISPLAY_NAMES
 from benchmarking_utils import _wilson_ci
-import warnings
 
 
 # --- Setup and basic handlers ---
@@ -171,17 +171,8 @@ def _scatter_clusters(
 
 
 def _pretty_metric_name(metric: str) -> str:
-    # tune freely
-    pretty = {
-        "ari_stability_1se": "CARVE Stability (1SE)",
-        "ari_stability_quant": "CARVE Stability (95% Quantile)",
-        "ari_generalizability_1se": "CARVE Generalizability (1SE)",
-        "silhouette": "Silhouette",
-        "gap": "Gap Statistic",
-        "davies_bouldin": "Davies–Bouldin",
-        "calinski_harabasz": "Calinski–Harabasz",
-    }
-    return pretty.get(metric, metric)
+    """Human-readable label for a metric (falls back to raw name)."""
+    return METRIC_DISPLAY_NAMES.get(metric, metric)
 
 
 def _plotting_iter(
@@ -293,15 +284,13 @@ def plot_examples(
 
     if level_label == "difficulty":
         levels = ["easy", "medium", "hard"]
-    elif level_label == "n_total":
-        levels = [int(x) for x in np.logspace(np.log10(50), np.log10(5000), num=3)]
-    elif level_label == "p":
-        levels = [int(x) for x in np.logspace(np.log10(5), np.log10(500), num=3)]
-    elif level_label == "embed_dim":
-        levels = [int(x) for x in np.logspace(np.log10(5), np.log10(500), num=3)]
+    elif level_label in SCALING_RANGES:
+        r = SCALING_RANGES[level_label]
+        levels = [int(x) for x in np.linspace(r["min"], r["max"], num=3)]
     else:
         raise ValueError(
-            "level_label must be 'difficulty', 'n_total', 'p', or 'embed_dim'."
+            f"level_label must be 'difficulty' or one of {sorted(SCALING_RANGES)}, "
+            f"got {level_label!r}"
         )
 
     for j, level in enumerate(levels):
@@ -378,7 +367,7 @@ def plot_benchmark_snapshot(
     baseline_ari: float,
     panel_metrics: Sequence[str] = (
         "ari_generalizability_1se",
-        "ari_stability_quant",
+        "ari_stability_1se",
         "silhouette",
         "davies_bouldin",
     ),
@@ -521,7 +510,7 @@ def plot_ari_over_difficulty(
     *,
     metrics=(
         "ari_generalizability_1se",
-        "ari_stability_quant",
+        "ari_stability_1se",
         "silhouette",
         "gap",
         "davies_bouldin",
@@ -690,7 +679,7 @@ def plot_ari_overview_grid(
     *,
     metrics=(
         "ari_generalizability_1se",
-        "ari_stability_quant",
+        "ari_stability_1se",
         "silhouette",
         "gap",
         "davies_bouldin",
@@ -1046,7 +1035,6 @@ def plot_paper_figure(
                 true_k=k_star,
                 true_cluster_counts=true_cluster_counts,
                 estimator_type=etype,
-                spectral_quant=sq,
                 sampler="default",
                 seed=seed,
                 random_state=random_state,
@@ -1203,7 +1191,7 @@ def plot_baseline_vs_metric_ari_grid(
     *,
     metrics=(
         "ari_generalizability_1se",
-        "ari_stability_quant",
+        "ari_stability_1se",
         "silhouette",
         "gap",
         "davies_bouldin",

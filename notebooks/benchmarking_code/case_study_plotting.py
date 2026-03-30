@@ -23,8 +23,8 @@ import glasbey
 
 from umap import UMAP
 
+from leiden_clustering import LeidenClustering
 from benchmarking_utils import (
-    LeidenClustering,
     align_labels,
     _build_estimator,
 )

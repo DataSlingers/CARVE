@@ -5,20 +5,13 @@ from typing import Type, Iterable, Any
 import numpy as np
 import pandas as pd
 
-import igraph as ig
-
-import leidenalg
-
 from carve.cluster import SpectralClusteringCARVE
 
-from sklearn.base import BaseEstimator, ClusterMixin
+from sklearn.base import ClusterMixin
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.metrics import confusion_matrix
-from sklearn.neighbors import NearestNeighbors
 
 from scipy.optimize import linear_sum_assignment
-from scipy.cluster.hierarchy import linkage, fcluster
-from scipy.spatial.distance import pdist
 
 
 def align_labels(true_labels: np.ndarray, pred_labels: np.ndarray) -> np.ndarray:
@@ -37,7 +30,7 @@ def align_labels(true_labels: np.ndarray, pred_labels: np.ndarray) -> np.ndarray
     row_ind, col_ind = linear_sum_assignment(-cm)
 
     label_map = {old: new for old, new in zip(col_ind, row_ind)}
-    return np.array([label_map[l] if l in label_map else l for l in pred_labels])
+    return np.array([label_map[lab] if lab in label_map else lab for lab in pred_labels])
 
 
 def _wilson_ci(k_success: int, n: int, z: float = 1.96) -> tuple[float, float]:
@@ -177,9 +170,6 @@ def make_estimator_grids(
     Args:
         - estimator (str): Estimator key ('agglomerative', 'spectral', or default to kmeans).
         - candidate_clusters (Iterable[int]): Candidate cluster counts.
-        - spectral_quant (float): Quantile used for spectral gamma estimation (default: 0.5).
-        - X (np.ndarray | None): Data matrix used to estimate spectral gamma when needed.
-        - random_state (int): Random seed used for reproducibility.
 
     Returns:
         list[tuple]: List of (EstimatorClass, param_grid) tuples.
@@ -199,86 +189,3 @@ def make_estimator_grids(
             )
         ]
     return [(KMeans, {"n_clusters": list(candidate_clusters), "n_init": [10]})]
-
-
-class LeidenClustering(BaseEstimator, ClusterMixin):
-    """
-    Wrapper for Leiden community detection algorithm with sklearn interface.
-    Clusters tabular data by building a k-nearest neighbor graph and running Leiden.
-
-    Parameters:
-        n_clusters (int): Desired number of clusters (approximate, Leiden may not match exactly).
-        n_neighbors (int): Number of neighbors for graph construction (default: 10).
-        resolution (float): Resolution parameter for Leiden (higher = more clusters, default: 1.0).
-        linkage (str): Linkage method for hierarchical clustering ('ward', 'single', 'complete', 'average', etc.).
-        random_state (int or None): Random seed.
-    """
-
-    def __init__(
-        self,
-        n_clusters=None,
-        n_neighbors=10,
-        resolution=1.0,
-        linkage="ward",
-        random_state=None,
-    ):
-        self.n_clusters = n_clusters
-        self.n_neighbors = n_neighbors
-        self.resolution = resolution
-        self.linkage = (
-            linkage  # may be set to 'ward', 'single', 'complete', 'average', etc.
-        )
-        self.random_state = random_state
-
-    def fit(self, X, y=None):
-        # Build kNN graph
-        knn = NearestNeighbors(n_neighbors=self.n_neighbors + 1, metric="euclidean")
-        knn.fit(X)
-        knn_graph = knn.kneighbors_graph(X, mode="connectivity")
-        sources, targets = knn_graph.nonzero()
-        edges = list(zip(sources.tolist(), targets.tolist()))
-
-        # Create igraph graph
-        g = ig.Graph(n=X.shape[0], edges=edges, directed=False)
-        g.simplify()
-
-        # Run Leiden
-        partition = leidenalg.find_partition(
-            g,
-            leidenalg.RBConfigurationVertexPartition,
-            resolution_parameter=self.resolution,
-            seed=self.random_state,
-        )
-        self.labels_ = np.array(partition.membership)
-
-        # Optionally, relabel to match n_clusters if specified
-        if (
-            self.n_clusters is not None
-            and len(np.unique(self.labels_)) != self.n_clusters
-        ):
-            # Map largest clusters to 0..n_clusters-1, rest to -1
-            # counts = np.bincount(self.labels_)
-            # top = np.argsort(counts)[::-1][:self.n_clusters]
-            # mapping = {old: new for new, old in enumerate(top)}
-            # self.labels_ = np.array([mapping.get(l, -1) for l in self.labels_])
-
-            # Merge clusters using Ward's linkage to match n_clusters
-
-            # Compute pairwise distances between cluster centroids
-            unique_labels = np.unique(self.labels_)
-            centroids = np.array(
-                [X[self.labels_ == label].mean(axis=0) for label in unique_labels]
-            )
-            distances = pdist(centroids, metric="euclidean")
-            Z = linkage(distances, method=self.linkage)
-
-            # Cut dendrogram to get n_clusters
-            cluster_mapping = fcluster(Z, self.n_clusters, criterion="maxclust") - 1
-            label_map = {old: new for old, new in zip(unique_labels, cluster_mapping)}
-            self.labels_ = np.array([label_map[l] for l in self.labels_])
-
-        return self
-
-    def fit_predict(self, X, y=None):
-        self.fit(X, y)
-        return self.labels_

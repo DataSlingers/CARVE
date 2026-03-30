@@ -1,58 +1,13 @@
 import numpy as np
 import pandas as pd
 
+from benchmarking_config import (
+    SELECTED_CARVE,
+    CLASSICAL,
+    METRIC_DISPLAY_NAMES,
+    EXCLUDE_FROM_TABLES as EXCLUDE,
+)
 from benchmarking_utils import _wilson_ci, _summary_stats
-
-
-# ---------------------------------------------------------------------------
-# Metric grouping constants (used by summarize_regime_tables)
-# ---------------------------------------------------------------------------
-
-SELECTED_CARVE = [
-    "ari_generalizability_1se",
-    "ari_stability_1se",
-]
-
-CLASSICAL = [
-    "silhouette",
-    "gap",
-    "davies_bouldin",
-    "calinski_harabasz",
-]
-
-METRIC_DISPLAY_NAMES = {
-    "baseline_oracle": "Baseline (Oracle)",
-    # CARVE – selected
-    "ari_generalizability_1se": "ARI (gen, 1SE)",
-    "ari_stability_quant": "ARI (stab, quantile)",
-    # CARVE – other selection rules
-    "ari_stability": "ARI (stab, max)",
-    "ari_generalizability": "ARI (gen, max)",
-    "ari_average": "ARI (avg, max)",
-    "ari_stability_1se": "ARI (stab, 1SE)",
-    "ari_average_1se": "ARI (avg, 1SE)",
-    "ari_generalizability_quant": "ARI (gen, quantile)",
-    "ari_average_quant": "ARI (avg, quantile)",
-    # Consensus metrics
-    "consensus_pac_stability": "PAC (stab)",
-    "consensus_gini_stability": "Gini (stab)",
-    "consensus_ce_stability": "CE (stab)",
-    # Misclassification
-    "accuracy_generalizability": "Accuracy (gen)",
-    # Classical
-    "silhouette": "Silhouette",
-    "gap": "Gap",
-    "davies_bouldin": "DB",
-    "calinski_harabasz": "CH",
-}
-
-EXCLUDE = [
-    "ari_average",
-    "ari_average_1se",
-    "ari_average_quant",
-    "consensus_pac_stability",
-    "consensus_ce_stability",
-]
 
 
 # ---------------------------------------------------------------------------

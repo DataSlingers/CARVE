@@ -1,5 +1,15 @@
-import time
+"""Core benchmarking functions for difficulty and scaling experiments.
 
+Two entry points:
+- ``benchmark_cluster_metrics``  — sweeps difficulty levels (with live plotting)
+- ``benchmark_scaling``          — sweeps a scaling axis (n_total, p, or embed_dim)
+
+Both evaluate CARVE metrics and classical (external) metrics, recording
+per-k results in a flat DataFrame.
+"""
+
+import random
+import time
 from typing import Any, Dict, Optional, Sequence
 
 import numpy as np
@@ -13,6 +23,13 @@ from tqdm.notebook import tqdm
 
 from carve import CARVE
 
+from benchmarking_config import (
+    CARVE_METRICS_ALL,
+    CARVE_METRICS_STABILITY,
+    CARVE_METRICS_GENERALIZABILITY,
+    EXTERNAL_METRICS,
+    make_scaling_x_values,
+)
 from benchmarking_simulation_helpers import (
     parse_difficulty_and_simulate,
     parse_range_and_simulate,
@@ -22,11 +39,89 @@ from benchmarking_utils import (
     _build_estimator,
     get_measure,
     get_rule,
-    _pick_first,
 )
 from benchmarking_metrics import calculate_metric
 from benchmarking_plotting import plot_benchmark_snapshot
-import random
+
+
+# ── Shared helper: evaluate external (classical) metrics ──────────────────────
+
+
+def _evaluate_external_metrics(
+    X: np.ndarray,
+    y: np.ndarray,
+    *,
+    external_metrics: Sequence[str],
+    candidate_clusters: Sequence[int],
+    estimator_cls,
+    estimator_param_grid: dict,
+    benchmark_seed: int,
+) -> tuple[list[dict], dict]:
+    """Evaluate external clustering metrics for all candidate k values.
+
+    For each metric, clusters *X* at every candidate k, computes the metric
+    value, and identifies the k that maximises it.
+
+    Returns:
+        results: List of result dicts (one per metric x k combination).
+            Each dict has keys: metric_name, k, metric_value, is_optimal, metric_ari.
+        plotting_dict: Mapping metric_name -> {measure, k, labels, ari} for the
+            optimal k (used for live snapshot visualisation).
+    """
+    results: list[dict] = []
+    plotting_dict: dict = {}
+
+    for metric in external_metrics:
+        metric_values: list[tuple] = []
+        best_value, best_k, best_labels, best_ari = -np.inf, None, None, None
+
+        for k in candidate_clusters:
+            est = _build_estimator(
+                estimator_cls=estimator_cls,
+                n_clusters=k,
+                estimator_params=estimator_param_grid,
+                random_seed=benchmark_seed,
+            )
+            labels = np.asarray(est.fit_predict(X), dtype=np.int32)
+            ari = adjusted_rand_score(y, labels)
+
+            value = calculate_metric(
+                X,
+                labels,
+                metric,
+                estimator_cls=estimator_cls,
+                estimator_params=estimator_param_grid,
+                random_state=benchmark_seed,
+            )
+            metric_values.append((k, value, ari))
+
+            if value > best_value:
+                best_value, best_k, best_labels, best_ari = value, k, labels, ari
+
+        optimal_k = max(metric_values, key=lambda x: x[1])[0]
+
+        for k, value, ari in metric_values:
+            results.append(
+                {
+                    "metric_name": metric,
+                    "k": k,
+                    "metric_value": value,
+                    "is_optimal": k == optimal_k,
+                    "metric_ari": ari,
+                }
+            )
+
+        plotting_dict[metric] = {
+            "measure": metric,
+            "k": best_k,
+            "labels": best_labels,
+            "ari": best_ari,
+        }
+
+    return results, plotting_dict
+
+
+# ── Difficulty benchmark ──────────────────────────────────────────────────────
 
 
 def benchmark_cluster_metrics(
@@ -38,35 +133,35 @@ def benchmark_cluster_metrics(
     estimator_grids: Optional[list[tuple[type, dict[str, list[Any]]]]] = None,
     true_cluster_counts: Sequence[int] = (3, 4),
     candidate_clusters: Sequence[int] = range(2, 8),
-    external_metrics: Sequence[str] = (
-        "silhouette",
-        "gap",
-        "davies_bouldin",
-        "calinski_harabasz",
-    ),
+    external_metrics: Sequence[str] = EXTERNAL_METRICS,
     get_snapshot: bool = False,
     snapshot_df: Optional[pd.DataFrame] = None,
     n_jobs: int = 1,
     random_state: int = 0,
 ) -> pd.DataFrame:
-    """
-    Benchmarks clustering metrics across simulated datasets and configurations.
+    """Benchmark clustering metrics across simulated datasets of varying difficulty.
+
+    Sweeps over *difficulty_levels* x *true_cluster_counts* x *n_seeds_per_dataset*
+    combinations.  For each, fits CARVE and evaluates all CARVE + external metrics.
 
     Args:
-        - settings_by_k (Dict): Mapping from true_k to simulation settings.
-        - other_settings (Dict): Shared simulation settings.
-        - difficulty_levels (int): Number of difficulty levels/datasets.
-        - n_seeds_per_dataset (int): Number of seeds per dataset family.
-        - estimator (str): Clustering estimator key ('kmeans', 'agglomerative', 'spectral').
-        - estimator_grids (Optional[list[tuple[type, dict]]]): Optional pre-built estimator grids.
-        - true_cluster_counts (Sequence[int]): True cluster counts to simulate.
-        - candidate_clusters (Sequence[int]): Candidate k values to evaluate.
-        - external_metrics (Sequence[str]): External metrics to evaluate.
-        - n_jobs (int): Number of jobs for CARVE.
-        - random_state (int): Seed for reproducibility.
+        settings_by_k: Mapping from true_k to difficulty-anchor settings
+            (each containing 'easy', 'medium', 'hard' sub-dicts).
+        other_settings: Shared simulation keyword arguments.
+        difficulty_levels: Number of difficulty levels (interpolated between anchors).
+        n_seeds_per_dataset: Number of random seeds per (difficulty, true_k) pair.
+        estimator: Clustering estimator key ('kmeans', 'agglomerative', 'spectral').
+        estimator_grids: Optional pre-built estimator grids (overrides *estimator*).
+        true_cluster_counts: True cluster counts to simulate.
+        candidate_clusters: Candidate k values to evaluate.
+        external_metrics: External metrics to evaluate.
+        get_snapshot: If True, randomise iteration order and return after one step.
+        snapshot_df: If provided with get_snapshot, resume from this DataFrame.
+        n_jobs: Number of parallel jobs for CARVE.
+        random_state: Seed for reproducibility.
 
     Returns:
-        pd.DataFrame: Benchmarking results per metric, dataset, and configuration.
+        DataFrame with one row per (difficulty, seed, true_k, metric, k).
     """
     if get_snapshot and snapshot_df is not None:
         results = snapshot_df.to_dict(orient="records")
@@ -74,24 +169,7 @@ def benchmark_cluster_metrics(
         results = []
 
     rng = random.Random(random_state)
-
     plt.ion()
-
-    CARVE_AVAILABLE_METRICS = [
-        "ari_stability",
-        "ari_generalizability",
-        "ari_average",
-        "ari_stability_1se",
-        "ari_generalizability_1se",
-        "ari_average_1se",
-        "ari_stability_quant",
-        "ari_generalizability_quant",
-        "ari_average_quant",
-        "consensus_pac_stability",
-        "consensus_gini_stability",
-        "consensus_ce_stability",
-        "accuracy_generalizability",
-    ]
 
     total_steps = difficulty_levels * n_seeds_per_dataset * len(true_cluster_counts)
     pbar = tqdm(total=total_steps, desc="Benchmarking", leave=True)
@@ -99,20 +177,19 @@ def benchmark_cluster_metrics(
     for difficulty_level in range(difficulty_levels):
         for true_k in true_cluster_counts:
             for seed in range(n_seeds_per_dataset):
-                # difficulty_level, true_k, seed = rng.randint(0, difficulty_levels - 1), rng.choice(list(true_cluster_counts)), rng.randint(0, n_seeds_per_dataset - 1) if get_snapshot else difficulty_level, true_k, seed  # Pick a random combination for snapshot
                 if get_snapshot:
                     difficulty_level = rng.randint(0, difficulty_levels - 1)
                     true_k = rng.choice(list(true_cluster_counts))
                     seed = rng.randint(0, n_seeds_per_dataset - 1)
 
-                # --- 0) Set seed ---
+                # --- 0) Deterministic seed ---
                 benchmark_seed = (
                     seed
                     + ((true_k - min(true_cluster_counts)) * 100)
                     + (difficulty_level * 10000)
                     + random_state
                 )
-                plotting_dict = {}  # Plotting
+                plotting_dict: dict = {}
 
                 # --- 1) Simulate data ---
                 X, y = parse_difficulty_and_simulate(
@@ -124,10 +201,10 @@ def benchmark_cluster_metrics(
                     seed=benchmark_seed,
                 )
 
-                # --- 2) Get baseline ARI ---
+                # --- 2) Baseline ARI (oracle k) ---
                 estimator_grids = make_estimator_grids(
                     estimator=estimator,
-                    candidate_clusters=candidate_clusters
+                    candidate_clusters=candidate_clusters,
                 )
                 estimator_cls, estimator_param_grid = estimator_grids[0]
 
@@ -138,31 +215,26 @@ def benchmark_cluster_metrics(
                     random_seed=benchmark_seed,
                 )
                 baseline_labels = baseline_estimator.fit_predict(X)
-
                 baseline_ari = adjusted_rand_score(y, baseline_labels)
 
-                # --- 3) Fit and evaluate CARVE ---
-                # 3.1) Fitting CARVE
+                # --- 3) Fit CARVE and evaluate CARVE metrics ---
                 carve = CARVE(
                     estimator_param_grids=estimator_grids,
                     n_jobs=n_jobs,
                     random_state=benchmark_seed,
                 )
-
                 carve.fit(X)
 
-                # 3.2) Get ARIs for all k
+                # Get consensus ARIs for all candidate k
                 carve_aris = []
-                carve_labels_by_k = []  # Plotting
+                carve_labels_by_k = []
                 for k in candidate_clusters:
-                    carve_consensus_labels = carve.get_labels(
-                        k=k
-                    )  # providing measure and rule is not necessary here as there is only a single option for every k
-                    carve_aris.append(adjusted_rand_score(y, carve_consensus_labels))
-                    carve_labels_by_k.append(carve_consensus_labels)  # Plotting
+                    consensus_labels = carve.get_labels(k=k)
+                    carve_aris.append(adjusted_rand_score(y, consensus_labels))
+                    carve_labels_by_k.append(consensus_labels)
 
-                # 3.3) Evaluating CARVE metrics
-                for carve_metric in CARVE_AVAILABLE_METRICS:
+                # Record CARVE metric results
+                for carve_metric in CARVE_METRICS_ALL:
                     rule = get_rule(carve_metric)
                     measure = get_measure(carve_metric)
                     optimal_k = carve.get_k(measure=measure, rule=rule)
@@ -185,96 +257,45 @@ def benchmark_cluster_metrics(
                                 "metric_value": value,
                                 "is_optimal": k == optimal_k,
                                 "is_correct": k == true_k,
-                                "metric_ari": carve_aris[candidate_clusters.index(k)],
+                                "metric_ari": carve_aris[
+                                    list(candidate_clusters).index(k)
+                                ],
                             }
                         )
 
-                    # --- Plotting
-                    opt_idx = candidate_clusters.index(optimal_k)
+                    opt_idx = list(candidate_clusters).index(optimal_k)
                     plotting_dict[carve_metric] = {
                         "measure": carve_metric,
                         "k": optimal_k,
                         "labels": carve_labels_by_k[opt_idx],
                         "ari": carve_aris[opt_idx],
                     }
-                    # ---
 
                 # --- 4) Evaluate external metrics ---
-                for metric in external_metrics:
-                    metric_values = []
+                context = {
+                    "axis_name": "difficulty_level",
+                    "axis_value": difficulty_level,
+                    "baseline_ari": baseline_ari,
+                    "dataset_iteration": seed,
+                    "true_k": true_k,
+                }
+                ext_results, ext_plotting = _evaluate_external_metrics(
+                    X,
+                    y,
+                    external_metrics=external_metrics,
+                    candidate_clusters=candidate_clusters,
+                    estimator_cls=estimator_cls,
+                    estimator_param_grid=estimator_param_grid,
+                    benchmark_seed=benchmark_seed,
+                )
+                for row in ext_results:
+                    row["is_correct"] = row["k"] == true_k
+                    row.update(context)
+                    results.append(row)
+                plotting_dict.update(ext_plotting)
 
-                    # --- Plotting
-                    best_value = -np.inf
-                    best_k = None
-                    best_labels = None
-                    best_ari = None
-                    # ---
-
-                    # Calculate metric value for each test_k
-                    for k in candidate_clusters:
-                        # 4.1) Get labels for this k
-                        est = _build_estimator(
-                            estimator_cls=estimator_cls,
-                            n_clusters=k,
-                            estimator_params=estimator_param_grid,
-                            random_seed=benchmark_seed,
-                        )
-                        labels = np.asarray(est.fit_predict(X), dtype=np.int32)
-
-                        ari = adjusted_rand_score(y, labels)
-
-                        # 4.2) Calculate metric value
-                        value = calculate_metric(
-                            X,
-                            labels,
-                            metric,
-                            estimator_cls=estimator_cls,
-                            estimator_params=estimator_param_grid,
-                            random_state=benchmark_seed,
-                        )
-                        metric_values.append((k, value, ari))
-
-                        # --- Plotting
-                        if value > best_value:
-                            best_value = value
-                            best_k = k
-                            best_labels = labels
-                            best_ari = ari
-                        # ---
-
-                    # 4.3) Find the k where respective metric is maximized
-                    optimal_k = max(metric_values, key=lambda x: x[1])[0]
-
-                    # 4.4) Record all results
-                    for k, value, ari in metric_values:
-                        results.append(
-                            {
-                                "axis_name": "difficulty_level",
-                                "axis_value": difficulty_level,
-                                "baseline_ari": baseline_ari,
-                                "dataset_iteration": seed,
-                                "true_k": true_k,
-                                "metric_name": metric,
-                                "k": k,
-                                "metric_value": value,
-                                "is_optimal": k == optimal_k,
-                                "is_correct": k == true_k,
-                                "metric_ari": ari,
-                            }
-                        )
-
-                    # --- Plotting ---
-                    plotting_dict[metric] = {
-                        "measure": metric,
-                        "k": best_k,
-                        "labels": best_labels,
-                        "ari": best_ari,
-                    }
-                    # ---
-
-                # --- Plotting ---
+                # --- Live snapshot visualisation ---
                 clear_output(wait=True)
-
                 fig_pca, fig_sum = plot_benchmark_snapshot(
                     X=X,
                     results_df=pd.DataFrame(results),
@@ -283,10 +304,8 @@ def benchmark_cluster_metrics(
                     baseline_labels=baseline_labels,
                     baseline_ari=baseline_ari,
                 )
-
                 display(fig_pca)
                 display(fig_sum)
-
                 plt.close(fig_pca)
                 plt.close(fig_sum)
 
@@ -299,6 +318,9 @@ def benchmark_cluster_metrics(
     return pd.DataFrame(results)
 
 
+# ── Scaling benchmark ─────────────────────────────────────────────────────────
+
+
 def benchmark_scaling(
     settings_by_k: Dict,
     other_settings: Dict,
@@ -308,66 +330,41 @@ def benchmark_scaling(
     estimator: str = "kmeans",
     true_cluster_counts: Sequence[int] = (3, 4),
     candidate_clusters: Sequence[int] = range(2, 8),
-    external_metrics: Sequence[str] = (
-        "silhouette",
-        "gap",
-        "davies_bouldin",
-        "calinski_harabasz",
-    ),
+    external_metrics: Sequence[str] = EXTERNAL_METRICS,
     n_jobs: int = 1,
     random_state: int = 0,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Benchmarks CARVE and external metrics across scaling regimes.
+    """Benchmark CARVE and external metrics across a scaling axis.
+
+    Sweeps one axis (n_total, p, or embed_dim) over the range defined in
+    ``benchmarking_config.SCALING_RANGES`` using linear spacing.
+
+    Stability and generalizability CARVE modes are fitted separately so
+    their runtimes can be tracked independently.
 
     Args:
-        - settings_by_k (Dict): Simulation regime settings keyed by true_k.
-        - other_settings (Dict): Other simulation settings.
-        - axis_name (str): Scaling axis name ('n_total', 'p', or 'embed_dim').
-        - n_seeds_per_value (int): Number of seeds per x_value and true_k.
-        - estimator (str): Clustering estimator key for CARVE grids.
-        - true_cluster_counts (Sequence[int]): True cluster counts to simulate.
-        - candidate_clusters (Sequence[int]): Candidate k values to evaluate.
-        - external_metrics (Sequence[str]): External metrics to evaluate.
-        - n_jobs (int): Number of jobs for CARVE.
-        - random_state (int): Seed for reproducibility.
+        settings_by_k: Simulation regime settings keyed by true_k, each
+            containing 'start', 'middle', 'end' sub-dicts.
+        other_settings: Shared simulation keyword arguments.
+        axis_name: Scaling axis name ('n_total', 'p', or 'embed_dim').
+        granularity: Number of linearly-spaced points along the axis.
+        n_seeds_per_value: Number of seeds per (axis_value, true_k) pair.
+        estimator: Clustering estimator key for CARVE grids.
+        true_cluster_counts: True cluster counts to simulate.
+        candidate_clusters: Candidate k values to evaluate.
+        external_metrics: External metrics to evaluate.
+        n_jobs: Number of parallel jobs for CARVE.
+        random_state: Seed for reproducibility.
 
     Returns:
-        tuple[pd.DataFrame, pd.DataFrame]: (scores_df, runtimes_df).
+        (scores_df, runtimes_df) — results and per-iteration timing info.
     """
-    CARVE_AVAILABLE_METRICS_S = [
-        "ari_stability",
-        "ari_stability_1se",
-        "ari_stability_quant",
-        "consensus_pac_stability",
-        "consensus_gini_stability",
-        "consensus_ce_stability",
-    ]
+    x_values = make_scaling_x_values(axis_name, granularity)
 
-    CARVE_AVAILABLE_METRICS_G = [
-        "ari_generalizability",
-        "ari_generalizability_1se",
-        "ari_generalizability_quant",
-        "accuracy_generalizability",
-    ]
+    _carve_metrics_s = set(CARVE_METRICS_STABILITY)
 
-    if axis_name == "n_total":
-        x_values = [
-            int(x) for x in np.logspace(np.log10(100), np.log10(10000), num=granularity)
-        ]
-    elif axis_name == "p":
-        x_values = [
-            int(x) for x in np.logspace(np.log10(10), np.log10(2500), num=granularity)
-        ]
-    elif axis_name == "embed_dim":
-        x_values = [
-            int(x) for x in np.logspace(np.log10(10), np.log10(2500), num=granularity)
-        ]
-    else:
-        raise ValueError("axis_name must be 'n_total', 'p', or 'embed_dim'.")
-
-    scores = []
-    runtimes = []
+    scores: list[dict] = []
+    runtimes: list[dict] = []
 
     total_steps = granularity * n_seeds_per_value * len(true_cluster_counts)
     pbar = tqdm(
@@ -377,14 +374,13 @@ def benchmark_scaling(
     for i, x_value in enumerate(x_values):
         for true_k in true_cluster_counts:
             for seed in range(n_seeds_per_value):
-                # --- 0) Set seed ---
+                # --- 0) Deterministic seed ---
                 benchmark_seed = (
                     seed
                     + ((true_k - min(true_cluster_counts)) * 100)
                     + (i * 10000)
                     + random_state
                 )
-                # plotting_dict = {}  # Plotting
 
                 # --- 1) Simulate data ---
                 X, y = parse_range_and_simulate(
@@ -398,10 +394,10 @@ def benchmark_scaling(
                     random_state=benchmark_seed,
                 )
 
-                # --- 2) Get baseline ARI ---
+                # --- 2) Baseline ARI (oracle k) ---
                 estimator_grids = make_estimator_grids(
                     estimator=estimator,
-                    candidate_clusters=candidate_clusters
+                    candidate_clusters=candidate_clusters,
                 )
                 estimator_cls, estimator_param_grid = estimator_grids[0]
 
@@ -412,63 +408,51 @@ def benchmark_scaling(
                     random_seed=benchmark_seed,
                 )
                 baseline_labels = baseline_estimator.fit_predict(X)
-
                 baseline_ari = adjusted_rand_score(y, baseline_labels)
 
-                # --- 3) Fit and evaluate CARVE ---
-                # 3.1) Fitting CARVE
+                # --- 3) Fit CARVE (stability + generalizability separately) ---
                 carve_s = CARVE(
                     estimator_param_grids=estimator_grids,
                     n_jobs=n_jobs,
                     random_state=benchmark_seed,
                 )
-
                 carve_g = CARVE(
                     estimator_param_grids=estimator_grids,
                     n_jobs=n_jobs,
                     random_state=benchmark_seed,
                 )
 
-                # 3.1.1) Evaluate stability runtime
                 t0_s = time.perf_counter()
                 carve_s.fit(X, reference_labels=y, mode="stability")
                 t_carve_s = time.perf_counter() - t0_s
 
-                # 3.1.2) Evaluate generalizability runtime
                 t0_g = time.perf_counter()
                 carve_g.fit(X, reference_labels=y, mode="generalizability")
                 t_carve_g = time.perf_counter() - t0_g
 
-                # 3.2) Get ARIs for all k
+                # Get consensus ARIs for all candidate k (per mode)
                 carve_aris_s, carve_aris_g = [], []
-                # carve_labels_by_k = []  # Plotting
                 for k in candidate_clusters:
-                    carve_consensus_labels_s = carve_s.get_labels(
+                    labels_s = carve_s.get_labels(
                         k=k, measure="stability", mode="stability"
-                    )  # providing rule is not necessary here as there is only a single option for every k
-                    carve_consensus_labels_g = carve_g.get_labels(
+                    )
+                    labels_g = carve_g.get_labels(
                         k=k, measure="generalizability", mode="generalizability"
                     )
-                    carve_aris_s.append(
-                        adjusted_rand_score(y, carve_consensus_labels_s)
-                    )
-                    carve_aris_g.append(
-                        adjusted_rand_score(y, carve_consensus_labels_g)
-                    )
-                    # carve_labels_by_k.append(carve_consensus_labels)  # Plotting
+                    carve_aris_s.append(adjusted_rand_score(y, labels_s))
+                    carve_aris_g.append(adjusted_rand_score(y, labels_g))
 
-                # 3.3) Evaluating CARVE metrics
-                for carve_metric in sorted(
-                    set(CARVE_AVAILABLE_METRICS_S).union(CARVE_AVAILABLE_METRICS_G)
-                ):
+                # Record CARVE metric results
+                all_carve = sorted(
+                    _carve_metrics_s.union(CARVE_METRICS_GENERALIZABILITY)
+                )
+                for carve_metric in all_carve:
                     rule = get_rule(carve_metric)
                     measure = get_measure(carve_metric)
 
-                    carve = (
-                        carve_s
-                        if carve_metric in CARVE_AVAILABLE_METRICS_S
-                        else carve_g
-                    )
+                    is_stab = carve_metric in _carve_metrics_s
+                    carve = carve_s if is_stab else carve_g
+                    aris = carve_aris_s if is_stab else carve_aris_g
 
                     optimal_k = carve.get_k(measure=measure, rule=rule)
 
@@ -490,96 +474,36 @@ def benchmark_scaling(
                                 "metric_value": value,
                                 "is_optimal": k == optimal_k,
                                 "is_correct": k == true_k,
-                                "metric_ari": carve_aris_s[candidate_clusters.index(k)]
-                                if carve_metric in CARVE_AVAILABLE_METRICS_S
-                                else carve_aris_g[candidate_clusters.index(k)],
+                                "metric_ari": aris[
+                                    list(candidate_clusters).index(k)
+                                ],
                             }
                         )
-
-                    # --- Plotting
-                    # opt_idx = candidate_clusters.index(optimal_k)
-                    # plotting_dict[carve_metric] = {
-                    #     "measure": carve_metric,
-                    #     "k": optimal_k,
-                    #     "labels": carve_labels_by_k[opt_idx],
-                    #     "ari": carve_aris[opt_idx],
-                    # }
-                    # ---
 
                 # --- 4) Evaluate external metrics ---
-                for metric in external_metrics:
-                    metric_values = []
+                context = {
+                    "axis_name": axis_name,
+                    "axis_value": x_value,
+                    "baseline_ari": baseline_ari,
+                    "dataset_iteration": seed,
+                    "true_k": true_k,
+                }
+                ext_results, _ = _evaluate_external_metrics(
+                    X,
+                    y,
+                    external_metrics=external_metrics,
+                    candidate_clusters=candidate_clusters,
+                    estimator_cls=estimator_cls,
+                    estimator_param_grid=estimator_param_grid,
+                    benchmark_seed=benchmark_seed,
+                )
+                for row in ext_results:
+                    row["is_correct"] = row["k"] == true_k
+                    row.update(context)
+                    scores.append(row)
 
-                    # --- Plotting
-                    # best_value = -np.inf
-                    # best_k = None
-                    # best_labels = None
-                    # best_ari = None
-                    # ---
-
-                    # Calculate metric value for each test_k
-                    for k in candidate_clusters:
-                        # 4.1) Get labels for this k
-                        est = _build_estimator(
-                            estimator_cls=estimator_cls,
-                            n_clusters=k,
-                            estimator_params=estimator_param_grid,
-                            random_seed=benchmark_seed,
-                        )
-                        labels = np.asarray(est.fit_predict(X), dtype=np.int32)
-
-                        ari = adjusted_rand_score(y, labels)
-
-                        # 4.2) Calculate metric value
-                        value = calculate_metric(
-                            X,
-                            labels,
-                            metric,
-                            estimator_cls=estimator_cls,
-                            estimator_params=estimator_param_grid,
-                            random_state=benchmark_seed,
-                        )
-                        metric_values.append((k, value, ari))
-
-                        # --- Plotting
-                        # if value > best_value:
-                        #     best_value = value
-                        #     best_k = k
-                        #     best_labels = labels
-                        #     best_ari = ari
-                        # ---
-
-                    # 4.3) Find the k where respective metric is maximized
-                    optimal_k = max(metric_values, key=lambda x: x[1])[0]
-
-                    # 4.4) Record all results
-                    for k, value, ari in metric_values:
-                        scores.append(
-                            {
-                                "axis_name": axis_name,
-                                "axis_value": x_value,
-                                "baseline_ari": baseline_ari,
-                                "dataset_iteration": seed,
-                                "true_k": true_k,
-                                "metric_name": metric,
-                                "k": k,
-                                "metric_value": value,
-                                "is_optimal": k == optimal_k,
-                                "is_correct": k == true_k,
-                                "metric_ari": ari,
-                            }
-                        )
-
-                    # --- Plotting ---
-                    # plotting_dict[metric] = {
-                    #     "measure": metric,
-                    #     "k": best_k,
-                    #     "labels": best_labels,
-                    #     "ari": best_ari,
-                    # }
-                    # ---
-
-                # 5) Record runtimes
+                # --- 5) Record runtimes ---
+                n_ks = len(list(candidate_clusters))
                 runtimes.append(
                     {
                         "axis_name": axis_name,
@@ -590,35 +514,14 @@ def benchmark_scaling(
                         "p": X.shape[1],
                         "B": n_seeds_per_value,
                         "n_jobs": n_jobs,
-                        "n_test_ks": len(list(candidate_clusters)),
+                        "n_test_ks": n_ks,
                         "estimator": estimator,
                         "t_carve_sec_s": t_carve_s,
                         "t_carve_sec_g": t_carve_g,
-                        "t_carve_per_k_sec_s": t_carve_s
-                        / len(list(candidate_clusters)),
-                        "t_carve_per_k_sec_g": t_carve_g
-                        / len(list(candidate_clusters)),
+                        "t_carve_per_k_sec_s": t_carve_s / n_ks,
+                        "t_carve_per_k_sec_g": t_carve_g / n_ks,
                     }
                 )
-
-                # --- Plotting ---
-                # clear_output(wait=True)
-
-                # fig_pca, fig_sum = plot_benchmark_snapshot(
-                #     X=X,
-                #     results_df=pd.DataFrame(results),
-                #     plotting_dict=plotting_dict,
-                #     true_labels=y,
-                #     baseline_labels=baseline_labels,
-                #     baseline_ari=baseline_ari,
-                #     panel_metrics=("ari_stability_1se", "ari_generalizability_1se", "silhouette", "davies_bouldin"),
-                # )
-
-                # display(fig_pca)
-                # display(fig_sum)
-
-                # plt.close(fig_pca)
-                # plt.close(fig_sum)
 
                 pbar.update(1)
 

@@ -1,3 +1,8 @@
+"""Summary / IO helpers and paper-style plotting setup.
+
+Metric constants are imported from ``benchmarking_config`` — edit them there.
+"""
+
 import numpy as np
 import pandas as pd
 
@@ -5,50 +10,8 @@ import matplotlib.pyplot as plt
 
 from pathlib import Path
 
-
-PLOT_METRICS = [
-    "ari_average_1se",
-    "ari_generalizability_1se",
-    "ari_stability_1se",
-    "silhouette",
-    "gap",
-    "davies_bouldin",
-    "calinski_harabasz",
-]
-
-PLOT_METRICS_CARVE = [
-    "ari_average_1se",
-    "ari_generalizability_1se",
-    "ari_stability_1se",
-]
-
-PLOT_METRICS_EXT = [
-    "ari_stability_1se",
-    "silhouette",
-    "gap",
-    "davies_bouldin",
-    "calinski_harabasz",
-]
-
-METRIC_COLOR = {
-    "ari_average_1se": "#E69F00",  # blue
-    "ari_generalizability_1se": "#56B4E9",  # indigo
-    "ari_stability_1se": "#009E73",  # purple
-    "silhouette": "#F0E442",  # purple-magenta
-    "gap": "#0072B2",  # magenta
-    "davies_bouldin": "#D55E00",  # pink
-    "calinski_harabasz": "#CC79A7",  # red
-}
-
-METRIC_LABEL = {
-    "ari_average_1se": "ARI (avg, 1se)",
-    "ari_generalizability_1se": "ARI (gen, 1se)",
-    "ari_stability_1se": "ARI (stab, 1se)",
-    "silhouette": "Silhouette",
-    "gap": "Gap",
-    "davies_bouldin": "DB",
-    "calinski_harabasz": "CH",
-}
+from benchmarking_config import PLOT_METRICS
+from benchmarking_utils import _wilson_ci as wilson_ci
 
 
 def set_paper_style():
@@ -132,16 +95,6 @@ def instance_key_cols(results_df: pd.DataFrame) -> list[str]:
 
 
 # overall k-recovery summary
-def wilson_ci(successes: int, n: int, z: float = 1.96) -> tuple[float, float]:
-    if n <= 0:
-        return (np.nan, np.nan)
-    p = successes / n
-    denom = 1.0 + (z**2) / n
-    center = (p + (z**2) / (2 * n)) / denom
-    half = (z * np.sqrt((p * (1 - p) + (z**2) / (4 * n)) / n)) / denom
-    return (max(0.0, center - half), min(1.0, center + half))
-
-
 def summarize_true_k_accuracy(results: pd.DataFrame) -> pd.DataFrame:
     sel = results.loc[results["is_optimal"]].copy()
 
@@ -201,16 +154,6 @@ def best_metric_per_benchmark(results: pd.DataFrame) -> pd.DataFrame:
         .reset_index(drop=True)
     )
     return winners
-
-
-def wilson_ci(successes: int, n: int, z: float = 1.96) -> tuple[float, float]:
-    if n <= 0:
-        return (np.nan, np.nan)
-    p = successes / n
-    denom = 1.0 + (z**2) / n
-    center = (p + (z**2) / (2 * n)) / denom
-    half = (z * np.sqrt((p * (1 - p) + (z**2) / (4 * n)) / n)) / denom
-    return (max(0.0, center - half), min(1.0, center + half))
 
 
 def filter_plot_metrics(results: pd.DataFrame) -> pd.DataFrame:
