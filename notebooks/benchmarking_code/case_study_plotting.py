@@ -1510,6 +1510,49 @@ def plot_baseline_best_lines(
     return ax
 
 
+def _add_method_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Add ``_method_id`` and ``_method_label`` columns to a CARVE results DataFrame.
+
+    Replicates the grouping logic from ``carve._plotting``: every unique
+    combination of non-metric, non-``n_clusters`` columns defines a "method".
+    """
+    _GROUPBY_NA = "_NA_"
+    metric_cols = {
+        col
+        for col in df.columns
+        if any(
+            x in col
+            for x in ["ari_", "consensus_", "accuracy_", "_se", "_upper", "_lower"]
+        )
+    }
+    exclude = metric_cols | {"estimator", "n_clusters", "index", "_method_id", "_method_label"}
+    group_cols = [c for c in df.columns if c not in exclude and c != "n_clusters"]
+
+    df = df.copy()
+    df[group_cols] = df[group_cols].fillna(_GROUPBY_NA)
+
+    # build id and label per unique group
+    seen: dict[tuple, tuple[str, str]] = {}
+    ids, labels = [], []
+    for _, row in df.iterrows():
+        key = tuple(row[c] for c in group_cols)
+        if key not in seen:
+            parts = [str(row["estimator"])]
+            for c in group_cols:
+                val = row[c]
+                if val != _GROUPBY_NA:
+                    parts.append(f"{c}={val}")
+            label = ", ".join(parts)
+            mid = f"m{len(seen)}"
+            seen[key] = (mid, label)
+        ids.append(seen[key][0])
+        labels.append(seen[key][1])
+
+    df["_method_id"] = ids
+    df["_method_label"] = labels
+    return df
+
+
 def plot_carve_best_line(
     carve_obj: Any,
     *,
@@ -1543,12 +1586,11 @@ def plot_carve_best_line(
     grid_alpha : Y-grid opacity
     show_1se : draw 1-SE shaded band
     """
-    from carve._plotting import add_method_columns, MEASURE_MAP
-    from carve._selection import select_best_row_by_rule
+    from carve._selection import MEASURE_MAP, select_best_row_by_rule
 
     df = carve_obj.estimator_results_.copy()
     if "_method_id" not in df.columns or "_method_label" not in df.columns:
-        df = add_method_columns(df)
+        df = _add_method_columns(df)
 
     # --- identify the winning method ---
     best_row = select_best_row_by_rule(df, measure=measure, rule=rule, return_idx=False)
@@ -1644,8 +1686,7 @@ def plot_carve_best_lines(
     grid_alpha : Y-grid opacity
     show_1se : draw 1-SE shaded band
     """
-    from carve._plotting import add_method_columns, MEASURE_MAP
-    from carve._selection import select_best_row_by_rule
+    from carve._selection import MEASURE_MAP, select_best_row_by_rule
 
     if measures is None:
         measures = [("generalizability", "1se"), ("stability", "quantile")]
@@ -1655,7 +1696,7 @@ def plot_carve_best_lines(
 
     df = carve_obj.estimator_results_.copy()
     if "_method_id" not in df.columns or "_method_label" not in df.columns:
-        df = add_method_columns(df)
+        df = _add_method_columns(df)
 
     annotations_text = []
 
@@ -2782,4 +2823,395 @@ def _build_alluvial_from_labels(
             ),
         ],
     )
+    return fig  # end _build_alluvial_from_labels
+
+
+# ---------------------------------------------------------------------------
+# ARI comparison helpers
+# ---------------------------------------------------------------------------
+
+
+def build_baseline_best_labels(
+    X: np.ndarray,
+    best_df: pd.DataFrame,
+    model_grids: list[tuple[Any, dict[str, Any]]],
+    metric: str = "silhouette",
+    random_state: int = 42,
+) -> tuple[np.ndarray, str, int]:
+    """Reconstruct labels for a baseline metric's best (model, k).
+
+    Parameters
+    ----------
+    X : array-like of shape (n_samples, n_features)
+    best_df : DataFrame returned by ``baseline_metrics_over_k``
+    model_grids : estimator grids used during the baseline sweep
+    metric : which baseline metric row to use (e.g. "silhouette", "gap")
+    random_state : seed passed to the estimator
+
+    Returns
+    -------
+    labels : ndarray of shape (n_samples,)
+    model_name : str  (pretty-printed model description)
+    k : int           (selected number of clusters)
+
+    Raises
+    ------
+    KeyError
+        If *metric* is not found in *best_df*.
+    """
+    match_rows = best_df[best_df["metric"] == metric]
+    if match_rows.empty:
+        raise KeyError(
+            f"Metric {metric!r} not found in best_df. "
+            f"Available: {best_df['metric'].tolist()}"
+        )
+    row = match_rows.iloc[0]
+    target_model = row["best_model"]
+    target_k = int(row["best_k"])
+
+    for est_cls, grid in model_grids:
+        other_keys = [kk for kk in grid.keys() if kk != "n_clusters"]
+        other_vals = [
+            grid[kk]
+            if isinstance(grid[kk], (list, tuple, np.ndarray))
+            else [grid[kk]]
+            for kk in other_keys
+        ]
+        combos = list(product(*other_vals)) if other_keys else [()]
+        for combo in combos:
+            fixed = (
+                {kk: v for kk, v in zip(other_keys, combo)}
+                if other_keys
+                else {}
+            )
+            if _pretty_model_label(est_cls, fixed) == target_model:
+                est = _build_estimator(est_cls, target_k, fixed, random_state)
+                labels = est.fit_predict(np.asarray(X))
+                return np.asarray(labels), target_model, target_k
+
+    raise KeyError(f"Could not find model {target_model!r} in model_grids")
+
+
+def extract_ari_comparison(
+    y_true: np.ndarray,
+    best_df: pd.DataFrame,
+    carve_obj: Any,
+    X: np.ndarray,
+    carve_measures: list[tuple[str, str]] | None = None,
+) -> pd.DataFrame:
+    """Build a comparison table of ARI-vs-ground-truth for each method.
+
+    For baselines, the ARI at each metric's best (model, k) is read directly
+    from *best_df* (already computed by ``baseline_metrics_over_k``).
+
+    For CARVE, consensus labels are obtained via ``carve_obj.get_labels()``
+    and ARI is computed against *y_true*.
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,)
+        Ground-truth labels.
+    best_df : DataFrame
+        Returned by ``baseline_metrics_over_k``.
+    carve_obj : CARVE
+        A fitted CARVE instance.
+    X : array-like of shape (n_samples, n_features)
+        Data matrix (needed by CARVE get_labels in some modes).
+    carve_measures : list of (measure, rule) tuples, optional
+        CARVE measure/rule combos to evaluate.
+        Defaults to ``[("stability", "1se"), ("generalizability", "1se")]``.
+
+    Returns
+    -------
+    DataFrame with columns: method, model, k, ari, source
+    """
+    if carve_measures is None:
+        carve_measures = [("stability", "1se"), ("generalizability", "1se")]
+
+    y_arr = np.asarray(y_true)
+    result_rows: list[dict[str, Any]] = []
+
+    # --- Baselines ---
+    for _, r in best_df.iterrows():
+        ari_val = r.get("best_ari", np.nan)
+        result_rows.append(
+            {
+                "method": _pretty_metric_name(str(r["metric"])),
+                "model": r.get("best_model", ""),
+                "k": int(r["best_k"]) if np.isfinite(r["best_k"]) else 0,
+                "ari": float(ari_val) if np.isfinite(ari_val) else np.nan,
+                "source": "baseline",
+            }
+        )
+
+    # --- CARVE ---
+    for measure, rule in carve_measures:
+        carve_k = carve_obj.get_k(measure=measure, rule=rule)
+        carve_labels = carve_obj.get_labels(measure=measure, rule=rule)
+        ari_val = float(adjusted_rand_score(y_arr, np.asarray(carve_labels)))
+        method_key = f"ari_{measure}_{rule}"
+        result_rows.append(
+            {
+                "method": _pretty_metric_name(method_key),
+                "model": "CARVE consensus",
+                "k": int(carve_k),
+                "ari": ari_val,
+                "source": "carve",
+            }
+        )
+
+    return pd.DataFrame(result_rows)
+
+
+# ---------------------------------------------------------------------------
+# ARI comparison plots (three variants)
+# ---------------------------------------------------------------------------
+
+_CARVE_COLOR = "#009ADE"
+_BASELINE_COLOR = "#FF1F5B"
+
+
+def _ari_colors(df: pd.DataFrame) -> list[Any]:
+    """Return a color list matching df rows: CARVE vs baseline."""
+    return [
+        _CARVE_COLOR if s == "carve" else _BASELINE_COLOR for s in df["source"]
+    ]
+
+
+def plot_ari_comparison_lollipop(
+    ari_df: pd.DataFrame,
+    *,
+    ax: plt.Axes | None = None,
+    figsize: tuple[float, float] = (8, 4),
+    title: str = "Agreement with Ground Truth (ARI)",
+    annotate_k: bool = True,
+    save_path: str | None = None,
+    dpi: int = 300,
+) -> plt.Figure:
+    """Horizontal lollipop chart of ARI by method.
+
+    Methods are ranked top-to-bottom by descending ARI.
+    CARVE entries are colored blue, baselines pink.
+    """
+    df = (
+        ari_df.dropna(subset=["ari"])
+        .sort_values("ari", ascending=True)
+        .reset_index(drop=True)
+    )
+    colors = _ari_colors(df)
+
+    own_fig = ax is None
+    if own_fig:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.figure
+
+    y_pos = np.arange(len(df))
+
+    # stems
+    ax.hlines(y_pos, 0, df["ari"], colors=colors, linewidth=2.2, zorder=2)
+    # dots
+    ax.scatter(
+        df["ari"],
+        y_pos,
+        c=colors,
+        s=80,
+        zorder=3,
+        edgecolors="white",
+        linewidths=0.6,
+    )
+
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(df["method"], fontsize=10)
+    ax.set_xlim(0, 1.08)
+    ax.set_xlabel("ARI", fontsize=11)
+    ax.set_title(title, fontsize=12, pad=10)
+
+    # best-ARI reference line
+    if not df.empty:
+        ax.axvline(
+            df["ari"].max(),
+            color="grey",
+            linestyle="--",
+            linewidth=0.8,
+            alpha=0.5,
+        )
+
+    if annotate_k:
+        for i, row in df.iterrows():
+            ax.annotate(
+                f"k={row['k']}",
+                (row["ari"], i),
+                textcoords="offset points",
+                xytext=(8, 0),
+                fontsize=8,
+                va="center",
+                color="0.35",
+            )
+
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    if own_fig:
+        fig.tight_layout()
+        if save_path:
+            fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
+
+    return fig
+
+
+def plot_ari_comparison_bar(
+    ari_df: pd.DataFrame,
+    *,
+    ax: plt.Axes | None = None,
+    figsize: tuple[float, float] = (8, 4),
+    title: str = "Agreement with Ground Truth (ARI)",
+    annotate_k: bool = True,
+    save_path: str | None = None,
+    dpi: int = 300,
+) -> plt.Figure:
+    """Grouped vertical bar chart of ARI by method.
+
+    CARVE entries are colored blue, baselines pink.
+    """
+    df = ari_df.dropna(subset=["ari"]).reset_index(drop=True)
+    colors = _ari_colors(df)
+
+    own_fig = ax is None
+    if own_fig:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.figure
+
+    x_pos = np.arange(len(df))
+    ax.bar(
+        x_pos,
+        df["ari"],
+        color=colors,
+        edgecolor="white",
+        linewidth=0.6,
+        width=0.65,
+        zorder=2,
+    )
+
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels(df["method"], fontsize=9, rotation=35, ha="right")
+    ax.set_ylim(0, 1.12)
+    ax.set_ylabel("ARI", fontsize=11)
+    ax.set_title(title, fontsize=12, pad=10)
+
+    # best-ARI reference line
+    if not df.empty:
+        ax.axhline(
+            df["ari"].max(),
+            color="grey",
+            linestyle="--",
+            linewidth=0.8,
+            alpha=0.5,
+        )
+
+    if annotate_k:
+        for i, row in df.iterrows():
+            ax.annotate(
+                f"k={row['k']}",
+                (i, row["ari"]),
+                textcoords="offset points",
+                xytext=(0, 6),
+                fontsize=8,
+                ha="center",
+                color="0.35",
+            )
+
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    if own_fig:
+        fig.tight_layout()
+        if save_path:
+            fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
+
+    return fig
+
+
+def plot_ari_comparison_dotplot(
+    ari_df: pd.DataFrame,
+    *,
+    ax: plt.Axes | None = None,
+    figsize: tuple[float, float] = (8, 4),
+    title: str = "Agreement with Ground Truth (ARI)",
+    annotate_k: bool = True,
+    save_path: str | None = None,
+    dpi: int = 300,
+) -> plt.Figure:
+    """Forest-plot-style dot plot of ARI by method.
+
+    Methods ranked top-to-bottom by descending ARI.
+    CARVE entries shown as circles, baselines as diamonds.
+    ARI value printed to the right of each dot.
+    """
+    df = (
+        ari_df.dropna(subset=["ari"])
+        .sort_values("ari", ascending=True)
+        .reset_index(drop=True)
+    )
+    colors = _ari_colors(df)
+
+    own_fig = ax is None
+    if own_fig:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.figure
+
+    y_pos = np.arange(len(df))
+
+    for i, row in df.iterrows():
+        marker = "o" if row["source"] == "carve" else "D"
+        ax.scatter(
+            row["ari"],
+            i,
+            c=[colors[i]],
+            s=110,
+            marker=marker,
+            zorder=3,
+            edgecolors="white",
+            linewidths=0.8,
+        )
+        # ARI value annotation
+        label = f"{row['ari']:.3f}"
+        if annotate_k:
+            label += f"  (k={row['k']})"
+        ax.annotate(
+            label,
+            (row["ari"], i),
+            textcoords="offset points",
+            xytext=(12, 0),
+            fontsize=9,
+            va="center",
+            color="0.25",
+        )
+
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(df["method"], fontsize=10)
+    ax.set_xlim(0, 1.18)
+    ax.set_xlabel("ARI", fontsize=11)
+    ax.set_title(title, fontsize=12, pad=10)
+
+    # best-ARI reference line
+    if not df.empty:
+        ax.axvline(
+            df["ari"].max(),
+            color="grey",
+            linestyle="--",
+            linewidth=0.8,
+            alpha=0.5,
+        )
+
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    if own_fig:
+        fig.tight_layout()
+        if save_path:
+            fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
+
     return fig
