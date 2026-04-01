@@ -2898,6 +2898,7 @@ def extract_ari_comparison(
     carve_obj: Any,
     X: np.ndarray,
     carve_measures: list[tuple[str, str]] | None = None,
+    not_two: bool = False,
 ) -> pd.DataFrame:
     """Build a comparison table of ARI-vs-ground-truth for each method.
 
@@ -2920,6 +2921,8 @@ def extract_ari_comparison(
     carve_measures : list of (measure, rule) tuples, optional
         CARVE measure/rule combos to evaluate.
         Defaults to ``[("stability", "1se"), ("generalizability", "1se")]``.
+    not_two : bool, default=False
+        If True, exclude k=2 configurations from CARVE selection.
 
     Returns
     -------
@@ -2946,8 +2949,8 @@ def extract_ari_comparison(
 
     # --- CARVE ---
     for measure, rule in carve_measures:
-        carve_k = carve_obj.get_k(measure=measure, rule=rule)
-        carve_labels = carve_obj.get_labels(measure=measure, rule=rule)
+        carve_k = carve_obj.get_k(measure=measure, rule=rule, not_two=not_two)
+        carve_labels = carve_obj.get_labels(measure=measure, rule=rule, not_two=not_two)
         ari_val = float(adjusted_rand_score(y_arr, np.asarray(carve_labels)))
         method_key = f"ari_{measure}_{rule}"
         result_rows.append(
