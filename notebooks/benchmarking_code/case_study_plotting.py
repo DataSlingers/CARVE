@@ -332,152 +332,6 @@ def plot_dim_red(
     return fig, ax
 
 
-def calculate_baseline_aris_and_plot(
-    X: np.ndarray,
-    *,
-    y: np.ndarray,
-    label_col: str = "label",
-    s: int = 50,
-    alpha: float = 0.8,
-    linewidth: float = 0.1,
-    hide_axes: bool = True,
-    show_legend: bool = False,
-    figsize: tuple[float, float] = (12, 10),
-    random_state: int = 0,
-) -> tuple[float, np.ndarray]:
-    # --- coerce inputs ---
-    if isinstance(X, pd.DataFrame):
-        X_arr = X.to_numpy()
-    else:
-        X_arr = np.asarray(X)
-
-    if isinstance(y, (pd.Series, pd.Index)):
-        y_arr = y.to_numpy()
-    else:
-        y_arr = np.asarray(y)
-
-    n_clusters = len(np.unique(y_arr))
-
-    # KMeans
-    kmeans = KMeans(n_clusters=n_clusters, random_state=random_state)
-    kmeans_labels = kmeans.fit_predict(X_arr)
-    ari_kmeans = adjusted_rand_score(y_arr, kmeans_labels)
-
-    # Agglomerative (Ward linkage)
-    agg_w = AgglomerativeClustering(n_clusters=n_clusters, linkage="ward")
-    agg_w_labels = agg_w.fit_predict(X_arr)
-    ari_agg_w = adjusted_rand_score(y_arr, agg_w_labels)
-
-    # Agglomerative (single linkage)
-    agg_s = AgglomerativeClustering(n_clusters=n_clusters, linkage="single")
-    agg_s_labels = agg_s.fit_predict(X_arr)
-    ari_agg_s = adjusted_rand_score(y_arr, agg_s_labels)
-
-    # Leiden
-    leiden = LeidenClustering(n_clusters=n_clusters, random_state=random_state)
-    leiden_labels = leiden.fit_predict(X_arr)
-    ari_leiden = adjusted_rand_score(y_arr, leiden_labels)
-
-    # Spectral Clustering (median heuristic for gamma)
-    spectral = SpectralClusteringCARVE(                                                                                        
-        n_clusters=n_clusters, affinity="self_tuning", random_state=random_state
-    )
-    spectral_labels = spectral.fit_predict(X_arr)
-    ari_spectral = adjusted_rand_score(y_arr, spectral_labels)
-
-    # Get PCs
-    pca = PCA(n_components=2, random_state=0)
-    pcs = pca.fit_transform(X_arr)
-
-    # Construct data frame
-    pc_df = pd.DataFrame(pcs, columns=["PC1", "PC2"])
-    pc_df[label_col] = y_arr
-
-    # Plot PCA with labels
-    _, axes = plt.subplots(2, 3, figsize=figsize, sharex=True, sharey=True)
-
-    y_cat = pd.Categorical(y_arr)
-    if hasattr(y_cat, "remove_unused_categories"):
-        y_cat = y_cat.remove_unused_categories()
-    y_codes = y_cat.codes
-    y_code_colors = _cluster_color_map(y_codes)
-    y_color_map = {
-        lab: y_code_colors[code]
-        for lab, code in zip(y_cat.categories, range(len(y_cat.categories)))
-    }
-
-    # Plot true labels
-    ax_true = axes[0, 0]
-    for lab in y_cat.categories:
-        sel = pc_df[label_col] == lab
-        ax_true.scatter(
-            pc_df.loc[sel, "PC1"],
-            pc_df.loc[sel, "PC2"],
-            s=s,
-            alpha=alpha,
-            edgecolor="k",
-            linewidth=linewidth,
-            color=y_color_map[lab],
-            label=lab,
-        )
-    ax_true.set_title("True Cell Type Labels")
-
-    if show_legend:
-        ax_true.legend(
-            markerscale=1.5, bbox_to_anchor=(1.02, 1), loc="upper left", fontsize=10
-        )
-
-    titles = [
-        f"KMeans (ARI={ari_kmeans:.3f})",
-        f"Agglomerative (Ward) (ARI={ari_agg_w:.3f})",
-        f"Agglomerative (Single Linkage) (ARI={ari_agg_s:.3f})",
-        f"Leiden (ARI={ari_leiden:.3f})",
-        f"Spectral (ARI={ari_spectral:.3f})",
-    ]
-    clusterings = [
-        kmeans_labels,
-        agg_w_labels,
-        agg_s_labels,
-        leiden_labels,
-        spectral_labels,
-    ]
-    aligned_clusterings = [
-        align_labels(pd.Categorical(y).codes, labels) for labels in clusterings
-    ]
-
-    for ax, labels, title in zip(axes.flat[1:], aligned_clusterings, titles):
-        cluster_color_map = _cluster_color_map(labels)
-        for cluster in np.unique(labels):
-            sel = labels == cluster
-            ax.scatter(
-                pc_df.loc[sel, "PC1"],
-                pc_df.loc[sel, "PC2"],
-                s=s,
-                alpha=alpha,
-                edgecolor="k",
-                linewidth=linewidth,
-                color=cluster_color_map[int(cluster)],
-                label=f"Cluster {cluster}",
-            )
-        ax.set_title(title)
-
-        if show_legend:
-            ax.legend(
-                markerscale=1.5, bbox_to_anchor=(1.02, 1), loc="upper left", fontsize=10
-            )
-
-    if hide_axes:
-        for ax in axes.flat:
-            ax.set_xticks([])
-            ax.set_yticks([])
-            for spine in ax.spines.values():
-                spine.set_visible(False)
-
-    plt.suptitle("Clustering results on PCA-reduced data", fontsize=18)
-    plt.tight_layout(rect=[0, 0, 1, 0.97])
-    plt.show()
-
-
 def baseline_metrics_over_k(
     X: np.ndarray,
     *,
@@ -635,469 +489,13 @@ def baseline_metrics_over_k(
             ncol=min(3, len(labels)),
             frameon=False,
         )
-        fig.tight_layout(rect=[0, 0.10, 1, 1])
+        fig.tight_layout(rect=[0, 0.04, 1, 1])
     else:
         fig.tight_layout()
 
     plt.show()
 
     return curves_df, best_df
-
-
-# Split quantification
-def plot_label_split_counts(
-    true_labels,
-    labels_a,
-    labels_b,
-    title_a="Agglomerative (single linkage)",
-    title_b="KMeans",
-    color_a=None,
-    color_b=None,
-    figsize=(14, 5),
-):
-    """
-    Plot how many clusters each true label is split into, for two labelings.
-    """
-    true_labels = np.asarray(true_labels)
-    labels_a = np.asarray(labels_a)
-    labels_b = np.asarray(labels_b)
-
-    # default to Okabe–Ito colors
-    if color_a is None or color_b is None:
-        okabe = _get_color_mapping(2)
-        color_a = okabe[0] if color_a is None else color_a
-        color_b = okabe[1] if color_b is None else color_b
-
-    def count_splits(true_labels, cluster_labels):
-        splits = []
-        for lab in np.unique(true_labels):
-            members = cluster_labels[true_labels == lab]
-            splits.append(len(np.unique(members)))
-        return np.asarray(splits, dtype=int)
-
-    def plot_counts(ax, splits, title, color):
-        values, counts = np.unique(splits, return_counts=True)
-        ax.bar(values, counts, color=color, edgecolor="black", linewidth=0.5)
-        ax.set_title(title)
-        ax.set_xlabel("Number of clusters per true label")
-        ax.set_xticks(values)
-
-    splits_a = count_splits(true_labels, labels_a)
-    splits_b = count_splits(true_labels, labels_b)
-
-    fig, axes = plt.subplots(1, 2, figsize=figsize, sharey=True)
-
-    plot_counts(axes[0], splits_a, title_a, color_a)
-    axes[0].set_ylabel("Count")
-
-    plot_counts(axes[1], splits_b, title_b, color_b)
-    axes[1].set_ylabel("")
-
-    plt.tight_layout()
-    plt.show()
-
-
-def fragmentation_report(
-    y_true,
-    labels_a,
-    labels_b,
-    name_a="method A",
-    name_b="method B",
-    top_n=10,
-    print_compare=True,
-):
-    """
-    Compute fragmentation stats for two labelings and optionally print a comparison.
-    Returns:
-        (summ_a, splits_a, dist_a, top_a), (summ_b, splits_b, dist_b, top_b)
-    """
-
-    def fragmentation_by_label(y_true, y_pred):
-        y_true = np.asarray(y_true)
-        y_pred = np.asarray(y_pred)
-
-        labels = pd.unique(y_true)
-        split_counts = {}
-        for lab in labels:
-            members = y_pred[y_true == lab]
-            split_counts[lab] = pd.unique(members).size
-
-        splits = pd.Series(split_counts, name="n_clusters").sort_values(ascending=False)
-        return splits
-
-    def summarize_fragmentation(splits: pd.Series, name="method"):
-        arr = splits.to_numpy(dtype=float)
-        L = splits.size
-
-        out = {
-            "name": name,
-            "L_total_labels": int(L),
-            "n_intact": int((arr == 1).sum()),
-            "pct_intact": float((arr == 1).mean() * 100),
-            "n_split_ge2": int((arr >= 2).sum()),
-            "pct_split_ge2": float((arr >= 2).mean() * 100),
-            "mean_splits": float(arr.mean()),
-            "median_splits": float(np.median(arr)),
-            "q25_splits": float(np.quantile(arr, 0.25)),
-            "q75_splits": float(np.quantile(arr, 0.75)),
-            "q90_splits": float(np.quantile(arr, 0.90)),
-            "q95_splits": float(np.quantile(arr, 0.95)),
-            "max_splits": int(arr.max()),
-            "n_at_max": int((arr == arr.max()).sum()),
-            "n_split_ge3": int((arr >= 3).sum()),
-            "n_split_ge5": int((arr >= 5).sum()),
-            "n_split_ge8": int((arr >= 8).sum()),
-        }
-        return out
-
-    def split_distribution_table(splits: pd.Series):
-        dist = splits.value_counts().sort_index()
-        dist.index.name = "clusters_per_label"
-        dist.name = "n_labels"
-        return dist.reset_index()
-
-    def print_report(y_true, y_pred, name):
-        splits = fragmentation_by_label(y_true, y_pred)
-        summ = summarize_fragmentation(splits, name=name)
-        dist = split_distribution_table(splits)
-        top = splits.head(top_n)
-
-        label_map = {
-            "name": "Method",
-            "L_total_labels": "Total true labels",
-            "n_intact": "Intact labels (split into 1 cluster)",
-            "pct_intact": "Intact labels (%)",
-            "n_split_ge2": "Labels split into 2+ clusters",
-            "pct_split_ge2": "Labels split into 2+ clusters (%)",
-            "mean_splits": "Average # clusters per true label",
-            "median_splits": "Median # clusters per true label",
-            "q25_splits": "25th percentile of splits",
-            "q75_splits": "75th percentile of splits",
-            "q90_splits": "90th percentile of splits",
-            "q95_splits": "95th percentile of splits",
-            "max_splits": "Max # clusters for any true label",
-            "n_at_max": "# labels at max split count",
-            "n_split_ge3": "Labels split into 3+ clusters",
-            "n_split_ge5": "Labels split into 5+ clusters",
-            "n_split_ge8": "Labels split into 8+ clusters",
-        }
-
-        summary_order = [
-            "name",
-            "L_total_labels",
-            "n_intact",
-            "pct_intact",
-            "n_split_ge2",
-            "pct_split_ge2",
-            "mean_splits",
-            "median_splits",
-            "q25_splits",
-            "q75_splits",
-            "q90_splits",
-            "q95_splits",
-            "max_splits",
-            "n_at_max",
-            "n_split_ge3",
-            "n_split_ge5",
-            "n_split_ge8",
-        ]
-
-        print("\n" + "=" * 80)
-        print(f"Label fragmentation summary: {name}")
-        print("=" * 80)
-        for k in summary_order:
-            v = summ.get(k)
-            if isinstance(v, float):
-                print(f"{label_map.get(k, k):>40}: {v:.3f}")
-            else:
-                print(f"{label_map.get(k, k):>40}: {v}")
-
-        print("\nHow many true labels were split into N clusters:")
-        print(dist.to_string(index=False))
-
-        print(f"\nMost fragmented true labels (top {top_n}):")
-        print(top.to_string())
-
-        return summ, splits, dist, top
-
-    y_true = np.asarray(y_true)
-    labels_a = np.asarray(labels_a)
-    labels_b = np.asarray(labels_b)
-
-    res_a = print_report(y_true, labels_a, name_a)
-    res_b = print_report(y_true, labels_b, name_b)
-
-    if print_compare:
-        summ_a, *_ = res_a
-        summ_b, *_ = res_b
-        print("\n" + "-" * 80)
-        print("Comparison (A minus B):")
-        print(
-            f"Change in intact labels (split into 1 cluster): {summ_a['n_intact'] - summ_b['n_intact']}"
-        )
-        print(
-            f"Change in intact label percentage: {summ_a['pct_intact'] - summ_b['pct_intact']:.2f} percentage points"
-        )
-        print(
-            f"Change in average # of clusters per true label: {summ_a['mean_splits'] - summ_b['mean_splits']:.3f}"
-        )
-        print(
-            f"Change in max # of clusters for any true label: {summ_a['max_splits'] - summ_b['max_splits']}"
-        )
-
-    return res_a, res_b
-
-
-def plot_label_merge_counts(
-    true_labels,
-    labels_a,
-    labels_b,
-    title_a="method A",
-    title_b="method B",
-    color_a=None,
-    color_b=None,
-    figsize=(14, 5),
-):
-    """
-    Plot how many true labels each predicted cluster contains, for two labelings.
-
-    This is the underclustering counterpart of `plot_label_split_counts`:
-      - split counts  → overclustering  (true label → N predicted clusters)
-      - merge counts  → underclustering  (predicted cluster → N true labels)
-    """
-    true_labels = np.asarray(true_labels)
-    labels_a = np.asarray(labels_a)
-    labels_b = np.asarray(labels_b)
-
-    if color_a is None or color_b is None:
-        okabe = _get_color_mapping(2)
-        color_a = okabe[0] if color_a is None else color_a
-        color_b = okabe[1] if color_b is None else color_b
-
-    def count_merges(true_labels, cluster_labels):
-        merges = []
-        for cl in np.unique(cluster_labels):
-            members = true_labels[cluster_labels == cl]
-            merges.append(len(np.unique(members)))
-        return np.asarray(merges, dtype=int)
-
-    def plot_counts(ax, merges, title, color):
-        values, counts = np.unique(merges, return_counts=True)
-        ax.bar(values, counts, color=color, edgecolor="black", linewidth=0.5)
-        ax.set_title(title)
-        ax.set_xlabel("Number of true labels per predicted cluster")
-        ax.set_xticks(values)
-
-    merges_a = count_merges(true_labels, labels_a)
-    merges_b = count_merges(true_labels, labels_b)
-
-    fig, axes = plt.subplots(1, 2, figsize=figsize, sharey=True)
-
-    plot_counts(axes[0], merges_a, title_a, color_a)
-    axes[0].set_ylabel("Count")
-
-    plot_counts(axes[1], merges_b, title_b, color_b)
-    axes[1].set_ylabel("")
-
-    plt.tight_layout()
-    plt.show()
-
-
-def merging_report(
-    y_true,
-    labels_a,
-    labels_b,
-    name_a="method A",
-    name_b="method B",
-    top_n=10,
-    print_compare=True,
-):
-    """
-    Compute merging / underclustering stats for two labelings and optionally
-    print a comparison.
-
-    This is the directional complement of `fragmentation_report`:
-      - fragmentation  → overclustering  (true label → N predicted clusters)
-      - merging         → underclustering  (predicted cluster → N true labels)
-
-    For each predicted cluster we compute:
-      - **merge count**: how many distinct true labels its members belong to.
-      - **purity**: fraction of members from the dominant (most frequent) true label.
-
-    Returns:
-        (summ_a, merges_a, dist_a, top_a), (summ_b, merges_b, dist_b, top_b)
-    """
-
-    def merges_by_cluster(y_true, y_pred):
-        y_true = np.asarray(y_true)
-        y_pred = np.asarray(y_pred)
-
-        clusters = pd.unique(y_pred)
-        merge_counts = {}
-        for cl in clusters:
-            members = y_true[y_pred == cl]
-            merge_counts[cl] = pd.unique(members).size
-
-        merges = pd.Series(merge_counts, name="n_true_labels").sort_values(
-            ascending=False
-        )
-        return merges
-
-    def purity_by_cluster(y_true, y_pred):
-        y_true = np.asarray(y_true)
-        y_pred = np.asarray(y_pred)
-
-        clusters = pd.unique(y_pred)
-        purities = {}
-        for cl in clusters:
-            members = y_true[y_pred == cl]
-            counts = pd.Series(members).value_counts()
-            purities[cl] = float(counts.iloc[0] / len(members))
-
-        return pd.Series(purities, name="purity").sort_values(ascending=True)
-
-    def summarize_merging(merges: pd.Series, purities: pd.Series, name="method"):
-        arr = merges.to_numpy(dtype=float)
-        pur = purities.to_numpy(dtype=float)
-        K = merges.size
-
-        out = {
-            "name": name,
-            "K_total_clusters": int(K),
-            "n_pure": int((arr == 1).sum()),
-            "pct_pure": float((arr == 1).mean() * 100),
-            "n_merged_ge2": int((arr >= 2).sum()),
-            "pct_merged_ge2": float((arr >= 2).mean() * 100),
-            "mean_merges": float(arr.mean()),
-            "median_merges": float(np.median(arr)),
-            "q25_merges": float(np.quantile(arr, 0.25)),
-            "q75_merges": float(np.quantile(arr, 0.75)),
-            "q90_merges": float(np.quantile(arr, 0.90)),
-            "q95_merges": float(np.quantile(arr, 0.95)),
-            "max_merges": int(arr.max()),
-            "n_at_max": int((arr == arr.max()).sum()),
-            "n_merged_ge3": int((arr >= 3).sum()),
-            "n_merged_ge5": int((arr >= 5).sum()),
-            "n_merged_ge8": int((arr >= 8).sum()),
-            # purity statistics
-            "mean_purity": float(pur.mean()),
-            "median_purity": float(np.median(pur)),
-            "min_purity": float(pur.min()),
-            "q10_purity": float(np.quantile(pur, 0.10)),
-            "q25_purity": float(np.quantile(pur, 0.25)),
-        }
-        return out
-
-    def merge_distribution_table(merges: pd.Series):
-        dist = merges.value_counts().sort_index()
-        dist.index.name = "true_labels_per_cluster"
-        dist.name = "n_clusters"
-        return dist.reset_index()
-
-    def print_report(y_true, y_pred, name):
-        merges = merges_by_cluster(y_true, y_pred)
-        purities = purity_by_cluster(y_true, y_pred)
-        summ = summarize_merging(merges, purities, name=name)
-        dist = merge_distribution_table(merges)
-        top = merges.head(top_n)
-
-        label_map = {
-            "name": "Method",
-            "K_total_clusters": "Total predicted clusters",
-            "n_pure": "Pure clusters (contain 1 true label)",
-            "pct_pure": "Pure clusters (%)",
-            "n_merged_ge2": "Clusters merging 2+ true labels",
-            "pct_merged_ge2": "Clusters merging 2+ true labels (%)",
-            "mean_merges": "Average # true labels per cluster",
-            "median_merges": "Median # true labels per cluster",
-            "q25_merges": "25th percentile of merge counts",
-            "q75_merges": "75th percentile of merge counts",
-            "q90_merges": "90th percentile of merge counts",
-            "q95_merges": "95th percentile of merge counts",
-            "max_merges": "Max # true labels in any cluster",
-            "n_at_max": "# clusters at max merge count",
-            "n_merged_ge3": "Clusters merging 3+ true labels",
-            "n_merged_ge5": "Clusters merging 5+ true labels",
-            "n_merged_ge8": "Clusters merging 8+ true labels",
-            "mean_purity": "Mean cluster purity",
-            "median_purity": "Median cluster purity",
-            "min_purity": "Minimum cluster purity",
-            "q10_purity": "10th percentile of purity",
-            "q25_purity": "25th percentile of purity",
-        }
-
-        summary_order = [
-            "name",
-            "K_total_clusters",
-            "n_pure",
-            "pct_pure",
-            "n_merged_ge2",
-            "pct_merged_ge2",
-            "mean_merges",
-            "median_merges",
-            "q25_merges",
-            "q75_merges",
-            "q90_merges",
-            "q95_merges",
-            "max_merges",
-            "n_at_max",
-            "n_merged_ge3",
-            "n_merged_ge5",
-            "n_merged_ge8",
-            "mean_purity",
-            "median_purity",
-            "min_purity",
-            "q10_purity",
-            "q25_purity",
-        ]
-
-        print("\n" + "=" * 80)
-        print(f"Cluster merging summary: {name}")
-        print("=" * 80)
-        for k in summary_order:
-            v = summ.get(k)
-            if isinstance(v, float):
-                print(f"{label_map.get(k, k):>45}: {v:.3f}")
-            else:
-                print(f"{label_map.get(k, k):>45}: {v}")
-
-        print("\nHow many predicted clusters contain N true labels:")
-        print(dist.to_string(index=False))
-
-        print(f"\nMost merged predicted clusters (top {top_n}):")
-        print(top.to_string())
-
-        return summ, merges, dist, top
-
-    y_true = np.asarray(y_true)
-    labels_a = np.asarray(labels_a)
-    labels_b = np.asarray(labels_b)
-
-    res_a = print_report(y_true, labels_a, name_a)
-    res_b = print_report(y_true, labels_b, name_b)
-
-    if print_compare:
-        summ_a, *_ = res_a
-        summ_b, *_ = res_b
-        print("\n" + "-" * 80)
-        print("Comparison (A minus B):")
-        print(
-            f"Change in pure clusters (contain 1 true label): {summ_a['n_pure'] - summ_b['n_pure']}"
-        )
-        print(
-            f"Change in pure cluster percentage: {summ_a['pct_pure'] - summ_b['pct_pure']:.2f} percentage points"
-        )
-        print(
-            f"Change in average # true labels per cluster: {summ_a['mean_merges'] - summ_b['mean_merges']:.3f}"
-        )
-        print(
-            f"Change in max # true labels in any cluster: {summ_a['max_merges'] - summ_b['max_merges']}"
-        )
-        print(
-            f"Change in mean cluster purity: {summ_a['mean_purity'] - summ_b['mean_purity']:.3f}"
-        )
-
-    return res_a, res_b
 
 
 # Alluvial Plot:
@@ -1307,7 +705,7 @@ CARVE_GREEN_LIGHT = "#66C2A5"
 CARVE_LINE_COLORS = {"generalizability": CARVE_GREEN, "stability": CARVE_BLUE}
 
 BASELINE_WARM = [
-    "#E0457B",
+    "#FF367D",
     "#A8389E",
     "#D6292E",
     "#F28522",
@@ -2099,6 +1497,7 @@ def plot_composite_figure(
     *,
     measure: str = "generalizability",
     rule: str = "1se",
+    not_two: bool = False,
     consensus_type: str = "stability",
     carve_measures: list[tuple[str, str]] | None = None,
     carve_line_colors: dict[str, str] | None = None,
@@ -2170,7 +1569,7 @@ def plot_composite_figure(
     silhouette_labels = np.asarray(silhouette_labels)
 
     # Get CARVE consensus labels
-    carve_labels = carve_obj.get_labels(measure=measure, rule=rule, mode=consensus_type)
+    carve_labels = carve_obj.get_labels(measure=measure, rule=rule, not_two=not_two, mode=consensus_type)
     carve_labels = np.asarray(carve_labels)
 
     # --- Align cluster labels to true labels via Hungarian ---
@@ -2239,36 +1638,38 @@ def plot_composite_figure(
         y=y_arr,
         ax=ax_a,
         show=False,
-        title="True Labels",
+        title="Reported Labels",
         legend_title=true_label_legend_title,
         s=scatter_s,
         alpha=scatter_alpha,
         show_legend=False,
         hide_axes=True,
     )
-    ax_a.set_title("True Labels", fontsize=13)
+    ax_a.set_title("Reported Labels", fontsize=13)
     # Strip PCA axis labels
     ax_a.set_xlabel("")
     ax_a.set_ylabel("")
+    
     # Build a custom horizontal legend below the plot
-    handles = ax_a.collections  # scatter handles from plot_dim_red
+    # handles = ax_a.collections  # scatter handles from plot_dim_red
+    
     # Reconstruct labels from the true-label categories
-    y_cat_leg = pd.Categorical(y_arr)
-    if hasattr(y_cat_leg, "remove_unused_categories"):
-        y_cat_leg = y_cat_leg.remove_unused_categories()
-    leg_labels = [str(c) for c in y_cat_leg.categories]
-    if len(handles) >= len(leg_labels):
-        ax_a.legend(
-            handles[: len(leg_labels)],
-            leg_labels,
-            loc="upper center",
-            bbox_to_anchor=(0.5, -0.06),
-            ncol=len(leg_labels),
-            frameon=False,
-            fontsize=11,
-            columnspacing=1.0,
-            handletextpad=0.4,
-        )
+    # y_cat_leg = pd.Categorical(y_arr)
+    # if hasattr(y_cat_leg, "remove_unused_categories"):
+    #     y_cat_leg = y_cat_leg.remove_unused_categories()
+    # leg_labels = [str(c) for c in y_cat_leg.categories]
+    # if len(handles) >= len(leg_labels):
+    #     ax_a.legend(
+    #         handles[: len(leg_labels)],
+    #         leg_labels,
+    #         loc="upper center",
+    #         bbox_to_anchor=(0.5, -0.06),
+    #         ncol=len(leg_labels),
+    #         frameon=False,
+    #         fontsize=11,
+    #         columnspacing=1.0,
+    #         handletextpad=0.4,
+    #     )
 
     # =============================================================
     # (B) CARVE consensus clustering scatter
@@ -2353,286 +1754,6 @@ def plot_composite_figure(
         x_off = 0.05 if letter == "F" else -0.05
         ax.text(
             x_off,
-            1.08,
-            letter,
-            transform=ax.transAxes,
-            fontsize=18,
-            fontweight="bold",
-            va="top",
-            ha="right",
-        )
-
-    if save_path is not None:
-        fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
-
-    return fig
-
-
-def plot_composite_figure_with_splits(
-    X: np.ndarray,
-    y: np.ndarray,
-    carve_obj: Any,
-    curves_df: pd.DataFrame,
-    best_df: pd.DataFrame,
-    silhouette_labels: np.ndarray,
-    *,
-    measure: str = "generalizability",
-    rule: str = "1se",
-    consensus_type: str = "stability",
-    carve_measures: list[tuple[str, str]] | None = None,
-    carve_line_colors: dict[str, str] | None = None,
-    baseline_colors: list[str] | None = None,
-    normalize_baseline: bool = True,
-    figsize: tuple[float, float] = (18, 16),
-    scatter_s: float = 30.0,
-    scatter_alpha: float = 0.85,
-    true_label_legend_title: str = "Cell Type",
-    carve_title: str = "CARVE clustering",
-    baseline_title: str = "Silhouette clustering",
-    carve_line_title: str = "CARVE ARI over k",
-    baseline_line_title: str = "Classic metrics (normalized)",
-    split_title_a: str = "CARVE",
-    split_title_b: str = "Silhouette",
-    split_color_a: str | None = None,
-    split_color_b: str | None = None,
-    show_true_legend: bool = False,
-    annotate_carve: bool = True,
-    show_1se: bool = True,
-    save_path: str | None = None,
-    dpi: int = 300,
-) -> plt.Figure:
-    """Composite paper figure with split-count bar charts in the bottom row.
-
-    Identical to ``plot_composite_figure`` for the top two rows (scatter +
-    line plots), but replaces the alluvial diagram with two side-by-side bar
-    charts showing how many true labels are kept intact (1 cluster), split
-    into 2 clusters, 3 clusters, etc.
-
-    Parameters
-    ----------
-    split_title_a, split_title_b : str
-        Titles for the CARVE and baseline bar-chart panels.
-    split_color_a, split_color_b : str | None
-        Bar colors. Defaults to CARVE green / warm pink.
-    show_true_legend : bool
-        Show a legend beneath the true-label scatter.  Default False
-        (useful when the number of true classes is large).
-    annotate_carve : bool
-        Show vertical lines, dots, and a text annotation at the
-        selected k in the CARVE line plot (panel D).  Default True.
-    All other parameters are identical to ``plot_composite_figure``.
-    """
-
-    X = np.asarray(X)
-    y_arr = np.asarray(y) if not isinstance(y, np.ndarray) else y
-    silhouette_labels = np.asarray(silhouette_labels)
-
-    # Get CARVE consensus labels
-    carve_labels = carve_obj.get_labels(measure=measure, rule=rule, mode=consensus_type)
-    carve_labels = np.asarray(carve_labels)
-
-    # Align labels via Hungarian for scatter plots
-    from benchmarking_utils import align_labels as _align_labels
-
-    y_codes = pd.Categorical(y_arr).codes
-    carve_labels = _align_labels(y_codes, carve_labels)
-    silhouette_labels = _align_labels(y_codes, silhouette_labels)
-
-    # Shared PCA projection
-    Z, pca_obj = _pca_project(X)
-
-    # Color maps
-    carve_cmap = _cluster_color_map(carve_labels)
-    sil_cmap = _cluster_color_map(silhouette_labels)
-
-    y_cat = pd.Categorical(y_arr)
-    if hasattr(y_cat, "remove_unused_categories"):
-        y_cat = y_cat.remove_unused_categories()
-
-    # =========  layout  =========
-    height_ratios = [1, 1.0, 0.7]
-    fig_w, fig_h = figsize
-    fig = plt.figure(figsize=(fig_w, fig_h), constrained_layout=False)
-
-    gs = fig.add_gridspec(
-        3,
-        6,
-        height_ratios=height_ratios,
-        hspace=0.55,
-        wspace=0.4,
-    )
-
-    ax_a = fig.add_subplot(gs[0, 0:2])  # true labels
-    ax_b = fig.add_subplot(gs[0, 2:4])  # CARVE clusters
-    ax_c = fig.add_subplot(gs[0, 4:6])  # baseline clusters
-    ax_d = fig.add_subplot(gs[1, 0:3])  # CARVE lines
-    ax_e = fig.add_subplot(gs[1, 3:6])  # baseline lines
-    ax_f = fig.add_subplot(gs[2, 0:3])  # split bars CARVE
-    ax_g = fig.add_subplot(gs[2, 3:6])  # split bars baseline
-
-    # Nudge scatter row down and lineplot row up
-    for ax in (ax_a, ax_b, ax_c):
-        box = ax.get_position()
-        ax.set_position([box.x0, box.y0 - 0.02, box.width, box.height])
-    for ax in (ax_d, ax_e):
-        box = ax.get_position()
-        ax.set_position([box.x0, box.y0 + 0.01, box.width, box.height])
-
-    # =========  Row 0: Scatter plots  =========
-    # (A) True labels
-    plot_dim_red(
-        X,
-        y=y_arr,
-        ax=ax_a,
-        show=False,
-        title="True Labels",
-        legend_title=true_label_legend_title,
-        s=scatter_s,
-        alpha=scatter_alpha,
-        show_legend=False,
-        hide_axes=True,
-    )
-    ax_a.set_title("True Labels", fontsize=13)
-    ax_a.set_xlabel("")
-    ax_a.set_ylabel("")
-    if show_true_legend:
-        handles = ax_a.collections
-        y_cat_leg = pd.Categorical(y_arr)
-        if hasattr(y_cat_leg, "remove_unused_categories"):
-            y_cat_leg = y_cat_leg.remove_unused_categories()
-        leg_labels = [str(c) for c in y_cat_leg.categories]
-        if len(handles) >= len(leg_labels):
-            ax_a.legend(
-                handles[: len(leg_labels)],
-                leg_labels,
-                loc="upper center",
-                bbox_to_anchor=(0.5, -0.06),
-                ncol=min(len(leg_labels), 8),
-                frameon=False,
-                fontsize=8,
-                columnspacing=0.8,
-                handletextpad=0.3,
-            )
-
-    # (B) CARVE
-    plot_cluster_scatter(
-        X,
-        carve_labels,
-        ax=ax_b,
-        color_map=carve_cmap,
-        s=scatter_s,
-        alpha=scatter_alpha,
-        title=carve_title,
-        Z=Z,
-        pca_obj=pca_obj,
-    )
-
-    # (C) Baseline
-    plot_cluster_scatter(
-        X,
-        silhouette_labels,
-        ax=ax_c,
-        color_map=sil_cmap,
-        s=scatter_s,
-        alpha=scatter_alpha,
-        title=baseline_title,
-        Z=Z,
-        pca_obj=pca_obj,
-    )
-
-    # =========  Row 1: Line plots  =========
-    # (D) CARVE
-    plot_carve_best_lines(
-        carve_obj,
-        ax=ax_d,
-        measures=carve_measures,
-        colors=carve_line_colors,
-        title=carve_line_title,
-        show_1se=show_1se,
-        annotate=annotate_carve,
-    )
-
-    # (E) Baseline
-    plot_baseline_best_lines(
-        curves_df,
-        best_df,
-        ax=ax_e,
-        colors=baseline_colors,
-        title=baseline_line_title,
-        normalize=normalize_baseline,
-    )
-
-    # =========  Row 2: Split-count bar charts  =========
-    def _count_splits(true_labels, cluster_labels):
-        true_labels = np.asarray(true_labels)
-        cluster_labels = np.asarray(cluster_labels)
-        splits = []
-        for lab in np.unique(true_labels):
-            members = cluster_labels[true_labels == lab]
-            splits.append(len(np.unique(members)))
-        return np.asarray(splits, dtype=int)
-
-    if split_color_a is None:
-        split_color_a = CARVE_GREEN
-    if split_color_b is None:
-        split_color_b = BASELINE_WARM[0]
-
-    splits_carve = _count_splits(y_arr, carve_labels)
-    splits_sil = _count_splits(y_arr, silhouette_labels)
-
-    # Shared x range for visual comparability
-    all_split_vals = np.union1d(np.unique(splits_carve), np.unique(splits_sil))
-    x_lo, x_hi = int(all_split_vals.min()), int(all_split_vals.max())
-    all_x = np.arange(x_lo, x_hi + 1)
-
-    def _plot_split_bars(ax, splits, title, color, all_x):
-        values, counts = np.unique(splits, return_counts=True)
-        count_map = dict(zip(values, counts))
-        bar_counts = [count_map.get(v, 0) for v in all_x]
-
-        ax.bar(all_x, bar_counts, color=color, edgecolor="black", linewidth=0.5)
-        ax.set_title(title, fontsize=13)
-        ax.set_xlabel("Number of clusters per true label", fontsize=11)
-        ax.set_xticks(all_x)
-        ax.tick_params(labelsize=10)
-        ax.grid(axis="y", alpha=0.22)
-        # annotate counts on bars
-        for xv, ct in zip(all_x, bar_counts):
-            if ct > 0:
-                ax.text(
-                    xv,
-                    ct + 0.3,
-                    str(ct),
-                    ha="center",
-                    va="bottom",
-                    fontsize=10,
-                    fontweight="bold",
-                )
-
-    _plot_split_bars(ax_f, splits_carve, split_title_a, split_color_a, all_x)
-    ax_f.set_ylabel("Number of true labels", fontsize=11)
-
-    _plot_split_bars(ax_g, splits_sil, split_title_b, split_color_b, all_x)
-    ax_g.set_ylabel("")
-
-    # Shared y limit
-    y_max = max(ax_f.get_ylim()[1], ax_g.get_ylim()[1])
-    ax_f.set_ylim(0, y_max * 1.12)
-    ax_g.set_ylim(0, y_max * 1.12)
-
-    # --- Panel letter labels ---
-    panel_axes = [
-        (ax_a, "A"),
-        (ax_b, "B"),
-        (ax_c, "C"),
-        (ax_d, "D"),
-        (ax_e, "E"),
-        (ax_f, "F"),
-        (ax_g, "G"),
-    ]
-    for ax, letter in panel_axes:
-        ax.text(
-            -0.05,
             1.08,
             letter,
             transform=ax.transAxes,
@@ -3218,3 +2339,886 @@ def plot_ari_comparison_dotplot(
             fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
 
     return fig
+
+
+# Legacy:
+
+# def calculate_baseline_aris_and_plot(
+#     X: np.ndarray,
+#     *,
+#     y: np.ndarray,
+#     label_col: str = "label",
+#     s: int = 50,
+#     alpha: float = 0.8,
+#     linewidth: float = 0.1,
+#     hide_axes: bool = True,
+#     show_legend: bool = False,
+#     figsize: tuple[float, float] = (12, 10),
+#     random_state: int = 0,
+# ) -> tuple[float, np.ndarray]:
+#     # --- coerce inputs ---
+#     if isinstance(X, pd.DataFrame):
+#         X_arr = X.to_numpy()
+#     else:
+#         X_arr = np.asarray(X)
+
+#     if isinstance(y, (pd.Series, pd.Index)):
+#         y_arr = y.to_numpy()
+#     else:
+#         y_arr = np.asarray(y)
+
+#     n_clusters = len(np.unique(y_arr))
+
+#     # KMeans
+#     kmeans = KMeans(n_clusters=n_clusters, random_state=random_state)
+#     kmeans_labels = kmeans.fit_predict(X_arr)
+#     ari_kmeans = adjusted_rand_score(y_arr, kmeans_labels)
+
+#     # Agglomerative (Ward linkage)
+#     agg_w = AgglomerativeClustering(n_clusters=n_clusters, linkage="ward")
+#     agg_w_labels = agg_w.fit_predict(X_arr)
+#     ari_agg_w = adjusted_rand_score(y_arr, agg_w_labels)
+
+#     # Agglomerative (single linkage)
+#     agg_s = AgglomerativeClustering(n_clusters=n_clusters, linkage="single")
+#     agg_s_labels = agg_s.fit_predict(X_arr)
+#     ari_agg_s = adjusted_rand_score(y_arr, agg_s_labels)
+
+#     # Leiden
+#     leiden = LeidenClustering(n_clusters=n_clusters, random_state=random_state)
+#     leiden_labels = leiden.fit_predict(X_arr)
+#     ari_leiden = adjusted_rand_score(y_arr, leiden_labels)
+
+#     # Spectral Clustering (median heuristic for gamma)
+#     spectral = SpectralClusteringCARVE(                                                                                        
+#         n_clusters=n_clusters, affinity="self_tuning", random_state=random_state
+#     )
+#     spectral_labels = spectral.fit_predict(X_arr)
+#     ari_spectral = adjusted_rand_score(y_arr, spectral_labels)
+
+#     # Get PCs
+#     pca = PCA(n_components=2, random_state=0)
+#     pcs = pca.fit_transform(X_arr)
+
+#     # Construct data frame
+#     pc_df = pd.DataFrame(pcs, columns=["PC1", "PC2"])
+#     pc_df[label_col] = y_arr
+
+#     # Plot PCA with labels
+#     _, axes = plt.subplots(2, 3, figsize=figsize, sharex=True, sharey=True)
+
+#     y_cat = pd.Categorical(y_arr)
+#     if hasattr(y_cat, "remove_unused_categories"):
+#         y_cat = y_cat.remove_unused_categories()
+#     y_codes = y_cat.codes
+#     y_code_colors = _cluster_color_map(y_codes)
+#     y_color_map = {
+#         lab: y_code_colors[code]
+#         for lab, code in zip(y_cat.categories, range(len(y_cat.categories)))
+#     }
+
+#     # Plot true labels
+#     ax_true = axes[0, 0]
+#     for lab in y_cat.categories:
+#         sel = pc_df[label_col] == lab
+#         ax_true.scatter(
+#             pc_df.loc[sel, "PC1"],
+#             pc_df.loc[sel, "PC2"],
+#             s=s,
+#             alpha=alpha,
+#             edgecolor="k",
+#             linewidth=linewidth,
+#             color=y_color_map[lab],
+#             label=lab,
+#         )
+#     ax_true.set_title("True Cell Type Labels")
+
+#     if show_legend:
+#         ax_true.legend(
+#             markerscale=1.5, bbox_to_anchor=(1.02, 1), loc="upper left", fontsize=10
+#         )
+
+#     titles = [
+#         f"KMeans (ARI={ari_kmeans:.3f})",
+#         f"Agglomerative (Ward) (ARI={ari_agg_w:.3f})",
+#         f"Agglomerative (Single Linkage) (ARI={ari_agg_s:.3f})",
+#         f"Leiden (ARI={ari_leiden:.3f})",
+#         f"Spectral (ARI={ari_spectral:.3f})",
+#     ]
+#     clusterings = [
+#         kmeans_labels,
+#         agg_w_labels,
+#         agg_s_labels,
+#         leiden_labels,
+#         spectral_labels,
+#     ]
+#     aligned_clusterings = [
+#         align_labels(pd.Categorical(y).codes, labels) for labels in clusterings
+#     ]
+
+#     for ax, labels, title in zip(axes.flat[1:], aligned_clusterings, titles):
+#         cluster_color_map = _cluster_color_map(labels)
+#         for cluster in np.unique(labels):
+#             sel = labels == cluster
+#             ax.scatter(
+#                 pc_df.loc[sel, "PC1"],
+#                 pc_df.loc[sel, "PC2"],
+#                 s=s,
+#                 alpha=alpha,
+#                 edgecolor="k",
+#                 linewidth=linewidth,
+#                 color=cluster_color_map[int(cluster)],
+#                 label=f"Cluster {cluster}",
+#             )
+#         ax.set_title(title)
+
+#         if show_legend:
+#             ax.legend(
+#                 markerscale=1.5, bbox_to_anchor=(1.02, 1), loc="upper left", fontsize=10
+#             )
+
+#     if hide_axes:
+#         for ax in axes.flat:
+#             ax.set_xticks([])
+#             ax.set_yticks([])
+#             for spine in ax.spines.values():
+#                 spine.set_visible(False)
+
+#     plt.suptitle("Clustering results on PCA-reduced data", fontsize=18)
+#     plt.tight_layout(rect=[0, 0, 1, 0.97])
+#     plt.show()
+
+
+# Split quantification
+# def plot_label_split_counts(
+#     true_labels,
+#     labels_a,
+#     labels_b,
+#     title_a="Agglomerative (single linkage)",
+#     title_b="KMeans",
+#     color_a=None,
+#     color_b=None,
+#     figsize=(14, 5),
+# ):
+#     """
+#     Plot how many clusters each true label is split into, for two labelings.
+#     """
+#     true_labels = np.asarray(true_labels)
+#     labels_a = np.asarray(labels_a)
+#     labels_b = np.asarray(labels_b)
+
+#     # default to Okabe–Ito colors
+#     if color_a is None or color_b is None:
+#         okabe = _get_color_mapping(2)
+#         color_a = okabe[0] if color_a is None else color_a
+#         color_b = okabe[1] if color_b is None else color_b
+
+#     def count_splits(true_labels, cluster_labels):
+#         splits = []
+#         for lab in np.unique(true_labels):
+#             members = cluster_labels[true_labels == lab]
+#             splits.append(len(np.unique(members)))
+#         return np.asarray(splits, dtype=int)
+
+#     def plot_counts(ax, splits, title, color):
+#         values, counts = np.unique(splits, return_counts=True)
+#         ax.bar(values, counts, color=color, edgecolor="black", linewidth=0.5)
+#         ax.set_title(title)
+#         ax.set_xlabel("Number of clusters per true label")
+#         ax.set_xticks(values)
+
+#     splits_a = count_splits(true_labels, labels_a)
+#     splits_b = count_splits(true_labels, labels_b)
+
+#     fig, axes = plt.subplots(1, 2, figsize=figsize, sharey=True)
+
+#     plot_counts(axes[0], splits_a, title_a, color_a)
+#     axes[0].set_ylabel("Count")
+
+#     plot_counts(axes[1], splits_b, title_b, color_b)
+#     axes[1].set_ylabel("")
+
+#     plt.tight_layout()
+#     plt.show()
+
+
+# def fragmentation_report(
+#     y_true,
+#     labels_a,
+#     labels_b,
+#     name_a="method A",
+#     name_b="method B",
+#     top_n=10,
+#     print_compare=True,
+# ):
+#     """
+#     Compute fragmentation stats for two labelings and optionally print a comparison.
+#     Returns:
+#         (summ_a, splits_a, dist_a, top_a), (summ_b, splits_b, dist_b, top_b)
+#     """
+
+#     def fragmentation_by_label(y_true, y_pred):
+#         y_true = np.asarray(y_true)
+#         y_pred = np.asarray(y_pred)
+
+#         labels = pd.unique(y_true)
+#         split_counts = {}
+#         for lab in labels:
+#             members = y_pred[y_true == lab]
+#             split_counts[lab] = pd.unique(members).size
+
+#         splits = pd.Series(split_counts, name="n_clusters").sort_values(ascending=False)
+#         return splits
+
+#     def summarize_fragmentation(splits: pd.Series, name="method"):
+#         arr = splits.to_numpy(dtype=float)
+#         L = splits.size
+
+#         out = {
+#             "name": name,
+#             "L_total_labels": int(L),
+#             "n_intact": int((arr == 1).sum()),
+#             "pct_intact": float((arr == 1).mean() * 100),
+#             "n_split_ge2": int((arr >= 2).sum()),
+#             "pct_split_ge2": float((arr >= 2).mean() * 100),
+#             "mean_splits": float(arr.mean()),
+#             "median_splits": float(np.median(arr)),
+#             "q25_splits": float(np.quantile(arr, 0.25)),
+#             "q75_splits": float(np.quantile(arr, 0.75)),
+#             "q90_splits": float(np.quantile(arr, 0.90)),
+#             "q95_splits": float(np.quantile(arr, 0.95)),
+#             "max_splits": int(arr.max()),
+#             "n_at_max": int((arr == arr.max()).sum()),
+#             "n_split_ge3": int((arr >= 3).sum()),
+#             "n_split_ge5": int((arr >= 5).sum()),
+#             "n_split_ge8": int((arr >= 8).sum()),
+#         }
+#         return out
+
+#     def split_distribution_table(splits: pd.Series):
+#         dist = splits.value_counts().sort_index()
+#         dist.index.name = "clusters_per_label"
+#         dist.name = "n_labels"
+#         return dist.reset_index()
+
+#     def print_report(y_true, y_pred, name):
+#         splits = fragmentation_by_label(y_true, y_pred)
+#         summ = summarize_fragmentation(splits, name=name)
+#         dist = split_distribution_table(splits)
+#         top = splits.head(top_n)
+
+#         label_map = {
+#             "name": "Method",
+#             "L_total_labels": "Total true labels",
+#             "n_intact": "Intact labels (split into 1 cluster)",
+#             "pct_intact": "Intact labels (%)",
+#             "n_split_ge2": "Labels split into 2+ clusters",
+#             "pct_split_ge2": "Labels split into 2+ clusters (%)",
+#             "mean_splits": "Average # clusters per true label",
+#             "median_splits": "Median # clusters per true label",
+#             "q25_splits": "25th percentile of splits",
+#             "q75_splits": "75th percentile of splits",
+#             "q90_splits": "90th percentile of splits",
+#             "q95_splits": "95th percentile of splits",
+#             "max_splits": "Max # clusters for any true label",
+#             "n_at_max": "# labels at max split count",
+#             "n_split_ge3": "Labels split into 3+ clusters",
+#             "n_split_ge5": "Labels split into 5+ clusters",
+#             "n_split_ge8": "Labels split into 8+ clusters",
+#         }
+
+#         summary_order = [
+#             "name",
+#             "L_total_labels",
+#             "n_intact",
+#             "pct_intact",
+#             "n_split_ge2",
+#             "pct_split_ge2",
+#             "mean_splits",
+#             "median_splits",
+#             "q25_splits",
+#             "q75_splits",
+#             "q90_splits",
+#             "q95_splits",
+#             "max_splits",
+#             "n_at_max",
+#             "n_split_ge3",
+#             "n_split_ge5",
+#             "n_split_ge8",
+#         ]
+
+#         print("\n" + "=" * 80)
+#         print(f"Label fragmentation summary: {name}")
+#         print("=" * 80)
+#         for k in summary_order:
+#             v = summ.get(k)
+#             if isinstance(v, float):
+#                 print(f"{label_map.get(k, k):>40}: {v:.3f}")
+#             else:
+#                 print(f"{label_map.get(k, k):>40}: {v}")
+
+#         print("\nHow many true labels were split into N clusters:")
+#         print(dist.to_string(index=False))
+
+#         print(f"\nMost fragmented true labels (top {top_n}):")
+#         print(top.to_string())
+
+#         return summ, splits, dist, top
+
+#     y_true = np.asarray(y_true)
+#     labels_a = np.asarray(labels_a)
+#     labels_b = np.asarray(labels_b)
+
+#     res_a = print_report(y_true, labels_a, name_a)
+#     res_b = print_report(y_true, labels_b, name_b)
+
+#     if print_compare:
+#         summ_a, *_ = res_a
+#         summ_b, *_ = res_b
+#         print("\n" + "-" * 80)
+#         print("Comparison (A minus B):")
+#         print(
+#             f"Change in intact labels (split into 1 cluster): {summ_a['n_intact'] - summ_b['n_intact']}"
+#         )
+#         print(
+#             f"Change in intact label percentage: {summ_a['pct_intact'] - summ_b['pct_intact']:.2f} percentage points"
+#         )
+#         print(
+#             f"Change in average # of clusters per true label: {summ_a['mean_splits'] - summ_b['mean_splits']:.3f}"
+#         )
+#         print(
+#             f"Change in max # of clusters for any true label: {summ_a['max_splits'] - summ_b['max_splits']}"
+#         )
+
+#     return res_a, res_b
+
+
+# def plot_label_merge_counts(
+#     true_labels,
+#     labels_a,
+#     labels_b,
+#     title_a="method A",
+#     title_b="method B",
+#     color_a=None,
+#     color_b=None,
+#     figsize=(14, 5),
+# ):
+#     """
+#     Plot how many true labels each predicted cluster contains, for two labelings.
+
+#     This is the underclustering counterpart of `plot_label_split_counts`:
+#       - split counts  → overclustering  (true label → N predicted clusters)
+#       - merge counts  → underclustering  (predicted cluster → N true labels)
+#     """
+#     true_labels = np.asarray(true_labels)
+#     labels_a = np.asarray(labels_a)
+#     labels_b = np.asarray(labels_b)
+
+#     if color_a is None or color_b is None:
+#         okabe = _get_color_mapping(2)
+#         color_a = okabe[0] if color_a is None else color_a
+#         color_b = okabe[1] if color_b is None else color_b
+
+#     def count_merges(true_labels, cluster_labels):
+#         merges = []
+#         for cl in np.unique(cluster_labels):
+#             members = true_labels[cluster_labels == cl]
+#             merges.append(len(np.unique(members)))
+#         return np.asarray(merges, dtype=int)
+
+#     def plot_counts(ax, merges, title, color):
+#         values, counts = np.unique(merges, return_counts=True)
+#         ax.bar(values, counts, color=color, edgecolor="black", linewidth=0.5)
+#         ax.set_title(title)
+#         ax.set_xlabel("Number of true labels per predicted cluster")
+#         ax.set_xticks(values)
+
+#     merges_a = count_merges(true_labels, labels_a)
+#     merges_b = count_merges(true_labels, labels_b)
+
+#     fig, axes = plt.subplots(1, 2, figsize=figsize, sharey=True)
+
+#     plot_counts(axes[0], merges_a, title_a, color_a)
+#     axes[0].set_ylabel("Count")
+
+#     plot_counts(axes[1], merges_b, title_b, color_b)
+#     axes[1].set_ylabel("")
+
+#     plt.tight_layout()
+#     plt.show()
+
+
+# def merging_report(
+#     y_true,
+#     labels_a,
+#     labels_b,
+#     name_a="method A",
+#     name_b="method B",
+#     top_n=10,
+#     print_compare=True,
+# ):
+#     """
+#     Compute merging / underclustering stats for two labelings and optionally
+#     print a comparison.
+
+#     This is the directional complement of `fragmentation_report`:
+#       - fragmentation  → overclustering  (true label → N predicted clusters)
+#       - merging         → underclustering  (predicted cluster → N true labels)
+
+#     For each predicted cluster we compute:
+#       - **merge count**: how many distinct true labels its members belong to.
+#       - **purity**: fraction of members from the dominant (most frequent) true label.
+
+#     Returns:
+#         (summ_a, merges_a, dist_a, top_a), (summ_b, merges_b, dist_b, top_b)
+#     """
+
+#     def merges_by_cluster(y_true, y_pred):
+#         y_true = np.asarray(y_true)
+#         y_pred = np.asarray(y_pred)
+
+#         clusters = pd.unique(y_pred)
+#         merge_counts = {}
+#         for cl in clusters:
+#             members = y_true[y_pred == cl]
+#             merge_counts[cl] = pd.unique(members).size
+
+#         merges = pd.Series(merge_counts, name="n_true_labels").sort_values(
+#             ascending=False
+#         )
+#         return merges
+
+#     def purity_by_cluster(y_true, y_pred):
+#         y_true = np.asarray(y_true)
+#         y_pred = np.asarray(y_pred)
+
+#         clusters = pd.unique(y_pred)
+#         purities = {}
+#         for cl in clusters:
+#             members = y_true[y_pred == cl]
+#             counts = pd.Series(members).value_counts()
+#             purities[cl] = float(counts.iloc[0] / len(members))
+
+#         return pd.Series(purities, name="purity").sort_values(ascending=True)
+
+#     def summarize_merging(merges: pd.Series, purities: pd.Series, name="method"):
+#         arr = merges.to_numpy(dtype=float)
+#         pur = purities.to_numpy(dtype=float)
+#         K = merges.size
+
+#         out = {
+#             "name": name,
+#             "K_total_clusters": int(K),
+#             "n_pure": int((arr == 1).sum()),
+#             "pct_pure": float((arr == 1).mean() * 100),
+#             "n_merged_ge2": int((arr >= 2).sum()),
+#             "pct_merged_ge2": float((arr >= 2).mean() * 100),
+#             "mean_merges": float(arr.mean()),
+#             "median_merges": float(np.median(arr)),
+#             "q25_merges": float(np.quantile(arr, 0.25)),
+#             "q75_merges": float(np.quantile(arr, 0.75)),
+#             "q90_merges": float(np.quantile(arr, 0.90)),
+#             "q95_merges": float(np.quantile(arr, 0.95)),
+#             "max_merges": int(arr.max()),
+#             "n_at_max": int((arr == arr.max()).sum()),
+#             "n_merged_ge3": int((arr >= 3).sum()),
+#             "n_merged_ge5": int((arr >= 5).sum()),
+#             "n_merged_ge8": int((arr >= 8).sum()),
+#             # purity statistics
+#             "mean_purity": float(pur.mean()),
+#             "median_purity": float(np.median(pur)),
+#             "min_purity": float(pur.min()),
+#             "q10_purity": float(np.quantile(pur, 0.10)),
+#             "q25_purity": float(np.quantile(pur, 0.25)),
+#         }
+#         return out
+
+#     def merge_distribution_table(merges: pd.Series):
+#         dist = merges.value_counts().sort_index()
+#         dist.index.name = "true_labels_per_cluster"
+#         dist.name = "n_clusters"
+#         return dist.reset_index()
+
+#     def print_report(y_true, y_pred, name):
+#         merges = merges_by_cluster(y_true, y_pred)
+#         purities = purity_by_cluster(y_true, y_pred)
+#         summ = summarize_merging(merges, purities, name=name)
+#         dist = merge_distribution_table(merges)
+#         top = merges.head(top_n)
+
+#         label_map = {
+#             "name": "Method",
+#             "K_total_clusters": "Total predicted clusters",
+#             "n_pure": "Pure clusters (contain 1 true label)",
+#             "pct_pure": "Pure clusters (%)",
+#             "n_merged_ge2": "Clusters merging 2+ true labels",
+#             "pct_merged_ge2": "Clusters merging 2+ true labels (%)",
+#             "mean_merges": "Average # true labels per cluster",
+#             "median_merges": "Median # true labels per cluster",
+#             "q25_merges": "25th percentile of merge counts",
+#             "q75_merges": "75th percentile of merge counts",
+#             "q90_merges": "90th percentile of merge counts",
+#             "q95_merges": "95th percentile of merge counts",
+#             "max_merges": "Max # true labels in any cluster",
+#             "n_at_max": "# clusters at max merge count",
+#             "n_merged_ge3": "Clusters merging 3+ true labels",
+#             "n_merged_ge5": "Clusters merging 5+ true labels",
+#             "n_merged_ge8": "Clusters merging 8+ true labels",
+#             "mean_purity": "Mean cluster purity",
+#             "median_purity": "Median cluster purity",
+#             "min_purity": "Minimum cluster purity",
+#             "q10_purity": "10th percentile of purity",
+#             "q25_purity": "25th percentile of purity",
+#         }
+
+#         summary_order = [
+#             "name",
+#             "K_total_clusters",
+#             "n_pure",
+#             "pct_pure",
+#             "n_merged_ge2",
+#             "pct_merged_ge2",
+#             "mean_merges",
+#             "median_merges",
+#             "q25_merges",
+#             "q75_merges",
+#             "q90_merges",
+#             "q95_merges",
+#             "max_merges",
+#             "n_at_max",
+#             "n_merged_ge3",
+#             "n_merged_ge5",
+#             "n_merged_ge8",
+#             "mean_purity",
+#             "median_purity",
+#             "min_purity",
+#             "q10_purity",
+#             "q25_purity",
+#         ]
+
+#         print("\n" + "=" * 80)
+#         print(f"Cluster merging summary: {name}")
+#         print("=" * 80)
+#         for k in summary_order:
+#             v = summ.get(k)
+#             if isinstance(v, float):
+#                 print(f"{label_map.get(k, k):>45}: {v:.3f}")
+#             else:
+#                 print(f"{label_map.get(k, k):>45}: {v}")
+
+#         print("\nHow many predicted clusters contain N true labels:")
+#         print(dist.to_string(index=False))
+
+#         print(f"\nMost merged predicted clusters (top {top_n}):")
+#         print(top.to_string())
+
+#         return summ, merges, dist, top
+
+#     y_true = np.asarray(y_true)
+#     labels_a = np.asarray(labels_a)
+#     labels_b = np.asarray(labels_b)
+
+#     res_a = print_report(y_true, labels_a, name_a)
+#     res_b = print_report(y_true, labels_b, name_b)
+
+#     if print_compare:
+#         summ_a, *_ = res_a
+#         summ_b, *_ = res_b
+#         print("\n" + "-" * 80)
+#         print("Comparison (A minus B):")
+#         print(
+#             f"Change in pure clusters (contain 1 true label): {summ_a['n_pure'] - summ_b['n_pure']}"
+#         )
+#         print(
+#             f"Change in pure cluster percentage: {summ_a['pct_pure'] - summ_b['pct_pure']:.2f} percentage points"
+#         )
+#         print(
+#             f"Change in average # true labels per cluster: {summ_a['mean_merges'] - summ_b['mean_merges']:.3f}"
+#         )
+#         print(
+#             f"Change in max # true labels in any cluster: {summ_a['max_merges'] - summ_b['max_merges']}"
+#         )
+#         print(
+#             f"Change in mean cluster purity: {summ_a['mean_purity'] - summ_b['mean_purity']:.3f}"
+#         )
+
+#     return res_a, res_b
+
+# def plot_composite_figure_with_splits(
+#     X: np.ndarray,
+#     y: np.ndarray,
+#     carve_obj: Any,
+#     curves_df: pd.DataFrame,
+#     best_df: pd.DataFrame,
+#     silhouette_labels: np.ndarray,
+#     *,
+#     measure: str = "generalizability",
+#     rule: str = "1se",
+#     consensus_type: str = "stability",
+#     carve_measures: list[tuple[str, str]] | None = None,
+#     carve_line_colors: dict[str, str] | None = None,
+#     baseline_colors: list[str] | None = None,
+#     normalize_baseline: bool = True,
+#     figsize: tuple[float, float] = (18, 16),
+#     scatter_s: float = 30.0,
+#     scatter_alpha: float = 0.85,
+#     true_label_legend_title: str = "Cell Type",
+#     carve_title: str = "CARVE clustering",
+#     baseline_title: str = "Silhouette clustering",
+#     carve_line_title: str = "CARVE ARI over k",
+#     baseline_line_title: str = "Classic metrics (normalized)",
+#     split_title_a: str = "CARVE",
+#     split_title_b: str = "Silhouette",
+#     split_color_a: str | None = None,
+#     split_color_b: str | None = None,
+#     show_true_legend: bool = False,
+#     annotate_carve: bool = True,
+#     show_1se: bool = True,
+#     save_path: str | None = None,
+#     dpi: int = 300,
+# ) -> plt.Figure:
+#     """Composite paper figure with split-count bar charts in the bottom row.
+
+#     Identical to ``plot_composite_figure`` for the top two rows (scatter +
+#     line plots), but replaces the alluvial diagram with two side-by-side bar
+#     charts showing how many true labels are kept intact (1 cluster), split
+#     into 2 clusters, 3 clusters, etc.
+
+#     Parameters
+#     ----------
+#     split_title_a, split_title_b : str
+#         Titles for the CARVE and baseline bar-chart panels.
+#     split_color_a, split_color_b : str | None
+#         Bar colors. Defaults to CARVE green / warm pink.
+#     show_true_legend : bool
+#         Show a legend beneath the true-label scatter.  Default False
+#         (useful when the number of true classes is large).
+#     annotate_carve : bool
+#         Show vertical lines, dots, and a text annotation at the
+#         selected k in the CARVE line plot (panel D).  Default True.
+#     All other parameters are identical to ``plot_composite_figure``.
+#     """
+
+#     X = np.asarray(X)
+#     y_arr = np.asarray(y) if not isinstance(y, np.ndarray) else y
+#     silhouette_labels = np.asarray(silhouette_labels)
+
+#     # Get CARVE consensus labels
+#     carve_labels = carve_obj.get_labels(measure=measure, rule=rule, mode=consensus_type)
+#     carve_labels = np.asarray(carve_labels)
+
+#     # Align labels via Hungarian for scatter plots
+#     from benchmarking_utils import align_labels as _align_labels
+
+#     y_codes = pd.Categorical(y_arr).codes
+#     carve_labels = _align_labels(y_codes, carve_labels)
+#     silhouette_labels = _align_labels(y_codes, silhouette_labels)
+
+#     # Shared PCA projection
+#     Z, pca_obj = _pca_project(X)
+
+#     # Color maps
+#     carve_cmap = _cluster_color_map(carve_labels)
+#     sil_cmap = _cluster_color_map(silhouette_labels)
+
+#     y_cat = pd.Categorical(y_arr)
+#     if hasattr(y_cat, "remove_unused_categories"):
+#         y_cat = y_cat.remove_unused_categories()
+
+#     # =========  layout  =========
+#     height_ratios = [1, 1.0, 0.7]
+#     fig_w, fig_h = figsize
+#     fig = plt.figure(figsize=(fig_w, fig_h), constrained_layout=False)
+
+#     gs = fig.add_gridspec(
+#         3,
+#         6,
+#         height_ratios=height_ratios,
+#         hspace=0.55,
+#         wspace=0.4,
+#     )
+
+#     ax_a = fig.add_subplot(gs[0, 0:2])  # true labels
+#     ax_b = fig.add_subplot(gs[0, 2:4])  # CARVE clusters
+#     ax_c = fig.add_subplot(gs[0, 4:6])  # baseline clusters
+#     ax_d = fig.add_subplot(gs[1, 0:3])  # CARVE lines
+#     ax_e = fig.add_subplot(gs[1, 3:6])  # baseline lines
+#     ax_f = fig.add_subplot(gs[2, 0:3])  # split bars CARVE
+#     ax_g = fig.add_subplot(gs[2, 3:6])  # split bars baseline
+
+#     # Nudge scatter row down and lineplot row up
+#     for ax in (ax_a, ax_b, ax_c):
+#         box = ax.get_position()
+#         ax.set_position([box.x0, box.y0 - 0.02, box.width, box.height])
+#     for ax in (ax_d, ax_e):
+#         box = ax.get_position()
+#         ax.set_position([box.x0, box.y0 + 0.01, box.width, box.height])
+
+#     # =========  Row 0: Scatter plots  =========
+#     # (A) True labels
+#     plot_dim_red(
+#         X,
+#         y=y_arr,
+#         ax=ax_a,
+#         show=False,
+#         title="True Labels",
+#         legend_title=true_label_legend_title,
+#         s=scatter_s,
+#         alpha=scatter_alpha,
+#         show_legend=False,
+#         hide_axes=True,
+#     )
+#     ax_a.set_title("True Labels", fontsize=13)
+#     ax_a.set_xlabel("")
+#     ax_a.set_ylabel("")
+#     if show_true_legend:
+#         handles = ax_a.collections
+#         y_cat_leg = pd.Categorical(y_arr)
+#         if hasattr(y_cat_leg, "remove_unused_categories"):
+#             y_cat_leg = y_cat_leg.remove_unused_categories()
+#         leg_labels = [str(c) for c in y_cat_leg.categories]
+#         if len(handles) >= len(leg_labels):
+#             ax_a.legend(
+#                 handles[: len(leg_labels)],
+#                 leg_labels,
+#                 loc="upper center",
+#                 bbox_to_anchor=(0.5, -0.06),
+#                 ncol=min(len(leg_labels), 8),
+#                 frameon=False,
+#                 fontsize=8,
+#                 columnspacing=0.8,
+#                 handletextpad=0.3,
+#             )
+
+#     # (B) CARVE
+#     plot_cluster_scatter(
+#         X,
+#         carve_labels,
+#         ax=ax_b,
+#         color_map=carve_cmap,
+#         s=scatter_s,
+#         alpha=scatter_alpha,
+#         title=carve_title,
+#         Z=Z,
+#         pca_obj=pca_obj,
+#     )
+
+#     # (C) Baseline
+#     plot_cluster_scatter(
+#         X,
+#         silhouette_labels,
+#         ax=ax_c,
+#         color_map=sil_cmap,
+#         s=scatter_s,
+#         alpha=scatter_alpha,
+#         title=baseline_title,
+#         Z=Z,
+#         pca_obj=pca_obj,
+#     )
+
+#     # =========  Row 1: Line plots  =========
+#     # (D) CARVE
+#     plot_carve_best_lines(
+#         carve_obj,
+#         ax=ax_d,
+#         measures=carve_measures,
+#         colors=carve_line_colors,
+#         title=carve_line_title,
+#         show_1se=show_1se,
+#         annotate=annotate_carve,
+#     )
+
+#     # (E) Baseline
+#     plot_baseline_best_lines(
+#         curves_df,
+#         best_df,
+#         ax=ax_e,
+#         colors=baseline_colors,
+#         title=baseline_line_title,
+#         normalize=normalize_baseline,
+#     )
+
+#     # =========  Row 2: Split-count bar charts  =========
+#     def _count_splits(true_labels, cluster_labels):
+#         true_labels = np.asarray(true_labels)
+#         cluster_labels = np.asarray(cluster_labels)
+#         splits = []
+#         for lab in np.unique(true_labels):
+#             members = cluster_labels[true_labels == lab]
+#             splits.append(len(np.unique(members)))
+#         return np.asarray(splits, dtype=int)
+
+#     if split_color_a is None:
+#         split_color_a = CARVE_GREEN
+#     if split_color_b is None:
+#         split_color_b = BASELINE_WARM[0]
+
+#     splits_carve = _count_splits(y_arr, carve_labels)
+#     splits_sil = _count_splits(y_arr, silhouette_labels)
+
+#     # Shared x range for visual comparability
+#     all_split_vals = np.union1d(np.unique(splits_carve), np.unique(splits_sil))
+#     x_lo, x_hi = int(all_split_vals.min()), int(all_split_vals.max())
+#     all_x = np.arange(x_lo, x_hi + 1)
+
+#     def _plot_split_bars(ax, splits, title, color, all_x):
+#         values, counts = np.unique(splits, return_counts=True)
+#         count_map = dict(zip(values, counts))
+#         bar_counts = [count_map.get(v, 0) for v in all_x]
+
+#         ax.bar(all_x, bar_counts, color=color, edgecolor="black", linewidth=0.5)
+#         ax.set_title(title, fontsize=13)
+#         ax.set_xlabel("Number of clusters per true label", fontsize=11)
+#         ax.set_xticks(all_x)
+#         ax.tick_params(labelsize=10)
+#         ax.grid(axis="y", alpha=0.22)
+#         # annotate counts on bars
+#         for xv, ct in zip(all_x, bar_counts):
+#             if ct > 0:
+#                 ax.text(
+#                     xv,
+#                     ct + 0.3,
+#                     str(ct),
+#                     ha="center",
+#                     va="bottom",
+#                     fontsize=10,
+#                     fontweight="bold",
+#                 )
+
+#     _plot_split_bars(ax_f, splits_carve, split_title_a, split_color_a, all_x)
+#     ax_f.set_ylabel("Number of true labels", fontsize=11)
+
+#     _plot_split_bars(ax_g, splits_sil, split_title_b, split_color_b, all_x)
+#     ax_g.set_ylabel("")
+
+#     # Shared y limit
+#     y_max = max(ax_f.get_ylim()[1], ax_g.get_ylim()[1])
+#     ax_f.set_ylim(0, y_max * 1.12)
+#     ax_g.set_ylim(0, y_max * 1.12)
+
+#     # --- Panel letter labels ---
+#     panel_axes = [
+#         (ax_a, "A"),
+#         (ax_b, "B"),
+#         (ax_c, "C"),
+#         (ax_d, "D"),
+#         (ax_e, "E"),
+#         (ax_f, "F"),
+#         (ax_g, "G"),
+#     ]
+#     for ax, letter in panel_axes:
+#         ax.text(
+#             -0.05,
+#             1.08,
+#             letter,
+#             transform=ax.transAxes,
+#             fontsize=18,
+#             fontweight="bold",
+#             va="top",
+#             ha="right",
+#         )
+
+#     if save_path is not None:
+#         fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
+
+#     return fig
