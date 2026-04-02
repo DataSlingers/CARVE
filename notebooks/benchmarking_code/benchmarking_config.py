@@ -148,7 +148,7 @@ METRIC_COLOR = {
     "ari_average_1se": "#E69F00",  # orange
     "ari_generalizability_1se": "#56B4E9",  # sky blue
     "ari_stability_1se": "#009E73",  # bluish green
-    "silhouette": "#F0E442",  # yellow
+    "silhouette": "#E8588C",  # pink
     "gap": "#0072B2",  # blue
     "davies_bouldin": "#D55E00",  # vermillion
     "calinski_harabasz": "#CC79A7",  # reddish purple
