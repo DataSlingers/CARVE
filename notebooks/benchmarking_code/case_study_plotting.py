@@ -54,14 +54,13 @@ CLUSTER_PALETTE_NAME: str = "tab20"
 # Colors used by the composite multi-panel figure and CARVE line plots.
 CARVE_GREEN = "#009E73"
 CARVE_BLUE = "#0072B2"
-CARVE_GREEN_LIGHT = "#66C2A5"
 
 CARVE_LINE_COLORS = {"generalizability": CARVE_GREEN, "stability": CARVE_BLUE}
 
 BASELINE_WARM = [
-    "#FF367D",  # pink
+    "#FF36B5",  # pink
     "#A8389E",  # reddish-purple
-    "#D6292E",  # red
+    "#FF252D",  # red
     "#F28522",  # orange
 ]
 
@@ -73,20 +72,6 @@ _BASELINE_COLOR = "#FF1F5B"
 # ============================================================================
 # 2. Private utilities — colors, formatting, projections
 # ============================================================================
-def _infer_axis_cols(df: pd.DataFrame) -> tuple[str, str]:
-    """Return (x_col, y_col) heuristically from a DataFrame."""
-    candidates_x = ["n_clusters", "k", "K"]
-    candidates_y = [
-        "ari_stability",
-        "ari_generalizability",
-        "accuracy_generalizability",
-        "consensus_pac_stability",
-    ]
-    x_col = next((c for c in candidates_x if c in df.columns), df.columns[0])
-    y_col = next((c for c in candidates_y if c in df.columns), df.columns[-1])
-    return x_col, y_col
-
-
 def _get_color_mapping(k: int) -> List[Any]:
     """Return *k* visually distinct colors.
 
@@ -117,29 +102,6 @@ def _metric_color_map(metric_names: Iterable[str]) -> dict[str, Any]:
     names = list(metric_names)
     cols = _get_color_mapping(len(names))
     return {name: cols[i] for i, name in enumerate(names)}
-
-
-def _scatter_clusters(
-    ax, Z: np.ndarray, labels: np.ndarray, title: str, subtitle: str = ""
-):
-    """Quick scatter of 2-D embedding *Z* colored by *labels*."""
-    labels = np.asarray(labels)
-    cmap = _cluster_color_map(labels)
-    uniq = sorted(int(x) for x in np.unique(labels) if x != -1)
-    for cid in uniq:
-        m = labels == cid
-        ax.scatter(
-            Z[m, 0], Z[m, 1], s=12, alpha=0.90, c=[cmap[cid]],
-            edgecolors=[(0.67, 0.67, 0.67, 0.7)], linewidths=0.3,
-        )
-    ax.set_title(title, fontsize=10)
-    if subtitle:
-        ax.text(0.02, 0.02, subtitle, transform=ax.transAxes, fontsize=9)
-    ax.set_aspect("equal", adjustable="datalim")
-    ax.set_xticks([])
-    ax.set_yticks([])
-    for spine in ax.spines.values():
-        spine.set_alpha(0.2)
 
 
 def _pretty_metric_name(metric: str) -> str:
@@ -188,16 +150,6 @@ def _hex_to_rgba(hex_color, a=0.35):
     g = int(hex_color[2:4], 16)
     b = int(hex_color[4:6], 16)
     return f"rgba({r},{g},{b},{a})"
-
-
-def _rgba_to_plotly_hex(rgba_tuple) -> str:
-    """Convert an RGBA tuple (0..1 floats) to a ``#RRGGBB`` hex string."""
-    r, g, b = (
-        int(rgba_tuple[0] * 255),
-        int(rgba_tuple[1] * 255),
-        int(rgba_tuple[2] * 255),
-    )
-    return f"#{r:02x}{g:02x}{b:02x}"
 
 
 def _pca_project(X: np.ndarray) -> tuple[np.ndarray, PCA]:
@@ -515,7 +467,7 @@ def plot_dim_red(
             color=color_map[lab],
             s=s,
             alpha=alpha,
-            edgecolors=[(0.67, 0.67, 0.67, 0.7)],
+            edgecolors=[(0.0, 0.0, 0.0, 0.6)],
             linewidths=0.3,
         )
 
@@ -554,7 +506,7 @@ def plot_cluster_scatter(
     color_map: dict[int, Any] | None = None,
     s: float = 40.0,
     alpha: float = 0.85,
-    edgecolor: Any = (0.67, 0.67, 0.67, 0.7),
+    edgecolor: Any = (0.0, 0.0, 0.0, 0.6),
     linewidth: float = 0.3,
     hide_axes: bool = True,
     title: str = "",
@@ -1421,7 +1373,7 @@ def plot_composite_figure(
     carve_obj: Any,
     curves_df: pd.DataFrame,
     best_df: pd.DataFrame,
-    silhouette_labels: np.ndarray,
+    comparison_labels: np.ndarray,
     *,
     measure: str = "generalizability",
     rule: str = "1se",
@@ -1469,7 +1421,7 @@ def plot_composite_figure(
     y : array-like, shape (n,)
     carve_obj : fitted CARVE instance
     curves_df, best_df : from ``baseline_metrics_over_k()``
-    silhouette_labels : array-like, shape (n,)
+    comparison_labels : array-like, shape (n,)
     measure, rule, not_two, consensus_type : primary CARVE selection params
     embedding : array, shape (n, 2) or None
         Pre-computed 2-D embedding (e.g. t-SNE, UMAP) used for all scatter
@@ -1478,7 +1430,7 @@ def plot_composite_figure(
     # Step 1: Coerce inputs and obtain CARVE labels.
     X = np.asarray(X)
     y_arr = np.asarray(y) if not isinstance(y, np.ndarray) else y
-    silhouette_labels = np.asarray(silhouette_labels)
+    comparison_labels = np.asarray(comparison_labels)
 
     carve_labels = carve_obj.get_labels(measure=measure, rule=rule, not_two=not_two, mode=consensus_type)
     carve_labels = np.asarray(carve_labels)
@@ -1488,7 +1440,7 @@ def plot_composite_figure(
 
     y_codes = pd.Categorical(y_arr).codes
     carve_labels = _align_labels(y_codes, carve_labels)
-    silhouette_labels = _align_labels(y_codes, silhouette_labels)
+    comparison_labels = _align_labels(y_codes, comparison_labels)
 
     # Step 3: Shared 2-D projection.
     if embedding is not None:
@@ -1499,7 +1451,7 @@ def plot_composite_figure(
 
     # Step 4: Build color maps.
     carve_cmap = _cluster_color_map(carve_labels)
-    sil_cmap = _cluster_color_map(silhouette_labels)
+    sil_cmap = _cluster_color_map(comparison_labels)
 
     y_cat = pd.Categorical(y_arr)
     if hasattr(y_cat, "remove_unused_categories"):
@@ -1544,7 +1496,7 @@ def plot_composite_figure(
             ax_a.scatter(
                 Z[m, 0], Z[m, 1],
                 s=scatter_s, alpha=scatter_alpha, c=[c],
-                edgecolors=[(0.67, 0.67, 0.67, 0.7)], linewidths=0.3, label=str(lab),
+                edgecolors=[(0.0, 0.0, 0.0, 0.6)], linewidths=0.3, label=str(lab),
             )
         ax_a.set_xticks([])
         ax_a.set_yticks([])
@@ -1568,7 +1520,7 @@ def plot_composite_figure(
 
     # Step 8: Panel C — classical clustering scatter.
     plot_cluster_scatter(
-        X, silhouette_labels, ax=ax_c, color_map=sil_cmap,
+        X, comparison_labels, ax=ax_c, color_map=sil_cmap,
         s=scatter_s, alpha=scatter_alpha, title=baseline_title, Z=Z, pca_obj=pca_obj,
     )
 
@@ -1592,7 +1544,7 @@ def plot_composite_figure(
     if show_alluvial:
         ax_f = fig.add_subplot(gs[2, 1:5])
         _draw_alluvial_mpl(
-            ax_f, y_true=y_arr, left_labels=carve_labels, right_labels=silhouette_labels,
+            ax_f, y_true=y_arr, left_labels=carve_labels, right_labels=comparison_labels,
             left_cmap=carve_cmap, right_cmap=sil_cmap, true_cmap=true_cmap,
             left_title=alluvial_left_title, right_title=alluvial_right_title,
             true_title=alluvial_true_title, link_alpha=alluvial_link_alpha,
@@ -1619,7 +1571,7 @@ def plot_composite_figure_ari(
     carve_obj: Any,
     curves_df: pd.DataFrame,
     best_df: pd.DataFrame,
-    silhouette_labels: np.ndarray,
+    comparison_labels: np.ndarray,
     *,
     measure: str = "generalizability",
     rule: str = "1se",
@@ -1657,7 +1609,7 @@ def plot_composite_figure_ari(
     y : array-like, shape (n,)
     carve_obj : fitted CARVE instance
     curves_df, best_df : from ``baseline_metrics_over_k()``
-    silhouette_labels : array-like, shape (n,)
+    comparison_labels : array-like, shape (n,)
     measure, rule, not_two, consensus_type : primary CARVE selection params
     embedding : array, shape (n, 2) or None
         Pre-computed 2-D embedding for scatter panels.
@@ -1669,7 +1621,7 @@ def plot_composite_figure_ari(
     # Step 1: Coerce inputs and obtain CARVE labels.
     X = np.asarray(X)
     y_arr = np.asarray(y) if not isinstance(y, np.ndarray) else y
-    silhouette_labels = np.asarray(silhouette_labels)
+    comparison_labels = np.asarray(comparison_labels)
 
     carve_labels = carve_obj.get_labels(measure=measure, rule=rule, not_two=not_two, mode=consensus_type)
     carve_labels = np.asarray(carve_labels)
@@ -1679,7 +1631,7 @@ def plot_composite_figure_ari(
 
     y_codes = pd.Categorical(y_arr).codes
     carve_labels = _align_labels(y_codes, carve_labels)
-    silhouette_labels = _align_labels(y_codes, silhouette_labels)
+    comparison_labels = _align_labels(y_codes, comparison_labels)
 
     # Step 3: Shared 2-D projection.
     if embedding is not None:
@@ -1690,7 +1642,7 @@ def plot_composite_figure_ari(
 
     # Step 4: Build color maps.
     carve_cmap = _cluster_color_map(carve_labels)
-    sil_cmap = _cluster_color_map(silhouette_labels)
+    sil_cmap = _cluster_color_map(comparison_labels)
 
     y_cat = pd.Categorical(y_arr)
     if hasattr(y_cat, "remove_unused_categories"):
@@ -1735,7 +1687,7 @@ def plot_composite_figure_ari(
             ax_a.scatter(
                 Z[m, 0], Z[m, 1],
                 s=scatter_s, alpha=scatter_alpha, c=[c],
-                edgecolors=[(0.67, 0.67, 0.67, 0.7)], linewidths=0.3, label=str(lab),
+                edgecolors=[(0.0, 0.0, 0.0, 0.6)], linewidths=0.3, label=str(lab),
             )
         ax_a.set_xticks([])
         ax_a.set_yticks([])
@@ -1759,7 +1711,7 @@ def plot_composite_figure_ari(
 
     # Step 8: Panel C — classical clustering scatter.
     plot_cluster_scatter(
-        X, silhouette_labels, ax=ax_c, color_map=sil_cmap,
+        X, comparison_labels, ax=ax_c, color_map=sil_cmap,
         s=scatter_s, alpha=scatter_alpha, title=baseline_title, Z=Z, pca_obj=pca_obj,
     )
 
