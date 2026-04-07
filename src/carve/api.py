@@ -25,6 +25,7 @@ from ._plotting import (
     plot_cluster_boxplot as _plot_cluster_boxplot,
     plot_cluster_violin as _plot_cluster_violin,
     plot_cluster_scatter as _plot_cluster_scatter,
+    plot_diagnostic_scatter as _plot_diagnostic_scatter
 )
 
 from ._grids import (
@@ -1190,8 +1191,8 @@ class CARVE(BaseEstimator):
         ax=None,
         figsize: tuple | None = None,
         palette: str = "Accent",
-        alpha_range: tuple[float, float] | None = None,
-        size_range: tuple[float, float] = (5.0, 60.0),
+        alpha_range: tuple[float, float] = (0.45, 0.9),
+        size_range: tuple[float, float] = (15.0, 60.0),
         sort_order: bool = True,
         legend: bool = True,
         legend_loc: str = "right margin",
@@ -1236,10 +1237,12 @@ class CARVE(BaseEstimator):
             Figure size in inches.
         palette : str, default="Accent"
             Colormap for cluster colors.
-        alpha_range : tuple of float, optional
-            Min/max alpha for cluster-level score mapping.
-        size_range : tuple of float, default=(5.0, 60.0)
-            Min/max marker size for sample-level score mapping.
+        alpha_range : tuple of float, default=(0.45, 0.9)
+            ``(alpha_high_score, alpha_low_score)``.  Stable samples
+            get the first value (faint); unstable samples the second (opaque).
+        size_range : tuple of float, default=(15.0, 60.0)
+            ``(size_high_score, size_low_score)``.  Stable samples get
+            the first value (small); unstable samples get the second (large).
         sort_order : bool, default=True
             Whether to sort points by alpha so transparent points are drawn first.
         legend : bool, default=True
@@ -1384,6 +1387,232 @@ class CARVE(BaseEstimator):
             frameon=frameon,
             show=show,
             save=save,
+            dpi=dpi,
+        )
+        
+    def plot_diagnostic_scatter(
+        self,
+        *,
+        source: Literal["gini", "ce", "accuracy"] = "gini",
+        measure: str = "generalizability",
+        rule: str = "1se",
+        not_two: bool = False,
+        mode: Literal["default", "stability", "generalizability"] = "default",
+        k: int | None = None,
+        X: np.ndarray | None = None,
+        embedding: np.ndarray | None = None,
+        ax=None,
+        figsize: tuple | None = None,
+        cmap: str = "Greens_r",
+        alpha_encoding: bool = True,
+        alpha_range: tuple[float, float] = (0.3, 1.0),
+        marker_size: float = 30.0,
+        markers: list[str] | None = None,
+        sort_order: bool = True,
+        legend: bool = True,
+        legend_loc: str = "right margin",
+        colorbar: bool = True,
+        colorbar_label: str | None = None,
+        annotation: bool | str = True,
+        annotation_style: Literal["legend", "box"] = "legend",
+        title: str | None = None,
+        xlabel: str | None = None,
+        ylabel: str | None = None,
+        frameon: bool = False,
+        show: bool = False,
+        save: str | Path | None = None,
+        dpi: int = 300,
+    ):
+        """Diagnostic scatter plot with shape-per-cluster and color-per-score.
+
+        Cluster membership is encoded via marker shapes, while per-sample
+        scores are mapped to a sequential colormap.  Unstable samples (low
+        scores) are visually prominent; stable samples fade into the
+        background.
+
+        The best configuration is chosen via ``measure`` and ``rule``,
+        consistent with other plotting methods.
+
+        Parameters
+        ----------
+        source : {"gini", "ce", "accuracy"}, default="gini"
+            Score source for per-sample values.
+        measure : str, default="generalizability"
+            Metric key used for model selection.
+        rule : str, default="1se"
+            Selection rule.
+        mode : Literal["default", "stability", "generalizability"], default="default"
+            Consensus matrix mode for label extraction.
+        k : int, optional
+            If given, restrict selection to this number of clusters.
+        X : ndarray, optional
+            Data array to use. If None, uses ``self.X_``.
+        embedding : ndarray of shape (n_samples, 2), optional
+            Pre-computed 2D embedding.
+        ax : matplotlib.axes.Axes, optional
+            Axes object to plot on. If None, creates a new figure.
+        figsize : tuple, optional
+            Figure size in inches.
+        cmap : str, default="Greens_r"
+            Sequential matplotlib colormap.
+        alpha_encoding : bool, default=True
+            Whether to also vary transparency with score.
+        alpha_range : tuple of float, default=(0.3, 1.0)
+            ``(alpha_high_score, alpha_low_score)``.
+        marker_size : float, default=30.0
+            Fixed marker size for all points.
+        markers : list of str, optional
+            Marker codes for each cluster.
+        sort_order : bool, default=True
+            Draw stable points first so unstable points render on top.
+        legend : bool, default=True
+            Whether to display a shape legend for clusters.
+        legend_loc : str, default="right margin"
+            Legend location.
+        colorbar : bool, default=True
+            Whether to draw a colorbar for the score encoding.
+        colorbar_label : str, optional
+            Label for the colorbar.
+        annotation : bool or str, default=True
+            ``True`` auto-generates from the selected model/measure/rule.
+            A string is used verbatim. ``False`` disables.
+        annotation_style : {"legend", "box"}, default="legend"
+            How to display the annotation.
+        title : str, optional
+            Figure title.
+        xlabel : str, optional
+            X-axis label. Default is "Component 1".
+        ylabel : str, optional
+            Y-axis label. Default is "Component 2".
+        frameon : bool, default=False
+            Whether to draw axis spines.
+        show : bool, default=False
+            Whether to call plt.show() before returning.
+        save : str or Path, optional
+            Path to save the figure.
+        dpi : int, default=300
+            Dots per inch for saved figures.
+
+        Returns
+        -------
+        ax : matplotlib.axes.Axes or None
+            The Axes object, or None if ``save`` is provided.
+        """
+        if self.estimator_results_ is None:
+            raise RuntimeError("Call fit() first.")
+
+        df = self.estimator_results_
+        if k is None:
+            row = select_best_row_by_rule(
+                df, measure=measure, rule=rule, not_two=not_two
+            )
+        else:
+            df_k = df[df["n_clusters"] == k]
+            if df_k.empty:
+                raise ValueError(f"No configurations found for k={k}.")
+            row = select_best_row_by_rule(df_k, measure=measure, rule=rule)
+
+        best_idx = int(row.name)
+        selected_k = int(row["n_clusters"])
+
+        # --- Resolve score source ---
+        if source == "gini":
+            if self.stability_gini_scores_ is None:
+                raise RuntimeError(
+                    "Gini stability scores are not available for this run."
+                )
+            scores = np.asarray(self.stability_gini_scores_[best_idx], dtype=float)
+            scores_name = "Gini Stability"
+        elif source == "ce":
+            if self.stability_ce_scores_ is None:
+                raise RuntimeError(
+                    "CE stability scores are not available for this run."
+                )
+            scores = np.asarray(self.stability_ce_scores_[best_idx], dtype=float)
+            scores_name = "CE Stability"
+        elif source == "accuracy":
+            if self.generalizability_scores_ is None:
+                raise RuntimeError(
+                    "Generalizability scores are not available for this run."
+                )
+            scores = np.asarray(self.generalizability_scores_[best_idx], dtype=float)
+            scores_name = "Generalizability"
+        else:
+            raise ValueError("source must be one of: 'accuracy', 'gini', 'ce'.")
+
+        # --- Resolve labels mode ---
+        labels_mode: Literal["default", "generalizability"]
+        if mode in ("default", "stability"):
+            labels_mode = "default"
+        elif mode == "generalizability":
+            labels_mode = "generalizability"
+        else:
+            raise ValueError(
+                "mode must be one of: 'default', 'stability', 'generalizability'."
+            )
+
+        labels = self.get_labels(
+            measure=measure,
+            rule=rule,
+            k=selected_k,
+            mode=labels_mode,
+        )
+
+        data = self.X_ if X is None else ensure_2d_array(X)
+        if data is None:
+            raise RuntimeError(
+                "Raw data are not available on this instance. "
+                "Pass X=... explicitly (e.g., after loading a model saved with include_data=False)."
+            )
+
+        # --- Build annotation ---
+        tight_layout = annotation_style == "legend"
+        if annotation is True:
+            annotation_text = _get_annotation(
+                measure=measure,
+                rule=rule,
+                k=k,
+                estimator_results=df,
+                row=row,
+                selected_k=selected_k,
+                tight_layout=tight_layout,
+            )
+        elif isinstance(annotation, str):
+            annotation_text = annotation
+        else:
+            annotation_text = None
+
+        if xlabel is None:
+            xlabel = "Component 1"
+        if ylabel is None:
+            ylabel = "Component 2"
+            
+        return _plot_diagnostic_scatter(
+            data,
+            labels,                                                                                                        
+            scores,
+            embedding=embedding,                                                                                           
+            ax=ax,
+            figsize=figsize,
+            cmap=cmap,
+            alpha_encoding=alpha_encoding,                                                                                 
+            alpha_range=alpha_range,
+            marker_size=marker_size,                                                                                       
+            markers=markers,
+            sort_order=sort_order,
+            legend=legend,
+            legend_loc=legend_loc,
+            colorbar=colorbar,
+            colorbar_label=colorbar_label,                                                                                 
+            annotation=annotation_text,
+            annotation_style=annotation_style,                                                                             
+            title=title,
+            scores_name=scores_name,
+            xlabel=xlabel,
+            ylabel=ylabel,
+            frameon=frameon,                                                                                               
+            show=show,
+            save=save,                                                                                                     
             dpi=dpi,
         )
 

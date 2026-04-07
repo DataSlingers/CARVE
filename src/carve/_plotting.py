@@ -22,6 +22,10 @@ from ._selection import MEASURE_MAP, select_best_k
 
 _GROUPBY_NA_SENTINEL = "_NA_"
 
+_DEFAULT_DIAGNOSTIC_MARKERS = [
+    "o", "s", "^", "D", "v", "P", "*", "X", "p", "h", "<", ">", "d", "8",
+]
+
 
 def _build_estimator_label(
     row: pd.Series, exclude_cols: set, *, tight_layout: bool = False
@@ -950,8 +954,8 @@ def plot_cluster_scatter(
     ax: Axes | None = None,
     figsize: tuple | None = None,
     palette: str = "Accent",
-    alpha_range: tuple[float, float] | None = None,
-    size_range: tuple[float, float] = (5.0, 60.0),
+    alpha_range: tuple[float, float] = (0.45, 0.9),
+    size_range: tuple[float, float] = (15.0, 60.0),
     sort_order: bool = True,
     legend: bool = True,
     legend_loc: str = "right margin",
@@ -966,10 +970,11 @@ def plot_cluster_scatter(
     save: str | Path | None = None,
     dpi: int = 300,
 ) -> Axes:
-    """Scatter plot with cluster opacity and sample-size score encoding.
+    """Scatter plot with per-sample opacity and size score encoding.
 
-    Cluster-level mean scores are mapped to alpha, while sample-level scores
-    are mapped to marker size.
+    Per-sample scores are mapped to alpha (low scores are more opaque,
+    highlighting unstable samples) and to marker size.  Cluster mean
+    scores are shown in the legend.
 
     Parameters
     ----------
@@ -987,11 +992,13 @@ def plot_cluster_scatter(
         Figure size (width, height) in inches. Default is (6.5, 5.0).
     palette : str, default="Accent"
         Colormap for cluster colors.
-    alpha_range : tuple of float, optional
-        Min/max alpha for cluster-level score mapping. If None, maps
-        directly from scores.
-    size_range : tuple of float, default=(5.0, 60.0)
-        Min/max marker size for sample-level score mapping.
+    alpha_range : tuple of float, default=(0.45, 0.9)
+        ``(alpha_high_score, alpha_low_score)``.  High-score (stable)
+        samples get the first value (faint); low-score (unstable)
+        samples get the second value (opaque).
+    size_range : tuple of float, default=(15.0, 60.0)
+        ``(size_high_score, size_low_score)``.  Stable samples get the
+        first value (small); unstable samples get the second (large).
     sort_order : bool, default=True
         Whether to sort points by alpha so transparent points are drawn first.
     legend : bool, default=True
@@ -1029,6 +1036,7 @@ def plot_cluster_scatter(
     ax : matplotlib.axes.Axes
         The Axes object, or None if ``save`` is provided.
     """
+    # --- Input validation and preparation ---
     X = np.asarray(X, dtype=float)
     labels = np.asarray(labels)
     scores = np.asarray(scores, dtype=float)
@@ -1064,15 +1072,16 @@ def plot_cluster_scatter(
             raise ValueError("embedding must have the same number of rows as X.")
         coords = coords[:, :2]
 
-    # --- Map scores to marker size ---
+    # --- Map scores to marker size (low score = large, high score = small) ---
     lo_score = np.nanmin(scores[valid])
     hi_score = np.nanmax(scores[valid])
+    size_hi, size_lo = size_range  # (15.0, 60.0) default
     if np.isclose(lo_score, hi_score):
         size_vals = np.full(scores.shape[0], np.mean(size_range), dtype=float)
     else:
-        size_vals = size_range[0] + (scores - lo_score) * (
-            (size_range[1] - size_range[0]) / (hi_score - lo_score)
-        )
+        norm = (scores - lo_score) / (hi_score - lo_score)
+        # norm~0 (unstable) → size_lo (large), norm~1 (stable) → size_hi (small)
+        size_vals = size_lo + norm * (size_hi - size_lo)
 
     # --- Compute per-cluster mean scores ---
     uniq = np.unique(labels)
@@ -1086,31 +1095,14 @@ def plot_cluster_scatter(
         lab_scores = scores[(labels == lab) & valid]
         cluster_mean[lab] = float(np.nanmean(lab_scores)) if lab_scores.size else np.nan
 
-    # --- Map cluster means to alpha ---
-    if alpha_range is not None:
-        alpha_lo, alpha_hi = alpha_range
-        means = np.array([cluster_mean[lab] for lab in uniq], dtype=float)
-        finite_means = means[np.isfinite(means)]
-        if finite_means.size == 0 or np.isclose(finite_means.min(), finite_means.max()):
-            alpha_map = {lab: float(np.mean(alpha_range)) for lab in uniq}
-        else:
-            m0, m1 = finite_means.min(), finite_means.max()
-            alpha_map = {
-                lab: float(
-                    alpha_lo
-                    + (cluster_mean[lab] - m0) * ((alpha_hi - alpha_lo) / (m1 - m0))
-                )
-                if np.isfinite(cluster_mean[lab])
-                else float(alpha_lo)
-                for lab in uniq
-            }
+    # --- Map per-sample scores to alpha ---
+    alpha_hi, alpha_lo = alpha_range  # (0.45, 0.9) default
+    if np.isclose(lo_score, hi_score):
+        sample_alpha = np.full(scores.shape[0], np.mean(alpha_range), dtype=float)
     else:
-        alpha_map = {
-            lab: float(cluster_mean[lab])
-            if np.isfinite(cluster_mean[lab])
-            else float(1.0)
-            for lab in uniq
-        }
+        norm = (scores - lo_score) / (hi_score - lo_score)
+        # Low score (norm~0) → alpha_lo (opaque), high score (norm~1) → alpha_hi (faint)
+        sample_alpha = alpha_lo + norm * (alpha_hi - alpha_lo)
 
     # --- Build per-sample RGBA colors ---
     label_to_idx = {lab: i for i, lab in enumerate(uniq)}
@@ -1119,7 +1111,7 @@ def plot_cluster_scatter(
     for i, lab in enumerate(labels):
         base = cmap(label_to_idx[lab])
         rgba[i, :3] = base[:3]
-        rgba[i, 3] = np.clip(alpha_map[lab], 0.0, 1.0)
+        rgba[i, 3] = np.clip(sample_alpha[i], 0.0, 1.0)
 
     order = np.arange(labels.shape[0])
     if sort_order:
@@ -1159,7 +1151,7 @@ def plot_cluster_scatter(
     if legend:
         handles = []
 
-        # Add cluster entries with mean score in the label and alpha in the marker
+        # Add cluster entries with mean score in the label
         for lab in uniq:
             col = cmap(label_to_idx[lab])
             handles.append(
@@ -1169,12 +1161,7 @@ def plot_cluster_scatter(
                     marker="o",
                     linestyle="",
                     label=f"{lab} (Mean = {cluster_mean[lab]:.2f})",
-                    markerfacecolor=(
-                        col[0],
-                        col[1],
-                        col[2],
-                        np.clip(alpha_map[lab], 0.0, 1.0),
-                    ),
+                    markerfacecolor=(col[0], col[1], col[2], 0.8),
                     markeredgecolor="none",
                     markersize=7,
                 )
@@ -1216,6 +1203,308 @@ def plot_cluster_scatter(
         return None
 
     if show:
+        plt.show()
+
+    return ax
+
+
+def plot_diagnostic_scatter(
+    X: np.ndarray,
+    labels: np.ndarray,
+    scores: np.ndarray,
+    *,
+    embedding: np.ndarray | None = None,
+    ax: Axes | None = None,
+    figsize: tuple | None = None,
+    cmap: str = "Greens_r",
+    alpha_encoding: bool = True,
+    alpha_range: tuple[float, float] = (0.3, 1.0),
+    marker_size: float = 30.0,
+    markers: list[str] | None = None,
+    sort_order: bool = True,
+    legend: bool = True,
+    legend_loc: str = "right margin",
+    colorbar: bool = True,
+    colorbar_label: str | None = None,
+    annotation: str | None = None,
+    annotation_style: Literal["legend", "box"] = "legend",
+    title: str | None = None,
+    scores_name: str = "Score",
+    xlabel: str = "Component 1",
+    ylabel: str = "Component 2",
+    frameon: bool = False,
+    show: bool = False,
+    save: str | Path | None = None,
+    dpi: int = 300,
+) -> Axes:
+    """Diagnostic scatter plot with shape-per-cluster and color-per-score encoding.
+
+    Cluster membership is encoded via marker shapes, while per-sample scores
+    are mapped to a sequential colormap.  Unstable / ungeneralizable samples
+    (low scores) appear in saturated, opaque colors; stable samples (high
+    scores) fade toward a neutral tone.
+
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        Input data.
+    labels : ndarray of shape (n_samples,)
+        Cluster labels.
+    scores : ndarray of shape (n_samples,)
+        Per-sample scores (e.g., stability or generalizability).
+    embedding : ndarray of shape (n_samples, 2), optional
+        Pre-computed 2D embedding. If None, uses PCA when p > 2.
+    ax : matplotlib.axes.Axes, optional
+        Axes object to plot on. If None, creates a new figure.
+    figsize : tuple, optional
+        Figure size (width, height) in inches. Default is (6.5, 5.0).
+    cmap : str, default="Greens_r"
+        Sequential matplotlib colormap. Low scores map to the dark end,
+        high scores to the light end.
+    alpha_encoding : bool, default=True
+        Whether to also vary point transparency with score (low score =
+        opaque, high score = transparent), reinforcing the color encoding.
+    alpha_range : tuple of float, default=(0.3, 1.0)
+        ``(alpha_high_score, alpha_low_score)``.  Only used when
+        ``alpha_encoding=True``.
+    marker_size : float, default=30.0
+        Fixed marker size for all points.
+    markers : list of str, optional
+        Marker codes for each cluster. Defaults to 14 distinct filled
+        markers. Cycles with a warning if clusters exceed the list length.
+    sort_order : bool, default=True
+        Draw stable (high-score) points first so unstable points render
+        on top.
+    legend : bool, default=True
+        Whether to display a shape legend for clusters.
+    legend_loc : str, default="right margin"
+        Legend location. "right margin" places the legend outside the axes.
+    colorbar : bool, default=True
+        Whether to draw a colorbar for the score encoding.
+    colorbar_label : str, optional
+        Label for the colorbar. Defaults to ``scores_name``.
+    annotation : str, optional
+        Text for an informational annotation.
+    annotation_style : {"legend", "box"}, default="legend"
+        How to display the annotation.
+    title : str, optional
+        Figure title.
+    scores_name : str, default="Score"
+        Name for the score variable (used as default colorbar label).
+    xlabel : str, default="Component 1"
+        X-axis label.
+    ylabel : str, default="Component 2"
+        Y-axis label.
+    frameon : bool, default=False
+        Whether to draw axis spines.
+    show : bool, default=False
+        Whether to call plt.show() before returning.
+    save : str or Path, optional
+        Path to save the figure.
+    dpi : int, default=300
+        Dots per inch for saved figures.
+
+    Returns
+    -------
+    ax : matplotlib.axes.Axes or None
+        The Axes object, or None if ``save`` is provided.
+    """
+    # --- Input validation and preparation ---
+    X = np.asarray(X, dtype=float)
+    labels = np.asarray(labels)
+    scores = np.asarray(scores, dtype=float)
+
+    if labels.ndim != 1:
+        raise ValueError("labels must be a 1D array.")
+    if scores.ndim != 1:
+        raise ValueError("scores must be a 1D array.")
+    if X.ndim != 2:
+        raise ValueError("X must be a 2D array.")
+    if X.shape[0] != labels.shape[0] or X.shape[0] != scores.shape[0]:
+        raise ValueError("X, labels, and scores must have matching n_samples.")
+
+    valid = np.isfinite(scores)
+    if not np.any(valid):
+        raise ValueError("No finite scores available for plotting.")
+    
+    # --- Compute 2D coordinates ---
+    if embedding is None:
+        if X.shape[1] >= 2:
+            coords = X[:, :2]
+        elif X.shape[1] == 1:
+            coords = np.column_stack([X[:, 0], np.zeros(X.shape[0], dtype=float)])
+        else:
+            raise ValueError("X must have at least 1 feature for scatter plotting.")
+        if X.shape[1] > 2:
+            coords = PCA(n_components=2, random_state=0).fit_transform(X)
+    else:
+        coords = np.asarray(embedding, dtype=float)
+        if coords.ndim != 2 or coords.shape[1] < 2:
+            raise ValueError("embedding must be a 2D array with at least 2 columns.")
+        if coords.shape[0] != X.shape[0]:
+            raise ValueError("embedding must have the same number of rows as X.")
+        coords = coords[:, :2]
+        
+    # --- Resolve marker list ---
+    if markers is None:
+        markers = _DEFAULT_DIAGNOSTIC_MARKERS
+        
+    uniq = np.unique(labels)
+    try:
+        uniq = np.array(sorted(uniq, key=lambda x: float(x)))
+    except Exception:
+        uniq = np.array(sorted(uniq, key=lambda x: str(x)))
+    
+    if len(uniq) > len(markers):  # Warn if more clusters than markers, but still proceed with cycling
+        warnings.warn(
+            f"Number of clusters ({len(uniq)}) exceeds available markers "                                                 
+            f"({len(markers)}). Markers will cycle.",
+            stacklevel=2,                                                                                                  
+        )
+        
+    label_to_marker = {lab: markers[i % len(markers)] for i, lab in enumerate(uniq)}
+    
+    # --- Normalize scores and map to colormap --- 
+    cmap_obj = plt.get_cmap(cmap)
+    
+    lo_score = np.nanmin(scores[valid])
+    hi_score = np.nanmax(scores[valid])
+    
+    norm_scores = np.full(scores.shape[0], 0.5, dtype=float)
+    
+    if not np.isclose(lo_score, hi_score):
+        norm_scores[valid] = (scores[valid] - lo_score) / (hi_score - lo_score)
+        
+    rgba = cmap_obj(norm_scores)
+    
+    # --- Optional alpha reinforcement ---
+    if alpha_encoding:
+        alpha_hi, alpha_lo = alpha_range
+        if np.isclose(alpha_hi, alpha_lo):
+            rgba[:, 3] = np.mean(alpha_range)
+        else: 
+            rgba[valid, 3] = alpha_lo + norm_scores[valid] * (alpha_hi - alpha_lo)
+            
+    # Non-finite scores: neutral gray, low alpha
+    nan_mask = ~valid
+    if np.any(nan_mask):
+        rgba[nan_mask] = (0.5, 0.5, 0.5, 0.2)
+        
+    # --- Figure setup ---
+    if ax is None:
+        if figsize is None:
+            figsize = (6.5, 5.0)
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.figure
+        
+    # --- Draw points (per-cluster for distinct markers) ---                                                               
+    # Order clusters: draw stable (high mean) first, unstable (low mean) last (on top)
+    cluster_means = {                                                                                                      
+        lab: float(np.nanmean(scores[(labels == lab) & valid]))                                                            
+        if np.any((labels == lab) & valid)                                                                                 
+        else 0.0                                                                                                           
+        for lab in uniq                                                                                                    
+    }           
+
+    cluster_draw_order = sorted(uniq, key=lambda lab: -cluster_means[lab])                                                 
+
+    for lab in cluster_draw_order:                                                                                         
+        mask = labels == lab
+        idx = np.where(mask)[0]                                                                                            
+
+        # Within cluster: draw high-score first, low-score on top                                                          
+        if sort_order:
+            within_order = np.argsort(-norm_scores[idx], kind="stable")                                                    
+            idx = idx[within_order]                                                                                        
+
+        ax.scatter(                                                                                                        
+            coords[idx, 0],
+            coords[idx, 1],
+            s=marker_size,
+            c=rgba[idx],
+            marker=label_to_marker[lab],                                                                                   
+            linewidths=0.3,
+            edgecolor="black",                                                                                             
+            rasterized=(coords.shape[0] > 5000),                                                                           
+        )
+        
+    # --- Colorbar ---                                                                                                     
+    if colorbar:                                                                                                           
+        from matplotlib.cm import ScalarMappable
+        from matplotlib.colors import Normalize
+
+        sm = ScalarMappable(cmap=cmap_obj, norm=Normalize(vmin=lo_score, vmax=hi_score))                                   
+        sm.set_array([])
+        cbar = fig.colorbar(                                                                                               
+            sm, ax=ax, orientation="horizontal", fraction=0.046, pad=0.08,
+        )                                                                                                                  
+        cbar.set_label(colorbar_label if colorbar_label is not None else scores_name)
+        
+    # --- Shape legend ---
+    if legend:
+        handles = []
+        for lab in uniq:                                                                                                   
+            handles.append(
+                Line2D(                                                                                                    
+                    [0],
+                    [0],
+                    marker=label_to_marker[lab],
+                    linestyle="",                                                                                          
+                    label=str(lab),
+                    markerfacecolor="gray",                                                                                
+                    markeredgecolor="black",                                                                               
+                    markersize=7,
+                    markeredgewidth=0.3,                                                                                   
+                )
+            )
+                                                                                                                            
+        base_title = "Cluster"
+                                                                                                                            
+        if annotation is not None and annotation_style == "legend":
+            legend_title = f"{annotation}\n{base_title}"
+        else:                                                                                                              
+            legend_title = base_title
+                                                                                                                            
+        legend_kwargs = dict(handles=handles, title=legend_title, frameon=False)
+        if annotation is not None and annotation_style == "legend":                                                        
+            legend_kwargs["title_fontproperties"] = {"size": 9}
+                                                                                                                            
+        if legend_loc == "right margin":
+              ax.legend(                                                                                                     
+                  **legend_kwargs,
+                  bbox_to_anchor=(1.02, 0.5),                                                                                
+                  loc="center left",
+                  borderaxespad=0.0,                                                                                         
+              )                                                                                                            
+        else:   
+            ax.legend(**legend_kwargs, loc=legend_loc)
+            
+    ax.set_xlabel(xlabel)                                                                                                  
+    ax.set_ylabel(ylabel)
+
+    if title is not None:
+        ax.set_title(title)
+
+    if not frameon:                                                                                                        
+        for spine in ax.spines.values():
+            spine.set_visible(False)                                                                                       
+                
+    ax.grid(False)
+
+    # Annotation as floating box (when not embedded in legend)                                                             
+    if annotation is not None and annotation_style == "box":
+        _place_adaptive_annotation(ax, annotation, replace_legend=not legend)                                              
+                                                                                                                            
+    fig.tight_layout()
+                                                                                                                            
+    if save is not None:
+        save = Path(save)
+        fig.savefig(save, dpi=dpi, bbox_inches="tight")
+        plt.close(fig)                                                                                                     
+        return None
+                                                                                                                            
+    if show:    
         plt.show()
 
     return ax
