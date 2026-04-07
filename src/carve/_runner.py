@@ -102,7 +102,7 @@ def run_validation(
     random_state: int = None,
     show_progress: bool = False,
     mode: RunMode = "default",
-    verbose: int = 1,
+    verbose: int = 0,
 ) -> ValidationReturn:
     """Run CARVE validation over estimator grids and resamples.
 
@@ -132,8 +132,9 @@ def run_validation(
         Determines whether to run CARVE regularly ('default') or whether
         to only run stability analysis ('stability'),
         or generalizability analysis ('generalizability').
-    verbose : int, default=1
-        Verbosity for logging.
+    verbose : int, default=0
+        Verbosity for logging. ``0`` suppresses all output, ``1`` prints
+        per-configuration progress, ``2`` includes header and footer.
 
     Returns
     -------

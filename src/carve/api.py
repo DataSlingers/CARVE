@@ -25,7 +25,7 @@ from ._plotting import (
     plot_cluster_boxplot as _plot_cluster_boxplot,
     plot_cluster_violin as _plot_cluster_violin,
     plot_cluster_scatter as _plot_cluster_scatter,
-    plot_diagnostic_scatter as _plot_diagnostic_scatter
+    plot_diagnostic_scatter as _plot_diagnostic_scatter,
 )
 
 from ._grids import (
@@ -81,8 +81,11 @@ class CARVE(BaseEstimator):
         Number of parallel jobs for resampling. ``-1`` uses all cores.
     random_state : int, optional
         Seed for the random number generator, ensuring reproducibility.
-    verbose : int, default=1
+    verbose : int, default=0
         Verbosity level for console output during fitting.
+        ``0`` suppresses all output. ``1`` prints per-configuration
+        progress messages. ``2`` prints the full header, per-configuration
+        progress, and footer.
 
     Attributes
     ----------
@@ -144,7 +147,7 @@ class CARVE(BaseEstimator):
 
     n_jobs: int = 1
     random_state: int | None = None
-    verbose: int = 1
+    verbose: int = 0
 
     # --- Fitted attributes (set by fit()) ---
     estimator_results_: pd.DataFrame | None = field(init=False, default=None)
@@ -298,6 +301,7 @@ class CARVE(BaseEstimator):
             random_state=self.random_state if random_state is None else random_state,
             mode=policy.mode,
             show_progress=show_progress,
+            verbose=self.verbose,
         )
 
         self.estimator_results_ = pd.DataFrame.from_records(estimator_records)
@@ -1389,7 +1393,7 @@ class CARVE(BaseEstimator):
             save=save,
             dpi=dpi,
         )
-        
+
     def plot_diagnostic_scatter(
         self,
         *,
@@ -1586,33 +1590,33 @@ class CARVE(BaseEstimator):
             xlabel = "Component 1"
         if ylabel is None:
             ylabel = "Component 2"
-            
+
         return _plot_diagnostic_scatter(
             data,
-            labels,                                                                                                        
+            labels,
             scores,
-            embedding=embedding,                                                                                           
+            embedding=embedding,
             ax=ax,
             figsize=figsize,
             cmap=cmap,
-            alpha_encoding=alpha_encoding,                                                                                 
+            alpha_encoding=alpha_encoding,
             alpha_range=alpha_range,
-            marker_size=marker_size,                                                                                       
+            marker_size=marker_size,
             markers=markers,
             sort_order=sort_order,
             legend=legend,
             legend_loc=legend_loc,
             colorbar=colorbar,
-            colorbar_label=colorbar_label,                                                                                 
+            colorbar_label=colorbar_label,
             annotation=annotation_text,
-            annotation_style=annotation_style,                                                                             
+            annotation_style=annotation_style,
             title=title,
             scores_name=scores_name,
             xlabel=xlabel,
             ylabel=ylabel,
-            frameon=frameon,                                                                                               
+            frameon=frameon,
             show=show,
-            save=save,                                                                                                     
+            save=save,
             dpi=dpi,
         )
 

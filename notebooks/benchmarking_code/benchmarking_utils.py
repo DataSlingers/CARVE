@@ -30,7 +30,9 @@ def align_labels(true_labels: np.ndarray, pred_labels: np.ndarray) -> np.ndarray
     row_ind, col_ind = linear_sum_assignment(-cm)
 
     label_map = {old: new for old, new in zip(col_ind, row_ind)}
-    return np.array([label_map[lab] if lab in label_map else lab for lab in pred_labels])
+    return np.array(
+        [label_map[lab] if lab in label_map else lab for lab in pred_labels]
+    )
 
 
 def _wilson_ci(k_success: int, n: int, z: float = 1.96) -> tuple[float, float]:

@@ -238,7 +238,7 @@ def _plotting_iter(
         estimator = AgglomerativeClustering(n_clusters=true_k)
     elif estimator_type == "spectral":
         estimator = SpectralClusteringCARVE(
-            n_clusters=true_k, affinity="self_tuning", random_state=benchmark_seed                                             
+            n_clusters=true_k, affinity="self_tuning", random_state=benchmark_seed
         )
     else:
         estimator = KMeans(n_clusters=true_k, n_init=10, random_state=benchmark_seed)

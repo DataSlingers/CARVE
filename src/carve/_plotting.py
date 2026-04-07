@@ -23,7 +23,20 @@ from ._selection import MEASURE_MAP, select_best_k
 _GROUPBY_NA_SENTINEL = "_NA_"
 
 _DEFAULT_DIAGNOSTIC_MARKERS = [
-    "o", "s", "^", "D", "v", "P", "*", "X", "p", "h", "<", ">", "d", "8",
+    "o",
+    "s",
+    "^",
+    "D",
+    "v",
+    "P",
+    "*",
+    "X",
+    "p",
+    "h",
+    "<",
+    ">",
+    "d",
+    "8",
 ]
 
 
@@ -1326,7 +1339,7 @@ def plot_diagnostic_scatter(
     valid = np.isfinite(scores)
     if not np.any(valid):
         raise ValueError("No finite scores available for plotting.")
-    
+
     # --- Compute 2D coordinates ---
     if embedding is None:
         if X.shape[1] >= 2:
@@ -1344,52 +1357,54 @@ def plot_diagnostic_scatter(
         if coords.shape[0] != X.shape[0]:
             raise ValueError("embedding must have the same number of rows as X.")
         coords = coords[:, :2]
-        
+
     # --- Resolve marker list ---
     if markers is None:
         markers = _DEFAULT_DIAGNOSTIC_MARKERS
-        
+
     uniq = np.unique(labels)
     try:
         uniq = np.array(sorted(uniq, key=lambda x: float(x)))
     except Exception:
         uniq = np.array(sorted(uniq, key=lambda x: str(x)))
-    
-    if len(uniq) > len(markers):  # Warn if more clusters than markers, but still proceed with cycling
+
+    if len(uniq) > len(
+        markers
+    ):  # Warn if more clusters than markers, but still proceed with cycling
         warnings.warn(
-            f"Number of clusters ({len(uniq)}) exceeds available markers "                                                 
+            f"Number of clusters ({len(uniq)}) exceeds available markers "
             f"({len(markers)}). Markers will cycle.",
-            stacklevel=2,                                                                                                  
+            stacklevel=2,
         )
-        
+
     label_to_marker = {lab: markers[i % len(markers)] for i, lab in enumerate(uniq)}
-    
-    # --- Normalize scores and map to colormap --- 
+
+    # --- Normalize scores and map to colormap ---
     cmap_obj = plt.get_cmap(cmap)
-    
+
     lo_score = np.nanmin(scores[valid])
     hi_score = np.nanmax(scores[valid])
-    
+
     norm_scores = np.full(scores.shape[0], 0.5, dtype=float)
-    
+
     if not np.isclose(lo_score, hi_score):
         norm_scores[valid] = (scores[valid] - lo_score) / (hi_score - lo_score)
-        
+
     rgba = cmap_obj(norm_scores)
-    
+
     # --- Optional alpha reinforcement ---
     if alpha_encoding:
         alpha_hi, alpha_lo = alpha_range
         if np.isclose(alpha_hi, alpha_lo):
             rgba[:, 3] = np.mean(alpha_range)
-        else: 
+        else:
             rgba[valid, 3] = alpha_lo + norm_scores[valid] * (alpha_hi - alpha_lo)
-            
+
     # Non-finite scores: neutral gray, low alpha
     nan_mask = ~valid
     if np.any(nan_mask):
         rgba[nan_mask] = (0.5, 0.5, 0.5, 0.2)
-        
+
     # --- Figure setup ---
     if ax is None:
         if figsize is None:
@@ -1397,114 +1412,118 @@ def plot_diagnostic_scatter(
         fig, ax = plt.subplots(figsize=figsize)
     else:
         fig = ax.figure
-        
-    # --- Draw points (per-cluster for distinct markers) ---                                                               
+
+    # --- Draw points (per-cluster for distinct markers) ---
     # Order clusters: draw stable (high mean) first, unstable (low mean) last (on top)
-    cluster_means = {                                                                                                      
-        lab: float(np.nanmean(scores[(labels == lab) & valid]))                                                            
-        if np.any((labels == lab) & valid)                                                                                 
-        else 0.0                                                                                                           
-        for lab in uniq                                                                                                    
-    }           
+    cluster_means = {
+        lab: float(np.nanmean(scores[(labels == lab) & valid]))
+        if np.any((labels == lab) & valid)
+        else 0.0
+        for lab in uniq
+    }
 
-    cluster_draw_order = sorted(uniq, key=lambda lab: -cluster_means[lab])                                                 
+    cluster_draw_order = sorted(uniq, key=lambda lab: -cluster_means[lab])
 
-    for lab in cluster_draw_order:                                                                                         
+    for lab in cluster_draw_order:
         mask = labels == lab
-        idx = np.where(mask)[0]                                                                                            
+        idx = np.where(mask)[0]
 
-        # Within cluster: draw high-score first, low-score on top                                                          
+        # Within cluster: draw high-score first, low-score on top
         if sort_order:
-            within_order = np.argsort(-norm_scores[idx], kind="stable")                                                    
-            idx = idx[within_order]                                                                                        
+            within_order = np.argsort(-norm_scores[idx], kind="stable")
+            idx = idx[within_order]
 
-        ax.scatter(                                                                                                        
+        ax.scatter(
             coords[idx, 0],
             coords[idx, 1],
             s=marker_size,
             c=rgba[idx],
-            marker=label_to_marker[lab],                                                                                   
+            marker=label_to_marker[lab],
             linewidths=0.3,
-            edgecolor="black",                                                                                             
-            rasterized=(coords.shape[0] > 5000),                                                                           
+            edgecolor="black",
+            rasterized=(coords.shape[0] > 5000),
         )
-        
-    # --- Colorbar ---                                                                                                     
-    if colorbar:                                                                                                           
+
+    # --- Colorbar ---
+    if colorbar:
         from matplotlib.cm import ScalarMappable
         from matplotlib.colors import Normalize
 
-        sm = ScalarMappable(cmap=cmap_obj, norm=Normalize(vmin=lo_score, vmax=hi_score))                                   
+        sm = ScalarMappable(cmap=cmap_obj, norm=Normalize(vmin=lo_score, vmax=hi_score))
         sm.set_array([])
-        cbar = fig.colorbar(                                                                                               
-            sm, ax=ax, orientation="horizontal", fraction=0.046, pad=0.08,
-        )                                                                                                                  
+        cbar = fig.colorbar(
+            sm,
+            ax=ax,
+            orientation="horizontal",
+            fraction=0.046,
+            pad=0.08,
+        )
         cbar.set_label(colorbar_label if colorbar_label is not None else scores_name)
-        
+
     # --- Shape legend ---
     if legend:
         handles = []
-        for lab in uniq:                                                                                                   
+        for lab in uniq:
             handles.append(
-                Line2D(                                                                                                    
+                Line2D(
                     [0],
                     [0],
                     marker=label_to_marker[lab],
-                    linestyle="",                                                                                          
+                    linestyle="",
                     label=str(lab),
-                    markerfacecolor="gray",                                                                                
-                    markeredgecolor="black",                                                                               
+                    markerfacecolor="gray",
+                    markeredgecolor="black",
                     markersize=7,
-                    markeredgewidth=0.3,                                                                                   
+                    markeredgewidth=0.3,
                 )
             )
-                                                                                                                            
+
         base_title = "Cluster"
-                                                                                                                            
+
         if annotation is not None and annotation_style == "legend":
             legend_title = f"{annotation}\n{base_title}"
-        else:                                                                                                              
+        else:
             legend_title = base_title
-                                                                                                                            
+
         legend_kwargs = dict(handles=handles, title=legend_title, frameon=False)
-        if annotation is not None and annotation_style == "legend":                                                        
+        if annotation is not None and annotation_style == "legend":
             legend_kwargs["title_fontproperties"] = {"size": 9}
-                                                                                                                            
+
         if legend_loc == "right margin":
-              ax.legend(                                                                                                     
-                  **legend_kwargs,
-                  bbox_to_anchor=(1.02, 0.5),                                                                                
-                  loc="center left",
-                  borderaxespad=0.0,                                                                                         
-              )                                                                                                            
-        else:   
+            ax.legend(
+                **legend_kwargs,
+                bbox_to_anchor=(1.02, 0.5),
+                loc="center left",
+                borderaxespad=0.0,
+            )
+        else:
             ax.legend(**legend_kwargs, loc=legend_loc)
-            
-    ax.set_xlabel(xlabel)                                                                                                  
+
+    ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
 
     if title is not None:
         ax.set_title(title)
 
-    if not frameon:                                                                                                        
+    if not frameon:
         for spine in ax.spines.values():
-            spine.set_visible(False)                                                                                       
-                
+            spine.set_visible(False)
+
     ax.grid(False)
 
-    # Annotation as floating box (when not embedded in legend)                                                             
+    # Annotation as floating box (when not embedded in legend)
     if annotation is not None and annotation_style == "box":
-        _place_adaptive_annotation(ax, annotation, replace_legend=not legend)                                              
-                                                                                                                            
+        _place_adaptive_annotation(ax, annotation, replace_legend=not legend)
+
     fig.tight_layout()
-                                                                                                                            
+
     if save is not None:
         save = Path(save)
         fig.savefig(save, dpi=dpi, bbox_inches="tight")
-        plt.close(fig)                                                                                                     
+        plt.close(fig)
         return None
-                                                                                                                            
-    if show:    
+
+    if show:
         plt.show()
 
     return ax

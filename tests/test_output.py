@@ -23,7 +23,7 @@ class TestPrintRunHeader:
         )
         assert capsys.readouterr().out == ""
 
-    def test_verbose_one_prints(self, capsys):
+    def test_verbose_one_no_output(self, capsys):
         _print_run_header(
             X=np.zeros((10, 3)),
             n_clusters=np.array([2, 3]),
@@ -34,6 +34,20 @@ class TestPrintRunHeader:
             randomize_preprocessing=False,
             random_state=0,
             verbose=1,
+        )
+        assert capsys.readouterr().out == ""
+
+    def test_verbose_two_prints(self, capsys):
+        _print_run_header(
+            X=np.zeros((10, 3)),
+            n_clusters=np.array([2, 3]),
+            n_resamples=5,
+            subsample_ratio=0.8,
+            estimator_grids=[(KMeans, {"n_clusters": [2, 3]})],
+            n_jobs=1,
+            randomize_preprocessing=False,
+            random_state=0,
+            verbose=2,
         )
         out = capsys.readouterr().out
         assert "[CARVE]" in out
@@ -47,9 +61,14 @@ class TestPrintRunFooter:
         _print_run_footer(df, verbose=0)
         assert capsys.readouterr().out == ""
 
-    def test_verbose_one_prints(self, capsys):
+    def test_verbose_one_no_output(self, capsys):
         df = pd.DataFrame({"a": [1, 2, 3]})
         _print_run_footer(df, verbose=1)
+        assert capsys.readouterr().out == ""
+
+    def test_verbose_two_prints(self, capsys):
+        df = pd.DataFrame({"a": [1, 2, 3]})
+        _print_run_footer(df, verbose=2)
         out = capsys.readouterr().out
         assert "3" in out
         assert "finished" in out

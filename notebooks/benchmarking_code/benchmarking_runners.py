@@ -474,9 +474,7 @@ def benchmark_scaling(
                                 "metric_value": value,
                                 "is_optimal": k == optimal_k,
                                 "is_correct": k == true_k,
-                                "metric_ari": aris[
-                                    list(candidate_clusters).index(k)
-                                ],
+                                "metric_ari": aris[list(candidate_clusters).index(k)],
                             }
                         )
 

@@ -42,9 +42,7 @@ def _interpolate_settings(
     if total_stages < 3:
         raise ValueError(f"total_stages must be >= 3, got {total_stages}")
     if not (0 <= stage < total_stages):
-        raise ValueError(
-            f"stage must be in [0, {total_stages - 1}], got {stage}"
-        )
+        raise ValueError(f"stage must be in [0, {total_stages - 1}], got {stage}")
 
     mid = total_stages // 2
     a_name, b_name, c_name = anchor_order
@@ -171,7 +169,9 @@ def parse_range_and_simulate(
 
     # Filter axis keys from other_settings to prevent duplicate keyword args
     filtered_other = {
-        k: v for k, v in other_settings.items() if k not in ("n_total", "p", "embed_dim")
+        k: v
+        for k, v in other_settings.items()
+        if k not in ("n_total", "p", "embed_dim")
     }
 
     return simulate_clusters(

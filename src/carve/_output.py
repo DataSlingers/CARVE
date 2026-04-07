@@ -42,9 +42,9 @@ def _print_run_header(
     random_state : int or None
         Random seed.
     verbose : int
-        Verbosity level; prints only if >= 1.
+        Verbosity level; prints only if >= 2.
     """
-    if verbose < 1:
+    if verbose < 2:
         return
 
     total_configs = sum(len(ParameterGrid(g)) for _, g in estimator_grids)
@@ -76,9 +76,9 @@ def _print_run_footer(
     estimator_df : pandas.DataFrame
         Results table with one row per estimator configuration.
     verbose : int
-        Verbosity level; prints only if >= 1.
+        Verbosity level; prints only if >= 2.
     """
-    if verbose < 1 or verbose is None:
+    if verbose < 2:
         return
     print(
         f"\n[CARVE] finished. evaluated {len(estimator_df)} estimator configurations."
@@ -92,7 +92,7 @@ def _log_config_progress(
     params: dict[str, Any],
     record: EstimatorRecord,
     pbar_obj: tqdm | None,
-    verbose: int = 1,
+    verbose: int = 0,
 ) -> None:
     """Log per-configuration progress during grid evaluation.
 
@@ -110,8 +110,8 @@ def _log_config_progress(
         Metrics for the current configuration.
     pbar_obj : tqdm or None
         Optional progress-bar object used to display messages.
-    verbose : int, default=1
-        Verbosity level; logs only if > 0.
+    verbose : int, default=0
+        Verbosity level; logs only if >= 1.
     """
     if verbose <= 0:
         return

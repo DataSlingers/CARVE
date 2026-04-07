@@ -272,9 +272,7 @@ class TestCalculateMetric:
 
     def test_gap_positive(self, well_separated_data):
         X, labels = well_separated_data
-        val = calculate_metric(
-            X, labels, "gap", estimator_cls=KMeans, random_state=42
-        )
+        val = calculate_metric(X, labels, "gap", estimator_cls=KMeans, random_state=42)
         assert val > 0
 
     def test_davies_bouldin_in_unit(self, well_separated_data):
