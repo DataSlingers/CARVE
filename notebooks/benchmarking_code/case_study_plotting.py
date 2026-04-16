@@ -72,15 +72,26 @@ _BASELINE_COLOR = "#FF1F5B"
 # ============================================================================
 # 2. Private utilities — colors, formatting, projections
 # ============================================================================
-def _get_color_mapping(k: int) -> List[Any]:
-    """Return *k* visually distinct colors.
+def _get_color_mapping(k: int, palette_name: str | None = None) -> List[Any]:
+    """Return *k* colors from a discrete categorical palette.
 
-    Uses :data:`CLUSTER_PALETTE_NAME` (a matplotlib colormap) when *k* fits
-    within the palette size; falls back to Glasbey for larger *k*.
+    The palette name is treated as a discrete colormap such as ``tab20``,
+    ``Set1``, or ``Accent``. If the requested palette does not provide enough
+    colors for *k*, the function falls back to Glasbey.
     """
-    cmap = plt.get_cmap(CLUSTER_PALETTE_NAME)
-    if k <= cmap.N:
-        return [cmap(i / max(cmap.N - 1, 1)) for i in range(k)]
+    if k <= 0:
+        return []
+
+    cmap = plt.get_cmap(palette_name or CLUSTER_PALETTE_NAME)
+    colors = getattr(cmap, "colors", None)
+    if colors is None:
+        raise ValueError(
+            f"Palette {palette_name or CLUSTER_PALETTE_NAME!r} must be a discrete colormap"
+        )
+
+    colors = list(colors)
+    if len(colors) >= k:
+        return colors[:k]
 
     palette = glasbey.create_palette(palette_size=k)
     return [tuple(c / 255 for c in v) if not isinstance(v, str) else v for v in palette]
@@ -99,6 +110,45 @@ def _metric_color_map(metric_names: Iterable[str]) -> dict[str, Any]:
     names = list(metric_names)
     cols = _get_color_mapping(len(names))
     return {name: cols[i] for i, name in enumerate(names)}
+
+
+def _numeric_label_color_map(
+    labels: np.ndarray, palette_name: str | None = None
+) -> dict[int, Any]:
+    """Map integer-like labels to colors by label value.
+
+    This keeps the same numeric label on the same color even when some labels
+    are absent from a particular plot.
+    """
+    int_labels = _coerce_integer_labels(labels)
+    if int_labels is None:
+        return {}
+
+    uniq = sorted(int(x) for x in np.unique(int_labels))
+    non_negative = [x for x in uniq if x >= 0]
+    palette = _get_color_mapping(
+        max(non_negative) + 1 if non_negative else 0,
+        palette_name=palette_name,
+    )
+
+    color_map = {cid: palette[cid] for cid in non_negative}
+    if -1 in uniq:
+        color_map[-1] = (0.5, 0.5, 0.5, 1.0)
+    return color_map
+
+
+def _coerce_integer_labels(labels: np.ndarray) -> np.ndarray | None:
+    """Return integer labels when are integer-like, else ``None``."""
+    series = pd.Series(labels)
+    numeric = pd.to_numeric(series, errors="coerce")
+    if numeric.isna().any():
+        return None
+
+    values = numeric.to_numpy()
+    if not np.all(np.isclose(values, np.round(values))):
+        return None
+
+    return np.round(values).astype(int)
 
 
 def _pretty_metric_name(metric: str) -> str:
@@ -413,6 +463,7 @@ def plot_dim_red(
     s: int = 50,
     alpha: float = 0.8,
     linewidth: float = 0.1,
+    palette: str | None = None,
     hide_axes: bool = True,
     figsize: tuple[float, float] = (12, 10),
     title: str = "PCA of raw cell counts (colored by stage label)",
@@ -449,15 +500,21 @@ def plot_dim_red(
     # Step 3: Build plotting dataframe.
     pc_df = pd.DataFrame(pcs, columns=["PC1", "PC2"])
     pc_df[label_col] = y
-    cat = pd.Categorical(pc_df[label_col])
-    if hasattr(cat, "remove_unused_categories"):
-        cat = cat.remove_unused_categories()
-    codes = cat.codes
-    code_color_map = _cluster_color_map(codes)
-    color_map = {
-        lab: code_color_map[code]
-        for lab, code in zip(cat.categories, range(len(cat.categories)))
-    }
+    int_labels = _coerce_integer_labels(y)
+    if int_labels is not None:
+        pc_df[label_col] = int_labels
+        categories = sorted(int(x) for x in np.unique(int_labels))
+        color_map = _numeric_label_color_map(int_labels, palette_name=palette)
+    else:
+        cat = pd.Categorical(pc_df[label_col])
+        if hasattr(cat, "remove_unused_categories"):
+            cat = cat.remove_unused_categories()
+
+        categories = list(cat.categories)
+        n_labels = len(categories)
+        colors = _get_color_mapping(n_labels, palette_name=palette)
+
+        color_map = {lab: colors[i] for i, lab in enumerate(categories)}
 
     # Step 4: Draw scatter.
     if ax is None:
@@ -465,7 +522,7 @@ def plot_dim_red(
     else:
         fig = ax.figure
 
-    for lab in cat.categories:
+    for lab in categories:
         sel = pc_df[pc_df[label_col] == lab]
         ax.scatter(
             sel["PC1"],
@@ -475,7 +532,7 @@ def plot_dim_red(
             s=s,
             alpha=alpha,
             edgecolors=[(0.0, 0.0, 0.0, 0.6)],
-            linewidths=0.3,
+            linewidths=linewidth,
         )
 
     # Step 5: Decorate axes.
@@ -931,14 +988,9 @@ def alluvial_compare(
     right_order = sorted(np.unique(right_labels))
 
     # Step 3: Assign colors per reported label.
-    cmap = plt.get_cmap(palette_name)
+    true_palette = _get_color_mapping(len(true_order), palette_name=palette_name)
     true_colors = {
-        lab: "#{:02x}{:02x}{:02x}".format(
-            int(255 * cmap(i % cmap.N)[0]),
-            int(255 * cmap(i % cmap.N)[1]),
-            int(255 * cmap(i % cmap.N)[2]),
-        )
-        for i, lab in enumerate(true_order)
+        lab: mpl.colors.to_hex(true_palette[i]) for i, lab in enumerate(true_order)
     }
 
     # Step 4: Compute cluster stats (purity, share, dominant label).
@@ -1401,14 +1453,9 @@ def _build_alluvial_from_labels(
     right_order = sorted(np.unique(right_labels))
 
     # Step 2: True-label colors.
-    cmap_true = plt.get_cmap("tab10")
+    true_palette = _get_color_mapping(len(true_order), palette_name="tab10")
     true_colors = {
-        lab: "#{:02x}{:02x}{:02x}".format(
-            int(255 * cmap_true(i % cmap_true.N)[0]),
-            int(255 * cmap_true(i % cmap_true.N)[1]),
-            int(255 * cmap_true(i % cmap_true.N)[2]),
-        )
-        for i, lab in enumerate(true_order)
+        lab: mpl.colors.to_hex(true_palette[i]) for i, lab in enumerate(true_order)
     }
 
     # Step 3: Cluster stats (purity, share).

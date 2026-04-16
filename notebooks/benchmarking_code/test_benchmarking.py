@@ -11,10 +11,17 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import matplotlib
+
+matplotlib.use("Agg")  # non-interactive backend for tests
+import matplotlib.pyplot as plt
+
 # Ensure the benchmarking_code directory is on sys.path
 _HERE = Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
+
+import case_study_plotting as csp  # noqa: E402
 
 
 # ── benchmarking_config ───────────────────────────────────────────────────────
@@ -94,6 +101,54 @@ class TestMetricConstants:
         for m in PLOT_METRICS:
             assert m in METRIC_COLOR, f"missing color for {m}"
             assert m in METRIC_LABEL, f"missing label for {m}"
+
+
+# ── case_study_plotting ──────────────────────────────────────────────────────
+
+
+class TestCaseStudyColorPalettes:
+    def test_get_color_mapping_uses_discrete_palette(self):
+        colors = csp._get_color_mapping(3, palette_name="tab20")
+        expected = list(plt.get_cmap("tab20").colors)[:3]
+        np.testing.assert_allclose(np.asarray(colors), np.asarray(expected))
+
+    def test_get_color_mapping_falls_back_to_glasbey_on_overflow(self, monkeypatch):
+        calls = {}
+
+        def fake_create_palette(*, palette_size):
+            calls["palette_size"] = palette_size
+            return [f"fallback-{i}" for i in range(palette_size)]
+
+        monkeypatch.setattr(csp.glasbey, "create_palette", fake_create_palette)
+
+        colors = csp._get_color_mapping(25, palette_name="Set1")
+
+        assert calls["palette_size"] == 25
+        assert colors == [f"fallback-{i}" for i in range(25)]
+
+    def test_plot_dim_red_uses_palette_helper_for_categorical_labels(self, monkeypatch):
+        calls = {}
+
+        def fake_get_color_mapping(k, palette_name=None):
+            calls["args"] = (k, palette_name)
+            return ["#111111", "#222222"][:k]
+
+        monkeypatch.setattr(csp, "_get_color_mapping", fake_get_color_mapping)
+
+        X = np.array([[0.0, 0.0], [1.0, 1.0]])
+        y = np.array(["a", "b"])
+        fig, ax = plt.subplots()
+        csp.plot_dim_red(
+            X,
+            y=y,
+            palette="tab20",
+            ax=ax,
+            show=False,
+            show_legend=False,
+            hide_axes=False,
+        )
+
+        assert calls["args"] == (2, "tab20")
 
 
 # ── benchmarking_utils ────────────────────────────────────────────────────────
