@@ -9,7 +9,7 @@ import joblib
 
 import numpy as np
 import pandas as pd
-from sklearn.base import BaseEstimator, ClusterMixin
+from sklearn.base import BaseEstimator, ClassifierMixin, ClusterMixin
 from sklearn.cluster import AgglomerativeClustering
 
 from ._types import GridSpec, PreprocOption, RunMode, resolve_mode
@@ -73,6 +73,15 @@ class CARVE(BaseEstimator):
     dim_reduction_options : list of dimensionality reduction specs, optional
         Dimensionality reduction preprocessing options. If None, defaults
         include identity, PCA, t-SNE, and UMAP.
+    classifier : sklearn classifier instance, optional                                                                     
+        Classifier used to score generalizability. If None (default), a                                                    
+        ``RandomForestClassifier`` is built with ``n_trees`` trees. Must
+        implement the sklearn classifier interface (``fit``/``predict``).                                                  
+        The classifier is cloned for each resample so state does not leak                                                  
+        across iterations.                                                                                                 
+    n_trees : int, default=100                                                                                             
+        Number of trees in the default random-forest classifier. Ignored                                                   
+        when ``classifier`` is provided. 
     reference_labels : array-like of shape (n_samples,), optional
         Reference labels used to align cluster assignments across
         successive ``get_labels`` calls so that cluster indices remain
@@ -141,6 +150,9 @@ class CARVE(BaseEstimator):
     estimator_param_grids: list[GridSpec] | Literal["light", "full"] = "light"
     normalization_options: list[PreprocOption] | None = None
     dim_reduction_options: list[PreprocOption] | None = None
+    
+    classifier: ClassifierMixin | None = None
+    n_trees: int = 100
 
     X_: np.ndarray | None = field(init=False, default=None)
     reference_labels: np.ndarray | None = None
@@ -223,6 +235,13 @@ class CARVE(BaseEstimator):
                 RuntimeWarning,
                 stacklevel=2,
             )
+            
+        if self.classifier is not None and self.n_trees != 100:                                                            
+            warnings.warn(                                                                                                 
+                "n_trees is ignored when a custom classifier is provided.",
+                RuntimeWarning,                                                                                            
+                stacklevel=2,
+            )
 
         # --- Resolve X and reference labels ---
         X = ensure_2d_array(X)
@@ -296,6 +315,8 @@ class CARVE(BaseEstimator):
             subsample_ratio=self.subsample_ratio,
             normalization_options=norm_options,
             dim_reduction_options=dr_options,
+            classifier=self.classifier,                                                                                    
+            n_trees=self.n_trees,
             randomize_preprocessing=randomize_preprocessing,
             n_jobs=self.n_jobs,
             random_state=self.random_state if random_state is None else random_state,

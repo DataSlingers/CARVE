@@ -10,6 +10,7 @@ from typing import Any, NamedTuple
 
 from joblib import Parallel, delayed
 import numpy as np
+from sklearn.base import clone, ClassifierMixin
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import adjusted_rand_score
 from sklearn.model_selection import ParameterGrid
@@ -97,6 +98,8 @@ def run_validation(
     subsample_ratio: float,
     normalization_options: list[PreprocSpec],
     dim_reduction_options: list[PreprocSpec],
+    classifier: ClassifierMixin | None = None,
+    n_trees: int = 100,
     randomize_preprocessing: bool = False,
     n_jobs: int = 1,
     random_state: int = None,
@@ -120,6 +123,10 @@ def run_validation(
         Normalization preprocessing options.
     dim_reduction_options : list
         Dimensionality reduction options.
+    classifier : sklearn classifier instance, optional                                                                     
+        Classifier used to score generalizability.                                                                         
+    n_trees : int, default=100                                                                                             
+        Number of trees in the default random-forest classifier.
     randomize_preprocessing : bool, default=False
         Whether to sample preprocessing randomly per resample.
     n_jobs : int, default=1
@@ -182,6 +189,8 @@ def run_validation(
                         seed=b,
                         normalization_options=normalization_options,
                         dim_reduction_options=dim_reduction_options,
+                        classifier=classifier,
+                        n_trees=n_trees,
                         randomize_preprocessing=randomize_preprocessing,
                         mode=mode,
                         random_state=random_state,
@@ -301,6 +310,8 @@ def validation_iter(
     seed: int,
     normalization_options: list[PreprocSpec],
     dim_reduction_options: list[PreprocSpec],
+    classifier: ClassifierMixin | None = None,
+    n_trees: int = 100,
     randomize_preprocessing: bool = False,
     mode: RunMode = "default",
     random_state: int = None,
@@ -325,6 +336,10 @@ def validation_iter(
         Normalization options.
     dim_reduction_options : list
         Dimensionality reduction options.
+    classifier : sklearn classifier instance, optional                                                                     
+        Classifier used to score generalizability.                                                                         
+    n_trees : int, default=100                                                                                             
+        Number of trees in the default random-forest classifier.
     randomize_preprocessing : bool, default=False
         Whether to randomize preprocessing.
     mode : Literal['default', 'stability', 'generalizability'], default='default'
@@ -423,6 +438,8 @@ def validation_iter(
         X_test=X_test,
         labels_1=labels_1,
         labels_test=labels_test,
+        classifier=classifier,
+        n_trees=n_trees,
         seed=random_state0 + seed,
     )
 
@@ -486,6 +503,8 @@ def _compute_generalizability_ari(
     X_test,
     labels_1,
     labels_test,
+    classifier,
+    n_trees,
     seed,
 ):
     """Compute generalizability ARI via random-forest prediction.
@@ -503,6 +522,10 @@ def _compute_generalizability_ari(
         Cluster labels for the training set.
     labels_test : ndarray or None
         Cluster labels for the test set.
+    classifier : sklearn classifier instance, optional                                                                     
+        Classifier used to score generalizability.                                                                         
+    n_trees : int, default=100                                                                                             
+        Number of trees in the default random-forest classifier.
     seed : int
         Random seed for the random forest.
 
@@ -517,17 +540,22 @@ def _compute_generalizability_ari(
     if not policy.run_generalizability:
         return None, np.nan
 
-    rf = RandomForestClassifier(
-        n_estimators=100,
-        max_depth=X_1.shape[1],
-        max_features=int(np.sqrt(X_1.shape[1])),
-        random_state=seed,
-        n_jobs=-1,
-    )
+    if classifier is None:
+        clf = RandomForestClassifier(
+            n_estimators=n_trees,
+            max_depth=X_1.shape[1],
+            max_features=int(np.sqrt(X_1.shape[1])),
+            random_state=seed,
+            n_jobs=-1,
+        )
+    else:
+        clf = clone(classifier)
+        if "random_state" in clf.get_params():
+            clf.set_params(random_state=seed)
 
-    rf.fit(X_1, labels_1)
+    clf.fit(X_1, labels_1)
 
-    labels_pred = rf.predict(X_test)
+    labels_pred = clf.predict(X_test)
     ari_pred = adjusted_rand_score(labels_test, labels_pred)
 
     return labels_pred, ari_pred
