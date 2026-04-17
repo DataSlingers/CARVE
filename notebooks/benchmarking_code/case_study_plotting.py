@@ -1158,20 +1158,28 @@ def _stack_segments(sizes, gap_frac=0.015):
 
 
 def _draw_flow(ax, x0, y0_top, y0_bot, x1, y1_top, y1_bot, color, alpha=0.35):
-    """Draw a smooth S-curve band from [x0, y0] to [x1, y1]."""
-    from matplotlib.patches import Polygon
+    """Draw a Sankey-style ribbon band from [x0, y0] to [x1, y1] using cubic Béziers."""
+    from matplotlib.patches import PathPatch
+    from matplotlib.path import Path
 
-    n_pts = 80
-    xs = np.linspace(0, 1, n_pts)
-    t = 0.5 * (1 + np.tanh(6 * (xs - 0.5)))
+    mx = (x0 + x1) / 2
 
-    top_y = (1 - t) * y0_top + t * y1_top
-    bot_y = (1 - t) * y0_bot + t * y1_bot
-    x_vals = x0 + (x1 - x0) * xs
-
-    verts = list(zip(x_vals, top_y)) + list(zip(x_vals[::-1], bot_y[::-1]))
-    poly = Polygon(verts, closed=True, fc=color, ec="none", alpha=alpha, lw=0, zorder=1)
-    ax.add_patch(poly)
+    verts = [
+        (x0, y0_top),
+        (mx, y0_top), (mx, y1_top), (x1, y1_top),
+        (x1, y1_bot),
+        (mx, y1_bot), (mx, y0_bot), (x0, y0_bot),
+        (x0, y0_top),
+    ]
+    codes = [
+        Path.MOVETO,
+        Path.CURVE4, Path.CURVE4, Path.CURVE4,
+        Path.LINETO,
+        Path.CURVE4, Path.CURVE4, Path.CURVE4,
+        Path.CLOSEPOLY,
+    ]
+    patch = PathPatch(Path(verts, codes), fc=color, ec="none", alpha=alpha, lw=0, zorder=1)
+    ax.add_patch(patch)
 
 
 def _draw_alluvial_mpl(
@@ -1186,9 +1194,10 @@ def _draw_alluvial_mpl(
     right_title: str = "Classical",
     true_title: str = "Reported Label",
     link_alpha: float = 0.4,
-    bar_width: float = 0.06,
+    bar_width: float = 0.045,
     gap_frac: float = 0.015,
-    font_size: int = 8,
+    true_gap_frac: float = 0.045,
+    font_size: int = 10,
 ):
     """Draw a 3-column alluvial diagram on a matplotlib axes."""
     # Step 1: Coerce and compute ordering / sizes.
@@ -1197,8 +1206,21 @@ def _draw_alluvial_mpl(
     right_int = np.asarray(pd.Series(right_labels).astype(int))
 
     true_order = _unique_in_order(y_true_str)
-    left_order = sorted(np.unique(left_int))
-    right_order = sorted(np.unique(right_int))
+
+    # Order left/right clusters by their weighted-mean position in true_order so
+    # bands align with the anchored middle column and flow crossings are reduced.
+    def _order_by_true(pred_int):
+        keys = sorted(np.unique(pred_int))
+        ct = pd.crosstab(pd.Series(pred_int), pd.Series(y_true_str)).reindex(
+            index=keys, columns=true_order, fill_value=0
+        )
+        idx = np.arange(len(true_order))
+        totals = ct.sum(axis=1).to_numpy()
+        scores = (ct.to_numpy() * idx).sum(axis=1) / np.maximum(totals, 1)
+        return [k for _, k in sorted(zip(scores, keys))]
+
+    left_order = _order_by_true(left_int)
+    right_order = _order_by_true(right_int)
 
     left_sizes = [int(np.sum(left_int == k)) for k in left_order]
     true_sizes = [int(np.sum(y_true_str == lab)) for lab in true_order]
@@ -1208,7 +1230,7 @@ def _draw_alluvial_mpl(
     hw = bar_width / 2
 
     left_pos = _stack_segments(left_sizes, gap_frac)
-    true_pos = _stack_segments(true_sizes, gap_frac)
+    true_pos = _stack_segments(true_sizes, true_gap_frac)
     right_pos = _stack_segments(right_sizes, gap_frac)
 
     # Step 2: Compute purity for cluster nodes.
@@ -1625,6 +1647,7 @@ def plot_composite_figure(
     alluvial_true_title: str = "Reported Label",
     show_alluvial: bool = True,
     alluvial_link_alpha: float = 0.4,
+    alluvial_true_gap_frac: float = 0.045,
     show_1se: bool = True,
     save_path: str | None = None,
     dpi: int = 300,
@@ -1715,9 +1738,15 @@ def plot_composite_figure(
     for ax in (ax_a, ax_b, ax_c):
         box = ax.get_position()
         ax.set_position([box.x0, box.y0 - 0.02, box.width, box.height])
-    for ax in (ax_d, ax_e):
-        box = ax.get_position()
-        ax.set_position([box.x0, box.y0 + 0.01, box.width, box.height])
+    de_gap = 0.02
+    box_d = ax_d.get_position()
+    ax_d.set_position(
+        [box_d.x0, box_d.y0 + 0.01, box_d.width - de_gap / 2, box_d.height]
+    )
+    box_e = ax_e.get_position()
+    ax_e.set_position(
+        [box_e.x0 + de_gap / 2, box_e.y0 + 0.01, box_e.width - de_gap / 2, box_e.height]
+    )
 
     # Step 6: Panel A — reported labels scatter.
     if embedding is not None:
@@ -1748,6 +1777,7 @@ def plot_composite_figure(
             legend_title=true_label_legend_title,
             s=scatter_s,
             alpha=scatter_alpha,
+            linewidth=0.3,
             show_legend=False,
             hide_axes=True,
         )
@@ -1763,6 +1793,7 @@ def plot_composite_figure(
         color_map=carve_cmap,
         s=scatter_s,
         alpha=scatter_alpha,
+        edgecolor=[(0.0, 0.0, 0.0, 0.6)],
         title=carve_title,
         Z=Z,
         pca_obj=pca_obj,
@@ -1776,6 +1807,7 @@ def plot_composite_figure(
         color_map=sil_cmap,
         s=scatter_s,
         alpha=scatter_alpha,
+        edgecolor=[(0.0, 0.0, 0.0, 0.6)],
         title=baseline_title,
         Z=Z,
         pca_obj=pca_obj,
@@ -1822,6 +1854,7 @@ def plot_composite_figure(
             right_title=alluvial_right_title,
             true_title=alluvial_true_title,
             link_alpha=alluvial_link_alpha,
+            true_gap_frac=alluvial_true_gap_frac,
         )
         panel_axes.append((ax_f, "F"))
 
