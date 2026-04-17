@@ -73,15 +73,15 @@ class CARVE(BaseEstimator):
     dim_reduction_options : list of dimensionality reduction specs, optional
         Dimensionality reduction preprocessing options. If None, defaults
         include identity, PCA, t-SNE, and UMAP.
-    classifier : sklearn classifier instance, optional                                                                     
-        Classifier used to score generalizability. If None (default), a                                                    
+    classifier : sklearn classifier instance, optional
+        Classifier used to score generalizability. If None (default), a
         ``RandomForestClassifier`` is built with ``n_trees`` trees. Must
-        implement the sklearn classifier interface (``fit``/``predict``).                                                  
-        The classifier is cloned for each resample so state does not leak                                                  
-        across iterations.                                                                                                 
-    n_trees : int, default=100                                                                                             
-        Number of trees in the default random-forest classifier. Ignored                                                   
-        when ``classifier`` is provided. 
+        implement the sklearn classifier interface (``fit``/``predict``).
+        The classifier is cloned for each resample so state does not leak
+        across iterations.
+    n_trees : int, default=100
+        Number of trees in the default random-forest classifier. Ignored
+        when ``classifier`` is provided.
     reference_labels : array-like of shape (n_samples,), optional
         Reference labels used to align cluster assignments across
         successive ``get_labels`` calls so that cluster indices remain
@@ -150,7 +150,7 @@ class CARVE(BaseEstimator):
     estimator_param_grids: list[GridSpec] | Literal["light", "full"] = "light"
     normalization_options: list[PreprocOption] | None = None
     dim_reduction_options: list[PreprocOption] | None = None
-    
+
     classifier: ClassifierMixin | None = None
     n_trees: int = 100
 
@@ -235,11 +235,11 @@ class CARVE(BaseEstimator):
                 RuntimeWarning,
                 stacklevel=2,
             )
-            
-        if self.classifier is not None and self.n_trees != 100:                                                            
-            warnings.warn(                                                                                                 
+
+        if self.classifier is not None and self.n_trees != 100:
+            warnings.warn(
                 "n_trees is ignored when a custom classifier is provided.",
-                RuntimeWarning,                                                                                            
+                RuntimeWarning,
                 stacklevel=2,
             )
 
@@ -315,7 +315,7 @@ class CARVE(BaseEstimator):
             subsample_ratio=self.subsample_ratio,
             normalization_options=norm_options,
             dim_reduction_options=dr_options,
-            classifier=self.classifier,                                                                                    
+            classifier=self.classifier,
             n_trees=self.n_trees,
             randomize_preprocessing=randomize_preprocessing,
             n_jobs=self.n_jobs,

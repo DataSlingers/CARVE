@@ -1166,19 +1166,29 @@ def _draw_flow(ax, x0, y0_top, y0_bot, x1, y1_top, y1_bot, color, alpha=0.35):
 
     verts = [
         (x0, y0_top),
-        (mx, y0_top), (mx, y1_top), (x1, y1_top),
+        (mx, y0_top),
+        (mx, y1_top),
+        (x1, y1_top),
         (x1, y1_bot),
-        (mx, y1_bot), (mx, y0_bot), (x0, y0_bot),
+        (mx, y1_bot),
+        (mx, y0_bot),
+        (x0, y0_bot),
         (x0, y0_top),
     ]
     codes = [
         Path.MOVETO,
-        Path.CURVE4, Path.CURVE4, Path.CURVE4,
+        Path.CURVE4,
+        Path.CURVE4,
+        Path.CURVE4,
         Path.LINETO,
-        Path.CURVE4, Path.CURVE4, Path.CURVE4,
+        Path.CURVE4,
+        Path.CURVE4,
+        Path.CURVE4,
         Path.CLOSEPOLY,
     ]
-    patch = PathPatch(Path(verts, codes), fc=color, ec="none", alpha=alpha, lw=0, zorder=1)
+    patch = PathPatch(
+        Path(verts, codes), fc=color, ec="none", alpha=alpha, lw=0, zorder=1
+    )
     ax.add_patch(patch)
 
 

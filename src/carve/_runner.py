@@ -123,9 +123,9 @@ def run_validation(
         Normalization preprocessing options.
     dim_reduction_options : list
         Dimensionality reduction options.
-    classifier : sklearn classifier instance, optional                                                                     
-        Classifier used to score generalizability.                                                                         
-    n_trees : int, default=100                                                                                             
+    classifier : sklearn classifier instance, optional
+        Classifier used to score generalizability.
+    n_trees : int, default=100
         Number of trees in the default random-forest classifier.
     randomize_preprocessing : bool, default=False
         Whether to sample preprocessing randomly per resample.
@@ -336,9 +336,9 @@ def validation_iter(
         Normalization options.
     dim_reduction_options : list
         Dimensionality reduction options.
-    classifier : sklearn classifier instance, optional                                                                     
-        Classifier used to score generalizability.                                                                         
-    n_trees : int, default=100                                                                                             
+    classifier : sklearn classifier instance, optional
+        Classifier used to score generalizability.
+    n_trees : int, default=100
         Number of trees in the default random-forest classifier.
     randomize_preprocessing : bool, default=False
         Whether to randomize preprocessing.
@@ -522,9 +522,9 @@ def _compute_generalizability_ari(
         Cluster labels for the training set.
     labels_test : ndarray or None
         Cluster labels for the test set.
-    classifier : sklearn classifier instance, optional                                                                     
-        Classifier used to score generalizability.                                                                         
-    n_trees : int, default=100                                                                                             
+    classifier : sklearn classifier instance, optional
+        Classifier used to score generalizability.
+    n_trees : int, default=100
         Number of trees in the default random-forest classifier.
     seed : int
         Random seed for the random forest.
