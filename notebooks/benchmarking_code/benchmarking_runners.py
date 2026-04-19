@@ -131,6 +131,7 @@ def benchmark_cluster_metrics(
     n_seeds_per_dataset: int = 20,
     estimator: str = "kmeans",
     estimator_grids: Optional[list[tuple[type, dict[str, list[Any]]]]] = None,
+    n_trees: int = 100,
     true_cluster_counts: Sequence[int] = (3, 4),
     candidate_clusters: Sequence[int] = range(2, 8),
     external_metrics: Sequence[str] = EXTERNAL_METRICS,
@@ -152,6 +153,7 @@ def benchmark_cluster_metrics(
         n_seeds_per_dataset: Number of random seeds per (difficulty, true_k) pair.
         estimator: Clustering estimator key ('kmeans', 'agglomerative', 'spectral').
         estimator_grids: Optional pre-built estimator grids (overrides *estimator*).
+        n_trees: Number of trees for CARVE's random forest classifier.
         true_cluster_counts: True cluster counts to simulate.
         candidate_clusters: Candidate k values to evaluate.
         external_metrics: External metrics to evaluate.
@@ -220,6 +222,7 @@ def benchmark_cluster_metrics(
                 # --- 3) Fit CARVE and evaluate CARVE metrics ---
                 carve = CARVE(
                     estimator_param_grids=estimator_grids,
+                    n_trees=n_trees,
                     n_jobs=n_jobs,
                     random_state=benchmark_seed,
                 )
