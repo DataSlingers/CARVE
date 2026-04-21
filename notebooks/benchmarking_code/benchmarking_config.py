@@ -11,7 +11,7 @@ import numpy as np
 # All axes use LINEAR spacing (np.linspace), never logarithmic.
 # To change ranges: edit here and re-run the scaling benchmarks.
 SCALING_RANGES: dict[str, dict[str, int]] = {
-    "n_total": {"min": 100, "max": 3000},
+    "n_total": {"min": 100, "max": 1500},
     "p": {"min": 10, "max": 500},
     "embed_dim": {"min": 10, "max": 500},
 }

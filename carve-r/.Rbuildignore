@@ -1,0 +1,11 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^_claude_work$
+^notebooks$
+^data-raw$
+^\.github$
+^\.vscode$
+^LICENSE\.md$
+^README\.Rmd$
+^cran-comments\.md$
+^revdep$

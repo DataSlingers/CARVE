@@ -1,0 +1,38 @@
+Package: CARVE
+Title: Cluster Analysis with Resampling for Validation and Exploration
+Version: 0.1.0
+Authors@R: c(
+    person("Kai", "Wycik", email = "kai.wycik@yahoo.com", role = c("aut", "cre"))
+  )
+Description: Stability- and generalizability-based validation of clustering
+    methods via repeated subsampling, consensus matrices, and rule-based
+    selection. Provides a scikit-learn style estimator with integration for
+    Seurat and SingleCellExperiment workflows.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Depends: R (>= 4.1.0)
+Imports:
+    clue,
+    FNN,
+    Matrix,
+    R6,
+    RSpectra,
+    stats,
+    utils
+Suggests:
+    testthat (>= 3.0.0),
+    Seurat,
+    SingleCellExperiment,
+    SummarizedExperiment,
+    knitr,
+    rmarkdown,
+    ClusterR,
+    RcppHungarian,
+    reticulate,
+    vdiffr,
+    withr
+Config/testthat/edition: 3
+VignetteBuilder: knitr
+RoxygenNote: 7.3.3
+URL: https://github.com/kwycik/ClusteringValidation
+BugReports: https://github.com/kwycik/ClusteringValidation/issues
