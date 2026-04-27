@@ -1,0 +1,146 @@
+---
+title: "CARVE in a Seurat workflow"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{CARVE in a Seurat workflow}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+has_seurat <- requireNamespace("Seurat", quietly = TRUE) &&
+  requireNamespace("SeuratObject", quietly = TRUE)
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 6,
+  fig.height = 4,
+  dpi = 90,
+  eval = has_seurat
+)
+```
+
+```{r seurat-missing, eval = !has_seurat, echo = FALSE, results = "asis"}
+cat("> **Note.** This vignette is rendered without `Seurat` installed,",
+    "so chunks below are not evaluated. Install `Seurat` from CRAN to",
+    "run the workflow end-to-end:\n>\n> ",
+    "```r\n> install.packages(\"Seurat\")\n> ```\n")
+```
+
+`Seurat` is in `Suggests`, so CARVE works with Seurat objects but
+never imports the package at load time. The integration has three
+entry points:
+
+1. `carve(seurat_obj, ...)` — S3 dispatch returning a fitted `CARVE`.
+2. `RunCARVE(seurat_obj, ...)` — verb-style alias that stores the
+   fit on `obj@misc$CARVE`.
+3. `AddCarveLabels(seurat_obj, measure, rule)` — writes the selected
+   labels into `obj@meta.data` and (optionally) sets the active
+   ident.
+
+Throughout we use the bundled `pbmc_small` dataset (80 cells × 230
+features), which is small enough to run in a vignette in seconds.
+
+## Fitting on a PCA reduction
+
+```{r seurat-fit}
+suppressPackageStartupMessages(library(Seurat))
+library(CARVE)
+
+data("pbmc_small")
+pbmc_small
+
+pbmc_small <- RunCARVE(
+  pbmc_small,
+  reduction = "pca",
+  n_dims = 10,
+  n_clusters = 2:6,
+  n_resamples = 20L,
+  subsample_ratio = 0.8,
+  estimator_param_grids = list(
+    list(type = "kmeans", grid = list(n_clusters = 2:6))
+  ),
+  random_state = 1L
+)
+
+fit <- pbmc_small@misc$CARVE
+fit$get_k(measure = "stability", rule = "max")
+```
+
+`RunCARVE()` forwards `reduction = "pca"` through the
+`carve.Seurat` extractor, which in turn pulls the embedding via
+`Seurat::Embeddings()` and trims to the first `n_dims` columns.
+
+## Adding labels back to the object
+
+```{r seurat-labels}
+pbmc_small <- AddCarveLabels(
+  pbmc_small,
+  measure = "stability",
+  rule = "max",
+  label_col = "carve_labels"
+)
+
+table(pbmc_small$carve_labels)
+```
+
+`AddCarveLabels()` writes a factor column to `meta.data` and (by
+default) sets it as the active ident. Pass `set_ident = FALSE` to
+keep the existing ident.
+
+## Visualising on UMAP / PCA
+
+```{r seurat-dimplot}
+DimPlot(pbmc_small, reduction = "pca", group.by = "carve_labels")
+```
+
+CARVE's own plot methods still work — they show resample-level
+diagnostics, not per-cell embeddings:
+
+```{r seurat-carve-plots}
+fit$plot_metric_over_n_clusters(measure = "stability", rule = "max")
+fit$plot_consensus_matrix(measure = "stability", rule = "max")
+```
+
+## Working with assay data directly
+
+`reduction` is optional. To run CARVE on a normalised expression
+matrix instead, leave `reduction = NULL` and pick an `assay` /
+`slot`:
+
+```{r seurat-assay, eval = FALSE}
+pbmc_small <- RunCARVE(
+  pbmc_small,
+  assay = "RNA", slot = "data",
+  features = VariableFeatures(pbmc_small),
+  n_clusters = 2:6, n_resamples = 20L, random_state = 1L
+)
+```
+
+Seurat v5 renamed `slot` to `layer`; `RunCARVE()` dispatches on
+`packageVersion("Seurat")` so the same `slot = ...` argument works
+on both v4 and v5.
+
+## SingleCellExperiment
+
+A symmetric S3 method exists for `SingleCellExperiment`:
+
+```{r sce, eval = FALSE}
+library(SingleCellExperiment)
+sce <- SingleCellExperiment(
+  assays = list(logcounts = t(Embeddings(pbmc_small, "pca")))
+)
+fit_sce <- carve(sce, assay = "logcounts",
+                 n_clusters = 2:6, n_resamples = 20L,
+                 random_state = 1L)
+```
+
+## Saving the fit
+
+CARVE saves cleanly with `saveRDS`-style semantics; the embedded
+matrix `X_` is stripped by default to keep the file small.
+
+```{r seurat-save, eval = FALSE}
+fit$save("pbmc_small_carve.rds")
+fit2 <- CARVE$load("pbmc_small_carve.rds")
+```

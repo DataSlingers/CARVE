@@ -1,0 +1,20 @@
+citHeader("To cite CARVE in publications use:")
+
+bibentry(
+  bibtype = "Article",
+  title   = "CARVE: Cluster Analysis with Resampling for Validation and Exploration",
+  author  = c(
+    person("Kai R.", "Wycik"),
+    person("Tarek M.", "Zikry"),
+    person("Tiffany M.", "Tang"),
+    person("Genevera I.", "Allen")
+  ),
+  journal = "PLoS Computational Biology",
+  year    = "2026",
+  note    = "Under review",
+  textVersion = paste(
+    "Wycik KR, Zikry TM, Tang TM, Allen GI (2026).",
+    "CARVE: Cluster Analysis with Resampling for Validation and Exploration.",
+    "PLoS Computational Biology (under review)."
+  )
+)

@@ -8,9 +8,18 @@
 
 #' Temporarily set the RNG seed inside an expression
 #'
-#' Saves `.Random.seed` on entry, calls `set.seed(seed)`, evaluates `expr`,
-#' then restores the original state on exit. If `seed` is `NULL`, `expr` is
-#' evaluated under the caller's current RNG state.
+#' Saves `.Random.seed` on entry, calls `set.seed(seed)` while forcing
+#' the RNG kind to `"Mersenne-Twister"` (R's default), evaluates `expr`,
+#' then restores the original state and RNG kind on exit. If `seed` is
+#' `NULL`, `expr` is evaluated under the caller's current RNG state.
+#'
+#' Why force Mersenne-Twister: when CARVE runs under `furrr::future_map`
+#' with `furrr_options(seed = TRUE)`, worker processes are switched to
+#' `"L'Ecuyer-CMRG"` for reproducible parallel streams. `set.seed(seed)`
+#' uses the *current* RNG kind, so without this guard the same `seed`
+#' produces different `sample.int()` output under parallel vs sequential
+#' execution — breaking the cross-`n_jobs` reproducibility invariant we
+#' rely on.
 #'
 #' @param seed Integer or `NULL`.
 #' @param expr Expression to evaluate.
@@ -22,21 +31,27 @@
   if (is.null(seed)) {
     return(eval.parent(substitute(expr)))
   }
+  old_kind <- RNGkind()
   had_seed <- exists(".Random.seed", envir = globalenv(), inherits = FALSE)
-  if (had_seed) {
-    old_seed <- get(".Random.seed", envir = globalenv(), inherits = FALSE)
-    on.exit(assign(".Random.seed", old_seed, envir = globalenv()), add = TRUE)
-  } else {
-    on.exit(
-      {
-        if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) {
-          rm(".Random.seed", envir = globalenv())
-        }
-      },
-      add = TRUE
-    )
-  }
-  set.seed(seed)
+  old_seed <- if (had_seed) {
+    get(".Random.seed", envir = globalenv(), inherits = FALSE)
+  } else NULL
+  # Restore RNGkind *before* re-assigning .Random.seed: `RNGkind()` has
+  # the side effect of resetting `.Random.seed` when any of its args
+  # differs from the current setting, which would clobber our restore.
+  on.exit({
+    RNGkind(kind = old_kind[1L], normal.kind = old_kind[2L],
+            sample.kind = old_kind[3L])
+    if (is.null(old_seed)) {
+      if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) {
+        rm(".Random.seed", envir = globalenv())
+      }
+    } else {
+      assign(".Random.seed", old_seed, envir = globalenv())
+    }
+  }, add = TRUE)
+  set.seed(seed, kind = "Mersenne-Twister", normal.kind = "Inversion",
+           sample.kind = "Rejection")
   eval.parent(substitute(expr))
 }
 
@@ -249,6 +264,37 @@ cluster_labels <- function(X, spec, random_state = NULL) {
 
 # Null-coalescing operator (Python's x or y).
 `%||%` <- function(a, b) if (is.null(a)) b else a
+
+
+#' Adjusted Rand Index
+#'
+#' Exact port of `sklearn.metrics.adjusted_rand_score`. Given two label
+#' vectors of equal length, returns `(index - expected) / (max - expected)`,
+#' where the terms are computed from the contingency table of
+#' `(a, b)` via binomial coefficients.
+#'
+#' @param a,b Integer (or factor) label vectors of equal length.
+#'
+#' @return A single numeric value in `[-1, 1]`. Returns `1` on perfect
+#'   match and when both `a` and `b` are trivial single-class partitions
+#'   (mirroring sklearn's edge-case handling).
+#'
+#' @export
+adjusted_rand_index <- function(a, b) {
+  if (length(a) != length(b)) {
+    stop("a and b must have the same length.", call. = FALSE)
+  }
+  ct <- table(a, b)
+  n <- sum(ct)
+  if (n < 2L) return(1)
+  sum_ct2 <- sum(choose(ct, 2L))
+  sa <- sum(choose(rowSums(ct), 2L))
+  sb <- sum(choose(colSums(ct), 2L))
+  expected <- sa * sb / choose(n, 2L)
+  maxi <- 0.5 * (sa + sb)
+  if (maxi == expected) return(1)
+  (sum_ct2 - expected) / (maxi - expected)
+}
 
 
 #' Ensure input is a 2D numeric matrix

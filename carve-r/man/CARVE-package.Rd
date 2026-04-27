@@ -2,7 +2,6 @@
 % Please edit documentation in R/CARVE-package.R
 \docType{package}
 \name{CARVE-package}
-\alias{CARVE}
 \alias{CARVE-package}
 \title{CARVE: Cluster Analysis with Resampling for Validation and Exploration}
 \description{
@@ -16,8 +15,8 @@ The entry point is [CARVE], an R6 estimator class, with S3 dispatch via
 \seealso{
 Useful links:
 \itemize{
-  \item \url{https://github.com/kwycik/ClusteringValidation}
-  \item Report bugs at \url{https://github.com/kwycik/ClusteringValidation/issues}
+  \item \url{https://github.com/tzUNC/ClusteringValidation}
+  \item Report bugs at \url{https://github.com/tzUNC/ClusteringValidation/issues}
 }
 
 }

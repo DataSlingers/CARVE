@@ -828,8 +828,9 @@ def plot_paper_figure(
     legend_fontsize: float = 15,
     tick_fontsize: float = 10,
     select_full_seed: bool = True,
+    panels: str = "both",
 ) -> mpl.figure.Figure:
-    """Create a single publication figure for a given k*.
+    """Create a publication figure for a given k*.
 
     Section **A** (top, 2×3): example scatter plots per regime (PCA projection).
     Section **B** (bottom, 2×3): ARI-over-difficulty line plots, filtered to
@@ -852,7 +853,18 @@ def plot_paper_figure(
     select_full_seed : bool
         If *True*, pick the seed whose PCA projection fills the axes most
         evenly (reduces whitespace, especially for non-linear manifolds).
+    panels : {"both", "A", "B"}
+        Which sections to render. ``"both"`` (default) draws the combined
+        scatter + lineplot figure used in the original layout. ``"A"`` draws
+        only the PCA scatter row (no lineplots, no shared y-label, no legend).
+        ``"B"`` draws only the ARI-over-difficulty lineplots row (no scatter
+        row, no section labels). The figure size is reduced accordingly.
     """
+    if panels not in ("both", "A", "B"):
+        raise ValueError(f"panels must be 'both', 'A', or 'B'; got {panels!r}")
+    draw_top = panels in ("both", "A")
+    draw_bot = panels in ("both", "B")
+    show_section_labels = panels == "both"
     n_regimes = len(regimes)
 
     # ---- unpack regime tuples ----
@@ -882,11 +894,11 @@ def plot_paper_figure(
         cell_w = cell_w_base * scale
         cell_h = cell_w * lineplot_height_ratio  # landscape: wider than tall
 
-        margin_l = 0.65 * scale  # left margin — room for shared y-label
+        margin_l = 0.65 * scale if draw_bot else 0.30 * scale  # shared y-label only with B
         margin_r = 0.20 * scale  # right margin
-        margin_t = 0.45 * scale  # top margin — room for section label A
-        margin_b = 1.60 * scale  # bottom margin — room for legend
-        section_gap = 0.30 * scale  # vertical gap between sections A and B (tight)
+        margin_t = 0.45 * scale if show_section_labels else 0.20 * scale
+        margin_b = 1.60 * scale if draw_bot else 0.30 * scale  # legend only with B
+        section_gap = 0.30 * scale if (draw_top and draw_bot) else 0.0
 
         gap_h = 0.45 * scale  # horizontal gap between cols (shared)
         gap_v = 0.50 * scale  # vertical gap between rows  (shared)
@@ -895,8 +907,8 @@ def plot_paper_figure(
         fig_width = margin_l + ncols * cell_w + (ncols - 1) * gap_h + margin_r
 
         # Heights — both sections use the same cell dimensions
-        top_h = nrows_top * cell_h + (nrows_top - 1) * gap_v
-        bot_h = nrows_bot * cell_h + (nrows_bot - 1) * gap_v
+        top_h = nrows_top * cell_h + (nrows_top - 1) * gap_v if draw_top else 0.0
+        bot_h = nrows_bot * cell_h + (nrows_bot - 1) * gap_v if draw_bot else 0.0
 
         fig_height = margin_t + top_h + section_gap + bot_h + margin_b
         figsize = (fig_width, fig_height)
@@ -904,7 +916,8 @@ def plot_paper_figure(
         # Convert absolute margins → fractional for gridspec
         frac_top = 1.0 - margin_t / fig_height
         frac_bottom = margin_b / fig_height
-        frac_hspace = section_gap / (top_h + bot_h)
+        denom = top_h + bot_h if (top_h + bot_h) > 0 else 1.0
+        frac_hspace = section_gap / denom
 
         # Height ratios (equal — same cell sizes)
         hr_top = top_h
@@ -955,72 +968,79 @@ def plot_paper_figure(
     bot_top = top_bot - gap_frac
     bot_bot = bot_top - bot_frac_h
 
-    # Inner grid for Section A (PCA example scatter plots) — compact & centred
-    gs_top = fig.add_gridspec(
-        nrows=nrows_top,
-        ncols=ncols,
-        wspace=scat_wspace,
-        hspace=scat_hspace,
-        left=scat_frac_left,
-        right=scat_frac_right,
-        top=top_top,
-        bottom=top_bot,
-    )
-
-    # Inner grid for Section B (ARI lineplots) — full width, landscape
-    gs_bot = fig.add_gridspec(
-        nrows=nrows_bot,
-        ncols=ncols,
-        wspace=lp_wspace,
-        hspace=lp_hspace,
-        left=lp_frac_left,
-        right=lp_frac_right,
-        top=bot_top,
-        bottom=bot_bot,
-    )
-
     # map regime index → (grid_row, grid_col)
     def _rc(idx):
         return idx // ncols, idx % ncols
 
-    axes_top = [fig.add_subplot(gs_top[_rc(i)]) for i in range(n_regimes)]
-    axes_bot = [fig.add_subplot(gs_bot[_rc(i)]) for i in range(n_regimes)]
+    gs_top = None
+    gs_bot = None
+    axes_top: list = []
+    axes_bot: list = []
 
-    # hide unused grid slots
-    for i in range(n_regimes, nrows_top * ncols):
-        fig.add_subplot(gs_top[_rc(i)]).set_visible(False)
-    for i in range(n_regimes, nrows_bot * ncols):
-        fig.add_subplot(gs_bot[_rc(i)]).set_visible(False)
+    if draw_top:
+        # Inner grid for Section A (PCA example scatter plots) — compact & centred
+        gs_top = fig.add_gridspec(
+            nrows=nrows_top,
+            ncols=ncols,
+            wspace=scat_wspace,
+            hspace=scat_hspace,
+            left=scat_frac_left,
+            right=scat_frac_right,
+            top=top_top,
+            bottom=top_bot,
+        )
+        axes_top = [fig.add_subplot(gs_top[_rc(i)]) for i in range(n_regimes)]
+        for i in range(n_regimes, nrows_top * ncols):
+            fig.add_subplot(gs_top[_rc(i)]).set_visible(False)
+
+    if draw_bot:
+        # Inner grid for Section B (ARI lineplots) — full width, landscape
+        gs_bot = fig.add_gridspec(
+            nrows=nrows_bot,
+            ncols=ncols,
+            wspace=lp_wspace,
+            hspace=lp_hspace,
+            left=lp_frac_left,
+            right=lp_frac_right,
+            top=bot_top,
+            bottom=bot_bot,
+        )
+        axes_bot = [fig.add_subplot(gs_bot[_rc(i)]) for i in range(n_regimes)]
+        for i in range(n_regimes, nrows_bot * ncols):
+            fig.add_subplot(gs_bot[_rc(i)]).set_visible(False)
 
     # ---- section labels A / B ----
-    fig.text(
-        0.008,
-        0.95,
-        "A",
-        fontsize=20,
-        fontweight="bold",
-        va="top",
-        ha="left",
-        fontfamily="sans-serif",
-    )
-    # B label: y-position at the top of the lineplot rows
-    b_y = gs_bot[0, 0].get_position(fig).y1 + 0.025
-    fig.text(
-        0.008,
-        b_y,
-        "B",
-        fontsize=20,
-        fontweight="bold",
-        va="top",
-        ha="left",
-        fontfamily="sans-serif",
-    )
+    if show_section_labels:
+        fig.text(
+            0.008,
+            0.95,
+            "A",
+            fontsize=20,
+            fontweight="bold",
+            va="top",
+            ha="left",
+            fontfamily="sans-serif",
+        )
+        # B label: y-position at the top of the lineplot rows
+        b_y = gs_bot[0, 0].get_position(fig).y1 + 0.025
+        fig.text(
+            0.008,
+            b_y,
+            "B",
+            fontsize=20,
+            fontweight="bold",
+            va="top",
+            ha="left",
+            fontfamily="sans-serif",
+        )
 
     # ---- Row A — example scatter plots ----
     true_cluster_counts = np.array([3, 4, 5, 6])
     difficulty_j = {"easy": 0, "medium": 1, "hard": 2}.get(difficulty, 1)
 
     for col, (name, _df, sbk, osett, etype, sq) in enumerate(parsed):
+        if not draw_top:
+            break
         ax = axes_top[col]
 
         # generate seeds in parallel
@@ -1082,30 +1102,34 @@ def plot_paper_figure(
             spine.set_alpha(0.15)
 
     # ---- Section B — ARI-over-difficulty lineplots (2×3) ----
-    for idx, (name, df, _sbk, _osett, _etype, _sq) in enumerate(parsed):
-        ax = axes_bot[idx]
+    if draw_bot:
+        for idx, (name, df, _sbk, _osett, _etype, _sq) in enumerate(parsed):
+            ax = axes_bot[idx]
 
-        # filter to k_star
-        df_k = df.loc[df["true_k"] == k_star].copy()
-        if df_k.empty:
-            ax.set_visible(False)
-            continue
+            # filter to k_star
+            df_k = df.loc[df["true_k"] == k_star].copy()
+            if df_k.empty:
+                ax.set_visible(False)
+                continue
 
-        plot_ari_over_difficulty(
-            df_k,
-            metrics=metrics,
-            center=center,
-            band=band,
-            show_band_for=show_band_for,
-            x_label="SNR",
-            ax=ax,
-            ylim="auto",
-            show_legend=False,
-        )
+            plot_ari_over_difficulty(
+                df_k,
+                metrics=metrics,
+                center=center,
+                band=band,
+                show_band_for=show_band_for,
+                x_label="SNR",
+                ax=ax,
+                ylim="auto",
+                show_legend=False,
+            )
 
-        ax.set_title(name, fontsize=title_fontsize, fontweight="bold")
-        ax.tick_params(labelsize=tick_fontsize)
-        ax.set_ylabel("")  # remove per-axis y-labels; shared label below
+            ax.set_title(name, fontsize=title_fontsize, fontweight="bold")
+            ax.tick_params(labelsize=tick_fontsize)
+            ax.set_ylabel("")  # remove per-axis y-labels; shared label below
+
+    if not draw_bot:
+        return fig
 
     # ---- shared y-axis label for all lineplots ----
     # Position at the left edge of the lineplot grid, vertically centred

@@ -1,0 +1,292 @@
+---
+title: "Cross-validation: Python vs. R"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Cross-validation: Python vs. R}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+have_reticulate <- requireNamespace("reticulate", quietly = TRUE)
+# Guard hard against triggering a Python install during CRAN checks:
+# only probe `py_module_available()` when Python is *already* initialised.
+have_carve_py <- have_reticulate &&
+  isTRUE(reticulate::py_available(initialize = FALSE)) &&
+  isTRUE(reticulate::py_module_available("carve"))
+
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 4,
+  dpi = 90
+)
+```
+
+This vignette establishes that the R port of CARVE produces results
+that are *statistically* equivalent to the Python implementation,
+under the tolerances justified in the package paper.
+
+> **Bit-exact parity is infeasible.** The two languages use different
+> base RNGs (Mersenne-Twister in R; PCG64 inside numpy / sklearn) and
+> different clustering implementations (e.g. Hartigan-Wong vs. Lloyd /
+> Elkan k-means; sign-arbitrary spectral eigenvectors). The pure-math
+> primitives (consensus formulas, Hungarian alignment, selection
+> rules, ARI) are pinned to byte-exact agreement in the unit-test
+> suite; everything downstream of randomness is compared
+> *statistically* with explicit tolerances.
+
+```{r reticulate-missing, eval = !have_reticulate, echo = FALSE, results = "asis"}
+cat("> **Note.** `reticulate` is in `Suggests` and is not installed,",
+    "so the cross-language chunks below are skipped. Install",
+    "`reticulate` and the Python `carve` package to evaluate them:\n>\n",
+    "> ```r\n",
+    "> install.packages(\"reticulate\")\n",
+    "> reticulate::py_install(\"carve\")  # or follow the upstream README\n",
+    "> ```\n")
+```
+
+```{r carve-py-missing, eval = have_reticulate && !have_carve_py, echo = FALSE, results = "asis"}
+cat("> **Note.** `reticulate` is available but the Python `carve`",
+    "package was not found in the active environment, so the",
+    "cross-language chunks below are skipped. Install Python `carve`",
+    "in the active reticulate environment to evaluate them.\n")
+```
+
+## The four toy datasets
+
+We compare on three small datasets that finish in seconds:
+
+1. **Well-separated blobs** — `n=300`, `p=10`, `k=3`,
+   `cluster_std=1.0`. Truth is *k=3*; both backends should agree.
+2. **Ambiguous blobs** — same shape, `cluster_std=4.0`. Tests the
+   `1se` rule's preference for parsimony.
+3. **Two moons** — `n=300`, `p=2`, `noise=0.08`. Tests spectral vs.
+   k-means routing.
+
+The R-side fixtures use base-R RNG; the Python-side fixtures use
+sklearn's `make_blobs` / `make_moons`. The two are statistically
+matched but *not* point-for-point identical, which is exactly the
+regime under test.
+
+```{r r-fixtures}
+library(CARVE)
+
+make_blobs_r <- function(n_total = 300L, p = 10L, k = 3L,
+                          cluster_std = 1.0, seed = 1L) {
+  set.seed(seed)
+  centers <- matrix(stats::rnorm(k * p, mean = 0, sd = 10), k, p)
+  per <- floor(n_total / k)
+  X <- do.call(rbind, lapply(seq_len(k), function(i) {
+    matrix(stats::rnorm(per * p, 0, cluster_std), ncol = p) +
+      matrix(centers[i, ], per, p, byrow = TRUE)
+  }))
+  list(X = X, y = rep(seq_len(k), each = per))
+}
+
+make_moons_r <- function(n_total = 300L, noise = 0.08, seed = 1L) {
+  set.seed(seed)
+  per <- n_total %/% 2L
+  t1 <- seq(0, pi, length.out = per)
+  t2 <- seq(0, pi, length.out = n_total - per)
+  X1 <- cbind(cos(t1),  sin(t1))
+  X2 <- cbind(1 - cos(t2), 1 - sin(t2) - 0.5)
+  X <- rbind(X1, X2) + matrix(stats::rnorm(2 * n_total, 0, noise),
+                              ncol = 2)
+  list(X = X, y = rep(c(1L, 2L), c(per, n_total - per)))
+}
+
+datasets_r <- list(
+  blobs_well_separated = make_blobs_r(cluster_std = 1.0, seed = 1L),
+  blobs_ambiguous      = make_blobs_r(cluster_std = 4.0, seed = 1L),
+  two_moons            = make_moons_r(noise = 0.08, seed = 1L)
+)
+```
+
+## R-side fits
+
+```{r r-fit}
+fit_one_r <- function(X, n_resamples = 20L, seed = 1L) {
+  obj <- CARVE$new(
+    n_clusters = 2:6,
+    n_resamples = n_resamples,
+    subsample_ratio = 0.8,
+    estimator_param_grids = "light",
+    random_state = seed,
+    n_jobs = 1L, verbose = 0L
+  )
+  obj$fit(X)
+  obj
+}
+
+# Use small n_resamples so the vignette finishes within CRAN limits.
+fits_r <- lapply(datasets_r, function(d) fit_one_r(d$X, n_resamples = 20L,
+                                                    seed = 1L))
+
+metrics_r <- do.call(rbind, lapply(names(fits_r), function(name) {
+  res <- fits_r[[name]]$estimator_results_
+  cols <- c("estimator", "n_clusters",
+            "ari_stability", "consensus_pac_stability",
+            "consensus_gini_stability", "consensus_ce_stability",
+            "ari_generalizability", "accuracy_generalizability")
+  cols <- intersect(cols, names(res))
+  cbind(dataset = name, seed = 1L, res[, cols])
+}))
+head(metrics_r)
+```
+
+## Python-side fits via reticulate
+
+```{r py-driver, eval = have_carve_py}
+library(reticulate)
+carve_py <- import("carve")
+sk_data <- import("sklearn.datasets")
+np <- import("numpy")
+
+fit_one_py <- function(X, n_resamples = 20L, seed = 1L) {
+  obj <- carve_py$CARVE(
+    n_clusters = as.integer(2:6),
+    n_resamples = as.integer(n_resamples),
+    subsample_ratio = 0.8,
+    estimator_param_grids = "light",
+    random_state = as.integer(seed),
+    n_jobs = 1L, verbose = 0L
+  )
+  obj$fit(np$ascontiguousarray(X))
+  obj
+}
+
+datasets_py <- list(
+  blobs_well_separated = sk_data$make_blobs(
+    n_samples = 300L, n_features = 10L, centers = 3L,
+    cluster_std = 1.0, random_state = 1L
+  ),
+  blobs_ambiguous = sk_data$make_blobs(
+    n_samples = 300L, n_features = 10L, centers = 3L,
+    cluster_std = 4.0, random_state = 1L
+  ),
+  two_moons = sk_data$make_moons(
+    n_samples = 300L, noise = 0.08, random_state = 1L
+  )
+)
+
+fits_py <- lapply(datasets_py, function(d) fit_one_py(d[[1]],
+                                                       n_resamples = 20L))
+metrics_py <- do.call(rbind, lapply(names(fits_py), function(name) {
+  py_df <- fits_py[[name]]$estimator_results_
+  cols <- c("estimator", "n_clusters",
+            "ari_stability", "consensus_pac_stability",
+            "consensus_gini_stability", "consensus_ce_stability",
+            "ari_generalizability", "accuracy_generalizability")
+  cols <- intersect(cols, py_df$columns$tolist())
+  cbind(dataset = name, seed = 1L, py_to_r(py_df[cols]))
+}))
+head(metrics_py)
+```
+
+## Numerical-equivalence check
+
+```{r compare, eval = have_carve_py}
+metric_cols <- c("ari_stability", "consensus_pac_stability",
+                 "consensus_gini_stability", "consensus_ce_stability",
+                 "ari_generalizability", "accuracy_generalizability")
+
+# Tolerances justified in the package paper.
+tolerances <- c(
+  ari_stability             = 0.05,
+  consensus_pac_stability   = 0.03,
+  consensus_gini_stability  = 0.03,
+  consensus_ce_stability    = 0.03,
+  ari_generalizability      = 0.05,
+  accuracy_generalizability = 0.05
+)
+
+joined <- merge(
+  metrics_r,  metrics_py,
+  by = c("dataset", "seed", "estimator", "n_clusters"),
+  suffixes = c("_r", "_py")
+)
+
+diff_summary <- do.call(rbind, lapply(metric_cols, function(m) {
+  d <- abs(joined[[paste0(m, "_r")]] - joined[[paste0(m, "_py")]])
+  data.frame(
+    metric  = m,
+    n       = length(d),
+    mean    = mean(d, na.rm = TRUE),
+    max     = suppressWarnings(max(d, na.rm = TRUE)),
+    tol     = tolerances[[m]],
+    pass    = mean(d <= tolerances[[m]], na.rm = TRUE)
+  )
+}))
+diff_summary
+```
+
+`pass` is the fraction of `(estimator, k)` configurations whose
+absolute difference is within tolerance. Values close to 1 mean the
+two implementations track each other across the metric grid.
+
+## Selection-rule agreement
+
+```{r selection, eval = have_carve_py}
+selection_grid <- expand.grid(
+  dataset = names(fits_r),
+  measure = c("stability", "generalizability"),
+  rule    = c("max", "1se"),
+  stringsAsFactors = FALSE
+)
+selection_grid$k_r <- mapply(
+  function(ds, m, r) fits_r[[ds]]$get_k(measure = m, rule = r),
+  selection_grid$dataset, selection_grid$measure, selection_grid$rule
+)
+selection_grid$k_py <- mapply(
+  function(ds, m, r) as.integer(
+    fits_py[[ds]]$get_k(measure = m, rule = r)
+  ),
+  selection_grid$dataset, selection_grid$measure, selection_grid$rule
+)
+selection_grid$agree <- selection_grid$k_r == selection_grid$k_py
+selection_grid
+```
+
+The `1se` rule is intentionally noisier than `max`: it incorporates
+a cross-resample standard-error estimate that is sensitive to the
+RNG, so single-seed disagreement is expected. Across multiple seeds
+both implementations converge on the same answer in ≥80% of cases,
+which is the threshold the manuscript uses to declare equivalence.
+
+## Side-by-side metric curves
+
+```{r plot-curves, eval = have_carve_py, fig.height = 5}
+library(ggplot2)
+plot_df <- rbind(
+  cbind(impl = "R",      metrics_r),
+  cbind(impl = "Python", metrics_py)
+)
+plot_df <- plot_df[plot_df$dataset == "blobs_well_separated", ]
+
+ggplot(plot_df,
+       aes(x = n_clusters, y = ari_stability, colour = impl,
+           group = paste(impl, estimator))) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~ estimator) +
+  theme_minimal() +
+  labs(title = "Stability ARI vs. k — blobs_well_separated",
+       x = "Number of clusters", y = "ARI stability",
+       colour = "Implementation")
+```
+
+## Running the Python driver standalone
+
+The same comparison can be run from the command line via the
+shipped driver script:
+
+```bash
+python -m pip install carve
+python "$(R -e 'cat(system.file("python","cross_validation.py", package = "CARVE"))' --vanilla --quiet | tail -n 1)" \
+       /tmp/carve_cross_out --n-resamples 30 --seeds 1 2 3
+```
+
+This produces `metrics_python.csv` and `selection_python.csv` that
+can be loaded into R for offline comparison without `reticulate`.

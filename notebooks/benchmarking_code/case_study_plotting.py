@@ -1713,15 +1713,24 @@ def plot_composite_figure(
         Z, pca_obj = _pca_project(X)
 
     # Step 4: Build color maps.
-    carve_cmap = _cluster_color_map(carve_labels)
-    sil_cmap = _cluster_color_map(comparison_labels)
-
+    # Shared palette: one colour per reference (true) label, used everywhere.
     y_cat = pd.Categorical(y_arr)
     if hasattr(y_cat, "remove_unused_categories"):
         y_cat = y_cat.remove_unused_categories()
     n_true = len(y_cat.categories)
-    true_palette = _get_color_mapping(n_true)
-    true_cmap = {str(lab): true_palette[i] for i, lab in enumerate(y_cat.categories)}
+
+    # Make the palette long enough to cover any extra CARVE/classical clusters
+    # that don't map onto a reference label (kept distinct from reference colours).
+    n_extra = max(
+        int(np.max(carve_labels)) + 1 - n_true if carve_labels.size else 0,
+        int(np.max(comparison_labels)) + 1 - n_true if comparison_labels.size else 0,
+        0,
+    )
+    shared_palette = _get_color_mapping(n_true + n_extra)
+
+    true_cmap = {str(lab): shared_palette[i] for i, lab in enumerate(y_cat.categories)}
+    carve_cmap = {int(c): shared_palette[int(c)] for c in np.unique(carve_labels)}
+    sil_cmap = {int(c): shared_palette[int(c)] for c in np.unique(comparison_labels)}
 
     # Step 5: Figure layout.
     n_rows = 3 if show_alluvial else 2
@@ -1735,7 +1744,7 @@ def plot_composite_figure(
         6,
         height_ratios=height_ratios,
         hspace=0.5,
-        wspace=0.3,
+        wspace=0.6,
     )
 
     ax_a = fig.add_subplot(gs[0, 0:2])  # reported labels
@@ -1913,7 +1922,7 @@ def plot_composite_figure_ari(
     baseline_title: str = "Classical clustering",
     carve_line_title: str = "CARVE ARI over k",
     baseline_line_title: str = "Classical metrics over k",
-    ari_title: str = "Agreement with Ground Truth (ARI)",
+    ari_title: str = "Agreement with Reported Labels (ARI)",
     ari_carve_measures: list[tuple[str, str]] | None = None,
     show_1se: bool = True,
     save_path: str | None = None,
@@ -1966,15 +1975,24 @@ def plot_composite_figure_ari(
         Z, pca_obj = _pca_project(X)
 
     # Step 4: Build color maps.
-    carve_cmap = _cluster_color_map(carve_labels)
-    sil_cmap = _cluster_color_map(comparison_labels)
-
+    # Shared palette: one colour per reference (true) label, used everywhere.
     y_cat = pd.Categorical(y_arr)
     if hasattr(y_cat, "remove_unused_categories"):
         y_cat = y_cat.remove_unused_categories()
     n_true = len(y_cat.categories)
-    true_palette = _get_color_mapping(n_true)
-    true_cmap = {str(lab): true_palette[i] for i, lab in enumerate(y_cat.categories)}
+
+    # Make the palette long enough to cover any extra CARVE/classical clusters
+    # that don't map onto a reference label (kept distinct from reference colours).
+    n_extra = max(
+        int(np.max(carve_labels)) + 1 - n_true if carve_labels.size else 0,
+        int(np.max(comparison_labels)) + 1 - n_true if comparison_labels.size else 0,
+        0,
+    )
+    shared_palette = _get_color_mapping(n_true + n_extra)
+
+    true_cmap = {str(lab): shared_palette[i] for i, lab in enumerate(y_cat.categories)}
+    carve_cmap = {int(c): shared_palette[int(c)] for c in np.unique(carve_labels)}
+    sil_cmap = {int(c): shared_palette[int(c)] for c in np.unique(comparison_labels)}
 
     # Step 5: Figure layout (3 rows: scatter, lines, lollipop).
     height_ratios = [1, 1.1, 0.9]
@@ -1987,7 +2005,7 @@ def plot_composite_figure_ari(
         6,
         height_ratios=height_ratios,
         hspace=0.5,
-        wspace=0.3,
+        wspace=0.6,
     )
 
     ax_a = fig.add_subplot(gs[0, 0:2])  # reported labels
@@ -2090,7 +2108,7 @@ def plot_composite_figure_ari(
         normalize=normalize_baseline,
     )
 
-    # Step 11: Panel F — ARI lollipop comparison.
+    # Step 11: Panel F — ARI bar comparison.
     ari_df = extract_ari_comparison(
         y_arr,
         best_df,
@@ -2099,7 +2117,7 @@ def plot_composite_figure_ari(
         carve_measures=ari_carve_measures,
         not_two=not_two,
     )
-    plot_ari_comparison_lollipop(ari_df, ax=ax_f, title=ari_title)
+    plot_ari_comparison_bar(ari_df, ax=ax_f, title=ari_title)
 
     # Step 12: Panel letter labels.
     panel_axes = [
@@ -2236,17 +2254,17 @@ def _ari_colors(df: pd.DataFrame) -> list[Any]:
     return [_CARVE_COLOR if s == "carve" else _BASELINE_COLOR for s in df["source"]]
 
 
-def plot_ari_comparison_lollipop(
+def plot_ari_comparison_bar(
     ari_df: pd.DataFrame,
     *,
     ax: plt.Axes | None = None,
     figsize: tuple[float, float] = (8, 4),
-    title: str = "Agreement with Ground Truth (ARI)",
+    title: str = "Agreement with Reported Labels (ARI)",
     annotate_k: bool = True,
     save_path: str | None = None,
     dpi: int = 300,
 ) -> plt.Figure:
-    """Horizontal lollipop chart of ARI by method (ranked by descending ARI)."""
+    """Horizontal bar chart of ARI by method (ranked, left-to-right bars)."""
     df = (
         ari_df.dropna(subset=["ari"])
         .sort_values("ari", ascending=True)
@@ -2262,24 +2280,25 @@ def plot_ari_comparison_lollipop(
 
     y_pos = np.arange(len(df))
 
-    # Step 1: Stems and dots.
-    ax.hlines(y_pos, 0, df["ari"], colors=colors, linewidth=2.2, zorder=2)
-    ax.scatter(
-        df["ari"],
+    # Step 1: Bars (left -> right).
+    ax.barh(
         y_pos,
-        c=colors,
-        s=80,
-        zorder=3,
-        edgecolors="white",
-        linewidths=0.6,
+        df["ari"],
+        color=colors,
+        edgecolor="white",
+        linewidth=0.6,
+        height=0.65,
+        zorder=2,
     )
 
     # Step 2: Decorate.
     ax.set_yticks(y_pos)
     ax.set_yticklabels(df["method"], fontsize=10)
+
     ari_min, ari_max = df["ari"].min(), df["ari"].max()
-    margin = max(0.02, (ari_max - ari_min) * 0.08)
+    margin = max(0.02, (ari_max - ari_min) * 0.08) if len(df) else 0.02
     ax.set_xlim(max(0, ari_min - margin), ari_max + margin)
+
     ax.set_xlabel("ARI", fontsize=11)
     ax.set_title(title, fontsize=12, pad=10)
 
@@ -2295,77 +2314,9 @@ def plot_ari_comparison_lollipop(
                 (row["ari"], i),
                 textcoords="offset points",
                 xytext=(8, 0),
-                fontsize=8,
+                fontsize=10,
                 va="center",
-                color="0.35",
-            )
-
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-
-    if own_fig:
-        fig.tight_layout()
-        if save_path:
-            fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
-
-    return fig
-
-
-def plot_ari_comparison_bar(
-    ari_df: pd.DataFrame,
-    *,
-    ax: plt.Axes | None = None,
-    figsize: tuple[float, float] = (8, 4),
-    title: str = "Agreement with Ground Truth (ARI)",
-    annotate_k: bool = True,
-    save_path: str | None = None,
-    dpi: int = 300,
-) -> plt.Figure:
-    """Grouped vertical bar chart of ARI by method."""
-    df = ari_df.dropna(subset=["ari"]).reset_index(drop=True)
-    colors = _ari_colors(df)
-
-    own_fig = ax is None
-    if own_fig:
-        fig, ax = plt.subplots(figsize=figsize)
-    else:
-        fig = ax.figure
-
-    x_pos = np.arange(len(df))
-
-    # Step 1: Bars.
-    ax.bar(
-        x_pos,
-        df["ari"],
-        color=colors,
-        edgecolor="white",
-        linewidth=0.6,
-        width=0.65,
-        zorder=2,
-    )
-
-    # Step 2: Decorate.
-    ax.set_xticks(x_pos)
-    ax.set_xticklabels(df["method"], fontsize=9, rotation=35, ha="right")
-    ax.set_ylim(0, 1.12)
-    ax.set_ylabel("ARI", fontsize=11)
-    ax.set_title(title, fontsize=12, pad=10)
-
-    if not df.empty:
-        ax.axhline(
-            df["ari"].max(), color="grey", linestyle="--", linewidth=0.8, alpha=0.5
-        )
-
-    if annotate_k:
-        for i, row in df.iterrows():
-            ax.annotate(
-                f"k={row['k']}",
-                (i, row["ari"]),
-                textcoords="offset points",
-                xytext=(0, 6),
-                fontsize=8,
-                ha="center",
-                color="0.35",
+                color="black",
             )
 
     ax.spines["top"].set_visible(False)
@@ -2384,7 +2335,7 @@ def plot_ari_comparison_dotplot(
     *,
     ax: plt.Axes | None = None,
     figsize: tuple[float, float] = (8, 4),
-    title: str = "Agreement with Ground Truth (ARI)",
+    title: str = "Agreement with Reported Labels (ARI)",
     annotate_k: bool = True,
     save_path: str | None = None,
     dpi: int = 300,

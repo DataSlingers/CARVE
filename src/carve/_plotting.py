@@ -1456,7 +1456,7 @@ def plot_diagnostic_scatter(
             ax=ax,
             orientation="horizontal",
             fraction=0.046,
-            pad=0.08,
+            pad=0.09,
         )
         cbar.set_label(colorbar_label if colorbar_label is not None else scores_name)
 

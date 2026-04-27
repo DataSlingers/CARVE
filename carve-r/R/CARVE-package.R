@@ -12,6 +12,12 @@
 #' @importFrom utils packageVersion head tail
 #' @importFrom R6 R6Class
 #' @importFrom FNN get.knn
-#' @importFrom Matrix sparseMatrix Diagonal
+#' @importFrom Matrix sparseMatrix Diagonal t
 #' @importFrom RSpectra eigs_sym
+#' @importFrom ranger ranger
+#' @importFrom future plan multisession sequential
+#' @importFrom furrr future_map furrr_options
+#' @importFrom progressr with_progress progressor
+#' @importFrom ggplot2 .data
+#' @importFrom patchwork wrap_plots
 "_PACKAGE"
