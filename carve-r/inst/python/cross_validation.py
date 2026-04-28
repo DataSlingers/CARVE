@@ -36,12 +36,18 @@ def make_dataset(name: str, seed: int) -> tuple[np.ndarray, np.ndarray]:
     """
     if name == "blobs_well_separated":
         return make_blobs(
-            n_samples=300, n_features=10, centers=3, cluster_std=1.0,
+            n_samples=300,
+            n_features=10,
+            centers=3,
+            cluster_std=1.0,
             random_state=seed,
         )
     if name == "blobs_ambiguous":
         return make_blobs(
-            n_samples=300, n_features=10, centers=3, cluster_std=4.0,
+            n_samples=300,
+            n_features=10,
+            centers=3,
+            cluster_std=4.0,
             random_state=seed,
         )
     if name == "two_moons":
@@ -67,7 +73,8 @@ def fit_one(X: np.ndarray, *, n_resamples: int, random_state: int) -> "CARVE":  
 
 def metrics_table(carve) -> pd.DataFrame:
     cols = [
-        "estimator", "n_clusters",
+        "estimator",
+        "n_clusters",
         "ari_stability",
         "consensus_pac_stability",
         "consensus_gini_stability",
@@ -89,8 +96,7 @@ def selection_table(carve, dataset: str) -> pd.DataFrame:
             except Exception:  # noqa: BLE001
                 k = -1
             rows.append(
-                {"dataset": dataset, "measure": measure, "rule": rule,
-                 "k_python": k}
+                {"dataset": dataset, "measure": measure, "rule": rule, "k_python": k}
             )
     return pd.DataFrame(rows)
 
@@ -112,9 +118,7 @@ def main(out_dir: Path, n_resamples: int, seeds: list[int]) -> None:
             m.insert(0, "dataset", ds)
             metrics_rows.append(m)
 
-            selection_rows.append(
-                selection_table(carve, ds).assign(seed=seed)
-            )
+            selection_rows.append(selection_table(carve, ds).assign(seed=seed))
 
     metrics = pd.concat(metrics_rows, ignore_index=True)
     selection = pd.concat(selection_rows, ignore_index=True)
@@ -122,24 +126,22 @@ def main(out_dir: Path, n_resamples: int, seeds: list[int]) -> None:
     metrics.to_csv(out_dir / "metrics_python.csv", index=False)
     selection.to_csv(out_dir / "selection_python.csv", index=False)
 
-    print(f"Wrote {len(metrics)} metric rows to "
-          f"{out_dir / 'metrics_python.csv'}")
-    print(f"Wrote {len(selection)} selection rows to "
-          f"{out_dir / 'selection_python.csv'}")
+    print(f"Wrote {len(metrics)} metric rows to {out_dir / 'metrics_python.csv'}")
+    print(
+        f"Wrote {len(selection)} selection rows to {out_dir / 'selection_python.csv'}"
+    )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "out_dir", nargs="?",
+        "out_dir",
+        nargs="?",
         default=os.environ.get("CARVE_R_CV_OUT", "cross_validation_out"),
         help="Directory to write metrics_python.csv / selection_python.csv",
     )
     parser.add_argument("--n-resamples", type=int, default=30)
-    parser.add_argument("--seeds", type=int, nargs="+",
-                        default=[1, 2, 3, 4, 5])
+    parser.add_argument("--seeds", type=int, nargs="+", default=[1, 2, 3, 4, 5])
     args = parser.parse_args()
 
-    sys.exit(main(Path(args.out_dir),
-                  n_resamples=args.n_resamples,
-                  seeds=args.seeds))
+    sys.exit(main(Path(args.out_dir), n_resamples=args.n_resamples, seeds=args.seeds))

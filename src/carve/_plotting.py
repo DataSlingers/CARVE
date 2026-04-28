@@ -514,7 +514,7 @@ def _prepare_cluster_score_groups(
     if not groups:
         raise ValueError("No cluster values found for the provided order.")
 
-    # Enumerate clusters starting at 1 
+    # Enumerate clusters starting at 1
     kept_order = [int(lab) + 1 for lab in kept_order]
 
     return groups, kept_order
@@ -763,8 +763,8 @@ def plot_cluster_boxplot(
         effective_ylim = (data_min - margin, data_max + margin)
     else:
         effective_ylim = ylim
-    
-    if effective_ylim is not None:                                                                                             
+
+    if effective_ylim is not None:
         ax.set_ylim(*effective_ylim)
 
     if title is not None:
@@ -903,7 +903,7 @@ def plot_cluster_violin(
         body.set_edgecolor("black")
         body.set_linewidth(0.8)
         body.set_alpha(0.8)
-        
+
     if fit_ylim:
         all_vals = np.concatenate(groups)
         data_min, data_max = all_vals.min(), all_vals.max()
@@ -956,8 +956,8 @@ def plot_cluster_violin(
     ax.set_xticklabels([str(x) for x in kept_order], rotation=rotation)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
-    
-    if effective_ylim is not None:                                                                                             
+
+    if effective_ylim is not None:
         ax.set_ylim(*effective_ylim)
 
     if title is not None:

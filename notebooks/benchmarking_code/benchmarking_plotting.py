@@ -894,7 +894,9 @@ def plot_paper_figure(
         cell_w = cell_w_base * scale
         cell_h = cell_w * lineplot_height_ratio  # landscape: wider than tall
 
-        margin_l = 0.65 * scale if draw_bot else 0.30 * scale  # shared y-label only with B
+        margin_l = (
+            0.65 * scale if draw_bot else 0.30 * scale
+        )  # shared y-label only with B
         margin_r = 0.20 * scale  # right margin
         margin_t = 0.45 * scale if show_section_labels else 0.20 * scale
         margin_b = 1.60 * scale if draw_bot else 0.30 * scale  # legend only with B
