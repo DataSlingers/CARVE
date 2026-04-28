@@ -469,6 +469,7 @@ def plot_dim_red(
     title: str = "PCA of raw cell counts (colored by stage label)",
     show_legend: bool = True,
     legend_title: str = "stage",
+    fontsize: int = 12,
     show_axis_labels: bool = True,
     ax: plt.Axes | None = None,
     show: bool = True,
@@ -539,14 +540,14 @@ def plot_dim_red(
     ax.set_title(title)
     if show_axis_labels:
         if method == "pca":
-            ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0] * 100:.2f}% var)")
-            ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1] * 100:.2f}% var)")
+            ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0] * 100:.2f}% var)", fontsize=fontsize)
+            ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1] * 100:.2f}% var)", fontsize=fontsize)
         elif method == "tsne":
-            ax.set_xlabel("t-SNE 1")
-            ax.set_ylabel("t-SNE 2")
+            ax.set_xlabel("t-SNE 1", fontsize=fontsize)
+            ax.set_ylabel("t-SNE 2", fontsize=fontsize)
         elif method == "umap":
-            ax.set_xlabel("UMAP 1")
-            ax.set_ylabel("UMAP 2")
+            ax.set_xlabel("UMAP 1", fontsize=fontsize)
+            ax.set_ylabel("UMAP 2", fontsize=fontsize)
 
     if show_legend:
         ax.legend(title=legend_title, bbox_to_anchor=(1.02, 1), loc="upper left")

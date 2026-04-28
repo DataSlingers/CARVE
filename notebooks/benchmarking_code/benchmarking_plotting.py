@@ -1427,3 +1427,408 @@ def plot_baseline_vs_metric_ari_grid(
     fig.supylabel("ARI (selected k^hat)")
 
     return fig
+
+
+# ---------------------------------------------------------------------------
+# Section 3 paper figures — Scaling ARI + Runtime (2×2 grids per k★)
+# ---------------------------------------------------------------------------
+
+
+def plot_runtime_over_axis(
+    runtimes_df: pd.DataFrame,
+    *,
+    runtime_cols: tuple[str, str] = ("t_carve_sec_s", "t_carve_sec_g"),
+    runtime_labels: tuple[str, str] = (
+        "CARVE Stability",
+        "CARVE Generalizability",
+    ),
+    center: str = "mean",
+    band: tuple[float, float] = (0.05, 0.95),
+    show_band: bool = True,
+    x_col: str | None = None,
+    x_label: str = "Number of samples (n)",
+    xscale: str = "linear",
+    yscale: str = "log",
+    y_label: str = "Runtime (seconds)",
+    title: str | None = None,
+    figsize: tuple = (6, 4.5),
+    ax=None,
+    show_legend: bool = True,
+):
+    """Plot CARVE runtime vs. a scaling axis.
+
+    Mirrors :func:`plot_ari_over_difficulty` for runtime data: groups rows by
+    the inferred axis column, summarises each ``runtime_cols`` series with a
+    centre + quantile band, and draws one coloured line per series.
+
+    Args:
+        runtimes_df: Long-form runtimes dataframe with at least
+            ``axis_value`` (or one of ``n_total``/``p``/``embed_dim``),
+            ``dataset_iteration`` and the columns listed in ``runtime_cols``.
+        runtime_cols: Column names to plot as separate lines. Defaults to the
+            two CARVE-mode totals.
+        runtime_labels: Display labels for ``runtime_cols`` (same length).
+        center: ``'mean'`` or ``'median'``.
+        band: Quantile pair for the uncertainty band.
+        show_band: If True, draw a filled band around each line.
+        yscale: ``'log'`` (default) or ``'linear'``.
+    """
+    if len(runtime_cols) != len(runtime_labels):
+        raise ValueError("runtime_cols and runtime_labels must be the same length")
+
+    axis_col, _ = _infer_axis_cols(runtimes_df) if x_col is None else (x_col, "")
+    needed = {axis_col, *runtime_cols}
+    missing = sorted(c for c in needed if c not in runtimes_df.columns)
+    if missing:
+        raise ValueError(f"runtimes_df missing columns: {missing}")
+
+    def _summarize(y: pd.Series):
+        y = y.astype(float).dropna().values
+        if y.size == 0:
+            return np.nan, np.nan, np.nan
+        lo = np.quantile(y, band[0])
+        hi = np.quantile(y, band[1])
+        mid = np.mean(y) if center == "mean" else np.median(y)
+        return mid, lo, hi
+
+    # Build summary table per runtime column
+    sums = []
+    for col in runtime_cols:
+        s = (
+            runtimes_df.groupby(axis_col)[col]
+            .apply(lambda v: pd.Series(_summarize(v), index=["mid", "lo", "hi"]))
+            .unstack()
+            .reset_index()
+            .sort_values(axis_col)
+        )
+        s["runtime_col"] = col
+        sums.append(s)
+    sum_df = pd.concat(sums, ignore_index=True)
+
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=figsize, constrained_layout=True)
+    else:
+        fig = ax.figure
+
+    # Re-use the CARVE contrastive palette so colours match the ARI plot:
+    # stability → green, generalizability → blue.
+    palette = [
+        mpl.colors.to_rgba(c) for c in lines_pallette_contrastive_carve
+    ]
+
+    for i, (col, lab) in enumerate(zip(runtime_cols, runtime_labels)):
+        s = sum_df.loc[sum_df["runtime_col"] == col]
+        if s.empty:
+            continue
+        xx = s[axis_col].astype(int).values
+        yy = s["mid"].values
+        color = palette[i % len(palette)]
+        ax.plot(xx, yy, color=color, linewidth=3.1, label=lab)
+        if show_band:
+            ax.fill_between(
+                xx, s["lo"].values, s["hi"].values, color=color, alpha=0.15
+            )
+
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+
+    x_all = sum_df[axis_col].astype(int).values
+    if x_all.size > 0:
+        ax.set_xlim(x_all.min(), x_all.max())
+        ax.set_xticks(np.unique(x_all))
+
+    if xscale in {"log", "linear"}:
+        ax.set_xscale(xscale)
+    if yscale in {"log", "linear"}:
+        ax.set_yscale(yscale)
+
+    if title is not None:
+        ax.set_title(title)
+    if show_legend:
+        ax.legend(frameon=False, fontsize=9, ncol=1)
+
+    return fig
+
+
+def _split_legend_groups(
+    handles, labels
+) -> list[tuple[list, list, int]]:
+    """Split legend handles into (Baseline, CARVE, Classical) groups.
+
+    Mirrors the grouping rule used inside ``plot_paper_figure`` so the
+    section-3 grids advertise their methods identically.
+    """
+    baseline_h, baseline_l = [], []
+    carve_h, carve_l = [], []
+    classical_h, classical_l = [], []
+    for h, lab in zip(handles, labels):
+        low = lab.lower()
+        if "baseline" in low or "oracle" in low:
+            baseline_h.append(h)
+            baseline_l.append(lab)
+        elif "carve" in low:
+            carve_h.append(h)
+            carve_l.append(lab)
+        else:
+            classical_h.append(h)
+            classical_l.append(lab)
+    groups: list[tuple[list, list, int]] = []
+    if baseline_h:
+        groups.append((baseline_h, baseline_l, 1))
+    if carve_h:
+        groups.append((carve_h, carve_l, 1))
+    if classical_h:
+        groups.append((classical_h, classical_l, 2))
+    return groups
+
+
+def _draw_grouped_legend(
+    fig,
+    axes_grid,
+    *,
+    fontsize: float = 12,
+    legend_y_offset: float = 0.04,
+):
+    """Add a grouped Baseline / CARVE / Classical legend below ``axes_grid``."""
+    handles, labels = axes_grid[0, 0].get_legend_handles_labels()
+    groups = _split_legend_groups(handles, labels)
+    if not groups:
+        return
+
+    # Compute the combined extent of the axes grid so the legend stays
+    # centred under the panels regardless of figsize.
+    x0 = min(ax.get_position().x0 for ax in axes_grid.ravel())
+    x1 = max(ax.get_position().x1 for ax in axes_grid.ravel())
+    y_min = min(ax.get_position().y0 for ax in axes_grid.ravel())
+    grid_w = x1 - x0
+    legend_y = y_min - legend_y_offset
+
+    legend_kw = dict(
+        frameon=False,
+        fontsize=fontsize,
+        handlelength=2.2,
+        borderpad=0.3,
+        labelspacing=0.30,
+        columnspacing=1.0,
+        handletextpad=0.5,
+    )
+    n_groups = len(groups)
+    for gi, (gh, gl, gncol) in enumerate(groups):
+        frac = (gi + 0.5) / n_groups
+        gx = x0 + frac * grid_w
+        fig.legend(
+            gh,
+            gl,
+            loc="upper center",
+            bbox_to_anchor=(gx, legend_y),
+            ncol=gncol,
+            **legend_kw,
+        )
+
+
+def _filter_true_k(df: pd.DataFrame, k_star: int) -> pd.DataFrame:
+    """Return rows of ``df`` with ``true_k == k_star`` (or all rows if absent)."""
+    if "true_k" not in df.columns:
+        return df
+    return df.loc[df["true_k"] == k_star].copy()
+
+
+def plot_scaling_ari_grid(
+    *,
+    gaussian_samples: pd.DataFrame,
+    moons_samples: pd.DataFrame,
+    gaussian_dim: pd.DataFrame,
+    moons_dim: pd.DataFrame,
+    k_star: int,
+    metrics: tuple[str, ...] = (
+        "ari_stability_1se",
+        "ari_generalizability_1se",
+        "silhouette",
+        "gap",
+        "davies_bouldin",
+        "calinski_harabasz",
+    ),
+    center: str = "mean",
+    band: tuple = (0.05, 0.95),
+    show_band_for: tuple = (),
+    figsize: tuple = (12, 9),
+    title_fontsize: float = 14,
+    legend_fontsize: float = 12,
+    suptitle: str | None = None,
+):
+    """2×2 ARI grid for the section-3 scaling experiments at a given ``k★``.
+
+    Layout:
+        ┌───────────────────┬───────────────────┐
+        │ Gaussians         │ RFF Moons         │   row 0 → n_total
+        │  vs n_total       │  vs n_total       │
+        ├───────────────────┼───────────────────┤
+        │ Gaussians         │ RFF Moons         │   row 1 → p / embed_dim
+        │  vs p             │  vs embed_dim     │
+        └───────────────────┴───────────────────┘
+
+    Each panel is rendered by :func:`plot_ari_over_difficulty` after filtering
+    its dataframe to ``true_k == k_star``.
+    """
+    panels = [
+        [
+            ("Gaussian Mixtures", gaussian_samples, "Number of samples (n)"),
+            ("RFF Embedded Moons", moons_samples, "Number of samples (n)"),
+        ],
+        [
+            ("Gaussian Mixtures", gaussian_dim, "Number of features (p)"),
+            ("RFF Embedded Moons", moons_dim, "Embedding dimensions"),
+        ],
+    ]
+
+    fig, axes = plt.subplots(2, 2, figsize=figsize, constrained_layout=False)
+
+    for r in range(2):
+        for c in range(2):
+            ax = axes[r, c]
+            name, df, x_label = panels[r][c]
+            df_k = _filter_true_k(df, k_star)
+            if df_k.empty:
+                ax.set_visible(False)
+                continue
+            plot_ari_over_difficulty(
+                df_k,
+                metrics=metrics,
+                center=center,
+                band=band,
+                show_band_for=show_band_for,
+                x_label=x_label,
+                title=None,
+                ax=ax,
+                show_legend=False,
+            )
+            # Only the top row gets the column title.
+            if r == 0:
+                ax.set_title(name, fontsize=title_fontsize, fontweight="bold")
+            # Shared y-label only on the leftmost column.
+            if c == 0:
+                ax.set_ylabel(
+                    r"ARI (selected $\hat{k}$ vs. true labels)", fontsize=11
+                )
+            else:
+                ax.set_ylabel("")
+
+    if suptitle is None:
+        suptitle = f"k★ = {k_star}"
+    fig.suptitle(suptitle, fontsize=title_fontsize + 2, fontweight="bold")
+
+    fig.subplots_adjust(
+        hspace=0.30,
+        wspace=0.15,
+        bottom=0.16,
+        top=0.92,
+        left=0.08,
+        right=0.97,
+    )
+
+    _draw_grouped_legend(
+        fig, axes, fontsize=legend_fontsize, legend_y_offset=0.05
+    )
+
+    return fig
+
+
+def plot_scaling_runtime_grid(
+    *,
+    gaussian_samples: pd.DataFrame,
+    moons_samples: pd.DataFrame,
+    gaussian_dim: pd.DataFrame,
+    moons_dim: pd.DataFrame,
+    k_star: int,
+    runtime_cols: tuple[str, str] = ("t_carve_sec_s", "t_carve_sec_g"),
+    runtime_labels: tuple[str, str] = (
+        "CARVE Stability",
+        "CARVE Generalizability",
+    ),
+    yscale: str = "log",
+    center: str = "mean",
+    band: tuple = (0.05, 0.95),
+    show_band: bool = True,
+    figsize: tuple = (12, 9),
+    title_fontsize: float = 14,
+    legend_fontsize: float = 12,
+    suptitle: str | None = None,
+):
+    """2×2 runtime grid for the section-3 scaling experiments at a given ``k★``.
+
+    Same layout as :func:`plot_scaling_ari_grid`. Each panel is rendered by
+    :func:`plot_runtime_over_axis`. ``yscale`` is forwarded so callers can
+    flip a single figure between log and linear without modifying the helper.
+    """
+    panels = [
+        [
+            ("Gaussian Mixtures", gaussian_samples, "Number of samples (n)"),
+            ("RFF Embedded Moons", moons_samples, "Number of samples (n)"),
+        ],
+        [
+            ("Gaussian Mixtures", gaussian_dim, "Number of features (p)"),
+            ("RFF Embedded Moons", moons_dim, "Embedding dimensions"),
+        ],
+    ]
+
+    fig, axes = plt.subplots(2, 2, figsize=figsize, constrained_layout=False)
+
+    for r in range(2):
+        for c in range(2):
+            ax = axes[r, c]
+            name, df, x_label = panels[r][c]
+            df_k = _filter_true_k(df, k_star)
+            if df_k.empty:
+                ax.set_visible(False)
+                continue
+            plot_runtime_over_axis(
+                df_k,
+                runtime_cols=runtime_cols,
+                runtime_labels=runtime_labels,
+                center=center,
+                band=band,
+                show_band=show_band,
+                x_label=x_label,
+                yscale=yscale,
+                title=None,
+                ax=ax,
+                show_legend=False,
+            )
+            if r == 0:
+                ax.set_title(name, fontsize=title_fontsize, fontweight="bold")
+            if c == 0:
+                ax.set_ylabel("Runtime (seconds)", fontsize=11)
+            else:
+                ax.set_ylabel("")
+
+    if suptitle is None:
+        suptitle = f"k★ = {k_star}"
+    fig.suptitle(suptitle, fontsize=title_fontsize + 2, fontweight="bold")
+
+    fig.subplots_adjust(
+        hspace=0.30,
+        wspace=0.15,
+        bottom=0.14,
+        top=0.92,
+        left=0.08,
+        right=0.97,
+    )
+
+    # Single shared legend (just the two CARVE-mode handles)
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    if handles:
+        x0 = min(ax.get_position().x0 for ax in axes.ravel())
+        x1 = max(ax.get_position().x1 for ax in axes.ravel())
+        y_min = min(ax.get_position().y0 for ax in axes.ravel())
+        legend_x = (x0 + x1) / 2
+        fig.legend(
+            handles,
+            labels,
+            loc="upper center",
+            bbox_to_anchor=(legend_x, y_min - 0.03),
+            ncol=len(handles),
+            frameon=False,
+            fontsize=legend_fontsize,
+        )
+
+    return fig
