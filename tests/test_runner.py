@@ -134,6 +134,8 @@ class TestComputeGeneralizabilityAri:
             X_test,
             labels_train,
             labels_test,
+            classifier=None,
+            n_trees=100,
             seed=0,
         )
         assert labels_pred is not None
@@ -147,6 +149,8 @@ class TestComputeGeneralizabilityAri:
             None,
             None,
             None,
+            classifier=None,
+            n_trees=100,
             seed=0,
         )
         assert labels_pred is None

@@ -101,7 +101,7 @@ class TestPrepareClusterScoreGroups:
         labels = np.array([0, 0, 1, 1])
         groups, order = _prepare_cluster_score_groups(scores, labels)
         assert len(groups) == 2
-        assert order == [0, 1]
+        assert order == [1, 2]
         np.testing.assert_array_equal(groups[0], [0.9, 0.8])
         np.testing.assert_array_equal(groups[1], [0.7, 0.6])
 
@@ -113,7 +113,7 @@ class TestPrepareClusterScoreGroups:
             labels,
             order=[1, 0],
         )
-        assert order == [1, 0]
+        assert order == [2, 1]
         np.testing.assert_array_equal(groups[0], [0.7, 0.6])
         np.testing.assert_array_equal(groups[1], [0.9, 0.8])
 

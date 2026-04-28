@@ -850,6 +850,8 @@ class CARVE(BaseEstimator):
         ylabel: str | None = None,
         annotation: bool | str = True,
         rotation: float | None = None,
+        ylim: tuple[float, float] = (-0.02, 1.02),
+        fit_ylim: bool = True,
         show: bool = False,
         save: str | Path | None = None,
         dpi: int = 300,
@@ -893,6 +895,10 @@ class CARVE(BaseEstimator):
             Text for adaptive annotation.
         rotation : float, optional
             Tick label rotation angle.
+        ylim : tuple, default=(-0.02, 1.02)
+            Y-axis limits. Default is slightly beyond [0, 1] for stability scores.
+        fit_ylim : bool, default=True
+            Whether to automatically fit y-limits to the data range.
         show : bool, default=False
             Whether to call plt.show() before returning.
         save : str or Path, optional
@@ -1002,6 +1008,8 @@ class CARVE(BaseEstimator):
             ylabel=ylabel,
             annotation=annotation_text,
             rotation=rotation,
+            ylim=ylim,
+            fit_ylim=fit_ylim,
             show=show,
             save=save,
             dpi=dpi,
@@ -1031,6 +1039,8 @@ class CARVE(BaseEstimator):
         ylabel: str | None = None,
         annotation: bool | str = True,
         rotation: float | None = None,
+        ylim: tuple[float, float] = (-0.02, 1.02),
+        fit_ylim: bool = True,
         show: bool = False,
         save: str | Path | None = None,
         dpi: int = 300,
@@ -1084,6 +1094,10 @@ class CARVE(BaseEstimator):
             Text for adaptive annotation.
         rotation : float, optional
             Tick label rotation angle.
+        ylim : tuple, default=(-0.02, 1.02)
+            Y-axis limits. Default is slightly beyond [0, 1] for stability scores.
+        fit_ylim : bool, default=True
+            Whether to automatically fit y-limits to the data range.
         show : bool, default=False
             Whether to call plt.show() before returning.
         save : str or Path, optional
@@ -1197,6 +1211,8 @@ class CARVE(BaseEstimator):
             ylabel=ylabel,
             annotation=annotation_text,
             rotation=rotation,
+            ylim=ylim,
+            fit_ylim=fit_ylim,
             show=show,
             save=save,
             dpi=dpi,

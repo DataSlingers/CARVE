@@ -514,6 +514,9 @@ def _prepare_cluster_score_groups(
     if not groups:
         raise ValueError("No cluster values found for the provided order.")
 
+    # Enumerate clusters starting at 1 
+    kept_order = [int(lab) + 1 for lab in kept_order]
+
     return groups, kept_order
 
 
@@ -671,6 +674,7 @@ def plot_cluster_boxplot(
     annotation: str | None = None,
     rotation: float | None = None,
     ylim: tuple[float, float] = (-0.02, 1.02),
+    fit_ylim: bool = True,
     show: bool = False,
     save: str | Path | None = None,
     dpi: int = 300,
@@ -708,6 +712,8 @@ def plot_cluster_boxplot(
     ylim : tuple of float, default=(-0.02, 1.02)
         Y-axis limits. A small margin beyond [0, 1] prevents plot elements
         at the boundary from being hidden behind axis spines.
+    fit_ylim : bool, default=True
+        Whether to automatically fit y-limits to the data range.
     show : bool, default=False
         Whether to call plt.show() before returning.
     save : str or Path, optional
@@ -750,8 +756,16 @@ def plot_cluster_boxplot(
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
 
-    if ylim is not None:
-        ax.set_ylim(*ylim)
+    if fit_ylim:
+        all_vals = np.concatenate(groups)
+        data_min, data_max = all_vals.min(), all_vals.max()
+        margin = max(0.02, 0.05 * (data_max - data_min))
+        effective_ylim = (data_min - margin, data_max + margin)
+    else:
+        effective_ylim = ylim
+    
+    if effective_ylim is not None:                                                                                             
+        ax.set_ylim(*effective_ylim)
 
     if title is not None:
         ax.set_title(title)
@@ -796,6 +810,7 @@ def plot_cluster_violin(
     annotation: str | None = None,
     rotation: float | None = None,
     ylim: tuple[float, float] = (-0.02, 1.02),
+    fit_ylim: bool = True,
     show: bool = False,
     save: str | Path | None = None,
     dpi: int = 300,
@@ -845,6 +860,8 @@ def plot_cluster_violin(
     ylim : tuple of float, default=(-0.02, 1.02)
         Y-axis limits. A small margin beyond [0, 1] prevents plot elements
         at the boundary from being hidden behind axis spines.
+    fit_ylim : bool, default=True
+        Whether to automatically fit y-limits to the data range.
     show : bool, default=False
         Whether to call plt.show() before returning.
     save : str or Path, optional
@@ -886,11 +903,19 @@ def plot_cluster_violin(
         body.set_edgecolor("black")
         body.set_linewidth(0.8)
         body.set_alpha(0.8)
+        
+    if fit_ylim:
+        all_vals = np.concatenate(groups)
+        data_min, data_max = all_vals.min(), all_vals.max()
+        margin = max(0.02, 0.05 * (data_max - data_min))
+        effective_ylim = (data_min - margin, data_max + margin)
+    else:
+        effective_ylim = ylim
 
     # Clip violin polygon vertices to ylim to prevent KDE tails from
     # visually extending beyond the axis boundaries.
-    if ylim is not None:
-        ymin, ymax = ylim
+    if effective_ylim is not None:
+        ymin, ymax = effective_ylim
         for body in vp["bodies"]:
             for path in body.get_paths():
                 path.vertices[:, 1] = np.clip(path.vertices[:, 1], ymin, ymax)
@@ -931,9 +956,9 @@ def plot_cluster_violin(
     ax.set_xticklabels([str(x) for x in kept_order], rotation=rotation)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
-
-    if ylim is not None:
-        ax.set_ylim(*ylim)
+    
+    if effective_ylim is not None:                                                                                             
+        ax.set_ylim(*effective_ylim)
 
     if title is not None:
         ax.set_title(title)
@@ -1173,7 +1198,7 @@ def plot_cluster_scatter(
                     [0],
                     marker="o",
                     linestyle="",
-                    label=f"{lab} (Mean = {cluster_mean[lab]:.2f})",
+                    label=f"{int(lab) + 1} (Mean = {cluster_mean[lab]:.2f})",
                     markerfacecolor=(col[0], col[1], col[2], 0.8),
                     markeredgecolor="none",
                     markersize=7,
@@ -1470,7 +1495,7 @@ def plot_diagnostic_scatter(
                     [0],
                     marker=label_to_marker[lab],
                     linestyle="",
-                    label=str(lab),
+                    label=str(int(lab) + 1),
                     markerfacecolor="gray",
                     markeredgecolor="black",
                     markersize=7,
