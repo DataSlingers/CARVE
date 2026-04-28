@@ -1003,6 +1003,7 @@ def plot_cluster_scatter(
     scores_name: str = "Score",
     xlabel: str = "Component 1",
     ylabel: str = "Component 2",
+    show_ticks: bool = False,
     frameon: bool = False,
     show: bool = False,
     save: str | Path | None = None,
@@ -1060,6 +1061,8 @@ def plot_cluster_scatter(
         X-axis label.
     ylabel : str, default="Component 2"
         Y-axis label.
+    show_ticks : bool, default=False
+        Whether to show axis ticks.
     frameon : bool, default=False
         Whether to draw axis spines.
     show : bool, default=False
@@ -1175,6 +1178,10 @@ def plot_cluster_scatter(
 
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
+    
+    if not show_ticks:
+        ax.set_xticks([])
+        ax.set_yticks([])
 
     if title is not None:
         ax.set_title(title)
@@ -1270,6 +1277,7 @@ def plot_diagnostic_scatter(
     scores_name: str = "Score",
     xlabel: str = "Component 1",
     ylabel: str = "Component 2",
+    show_ticks: bool = False,
     frameon: bool = False,
     show: bool = False,
     save: str | Path | None = None,
@@ -1333,6 +1341,8 @@ def plot_diagnostic_scatter(
         X-axis label.
     ylabel : str, default="Component 2"
         Y-axis label.
+    show_ticks : bool, default=False
+        Whether to show axis ticks.
     frameon : bool, default=False
         Whether to draw axis spines.
     show : bool, default=False
@@ -1526,6 +1536,10 @@ def plot_diagnostic_scatter(
 
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
+    
+    if not show_ticks:
+        ax.set_xticks([])
+        ax.set_yticks([])
 
     if title is not None:
         ax.set_title(title)

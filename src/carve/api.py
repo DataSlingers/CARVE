@@ -1242,6 +1242,7 @@ class CARVE(BaseEstimator):
         title: str | None = None,
         xlabel: str | None = None,
         ylabel: str | None = None,
+        show_ticks: bool = False,
         frameon: bool = False,
         show: bool = False,
         save: str | Path | None = None,
@@ -1303,6 +1304,8 @@ class CARVE(BaseEstimator):
             X-axis label. Default is "Component 1".
         ylabel : str, optional
             Y-axis label. Default is "Component 2".
+        show_ticks : bool, default=False
+            Whether to show axis ticks.
         frameon : bool, default=False
             Whether to draw axis spines.
         show : bool, default=False
@@ -1425,6 +1428,7 @@ class CARVE(BaseEstimator):
             scores_name=scores_name,
             xlabel=xlabel,
             ylabel=ylabel,
+            show_ticks=show_ticks,
             frameon=frameon,
             show=show,
             save=save,
@@ -1459,6 +1463,7 @@ class CARVE(BaseEstimator):
         title: str | None = None,
         xlabel: str | None = None,
         ylabel: str | None = None,
+        show_ticks: bool = False,
         frameon: bool = False,
         show: bool = False,
         save: str | Path | None = None,
@@ -1525,6 +1530,8 @@ class CARVE(BaseEstimator):
             X-axis label. Default is "Component 1".
         ylabel : str, optional
             Y-axis label. Default is "Component 2".
+        show_ticks : bool, default=False
+            Whether to show axis ticks.
         frameon : bool, default=False
             Whether to draw axis spines.
         show : bool, default=False
@@ -1651,6 +1658,7 @@ class CARVE(BaseEstimator):
             scores_name=scores_name,
             xlabel=xlabel,
             ylabel=ylabel,
+            show_ticks=show_ticks,
             frameon=frameon,
             show=show,
             save=save,
