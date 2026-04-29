@@ -1178,7 +1178,7 @@ def plot_cluster_scatter(
 
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
-    
+
     if not show_ticks:
         ax.set_xticks([])
         ax.set_yticks([])
@@ -1536,7 +1536,7 @@ def plot_diagnostic_scatter(
 
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
-    
+
     if not show_ticks:
         ax.set_xticks([])
         ax.set_yticks([])

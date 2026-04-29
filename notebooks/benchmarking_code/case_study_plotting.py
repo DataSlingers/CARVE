@@ -540,8 +540,14 @@ def plot_dim_red(
     ax.set_title(title)
     if show_axis_labels:
         if method == "pca":
-            ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0] * 100:.2f}% var)", fontsize=fontsize)
-            ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1] * 100:.2f}% var)", fontsize=fontsize)
+            ax.set_xlabel(
+                f"PC1 ({pca.explained_variance_ratio_[0] * 100:.2f}% var)",
+                fontsize=fontsize,
+            )
+            ax.set_ylabel(
+                f"PC2 ({pca.explained_variance_ratio_[1] * 100:.2f}% var)",
+                fontsize=fontsize,
+            )
         elif method == "tsne":
             ax.set_xlabel("t-SNE 1", fontsize=fontsize)
             ax.set_ylabel("t-SNE 2", fontsize=fontsize)

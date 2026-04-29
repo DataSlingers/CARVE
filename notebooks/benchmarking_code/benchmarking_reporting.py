@@ -934,8 +934,7 @@ def summarize_scaling_tables(
         k_row: dict[str, object] = {"_metric_raw": m, "Metric": _display_name(m)}
         for k, lbl, v in col_tuples:
             cell = sub.loc[
-                (sub["true_k"] == k)
-                & (np.isclose(sub["axis_value"].astype(float), v))
+                (sub["true_k"] == k) & (np.isclose(sub["axis_value"].astype(float), v))
             ]
             a_row[(k, lbl)] = (
                 round(float(cell["metric_ari"].mean()), decimals)

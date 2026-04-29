@@ -1512,9 +1512,7 @@ def plot_runtime_over_axis(
 
     # Re-use the CARVE contrastive palette so colours match the ARI plot:
     # stability → green, generalizability → blue.
-    palette = [
-        mpl.colors.to_rgba(c) for c in lines_pallette_contrastive_carve
-    ]
+    palette = [mpl.colors.to_rgba(c) for c in lines_pallette_contrastive_carve]
 
     for i, (col, lab) in enumerate(zip(runtime_cols, runtime_labels)):
         s = sum_df.loc[sum_df["runtime_col"] == col]
@@ -1525,9 +1523,7 @@ def plot_runtime_over_axis(
         color = palette[i % len(palette)]
         ax.plot(xx, yy, color=color, linewidth=3.1, label=lab)
         if show_band:
-            ax.fill_between(
-                xx, s["lo"].values, s["hi"].values, color=color, alpha=0.15
-            )
+            ax.fill_between(xx, s["lo"].values, s["hi"].values, color=color, alpha=0.15)
 
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
@@ -1550,9 +1546,7 @@ def plot_runtime_over_axis(
     return fig
 
 
-def _split_legend_groups(
-    handles, labels
-) -> list[tuple[list, list, int]]:
+def _split_legend_groups(handles, labels) -> list[tuple[list, list, int]]:
     """Split legend handles into (Baseline, CARVE, Classical) groups.
 
     Mirrors the grouping rule used inside ``plot_paper_figure`` so the
@@ -1707,9 +1701,7 @@ def plot_scaling_ari_grid(
                 ax.set_title(name, fontsize=title_fontsize, fontweight="bold")
             # Shared y-label only on the leftmost column.
             if c == 0:
-                ax.set_ylabel(
-                    r"ARI (selected $\hat{k}$ vs. true labels)", fontsize=11
-                )
+                ax.set_ylabel(r"ARI (selected $\hat{k}$ vs. true labels)", fontsize=11)
             else:
                 ax.set_ylabel("")
 
@@ -1726,9 +1718,7 @@ def plot_scaling_ari_grid(
         right=0.97,
     )
 
-    _draw_grouped_legend(
-        fig, axes, fontsize=legend_fontsize, legend_y_offset=0.05
-    )
+    _draw_grouped_legend(fig, axes, fontsize=legend_fontsize, legend_y_offset=0.05)
 
     return fig
 
