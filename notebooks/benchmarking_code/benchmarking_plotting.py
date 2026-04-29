@@ -1825,7 +1825,7 @@ def plot_scaling_runtime_grid(
             handles,
             labels,
             loc="upper center",
-            bbox_to_anchor=(legend_x, y_min - 0.03),
+            bbox_to_anchor=(legend_x, y_min - 0.05),
             ncol=len(handles),
             frameon=False,
             fontsize=legend_fontsize,

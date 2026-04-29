@@ -819,3 +819,315 @@ def _tex_escape(s: str) -> str:
         .replace("_", r"\_")
         .replace("#", r"\#")
     )
+
+
+# ---------------------------------------------------------------------------
+# Scaling-experiment summary tables
+# ---------------------------------------------------------------------------
+
+
+def _pick_three_axis_anchors(axis_values: pd.Series) -> list[float]:
+    """Pick (low, mid, high) anchors from a series of distinct axis values."""
+    unique = sorted(pd.to_numeric(axis_values, errors="coerce").dropna().unique())
+    if len(unique) < 3:
+        raise ValueError(
+            f"Need at least 3 distinct axis values to pick anchors; got {len(unique)}"
+        )
+    return [unique[0], unique[len(unique) // 2], unique[-1]]
+
+
+def _format_axis_anchor(v: float) -> str:
+    """Format an axis anchor value as a column label (integer if whole, else compact)."""
+    fv = float(v)
+    return f"{int(fv)}" if fv.is_integer() else f"{fv:g}"
+
+
+def summarize_scaling_tables(
+    results_df: pd.DataFrame,
+    *,
+    axis_anchors: list[float] | None = None,
+    decimals: int = 3,
+    true_ks: tuple[int, ...] = (3, 4),
+) -> dict[str, object]:
+    """
+    Build mean-ARI and k-recovery summary tables for one scaling experiment.
+
+    Mirrors :func:`summarize_regime_tables` but groups by ``axis_value`` rather
+    than ``difficulty_level``. Three column anchors (low / mid / high) are
+    derived automatically from the distinct axis values present in the data
+    when ``axis_anchors`` is not supplied.
+
+    Parameters
+    ----------
+    results_df : DataFrame
+        One scaling experiment's benchmarking output (from
+        ``benchmark_scaling``). Must contain columns: ``axis_value``,
+        ``metric_name``, ``is_optimal``, ``metric_ari``, ``baseline_ari``,
+        ``is_correct``, ``k``, ``true_k``.
+    axis_anchors : list of numeric, optional
+        Three axis values to use as columns. Defaults to the min, median, and
+        max of the distinct axis values.
+    decimals : int
+        Rounding precision.
+    true_ks : tuple of int
+        Ground-truth cluster counts to include as columns (default ``(3, 4)``).
+
+    Returns
+    -------
+    dict with keys:
+      - ``"ari_df"``         – pd.DataFrame (MultiIndex columns)
+      - ``"k_recovery_df"``  – pd.DataFrame (MultiIndex columns)
+      - ``"ari_tex"``        – LaTeX string
+      - ``"k_recovery_tex"`` – LaTeX string
+    """
+    if "axis_value" not in results_df.columns:
+        raise ValueError("results_df must have an 'axis_value' column")
+
+    df = results_df.copy()
+
+    if axis_anchors is None:
+        axis_anchors = _pick_three_axis_anchors(df["axis_value"])
+
+    # Column tuples in desired order: k-first, anchor-second
+    col_tuples: list[tuple[int, str, float]] = []
+    for k in sorted(true_ks):
+        for v in axis_anchors:
+            col_tuples.append((k, _format_axis_anchor(v), float(v)))
+
+    # ---- compute per-cell values ----------------------------------------
+    df_sel = df.loc[df["is_optimal"] == True].copy()
+    all_metrics = sorted(df_sel["metric_name"].unique())
+
+    ari_rows: list[dict] = []
+    krec_rows: list[dict] = []
+
+    # Baseline oracle row (no metric selection; just baseline ARI per dataset)
+    bl_ari_row: dict[str, object] = {
+        "_metric_raw": "baseline_oracle",
+        "Metric": _display_name("baseline_oracle"),
+    }
+    bl_krec_row: dict[str, object] = {
+        "_metric_raw": "baseline_oracle",
+        "Metric": _display_name("baseline_oracle"),
+    }
+    base = df.drop_duplicates(
+        subset=["axis_value", "true_k", "dataset_iteration"]
+        if "dataset_iteration" in df.columns
+        else ["axis_value", "true_k"]
+    )
+    for k, lbl, v in col_tuples:
+        cell = base.loc[
+            (base["true_k"] == k) & (np.isclose(base["axis_value"].astype(float), v)),
+            "baseline_ari",
+        ]
+        bl_ari_row[(k, lbl)] = (
+            round(float(cell.mean()), decimals) if len(cell) else np.nan
+        )
+        bl_krec_row[(k, lbl)] = np.nan
+    ari_rows.append(bl_ari_row)
+    krec_rows.append(bl_krec_row)
+
+    # Metric rows
+    for m in all_metrics:
+        sub = df_sel.loc[df_sel["metric_name"] == m]
+        a_row: dict[str, object] = {"_metric_raw": m, "Metric": _display_name(m)}
+        k_row: dict[str, object] = {"_metric_raw": m, "Metric": _display_name(m)}
+        for k, lbl, v in col_tuples:
+            cell = sub.loc[
+                (sub["true_k"] == k)
+                & (np.isclose(sub["axis_value"].astype(float), v))
+            ]
+            a_row[(k, lbl)] = (
+                round(float(cell["metric_ari"].mean()), decimals)
+                if len(cell)
+                else np.nan
+            )
+            k_row[(k, lbl)] = (
+                round(float(cell["is_correct"].astype(float).mean()), decimals)
+                if len(cell)
+                else np.nan
+            )
+        ari_rows.append(a_row)
+        krec_rows.append(k_row)
+
+    ari_flat = pd.DataFrame(ari_rows)
+    krec_flat = pd.DataFrame(krec_rows)
+
+    # ---- row ordering ---------------------------------------------------
+    def _build_ordered(flat_df: pd.DataFrame) -> pd.DataFrame:
+        present = set(flat_df["_metric_raw"])
+        selected = [m for m in SELECTED_CARVE if m in present]
+        classical = [m for m in CLASSICAL if m in present]
+        exclude = [m for m in EXCLUDE if m in present]
+        others = [
+            m
+            for m in present
+            if m not in {"baseline_oracle"}
+            and m not in selected
+            and m not in classical
+            and m not in exclude
+        ]
+
+        selected = _order_metrics_in_group(selected, ari_flat)
+        classical = _order_metrics_in_group(classical, ari_flat)
+        others = _order_metrics_in_group(others, ari_flat)
+
+        sep = {"_metric_raw": "---", "Metric": "---"}
+        for kt in col_tuples:
+            sep[(kt[0], kt[1])] = np.nan
+
+        ordered_rows = []
+        ordered_rows.append(
+            flat_df.loc[flat_df["_metric_raw"] == "baseline_oracle"].iloc[0]
+        )
+        ordered_rows.append(pd.Series(sep))
+        for m in selected:
+            ordered_rows.append(flat_df.loc[flat_df["_metric_raw"] == m].iloc[0])
+        ordered_rows.append(pd.Series(sep))
+        for m in classical:
+            ordered_rows.append(flat_df.loc[flat_df["_metric_raw"] == m].iloc[0])
+        ordered_rows.append(pd.Series(sep))
+        for m in others:
+            ordered_rows.append(flat_df.loc[flat_df["_metric_raw"] == m].iloc[0])
+
+        return pd.DataFrame(ordered_rows).reset_index(drop=True)
+
+    ari_ordered = _build_ordered(ari_flat)
+    krec_ordered = _build_ordered(krec_flat)
+
+    # ---- reshape into MultiIndex columns --------------------------------
+    value_cols = [(k, lbl) for k, lbl, _ in col_tuples]
+    mi = pd.MultiIndex.from_tuples(value_cols, names=["k*", "Axis value"])
+
+    def _to_multiindex(ordered_df: pd.DataFrame) -> pd.DataFrame:
+        metric_col = ordered_df["Metric"].values
+        raw_col = ordered_df["_metric_raw"].values
+        data = ordered_df[value_cols].values
+        result = pd.DataFrame(data, columns=mi)
+        result.insert(0, "Metric", metric_col)
+        result.insert(0, "_metric_raw", raw_col)
+        return result
+
+    ari_df = _to_multiindex(ari_ordered)
+    krec_df = _to_multiindex(krec_ordered)
+
+    # ---- LaTeX rendering ------------------------------------------------
+    ari_tex = _render_grouped_tex(
+        ari_df, value_cols=value_cols, decimals=decimals, caption="Mean ARI"
+    )
+    krec_tex = _render_grouped_tex(
+        krec_df, value_cols=value_cols, decimals=decimals, caption="$k$-Recovery Rate"
+    )
+
+    ari_df.pop("_metric_raw")
+    krec_df.pop("_metric_raw")
+
+    return {
+        "ari_df": ari_df,
+        "k_recovery_df": krec_df,
+        "ari_tex": ari_tex,
+        "k_recovery_tex": krec_tex,
+    }
+
+
+def summarize_scaling_runtime_table(
+    runtimes_by_experiment: dict[str, pd.DataFrame],
+    *,
+    axis_anchors_by_experiment: dict[str, list[float]] | None = None,
+    decimals: int = 2,
+) -> dict[str, object]:
+    """
+    Build a combined wall-clock runtime table across the four scaling experiments.
+
+    Each experiment contributes two rows (CARVE Stability, CARVE Generalizability).
+    Columns are the three axis anchors (low / mid / high) per experiment;
+    each cell is rendered as ``"mean (sd)"`` seconds, aggregated across
+    ``true_k`` and ``dataset_iteration`` at that anchor.
+
+    Parameters
+    ----------
+    runtimes_by_experiment : dict[str, DataFrame]
+        Mapping ``experiment_label -> runtimes_df`` (from ``benchmark_scaling``).
+        Each DataFrame must have ``axis_value``, ``t_carve_sec_s``, ``t_carve_sec_g``.
+        The label is used as the row prefix and is also displayed alongside
+        the actual axis values in the row label.
+    axis_anchors_by_experiment : dict, optional
+        Override the auto-derived anchors per experiment. Default: min/mid/max
+        of distinct axis values.
+    decimals : int
+        Rounding precision for the formatted cells.
+
+    Returns
+    -------
+    dict with keys:
+      - ``"runtime_df"``  – pd.DataFrame (rows = experiment×mode; cols = low/mid/high)
+      - ``"runtime_tex"`` – LaTeX string (``\\begin{tabular}{lccc}`` ... ``\\end{tabular}``)
+    """
+    if axis_anchors_by_experiment is None:
+        axis_anchors_by_experiment = {}
+
+    rows: list[dict[str, object]] = []
+    col_labels = ["low", "mid", "high"]
+
+    for exp_label, rt_df in runtimes_by_experiment.items():
+        if "axis_value" not in rt_df.columns:
+            raise ValueError(
+                f"Runtime DataFrame for '{exp_label}' must have an 'axis_value' column"
+            )
+        anchors = axis_anchors_by_experiment.get(exp_label)
+        if anchors is None:
+            anchors = _pick_three_axis_anchors(rt_df["axis_value"])
+
+        anchor_strs = [_format_axis_anchor(v) for v in anchors]
+        axis_name = (
+            str(rt_df["axis_name"].iloc[0])
+            if "axis_name" in rt_df.columns and len(rt_df)
+            else "axis"
+        )
+        setting_label = f"{exp_label} ({axis_name} = {' / '.join(anchor_strs)})"
+
+        for mode_label, col_t in (
+            ("CARVE Stability", "t_carve_sec_s"),
+            ("CARVE Generalizability", "t_carve_sec_g"),
+        ):
+            row: dict[str, object] = {"Setting": setting_label, "Mode": mode_label}
+            for col_label, anchor in zip(col_labels, anchors):
+                cell = rt_df.loc[
+                    np.isclose(rt_df["axis_value"].astype(float), float(anchor)),
+                    col_t,
+                ].astype(float)
+                if len(cell):
+                    m = float(cell.mean())
+                    s = float(cell.std(ddof=1)) if len(cell) > 1 else 0.0
+                    row[col_label] = f"{m:.{decimals}f} ({s:.{decimals}f})"
+                else:
+                    row[col_label] = ""
+            rows.append(row)
+
+    runtime_df = pd.DataFrame(rows, columns=["Setting", "Mode", *col_labels])
+
+    # ---- LaTeX rendering ------------------------------------------------
+    lines: list[str] = []
+    lines.append(r"\begin{tabular}{ll" + "c" * len(col_labels) + "}")
+    lines.append(r"\toprule")
+    header = ["Setting", "Mode"] + col_labels
+    lines.append(" & ".join(_tex_escape(str(h)) for h in header) + r" \\")
+    lines.append(r"\midrule")
+    last_setting: str | None = None
+    for r in rows:
+        setting_cell = (
+            _tex_escape(str(r["Setting"])) if r["Setting"] != last_setting else ""
+        )
+        last_setting = r["Setting"]
+        cells = [setting_cell, _tex_escape(str(r["Mode"]))]
+        for cl in col_labels:
+            cells.append(str(r.get(cl, "")))
+        lines.append(" & ".join(cells) + r" \\")
+        # Light separator between settings (after the second mode row of each)
+        if r["Mode"] == "CARVE Generalizability" and r is not rows[-1]:
+            lines.append(r"\midrule")
+    lines.append(r"\bottomrule")
+    lines.append(r"\end{tabular}")
+    runtime_tex = "\n".join(lines)
+
+    return {"runtime_df": runtime_df, "runtime_tex": runtime_tex}
