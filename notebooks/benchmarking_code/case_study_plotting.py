@@ -470,7 +470,10 @@ def plot_dim_red(
     show_legend: bool = True,
     legend_title: str = "stage",
     fontsize: int = 12,
+    title_fontsize: int | None = None,
     show_axis_labels: bool = True,
+    axis_arrows: bool = False,
+    category_draw_order: Literal["label", "size_desc"] = "label",
     ax: plt.Axes | None = None,
     show: bool = True,
 ) -> None:
@@ -517,13 +520,25 @@ def plot_dim_red(
 
         color_map = {lab: colors[i] for i, lab in enumerate(categories)}
 
+    # Iterate categories largest-first so the smallest cluster lands on top of
+    # the z-stack and is not occluded.
+    if category_draw_order == "size_desc":
+        sizes = pc_df[label_col].value_counts()
+        draw_categories = sorted(
+            categories, key=lambda lab: sizes.get(lab, 0), reverse=True
+        )
+    else:
+        draw_categories = categories
+
     # Step 4: Draw scatter.
     if ax is None:
         fig, ax = plt.subplots(figsize=figsize)
+        owns_fig = True
     else:
         fig = ax.figure
+        owns_fig = False
 
-    for lab in categories:
+    for lab in draw_categories:
         sel = pc_df[pc_df[label_col] == lab]
         ax.scatter(
             sel["PC1"],
@@ -537,7 +552,9 @@ def plot_dim_red(
         )
 
     # Step 5: Decorate axes.
-    ax.set_title(title)
+    ax.set_title(
+        title, fontsize=title_fontsize
+    ) if title_fontsize is not None else ax.set_title(title)
     if show_axis_labels:
         if method == "pca":
             ax.set_xlabel(
@@ -555,6 +572,53 @@ def plot_dim_red(
             ax.set_xlabel("UMAP 1", fontsize=fontsize)
             ax.set_ylabel("UMAP 2", fontsize=fontsize)
 
+    if axis_arrows:
+        if method == "pca":
+            xlab, ylab = "PC1", "PC2"
+        elif method == "tsne":
+            xlab, ylab = "t-SNE 1", "t-SNE 2"
+        elif method == "umap":
+            xlab, ylab = "UMAP 1", "UMAP 2"
+        else:
+            xlab, ylab = "x", "y"
+        x0, y0 = 0.04, 0.04
+        arrow_len = 0.16
+        arrow_kw = dict(arrowstyle="->", lw=1.4, color="black")
+        ax.annotate(
+            "",
+            xy=(x0 + arrow_len, y0),
+            xytext=(x0, y0),
+            xycoords="axes fraction",
+            textcoords="axes fraction",
+            arrowprops=arrow_kw,
+        )
+        ax.annotate(
+            "",
+            xy=(x0, y0 + arrow_len),
+            xytext=(x0, y0),
+            xycoords="axes fraction",
+            textcoords="axes fraction",
+            arrowprops=arrow_kw,
+        )
+        ax.text(
+            x0 + arrow_len + 0.01,
+            y0,
+            xlab,
+            transform=ax.transAxes,
+            fontsize=fontsize,
+            va="center",
+            ha="left",
+        )
+        ax.text(
+            x0,
+            y0 + arrow_len + 0.01,
+            ylab,
+            transform=ax.transAxes,
+            fontsize=fontsize,
+            va="bottom",
+            ha="center",
+        )
+
     if show_legend:
         ax.legend(title=legend_title, bbox_to_anchor=(1.02, 1), loc="upper left")
 
@@ -564,7 +628,8 @@ def plot_dim_red(
         for spine in ax.spines.values():
             spine.set_visible(False)
 
-    fig.tight_layout()
+    if owns_fig:
+        fig.tight_layout()
     if show:
         plt.show()
 
