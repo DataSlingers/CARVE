@@ -1452,6 +1452,7 @@ class CARVE(BaseEstimator):
         alpha_encoding: bool = True,
         alpha_range: tuple[float, float] = (0.3, 1.0),
         marker_size: float = 30.0,
+        marker_linewidth: float = 0.2,
         markers: list[str] | None = None,
         sort_order: bool = True,
         legend: bool = True,
@@ -1507,6 +1508,8 @@ class CARVE(BaseEstimator):
             ``(alpha_high_score, alpha_low_score)``.
         marker_size : float, default=30.0
             Fixed marker size for all points.
+        marker_linewidth : float, default=0.2
+            Line width for marker edges.
         markers : list of str, optional
             Marker codes for each cluster.
         sort_order : bool, default=True
@@ -1646,6 +1649,7 @@ class CARVE(BaseEstimator):
             alpha_encoding=alpha_encoding,
             alpha_range=alpha_range,
             marker_size=marker_size,
+            marker_linewidth=marker_linewidth,
             markers=markers,
             sort_order=sort_order,
             legend=legend,

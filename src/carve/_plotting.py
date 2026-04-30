@@ -1265,6 +1265,7 @@ def plot_diagnostic_scatter(
     alpha_encoding: bool = True,
     alpha_range: tuple[float, float] = (0.3, 1.0),
     marker_size: float = 30.0,
+    marker_linewidth: float = 0.2,
     markers: list[str] | None = None,
     sort_order: bool = True,
     legend: bool = True,
@@ -1315,6 +1316,8 @@ def plot_diagnostic_scatter(
         ``alpha_encoding=True``.
     marker_size : float, default=30.0
         Fixed marker size for all points.
+    marker_linewidth : float, default=0.2
+        Line width for marker edges.
     markers : list of str, optional
         Marker codes for each cluster. Defaults to 14 distinct filled
         markers. Cycles with a warning if clusters exceed the list length.
@@ -1474,7 +1477,7 @@ def plot_diagnostic_scatter(
             s=marker_size,
             c=rgba[idx],
             marker=label_to_marker[lab],
-            linewidths=0.3,
+            linewidths=marker_linewidth,
             edgecolor="black",
             rasterized=(coords.shape[0] > 5000),
         )
