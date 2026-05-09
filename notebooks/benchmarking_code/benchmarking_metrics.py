@@ -1,3 +1,12 @@
+"""Classical (non-CARVE) clustering validation metrics used in benchmarks.
+
+Implements the Gap statistic, an inverse Davies-Bouldin transform, and a
+single ``calculate_metric`` dispatcher used throughout the benchmark runners.
+"""
+
+# =============================================================================
+# Imports
+# =============================================================================
 from typing import Type
 
 import numpy as np
@@ -7,18 +16,24 @@ from sklearn.cluster import KMeans
 from sklearn.metrics import (
     calinski_harabasz_score,
     davies_bouldin_score,
-    pairwise_distances,
     silhouette_score,
 )
 
 from benchmarking_utils import _build_estimator
 
 
+# =============================================================================
+# Small primitives — dispersion and reference sampling
+# =============================================================================
 def compute_dispersion(
     X: np.ndarray, labels: np.ndarray, metric: str = "euclidean"
 ) -> float:
     """
     Computes the within-cluster dispersion measure W_k for a clustering solution.
+
+    Uses the identity W_k = sum_c sum_{i in C_c} ||x_i - mu_c||^2, which is
+    equivalent to the pairwise-distance form for squared Euclidean distance
+    and runs in O(n*d) instead of O(n^2*d).
 
     Args:
         - X (np.ndarray): Data matrix with samples as rows and features as columns.
@@ -28,17 +43,19 @@ def compute_dispersion(
     Returns:
         float: Total within-cluster dispersion W_k.
     """
-    unique_labels = np.unique(labels)
+    if metric != "euclidean":
+        raise ValueError(
+            f"compute_dispersion only supports metric='euclidean', got {metric!r}."
+        )
+
     W_k = 0.0
-
-    for label in unique_labels:
-        cluster_points = X[labels == label]
-
-        if len(cluster_points) <= 1:
+    for label in np.unique(labels):
+        pts = X[labels == label]
+        if len(pts) <= 1:
             continue
 
-        distances = pairwise_distances(cluster_points, metric=metric, squared=True)
-        W_k += np.sum(distances) / (2 * cluster_points.shape[0])
+        centroid = pts.mean(axis=0)
+        W_k += float(np.sum((pts - centroid) ** 2))
 
     return W_k
 
@@ -58,6 +75,24 @@ def gen_null_box(X: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     maxs = X.max(axis=0)
     span = maxs - mins
     return rng.random(size=X.shape) * span + mins
+
+
+# =============================================================================
+# Per-metric implementations
+# =============================================================================
+def davies_bouldin_inv(X: np.ndarray, labels: np.ndarray) -> float:
+    """
+    Computes the inverse Davies-Bouldin index for a clustering solution.
+
+    Args:
+        - X (np.ndarray): Data matrix with samples as rows and features as columns.
+        - labels (np.ndarray): Cluster labels for each observation.
+
+    Returns:
+        float: Inverse Davies-Bouldin score (1 / (1 + db)), higher is better. Returns np.nan if db is not finite.
+    """
+    db = davies_bouldin_score(X, labels)
+    return 1.0 / (1.0 + db) if np.isfinite(db) else np.nan
 
 
 def gap_statistic(
@@ -109,21 +144,9 @@ def gap_statistic(
     return float(np.mean(ref_log_disps) - np.log(W_k))
 
 
-def davies_bouldin_inv(X: np.ndarray, labels: np.ndarray) -> float:
-    """
-    Computes the inverse Davies-Bouldin index for a clustering solution.
-
-    Args:
-        - X (np.ndarray): Data matrix with samples as rows and features as columns.
-        - labels (np.ndarray): Cluster labels for each observation.
-
-    Returns:
-        float: Inverse Davies-Bouldin score (1 / (1 + db)), higher is better. Returns np.nan if db is not finite.
-    """
-    db = davies_bouldin_score(X, labels)
-    return 1.0 / (1.0 + db) if np.isfinite(db) else np.nan
-
-
+# =============================================================================
+# Public dispatcher
+# =============================================================================
 def calculate_metric(
     X: np.ndarray,
     labels: np.ndarray,

@@ -58,7 +58,7 @@ class CARVE(BaseEstimator):
         all values from 2 to *K* (inclusive) are evaluated.
     n_resamples : int, default=100
         Number of resampling iterations per estimator configuration.
-    subsample_ratio : float, default=0.8
+    subsample_ratio : float, default=0.618
         Fraction of samples drawn without replacement per resample.
         Must be in (0, 1).
     estimator_param_grids : list of (Estimator, param_grid) tuples, or {"light", "full"}, default="light"
@@ -145,7 +145,7 @@ class CARVE(BaseEstimator):
         default_factory=lambda: np.arange(2, 10 + 1, dtype=int)
     )
     n_resamples: int = 100
-    subsample_ratio: float = 0.8
+    subsample_ratio: float = 0.618
 
     estimator_param_grids: list[GridSpec] | Literal["light", "full"] = "light"
     normalization_options: list[PreprocOption] | None = None

@@ -1,20 +1,96 @@
+"""Manuscript-ready summary tables for benchmark regimes and scaling experiments.
+
+Public entry points:
+- ``summarize_benchmark_regime``        — per-regime per-difficulty summary
+- ``render_tex_table``                  — LaTeX render of the above
+- ``summarize_regime_tables``           — paired (mean ARI, k-recovery) regime tables
+- ``summarize_scaling_tables``          — paired tables for one scaling experiment
+- ``summarize_scaling_runtime_table``   — combined runtime table across experiments
+"""
+
+# =============================================================================
+# Imports
+# =============================================================================
 import numpy as np
 import pandas as pd
 
 from benchmarking_config import (
     SELECTED_CARVE,
-    CLASSICAL,
+    NON_CARVE,
     METRIC_DISPLAY_NAMES,
     EXCLUDE_FROM_TABLES as EXCLUDE,
 )
 from benchmarking_utils import _wilson_ci, _summary_stats
 
 
-# ---------------------------------------------------------------------------
-# Private helper: summarize a single (already-filtered) slice of results
-# ---------------------------------------------------------------------------
+# =============================================================================
+# Internal helpers — small primitives
+# =============================================================================
+def _resolve_difficulty_col(df: pd.DataFrame) -> str:
+    """Return the name of the difficulty-level column, handling both schemas."""
+    if "difficulty_level" in df.columns:
+        return "difficulty_level"
+    if "axis_value" in df.columns and "axis_name" in df.columns:
+        if (df["axis_name"] == "difficulty_level").any():
+            return "axis_value"
+    raise ValueError(
+        "Cannot find a difficulty column. Expected 'difficulty_level' or "
+        "'axis_value' (with axis_name='difficulty_level') in the DataFrame."
+    )
 
 
+def _display_name(metric: str) -> str:
+    """Map internal metric name to a human-readable row label."""
+    return METRIC_DISPLAY_NAMES.get(metric, metric)
+
+
+def _order_metrics_in_group(metrics: list[str], numeric_df: pd.DataFrame) -> list[str]:
+    """Sort *metrics* by their overall (across columns) mean value, descending."""
+    if not metrics:
+        return []
+    means = {}
+    for m in metrics:
+        row = numeric_df.loc[numeric_df["_metric_raw"] == m]
+        if row.empty:
+            means[m] = -np.inf
+        else:
+            vals = row.select_dtypes(include="number").values.ravel()
+            vals = vals[np.isfinite(vals)]
+            means[m] = float(vals.mean()) if vals.size else -np.inf
+    return sorted(metrics, key=lambda m: means[m], reverse=True)
+
+
+def _pick_three_axis_anchors(axis_values: pd.Series) -> list[float]:
+    """Return the three sorted distinct axis values (low, mid, high)."""
+    unique = sorted(pd.to_numeric(axis_values, errors="coerce").dropna().unique())
+    if len(unique) != 3:
+        raise ValueError(
+            f"Expected exactly 3 distinct axis values (start/middle/end); got {len(unique)}"
+        )
+    return [unique[0], unique[1], unique[2]]
+
+
+def _format_axis_anchor(v: float) -> str:
+    """Format an axis anchor value as a column label (integer if whole, else compact)."""
+    fv = float(v)
+    return f"{int(fv)}" if fv.is_integer() else f"{fv:g}"
+
+
+def _tex_escape(s: str) -> str:
+    """Minimal TeX escaping for header strings."""
+    if "$" in s or "\\" in s:
+        return s
+    return (
+        s.replace("&", r"\&")
+        .replace("%", r"\%")
+        .replace("_", r"\_")
+        .replace("#", r"\#")
+    )
+
+
+# =============================================================================
+# Composing helpers — single-group summariser and grouped LaTeX renderer
+# =============================================================================
 def _summarize_single_group(
     df: pd.DataFrame,
     *,
@@ -240,7 +316,7 @@ def _summarize_single_group(
             formatted["ari_median"], formatted["ari_q25"], formatted["ari_q75"]
         )
     ]
-    formatted["\u0394 mean (sd)"] = [
+    formatted["Δ mean (sd)"] = [
         _fmt_pm(m, s) for m, s in zip(formatted["delta_mean"], formatted["delta_sd"])
     ]
     formatted["k recovery (95% CI); num/den"] = [
@@ -260,7 +336,7 @@ def _summarize_single_group(
             "B_datasets",
             "ARI mean (sd)",
             "ARI median [q25, q75]",
-            "\u0394 mean (sd)",
+            "Δ mean (sd)",
             "k recovery (95% CI); num/den",
             "kbias_mean",
             "kbias_median",
@@ -278,413 +354,6 @@ def _summarize_single_group(
         "overall_numeric": overall,
         "overall_formatted": formatted,
         "by_true_k_numeric": by_true_k,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
-def _resolve_difficulty_col(df: pd.DataFrame) -> str:
-    """Return the name of the difficulty-level column, handling both schemas."""
-    if "difficulty_level" in df.columns:
-        return "difficulty_level"
-    if "axis_value" in df.columns and "axis_name" in df.columns:
-        if (df["axis_name"] == "difficulty_level").any():
-            return "axis_value"
-    raise ValueError(
-        "Cannot find a difficulty column. Expected 'difficulty_level' or "
-        "'axis_value' (with axis_name='difficulty_level') in the DataFrame."
-    )
-
-
-def summarize_benchmark_regime(
-    results_df: pd.DataFrame,
-    *,
-    metrics: tuple[str, ...] | None = None,
-    decimals: int = 3,
-    difficulty_anchors: dict[int, str] | None = None,
-) -> dict[str, dict[str, pd.DataFrame]]:
-    """
-    Return paper-ready summary tables split by S/N difficulty level.
-
-    Each difficulty anchor (easy / medium / hard) is summarized independently;
-    results are *never* aggregated across difficulty levels.
-
-    Parameters
-    ----------
-    results_df : DataFrame
-        Must contain: metric_name, is_optimal, metric_ari, baseline_ari,
-        is_correct, k, true_k, and a difficulty column (``difficulty_level``
-        or ``axis_value`` with ``axis_name == 'difficulty_level'``).
-    metrics : tuple of str, optional
-        Restrict to these metric names.  ``None`` -> use all.
-    decimals : int
-        Rounding precision for formatted columns.
-    difficulty_anchors : dict mapping int -> str, optional
-        Which integer difficulty levels to keep and their human-readable
-        labels.  Defaults to ``{0: "easy", 5: "medium", 9: "hard"}``.
-
-    Returns
-    -------
-    dict[str, dict]
-        Keyed by difficulty label (e.g. ``"easy"``, ``"medium"``, ``"hard"``).
-        Each value is a dict with:
-          - ``"overall_numeric"``   - raw numeric DataFrame
-          - ``"overall_formatted"`` - manuscript-ready string table
-          - ``"by_true_k_numeric"`` - stratified by ``true_k``
-
-        Compatible with ``render_tex_table(out["easy"])`` etc.
-    """
-    needed = {
-        "metric_name",
-        "is_optimal",
-        "metric_ari",
-        "baseline_ari",
-        "is_correct",
-        "k",
-        "true_k",
-    }
-    missing = sorted(c for c in needed if c not in results_df.columns)
-    if missing:
-        raise ValueError(f"results_df missing columns: {missing}")
-
-    if difficulty_anchors is None:
-        difficulty_anchors = {0: "easy", 5: "medium", 9: "hard"}
-
-    diff_col = _resolve_difficulty_col(results_df)
-    df = results_df.copy()
-
-    result: dict[str, dict[str, pd.DataFrame]] = {}
-    for level_int, label in sorted(difficulty_anchors.items()):
-        group = df.loc[df[diff_col] == level_int]
-        if group.empty:
-            continue
-        result[label] = _summarize_single_group(
-            group,
-            metrics=metrics,
-            decimals=decimals,
-        )
-
-    if not result:
-        available = sorted(df[diff_col].dropna().unique())
-        raise ValueError(
-            f"No rows matched the requested difficulty anchors "
-            f"{list(difficulty_anchors.keys())}. "
-            f"Available values in '{diff_col}': {available}"
-        )
-
-    return result
-
-
-def render_tex_table(out: dict) -> str:
-    """Return a LaTeX table string from a summarize_benchmark_regime output dict."""
-    numeric = out["overall_numeric"].copy()
-    formatted = out["overall_formatted"].copy()
-
-    # Columns to rank: mapping from formatted col -> (numeric col, "high"/"low"/"abs")
-    rank_spec = {
-        "ARI mean (sd)": ("ari_mean", "high"),
-        "ARI median [q25, q75]": ("ari_median", "high"),
-        "\u0394 mean (sd)": ("delta_mean", "low"),
-        "k recovery (95% CI); num/den": ("k_recovery", "high"),
-        "kbias_mean": ("kbias_mean", "abs"),
-        "kbias_median": ("kbias_median", "abs"),
-        "p_under": ("p_under", "low"),
-        "p_over": ("p_over", "low"),
-    }
-
-    # Mask: only rank non-baseline rows
-    is_metric = numeric["metric"] != "baseline_oracle"
-
-    for fmt_col, (num_col, direction) in rank_spec.items():
-        if fmt_col not in formatted.columns or num_col not in numeric.columns:
-            continue
-
-        vals = numeric.loc[is_metric, num_col].copy()
-
-        # Skip columns where fewer than 2 finite values exist
-        finite_mask = vals.apply(lambda v: np.isfinite(v) if np.isscalar(v) else False)
-        if finite_mask.sum() < 2:
-            continue
-
-        if direction == "abs":
-            rank_vals = vals.abs()
-            ascending = True
-        elif direction == "low":
-            rank_vals = vals
-            ascending = True
-        else:  # "high"
-            rank_vals = vals
-            ascending = False
-
-        ranked = rank_vals[finite_mask].rank(ascending=ascending, method="min")
-
-        best_idx = ranked[ranked == 1].index
-        second_idx = ranked[ranked == 2].index
-
-        for idx in best_idx:
-            cell = str(formatted.at[idx, fmt_col])
-            if cell:
-                formatted.at[idx, fmt_col] = r"\textbf{" + cell + "}"
-        for idx in second_idx:
-            cell = str(formatted.at[idx, fmt_col])
-            if cell:
-                formatted.at[idx, fmt_col] = r"\underline{" + cell + "}"
-
-    # --- TeX escaping ---
-    df_tex = formatted.copy()
-    df_tex["metric"] = df_tex["metric"].astype(str).str.replace("_", r"\_", regex=False)
-    df_tex = df_tex.rename(
-        columns={
-            "\u0394 mean (sd)": r"$\Delta$ mean (sd)",
-            "B_datasets": r"$B_{\mathrm{datasets}}$",
-        }
-    )
-
-    def escape_header(s: str) -> str:
-        if ("$" in s) or ("\\" in s):
-            return s
-        return (
-            s.replace("&", r"\&")
-            .replace("%", r"\%")
-            .replace("_", r"\_")
-            .replace("#", r"\#")
-            .replace("{", r"\{")
-            .replace("}", r"\}")
-        )
-
-    df_tex.columns = [escape_header(str(c)) for c in df_tex.columns]
-
-    ncols = df_tex.shape[1]
-    colfmt = "l" + "r" + "l" * (ncols - 2)
-
-    return df_tex.to_latex(index=False, escape=False, column_format=colfmt)
-
-
-# ---------------------------------------------------------------------------
-# New: per-(k*, difficulty) regime summary tables
-# ---------------------------------------------------------------------------
-
-
-def _display_name(metric: str) -> str:
-    """Map internal metric name to a human-readable row label."""
-    return METRIC_DISPLAY_NAMES.get(metric, metric)
-
-
-def _order_metrics_in_group(metrics: list[str], numeric_df: pd.DataFrame) -> list[str]:
-    """Sort *metrics* by their overall (across columns) mean value, descending."""
-    if not metrics:
-        return []
-    means = {}
-    for m in metrics:
-        row = numeric_df.loc[numeric_df["_metric_raw"] == m]
-        if row.empty:
-            means[m] = -np.inf
-        else:
-            vals = row.select_dtypes(include="number").values.ravel()
-            vals = vals[np.isfinite(vals)]
-            means[m] = float(vals.mean()) if vals.size else -np.inf
-    return sorted(metrics, key=lambda m: means[m], reverse=True)
-
-
-def summarize_regime_tables(
-    results_df: pd.DataFrame,
-    *,
-    difficulty_anchors: dict[int, str] | None = None,
-    decimals: int = 3,
-    true_ks: tuple[int, ...] = (3, 4, 5, 6),
-) -> dict[str, object]:
-    """
-    Build two summary tables (mean ARI and k-recovery) for a single regime.
-
-    Rows   = metrics, grouped as:
-             Baseline >> selected CARVE >> classical >> others
-    Columns = 12 (k*, difficulty) pairs, ordered k-first then difficulty.
-
-    Parameters
-    ----------
-    results_df : DataFrame
-        One regime's benchmarking output (from ``benchmark_cluster_metrics``).
-    difficulty_anchors : dict mapping int -> str, optional
-        ``{0: "easy", 5: "medium", 9: "hard"}`` by default.
-    decimals : int
-        Rounding precision.
-    true_ks : tuple of int
-        Ground-truth cluster counts to include as columns.
-
-    Returns
-    -------
-    dict with keys:
-      - ``"ari_df"``         – pd.DataFrame (MultiIndex columns)
-      - ``"k_recovery_df"``  – pd.DataFrame (MultiIndex columns)
-      - ``"ari_tex"``        – LaTeX string
-      - ``"k_recovery_tex"`` – LaTeX string
-    """
-    if difficulty_anchors is None:
-        difficulty_anchors = {0: "easy", 5: "medium", 9: "hard"}
-
-    diff_col = _resolve_difficulty_col(results_df)
-    df = results_df.copy()
-
-    # Column tuples in desired order: k-first, difficulty-second
-    sorted_anchors = sorted(difficulty_anchors.items())  # by int
-    col_tuples = []
-    for k in sorted(true_ks):
-        for lvl_int, lvl_label in sorted_anchors:
-            col_tuples.append((k, lvl_label, lvl_int))
-
-    # ---- compute per-cell values ----------------------------------------
-    df_sel = df.loc[df["is_optimal"] == True].copy()
-
-    # Discover all metric names present
-    all_metrics = sorted(df_sel["metric_name"].unique())
-
-    # --- ARI table ---
-    ari_rows: list[dict] = []
-    krec_rows: list[dict] = []
-
-    # Baseline oracle row
-    bl_ari_row: dict[str, object] = {
-        "_metric_raw": "baseline_oracle",
-        "Metric": _display_name("baseline_oracle"),
-    }
-    bl_krec_row: dict[str, object] = {
-        "_metric_raw": "baseline_oracle",
-        "Metric": _display_name("baseline_oracle"),
-    }
-    id_cols = [
-        c
-        for c in ["difficulty_level", "true_k", "dataset_iteration", "dataset_id"]
-        if c in df.columns
-    ]
-    id_cols_diff = [diff_col if c == "difficulty_level" else c for c in id_cols]
-    base = df.drop_duplicates(
-        subset=[diff_col, "true_k", "dataset_iteration"]
-        if "dataset_iteration" in df.columns
-        else [diff_col, "true_k"]
-    )
-    for k, lbl, lvl_int in col_tuples:
-        cell = base.loc[
-            (base["true_k"] == k) & (base[diff_col] == lvl_int), "baseline_ari"
-        ]
-        bl_ari_row[(k, lbl)] = (
-            round(float(cell.mean()), decimals) if len(cell) else np.nan
-        )
-        bl_krec_row[(k, lbl)] = np.nan  # baseline has no k-selection
-    ari_rows.append(bl_ari_row)
-    krec_rows.append(bl_krec_row)
-
-    # Metric rows
-    for m in all_metrics:
-        sub = df_sel.loc[df_sel["metric_name"] == m]
-        a_row: dict[str, object] = {"_metric_raw": m, "Metric": _display_name(m)}
-        k_row: dict[str, object] = {"_metric_raw": m, "Metric": _display_name(m)}
-        for k, lbl, lvl_int in col_tuples:
-            cell = sub.loc[(sub["true_k"] == k) & (sub[diff_col] == lvl_int)]
-            a_row[(k, lbl)] = (
-                round(float(cell["metric_ari"].mean()), decimals)
-                if len(cell)
-                else np.nan
-            )
-            k_row[(k, lbl)] = (
-                round(float(cell["is_correct"].astype(float).mean()), decimals)
-                if len(cell)
-                else np.nan
-            )
-        ari_rows.append(a_row)
-        krec_rows.append(k_row)
-
-    ari_flat = pd.DataFrame(ari_rows)
-    krec_flat = pd.DataFrame(krec_rows)
-
-    # ---- row ordering ---------------------------------------------------
-    def _build_ordered(flat_df: pd.DataFrame) -> pd.DataFrame:
-        present = set(flat_df["_metric_raw"])
-        selected = [m for m in SELECTED_CARVE if m in present]
-        classical = [m for m in CLASSICAL if m in present]
-        exclude = [m for m in EXCLUDE if m in present]
-        others = [
-            m
-            for m in present
-            if m not in {"baseline_oracle"}
-            and m not in selected
-            and m not in classical
-            and m not in exclude
-        ]
-
-        # Sort each group by overall mean (descending) using the ARI table values
-        selected = _order_metrics_in_group(selected, ari_flat)
-        classical = _order_metrics_in_group(classical, ari_flat)
-        others = _order_metrics_in_group(others, ari_flat)
-
-        sep = {"_metric_raw": "---", "Metric": "---"}
-        for kt in col_tuples:
-            sep[(kt[0], kt[1])] = np.nan
-
-        ordered_rows = []
-        # Baseline
-        ordered_rows.append(
-            flat_df.loc[flat_df["_metric_raw"] == "baseline_oracle"].iloc[0]
-        )
-        # Separator
-        ordered_rows.append(pd.Series(sep))
-        # Selected CARVE
-        for m in selected:
-            ordered_rows.append(flat_df.loc[flat_df["_metric_raw"] == m].iloc[0])
-        # Separator
-        ordered_rows.append(pd.Series(sep))
-        # Classical
-        for m in classical:
-            ordered_rows.append(flat_df.loc[flat_df["_metric_raw"] == m].iloc[0])
-        # Separator
-        ordered_rows.append(pd.Series(sep))
-        # Others
-        for m in others:
-            ordered_rows.append(flat_df.loc[flat_df["_metric_raw"] == m].iloc[0])
-
-        out = pd.DataFrame(ordered_rows).reset_index(drop=True)
-        return out
-
-    ari_ordered = _build_ordered(ari_flat)
-    krec_ordered = _build_ordered(krec_flat)
-
-    # ---- reshape into MultiIndex columns --------------------------------
-    value_cols = [(k, lbl) for k, lbl, _ in col_tuples]
-    mi = pd.MultiIndex.from_tuples(value_cols, names=["k*", "Difficulty"])
-
-    def _to_multiindex(ordered_df: pd.DataFrame) -> pd.DataFrame:
-        metric_col = ordered_df["Metric"].values
-        raw_col = ordered_df["_metric_raw"].values
-        data = ordered_df[value_cols].values
-        result = pd.DataFrame(data, columns=mi)
-        result.insert(0, "Metric", metric_col)
-        result.insert(0, "_metric_raw", raw_col)
-        return result
-
-    ari_df = _to_multiindex(ari_ordered)
-    krec_df = _to_multiindex(krec_ordered)
-
-    # ---- LaTeX rendering ------------------------------------------------
-    # Pass value_cols explicitly so the renderer doesn't rely on column name matching
-    ari_tex = _render_grouped_tex(
-        ari_df, value_cols=value_cols, decimals=decimals, caption="Mean ARI"
-    )
-    krec_tex = _render_grouped_tex(
-        krec_df, value_cols=value_cols, decimals=decimals, caption="$k$-Recovery Rate"
-    )
-
-    # Drop internal helper column from the returned DataFrames
-    # Use .pop() to avoid MultiIndex drop issues
-    ari_df.pop("_metric_raw")
-    krec_df.pop("_metric_raw")
-
-    return {
-        "ari_df": ari_df,
-        "k_recovery_df": krec_df,
-        "ari_tex": ari_tex,
-        "k_recovery_tex": krec_tex,
     }
 
 
@@ -809,53 +478,383 @@ def _render_grouped_tex(
     return "\n".join(lines)
 
 
-def _tex_escape(s: str) -> str:
-    """Minimal TeX escaping for header strings."""
-    if "$" in s or "\\" in s:
-        return s
-    return (
-        s.replace("&", r"\&")
-        .replace("%", r"\%")
-        .replace("_", r"\_")
-        .replace("#", r"\#")
+# =============================================================================
+# Public API — per-regime difficulty summary
+# =============================================================================
+def summarize_benchmark_regime(
+    results_df: pd.DataFrame,
+    *,
+    metrics: tuple[str, ...] | None = None,
+    decimals: int = 3,
+    difficulty_anchors: dict[int, str] | None = None,
+) -> dict[str, dict[str, pd.DataFrame]]:
+    """
+    Return paper-ready summary tables split by S/N difficulty level.
+
+    Each difficulty anchor (easy / medium / hard) is summarized independently;
+    results are *never* aggregated across difficulty levels.
+
+    Parameters
+    ----------
+    results_df : DataFrame
+        Must contain: metric_name, is_optimal, metric_ari, baseline_ari,
+        is_correct, k, true_k, and a difficulty column (``difficulty_level``
+        or ``axis_value`` with ``axis_name == 'difficulty_level'``).
+    metrics : tuple of str, optional
+        Restrict to these metric names.  ``None`` -> use all.
+    decimals : int
+        Rounding precision for formatted columns.
+    difficulty_anchors : dict mapping int -> str, optional
+        Which integer difficulty levels to keep and their human-readable
+        labels.  Defaults to ``{0: "easy", 1: "medium", 2: "hard"}``.
+
+    Returns
+    -------
+    dict[str, dict]
+        Keyed by difficulty label (e.g. ``"easy"``, ``"medium"``, ``"hard"``).
+        Each value is a dict with:
+          - ``"overall_numeric"``   - raw numeric DataFrame
+          - ``"overall_formatted"`` - manuscript-ready string table
+          - ``"by_true_k_numeric"`` - stratified by ``true_k``
+
+        Compatible with ``render_tex_table(out["easy"])`` etc.
+    """
+    needed = {
+        "metric_name",
+        "is_optimal",
+        "metric_ari",
+        "baseline_ari",
+        "is_correct",
+        "k",
+        "true_k",
+    }
+    missing = sorted(c for c in needed if c not in results_df.columns)
+    if missing:
+        raise ValueError(f"results_df missing columns: {missing}")
+
+    if difficulty_anchors is None:
+        difficulty_anchors = {0: "easy", 1: "medium", 2: "hard"}
+
+    diff_col = _resolve_difficulty_col(results_df)
+    df = results_df.copy()
+
+    result: dict[str, dict[str, pd.DataFrame]] = {}
+    for level_int, label in sorted(difficulty_anchors.items()):
+        group = df.loc[df[diff_col] == level_int]
+        if group.empty:
+            continue
+        result[label] = _summarize_single_group(
+            group,
+            metrics=metrics,
+            decimals=decimals,
+        )
+
+    if not result:
+        available = sorted(df[diff_col].dropna().unique())
+        raise ValueError(
+            f"No rows matched the requested difficulty anchors "
+            f"{list(difficulty_anchors.keys())}. "
+            f"Available values in '{diff_col}': {available}"
+        )
+
+    return result
+
+
+def render_tex_table(out: dict) -> str:
+    """Return a LaTeX table string from a summarize_benchmark_regime output dict."""
+    numeric = out["overall_numeric"].copy()
+    formatted = out["overall_formatted"].copy()
+
+    # Columns to rank: mapping from formatted col -> (numeric col, "high"/"low"/"abs")
+    rank_spec = {
+        "ARI mean (sd)": ("ari_mean", "high"),
+        "ARI median [q25, q75]": ("ari_median", "high"),
+        "Δ mean (sd)": ("delta_mean", "low"),
+        "k recovery (95% CI); num/den": ("k_recovery", "high"),
+        "kbias_mean": ("kbias_mean", "abs"),
+        "kbias_median": ("kbias_median", "abs"),
+        "p_under": ("p_under", "low"),
+        "p_over": ("p_over", "low"),
+    }
+
+    # Mask: only rank non-baseline rows
+    is_metric = numeric["metric"] != "baseline_oracle"
+
+    for fmt_col, (num_col, direction) in rank_spec.items():
+        if fmt_col not in formatted.columns or num_col not in numeric.columns:
+            continue
+
+        vals = numeric.loc[is_metric, num_col].copy()
+
+        # Skip columns where fewer than 2 finite values exist
+        finite_mask = vals.apply(lambda v: np.isfinite(v) if np.isscalar(v) else False)
+        if finite_mask.sum() < 2:
+            continue
+
+        if direction == "abs":
+            rank_vals = vals.abs()
+            ascending = True
+        elif direction == "low":
+            rank_vals = vals
+            ascending = True
+        else:  # "high"
+            rank_vals = vals
+            ascending = False
+
+        ranked = rank_vals[finite_mask].rank(ascending=ascending, method="min")
+
+        best_idx = ranked[ranked == 1].index
+        second_idx = ranked[ranked == 2].index
+
+        for idx in best_idx:
+            cell = str(formatted.at[idx, fmt_col])
+            if cell:
+                formatted.at[idx, fmt_col] = r"\textbf{" + cell + "}"
+        for idx in second_idx:
+            cell = str(formatted.at[idx, fmt_col])
+            if cell:
+                formatted.at[idx, fmt_col] = r"\underline{" + cell + "}"
+
+    # --- TeX escaping ---
+    df_tex = formatted.copy()
+    df_tex["metric"] = df_tex["metric"].astype(str).str.replace("_", r"\_", regex=False)
+    df_tex = df_tex.rename(
+        columns={
+            "Δ mean (sd)": r"$\Delta$ mean (sd)",
+            "B_datasets": r"$B_{\mathrm{datasets}}$",
+        }
     )
 
-
-# ---------------------------------------------------------------------------
-# Scaling-experiment summary tables
-# ---------------------------------------------------------------------------
-
-
-def _pick_three_axis_anchors(axis_values: pd.Series) -> list[float]:
-    """Pick (low, mid, high) anchors from a series of distinct axis values."""
-    unique = sorted(pd.to_numeric(axis_values, errors="coerce").dropna().unique())
-    if len(unique) < 3:
-        raise ValueError(
-            f"Need at least 3 distinct axis values to pick anchors; got {len(unique)}"
+    def escape_header(s: str) -> str:
+        if ("$" in s) or ("\\" in s):
+            return s
+        return (
+            s.replace("&", r"\&")
+            .replace("%", r"\%")
+            .replace("_", r"\_")
+            .replace("#", r"\#")
+            .replace("{", r"\{")
+            .replace("}", r"\}")
         )
-    return [unique[0], unique[len(unique) // 2], unique[-1]]
+
+    df_tex.columns = [escape_header(str(c)) for c in df_tex.columns]
+
+    ncols = df_tex.shape[1]
+    colfmt = "l" + "r" + "l" * (ncols - 2)
+
+    return df_tex.to_latex(index=False, escape=False, column_format=colfmt)
 
 
-def _format_axis_anchor(v: float) -> str:
-    """Format an axis anchor value as a column label (integer if whole, else compact)."""
-    fv = float(v)
-    return f"{int(fv)}" if fv.is_integer() else f"{fv:g}"
+# =============================================================================
+# Public API — paired (mean ARI, k-recovery) regime tables
+# =============================================================================
+def summarize_regime_tables(
+    results_df: pd.DataFrame,
+    *,
+    difficulty_anchors: dict[int, str] | None = None,
+    decimals: int = 3,
+    true_k: int = 5,
+) -> dict[str, object]:
+    """
+    Build two summary tables (mean ARI and k-recovery) for a single regime.
+
+    Rows   = metrics, grouped as:
+             Baseline >> selected CARVE >> classical >> others
+    Columns = (k*, difficulty) pairs at the three difficulty anchors.
+
+    Parameters
+    ----------
+    results_df : DataFrame
+        One regime's benchmarking output (from ``benchmark_cluster_metrics``).
+    difficulty_anchors : dict mapping int -> str, optional
+        ``{0: "easy", 1: "medium", 2: "hard"}`` by default.
+    decimals : int
+        Rounding precision.
+    true_k : int
+        Ground-truth cluster count for the regime (single column group).
+
+    Returns
+    -------
+    dict with keys:
+      - ``"ari_df"``         – pd.DataFrame (MultiIndex columns)
+      - ``"k_recovery_df"``  – pd.DataFrame (MultiIndex columns)
+      - ``"ari_tex"``        – LaTeX string
+      - ``"k_recovery_tex"`` – LaTeX string
+    """
+    if difficulty_anchors is None:
+        difficulty_anchors = {0: "easy", 1: "medium", 2: "hard"}
+
+    diff_col = _resolve_difficulty_col(results_df)
+    df = results_df.copy()
+
+    # Column tuples in desired order: difficulty-only (single k* group)
+    sorted_anchors = sorted(difficulty_anchors.items())  # by int
+    col_tuples = [(true_k, lvl_label, lvl_int) for lvl_int, lvl_label in sorted_anchors]
+
+    # ---- compute per-cell values ----------------------------------------
+    df_sel = df.loc[df["is_optimal"] == True].copy()
+
+    # Discover all metric names present
+    all_metrics = sorted(df_sel["metric_name"].unique())
+
+    # --- ARI table ---
+    ari_rows: list[dict] = []
+    krec_rows: list[dict] = []
+
+    # Baseline oracle row
+    bl_ari_row: dict[str, object] = {
+        "_metric_raw": "baseline_oracle",
+        "Metric": _display_name("baseline_oracle"),
+    }
+    bl_krec_row: dict[str, object] = {
+        "_metric_raw": "baseline_oracle",
+        "Metric": _display_name("baseline_oracle"),
+    }
+    base = df.drop_duplicates(
+        subset=[diff_col, "true_k", "dataset_iteration"]
+        if "dataset_iteration" in df.columns
+        else [diff_col, "true_k"]
+    )
+    for k, lbl, lvl_int in col_tuples:
+        cell = base.loc[
+            (base["true_k"] == k) & (base[diff_col] == lvl_int), "baseline_ari"
+        ]
+        bl_ari_row[(k, lbl)] = (
+            round(float(cell.mean()), decimals) if len(cell) else np.nan
+        )
+        bl_krec_row[(k, lbl)] = np.nan  # baseline has no k-selection
+    ari_rows.append(bl_ari_row)
+    krec_rows.append(bl_krec_row)
+
+    # Metric rows
+    for m in all_metrics:
+        sub = df_sel.loc[df_sel["metric_name"] == m]
+        a_row: dict[str, object] = {"_metric_raw": m, "Metric": _display_name(m)}
+        k_row: dict[str, object] = {"_metric_raw": m, "Metric": _display_name(m)}
+        for k, lbl, lvl_int in col_tuples:
+            cell = sub.loc[(sub["true_k"] == k) & (sub[diff_col] == lvl_int)]
+            a_row[(k, lbl)] = (
+                round(float(cell["metric_ari"].mean()), decimals)
+                if len(cell)
+                else np.nan
+            )
+            k_row[(k, lbl)] = (
+                round(float(cell["is_correct"].astype(float).mean()), decimals)
+                if len(cell)
+                else np.nan
+            )
+        ari_rows.append(a_row)
+        krec_rows.append(k_row)
+
+    ari_flat = pd.DataFrame(ari_rows)
+    krec_flat = pd.DataFrame(krec_rows)
+
+    # ---- row ordering ---------------------------------------------------
+    def _build_ordered(flat_df: pd.DataFrame) -> pd.DataFrame:
+        present = set(flat_df["_metric_raw"])
+        selected = [m for m in SELECTED_CARVE if m in present]
+        classical = [m for m in NON_CARVE if m in present]
+        exclude = [m for m in EXCLUDE if m in present]
+        others = [
+            m
+            for m in present
+            if m not in {"baseline_oracle"}
+            and m not in selected
+            and m not in classical
+            and m not in exclude
+        ]
+
+        # Sort each group by overall mean (descending) using the ARI table values
+        selected = _order_metrics_in_group(selected, ari_flat)
+        classical = _order_metrics_in_group(classical, ari_flat)
+        others = _order_metrics_in_group(others, ari_flat)
+
+        sep = {"_metric_raw": "---", "Metric": "---"}
+        for kt in col_tuples:
+            sep[(kt[0], kt[1])] = np.nan
+
+        ordered_rows = []
+        # Baseline
+        ordered_rows.append(
+            flat_df.loc[flat_df["_metric_raw"] == "baseline_oracle"].iloc[0]
+        )
+        # Separator
+        ordered_rows.append(pd.Series(sep))
+        # Selected CARVE
+        for m in selected:
+            ordered_rows.append(flat_df.loc[flat_df["_metric_raw"] == m].iloc[0])
+        # Separator
+        ordered_rows.append(pd.Series(sep))
+        # Classical
+        for m in classical:
+            ordered_rows.append(flat_df.loc[flat_df["_metric_raw"] == m].iloc[0])
+        # Separator
+        ordered_rows.append(pd.Series(sep))
+        # Others
+        for m in others:
+            ordered_rows.append(flat_df.loc[flat_df["_metric_raw"] == m].iloc[0])
+
+        out = pd.DataFrame(ordered_rows).reset_index(drop=True)
+        return out
+
+    ari_ordered = _build_ordered(ari_flat)
+    krec_ordered = _build_ordered(krec_flat)
+
+    # ---- reshape into MultiIndex columns --------------------------------
+    value_cols = [(k, lbl) for k, lbl, _ in col_tuples]
+    mi = pd.MultiIndex.from_tuples(value_cols, names=["k*", "Difficulty"])
+
+    def _to_multiindex(ordered_df: pd.DataFrame) -> pd.DataFrame:
+        metric_col = ordered_df["Metric"].values
+        raw_col = ordered_df["_metric_raw"].values
+        data = ordered_df[value_cols].values
+        result = pd.DataFrame(data, columns=mi)
+        result.insert(0, "Metric", metric_col)
+        result.insert(0, "_metric_raw", raw_col)
+        return result
+
+    ari_df = _to_multiindex(ari_ordered)
+    krec_df = _to_multiindex(krec_ordered)
+
+    # ---- LaTeX rendering ------------------------------------------------
+    # Pass value_cols explicitly so the renderer doesn't rely on column name matching
+    ari_tex = _render_grouped_tex(
+        ari_df, value_cols=value_cols, decimals=decimals, caption="Mean ARI"
+    )
+    krec_tex = _render_grouped_tex(
+        krec_df, value_cols=value_cols, decimals=decimals, caption="$k$-Recovery Rate"
+    )
+
+    # Drop internal helper column from the returned DataFrames
+    # Use .pop() to avoid MultiIndex drop issues
+    ari_df.pop("_metric_raw")
+    krec_df.pop("_metric_raw")
+
+    return {
+        "ari_df": ari_df,
+        "k_recovery_df": krec_df,
+        "ari_tex": ari_tex,
+        "k_recovery_tex": krec_tex,
+    }
 
 
+# =============================================================================
+# Public API — scaling-experiment summary tables
+# =============================================================================
 def summarize_scaling_tables(
     results_df: pd.DataFrame,
     *,
     axis_anchors: list[float] | None = None,
     decimals: int = 3,
-    true_ks: tuple[int, ...] = (3, 4),
+    true_k: int = 5,
 ) -> dict[str, object]:
     """
     Build mean-ARI and k-recovery summary tables for one scaling experiment.
 
     Mirrors :func:`summarize_regime_tables` but groups by ``axis_value`` rather
-    than ``difficulty_level``. Three column anchors (low / mid / high) are
-    derived automatically from the distinct axis values present in the data
-    when ``axis_anchors`` is not supplied.
+    than ``difficulty_level``. The three distinct axis values present
+    (start / middle / end) become the column anchors when ``axis_anchors``
+    is not supplied.
 
     Parameters
     ----------
@@ -865,12 +864,12 @@ def summarize_scaling_tables(
         ``metric_name``, ``is_optimal``, ``metric_ari``, ``baseline_ari``,
         ``is_correct``, ``k``, ``true_k``.
     axis_anchors : list of numeric, optional
-        Three axis values to use as columns. Defaults to the min, median, and
-        max of the distinct axis values.
+        Three axis values to use as columns. Defaults to the three distinct
+        values present in the data.
     decimals : int
         Rounding precision.
-    true_ks : tuple of int
-        Ground-truth cluster counts to include as columns (default ``(3, 4)``).
+    true_k : int
+        Ground-truth cluster count for the regime (single column group).
 
     Returns
     -------
@@ -888,11 +887,10 @@ def summarize_scaling_tables(
     if axis_anchors is None:
         axis_anchors = _pick_three_axis_anchors(df["axis_value"])
 
-    # Column tuples in desired order: k-first, anchor-second
-    col_tuples: list[tuple[int, str, float]] = []
-    for k in sorted(true_ks):
-        for v in axis_anchors:
-            col_tuples.append((k, _format_axis_anchor(v), float(v)))
+    # Column tuples in desired order: anchor (single k* group)
+    col_tuples: list[tuple[int, str, float]] = [
+        (true_k, _format_axis_anchor(v), float(v)) for v in axis_anchors
+    ]
 
     # ---- compute per-cell values ----------------------------------------
     df_sel = df.loc[df["is_optimal"] == True].copy()
@@ -956,7 +954,7 @@ def summarize_scaling_tables(
     def _build_ordered(flat_df: pd.DataFrame) -> pd.DataFrame:
         present = set(flat_df["_metric_raw"])
         selected = [m for m in SELECTED_CARVE if m in present]
-        classical = [m for m in CLASSICAL if m in present]
+        classical = [m for m in NON_CARVE if m in present]
         exclude = [m for m in EXCLUDE if m in present]
         others = [
             m

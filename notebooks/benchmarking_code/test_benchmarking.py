@@ -33,7 +33,7 @@ from benchmarking_config import (  # noqa: E402
     CARVE_METRICS_ALL,
     CARVE_METRICS_STABILITY,
     CARVE_METRICS_GENERALIZABILITY,
-    EXTERNAL_METRICS,
+    NON_CARVE_METRICS,
     METRIC_DISPLAY_NAMES,
     METRIC_COLOR,
     METRIC_LABEL,
@@ -90,11 +90,11 @@ class TestMetricConstants:
         assert len(overlap) == 0
 
     def test_external_metrics_tuple(self):
-        assert isinstance(EXTERNAL_METRICS, tuple)
-        assert len(EXTERNAL_METRICS) == 4
+        assert isinstance(NON_CARVE_METRICS, tuple)
+        assert len(NON_CARVE_METRICS) == 4
 
     def test_display_names_cover_externals(self):
-        for m in EXTERNAL_METRICS:
+        for m in NON_CARVE_METRICS:
             assert m in METRIC_DISPLAY_NAMES
 
     def test_plot_metrics_have_colors(self):
@@ -254,49 +254,72 @@ class TestSummaryStats:
 
 # ── benchmarking_simulation_helpers ───────────────────────────────────────────
 
-from benchmarking_simulation_helpers import _interpolate_settings  # noqa: E402
+from benchmarking_simulation_helpers import (  # noqa: E402
+    DIFFICULTY_LABELS,
+    STAGE_LABELS,
+    parse_difficulty_and_simulate,
+    parse_range_and_simulate,
+)
 
 
-class TestInterpolateSettings:
+class TestAnchorConstants:
+    def test_difficulty_labels(self):
+        assert DIFFICULTY_LABELS == ("easy", "medium", "hard")
+
+    def test_stage_labels(self):
+        assert STAGE_LABELS == ("start", "middle", "end")
+
+
+class TestParseDifficultyAndSimulate:
     @pytest.fixture
     def anchors(self):
         return {
-            "a": {"x": [1.0], "y": [10.0]},
-            "b": {"x": [2.0], "y": [20.0]},
-            "c": {"x": [3.0], "y": [30.0]},
+            "easy": {"cluster_scale": [4.0] * 5, "cluster_size_dirichlet_alpha": 0.9},
+            "medium": {"cluster_scale": [4.5] * 5, "cluster_size_dirichlet_alpha": 0.5},
+            "hard": {"cluster_scale": [4.6] * 5, "cluster_size_dirichlet_alpha": 0.1},
         }
 
-    def test_returns_first_anchor_at_stage_0(self, anchors):
-        result = _interpolate_settings(anchors, ("a", "b", "c"), 0, 10)
-        assert result == {"x": [1.0], "y": [10.0]}
+    def test_invalid_difficulty_raises(self, anchors):
+        with pytest.raises(ValueError, match="difficulty must be one of"):
+            parse_difficulty_and_simulate(
+                anchor_settings=anchors,
+                other_settings={"n_total": 100, "p": 5},
+                difficulty="impossible",
+                true_cluster_count=5,
+                seed=0,
+            )
 
-    def test_returns_middle_anchor_at_midpoint(self, anchors):
-        result = _interpolate_settings(anchors, ("a", "b", "c"), 5, 10)
-        assert result == {"x": [2.0], "y": [20.0]}
 
-    def test_returns_last_anchor_at_final_stage(self, anchors):
-        result = _interpolate_settings(anchors, ("a", "b", "c"), 9, 10)
-        assert result == {"x": [3.0], "y": [30.0]}
+class TestParseRangeAndSimulate:
+    @pytest.fixture
+    def anchors(self):
+        return {
+            "start": {"cluster_scale": [3.0] * 5},
+            "middle": {"cluster_scale": [4.0] * 5},
+            "end": {"cluster_scale": [5.0] * 5},
+        }
 
-    def test_interpolation_between_first_and_middle(self, anchors):
-        # Stage 2 out of 10: midpoint is 5, so frac = 2/5 = 0.4
-        result = _interpolate_settings(anchors, ("a", "b", "c"), 2, 10)
-        expected_x = (1 - 0.4) * 1.0 + 0.4 * 2.0  # 1.4
-        assert abs(result["x"][0] - expected_x) < 1e-10
+    def test_invalid_axis_name_raises(self, anchors):
+        with pytest.raises(ValueError, match="axis_name must be"):
+            parse_range_and_simulate(
+                anchor_settings=anchors,
+                other_settings={},
+                stage_label="start",
+                true_cluster_count=5,
+                axis_name="bogus",
+                axis_value=100,
+            )
 
-    def test_interpolation_between_middle_and_last(self, anchors):
-        # Stage 7 out of 10: midpoint is 5, frac = (7-5)/(9-5) = 0.5
-        result = _interpolate_settings(anchors, ("a", "b", "c"), 7, 10)
-        expected_x = (1 - 0.5) * 2.0 + 0.5 * 3.0  # 2.5
-        assert abs(result["x"][0] - expected_x) < 1e-10
-
-    def test_invalid_total_stages_raises(self, anchors):
-        with pytest.raises(ValueError, match="total_stages must be >= 3"):
-            _interpolate_settings(anchors, ("a", "b", "c"), 0, 2)
-
-    def test_out_of_range_stage_raises(self, anchors):
-        with pytest.raises(ValueError, match="stage must be in"):
-            _interpolate_settings(anchors, ("a", "b", "c"), 10, 10)
+    def test_invalid_stage_label_raises(self, anchors):
+        with pytest.raises(ValueError, match="stage_label must be"):
+            parse_range_and_simulate(
+                anchor_settings=anchors,
+                other_settings={},
+                stage_label="impossible",
+                true_cluster_count=5,
+                axis_name="n_total",
+                axis_value=100,
+            )
 
 
 # ── benchmarking_metrics ─────────────────────────────────────────────────────

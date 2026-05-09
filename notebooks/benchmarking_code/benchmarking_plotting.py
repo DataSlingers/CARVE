@@ -1,3 +1,20 @@
+"""Plotting helpers for the benchmarking notebooks.
+
+Public entry points (in order of appearance):
+- ``plot_examples``                — example PCA scatter row across anchors
+- ``plot_benchmark_snapshot``      — live PCA + summary panels (per-iteration)
+- ``display_benchmark_snapshot``   — tqdm-safe in-place display wrapper
+- ``plot_ari_over_difficulty``     — ARI vs. difficulty / scaling axis line plot
+- ``plot_ari_overview_grid``       — 2×3 grid of ARI lineplots (one per regime)
+- ``plot_paper_figure``            — combined Section 2 paper figure (Fig 3)
+- ``plot_runtime_over_axis``       — CARVE runtime vs. scaling axis
+- ``plot_scaling_ari_grid``        — 2×2 ARI grid for scaling experiments
+- ``plot_scaling_runtime_grid``    — 2×2 runtime grid for scaling experiments
+"""
+
+# =============================================================================
+# Imports
+# =============================================================================
 from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Literal, Mapping, Sequence
 
@@ -8,7 +25,7 @@ import pandas as pd
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from matplotlib.collections import LineCollection
+from pylab import cm
 
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from carve.cluster import SpectralClusteringCARVE
@@ -17,20 +34,31 @@ from sklearn.metrics import adjusted_rand_score
 
 from carve.sim import simulate_clusters
 
-from benchmarking_config import SCALING_RANGES, METRIC_DISPLAY_NAMES
+from benchmarking_config import SCALING_RANGES, METRIC_DISPLAY_NAMES, SCALING_CONSTANTS
 from benchmarking_utils import _wilson_ci
 
 
-# --- Setup and basic handlers ---
+# =============================================================================
+# Palettes
+# =============================================================================
+cmap = cm.get_cmap("Dark2")
+cmap_length = cmap.N
+
 cluster_pallette = [
-    "#009ADE",
-    "#00CD6C",
-    "#FF1F5B",
-    "#AF58BA",
-    "#F28522",
-    "#A6761D",
-    "#A0B1BA",
-]
+    color
+    for i, color in enumerate(cmap.colors)
+    if i != 99
+]  # Exclude yellow as nth color if needed
+
+# cluster_pallette = [
+#     "#009ADE",
+#     "#00CD6C",
+#     "#FF1F5B",
+#     "#AF58BA",
+#     "#F28522",
+#     "#A6761D",
+#     "#A0B1BA",
+# ]
 
 lines_pallette_contrastive_carve = [
     "#00CD6C",
@@ -45,30 +73,12 @@ lines_pallette_contrastive_other = [
 ]
 
 
-# --- Utils ---
-def _infer_axis_cols(df: pd.DataFrame) -> tuple[str, str]:
-    """
-    returns (axis_value_col, axis_name_col)
-    preference:
-      1) long-form: ('axis_value','axis_name')
-      2) legacy difficulty: ('difficulty_level', '')
-      3) legacy scaling raw column: (first of n_total/p/embed_dim present, '')
-    """
-    if "axis_value" in df.columns:
-        return "axis_value", ("axis_name" if "axis_name" in df.columns else "")
-    if "difficulty_level" in df.columns:
-        return "difficulty_level", ""
-    for c in ("n_total", "p", "embed_dim"):
-        if c in df.columns:
-            return c, ""
-    raise ValueError(
-        "could not infer benchmark axis; expected axis_value or difficulty_level or one of {n_total,p,embed_dim}"
-    )
-
-
+# =============================================================================
+# Color mapping helpers
+# =============================================================================
 def _get_color_mapping(k: int) -> List[Any]:
     """okabe-ito for k<=7, tab20 for 8..20, hsv fallback."""
-    if k <= 7:
+    if k <= cmap_length:
         cols = [mpl.colors.to_rgba(cluster_pallette[i]) for i in range(k)]
     elif k <= 20:
         tab20 = plt.get_cmap("tab20")
@@ -108,7 +118,7 @@ def _metric_color_map(metric_names: Iterable[str]) -> dict[str, Any]:
 
 
 def _constrastive_color_map(metric_names: Iterable[str]) -> dict[str, Any]:
-    """ """
+    """Build a CARVE-vs-classical contrastive palette keyed by metric name."""
     names = list(metric_names)
 
     internal_metrics = {"silhouette", "gap", "davies_bouldin", "calinski_harabasz"}
@@ -137,9 +147,48 @@ def _constrastive_color_map(metric_names: Iterable[str]) -> dict[str, Any]:
     return cols_dict
 
 
+# =============================================================================
+# Axis, label and DataFrame helpers
+# =============================================================================
+def _infer_axis_cols(df: pd.DataFrame) -> tuple[str, str]:
+    """
+    returns (axis_value_col, axis_name_col)
+    preference:
+      1) long-form: ('axis_value','axis_name')
+      2) legacy difficulty: ('difficulty_level', '')
+      3) legacy scaling raw column: (first of n_total/p/embed_dim present, '')
+    """
+    if "axis_value" in df.columns:
+        return "axis_value", ("axis_name" if "axis_name" in df.columns else "")
+    if "difficulty_level" in df.columns:
+        return "difficulty_level", ""
+    for c in ("n_total", "p", "embed_dim"):
+        if c in df.columns:
+            return c, ""
+    raise ValueError(
+        "could not infer benchmark axis; expected axis_value or difficulty_level or one of {n_total,p,embed_dim}"
+    )
+
+
+def _pretty_metric_name(metric: str) -> str:
+    """Human-readable label for a metric (falls back to raw name)."""
+    return METRIC_DISPLAY_NAMES.get(metric, metric)
+
+
+def _filter_true_k(df: pd.DataFrame, k_star: int) -> pd.DataFrame:
+    """Return rows of ``df`` with ``true_k == k_star`` (or all rows if absent)."""
+    if "true_k" not in df.columns:
+        return df
+    return df.loc[df["true_k"] == k_star].copy()
+
+
+# =============================================================================
+# Drawing primitives — scatter and legend
+# =============================================================================
 def _scatter_clusters(
     ax, Z: np.ndarray, labels: np.ndarray, title: str, subtitle: str = ""
 ):
+    """Render a single 2-D scatter coloured by ``labels`` onto ``ax``."""
     labels = np.asarray(labels)
     cmap = _cluster_color_map(labels)
 
@@ -170,47 +219,137 @@ def _scatter_clusters(
         spine.set_alpha(0.2)
 
 
-def _pretty_metric_name(metric: str) -> str:
-    """Human-readable label for a metric (falls back to raw name)."""
-    return METRIC_DISPLAY_NAMES.get(metric, metric)
+def _split_legend_groups(handles, labels) -> list[tuple[list, list, int]]:
+    """Split legend handles into (Baseline, CARVE, Classical) groups.
+
+    Mirrors the grouping rule used inside ``plot_paper_figure`` so the
+    section-3 grids advertise their methods identically.
+    """
+    baseline_h, baseline_l = [], []
+    carve_h, carve_l = [], []
+    classical_h, classical_l = [], []
+    for h, lab in zip(handles, labels):
+        low = lab.lower()
+        if "baseline" in low or "oracle" in low:
+            baseline_h.append(h)
+            baseline_l.append(lab)
+        elif "carve" in low:
+            carve_h.append(h)
+            carve_l.append(lab)
+        else:
+            classical_h.append(h)
+            classical_l.append(lab)
+    groups: list[tuple[list, list, int]] = []
+    if baseline_h:
+        groups.append((baseline_h, baseline_l, 1))
+    if carve_h:
+        groups.append((carve_h, carve_l, 1))
+    if classical_h:
+        groups.append((classical_h, classical_l, 2))
+    return groups
 
 
+def _draw_grouped_legend(
+    fig,
+    axes_grid,
+    *,
+    fontsize: float = 12,
+    legend_y_offset: float = 0.04,
+):
+    """Add a grouped Baseline / CARVE / Classical legend below ``axes_grid``."""
+    handles, labels = axes_grid[0, 0].get_legend_handles_labels()
+    groups = _split_legend_groups(handles, labels)
+    if not groups:
+        return
+
+    # Compute the combined extent of the axes grid so the legend stays
+    # centred under the panels regardless of figsize.
+    x0 = min(ax.get_position().x0 for ax in axes_grid.ravel())
+    x1 = max(ax.get_position().x1 for ax in axes_grid.ravel())
+    y_min = min(ax.get_position().y0 for ax in axes_grid.ravel())
+    grid_w = x1 - x0
+    legend_y = y_min - legend_y_offset
+
+    legend_kw = dict(
+        frameon=False,
+        fontsize=fontsize,
+        handlelength=2.2,
+        borderpad=0.3,
+        labelspacing=0.30,
+        columnspacing=1.0,
+        handletextpad=0.5,
+    )
+    n_groups = len(groups)
+    for gi, (gh, gl, gncol) in enumerate(groups):
+        frac = (gi + 0.5) / n_groups
+        gx = x0 + frac * grid_w
+        fig.legend(
+            gh,
+            gl,
+            loc="upper center",
+            bbox_to_anchor=(gx, legend_y),
+            ncol=gncol,
+            **legend_kw,
+        )
+
+
+# =============================================================================
+# Seed selection helper (paper figures)
+# =============================================================================
+def _select_visually_full_seed(
+    results_list: list[tuple[float, np.ndarray, np.ndarray]],
+) -> int:
+    """Pick the seed whose 2-D PCA spread is most *square* (least whitespace).
+
+    For each seed we project X to 2-D PCA and compute the ratio
+    ``min(var) / max(var)`` of the two explained-variance components.
+    A ratio close to 1 means data fills both axes evenly → less whitespace.
+    """
+    best_idx, best_ratio = 0, -1.0
+    for idx, (_, X, _) in enumerate(results_list):
+        pca = PCA(n_components=2, random_state=0)
+        pca.fit(X)
+        ev = pca.explained_variance_ratio_[:2]
+        ratio = ev.min() / max(ev.max(), 1e-12)
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_idx = idx
+    return best_idx
+
+
+# =============================================================================
+# Per-iteration simulation helper used by example/paper plots
+# =============================================================================
 def _plotting_iter(
-    settings_by_k: Dict,
+    anchor_settings: Dict,
     other_settings: Dict,
     j: int,
     level: Any,
     level_label: str,
     true_k: int,
-    true_cluster_counts: np.ndarray,
     estimator_type: str,
     sampler: Literal["default", "scaling"],
     seed: int,
     random_state: int,
 ):
-    level_seed = {1: 4, 2: 9}.get(j, 0)
-    benchmark_seed = (
-        seed
-        + ((true_k - min(true_cluster_counts)) * 100)
-        + (level_seed * 10000)
-        + random_state
-    )
+    """Simulate one (anchor, seed) dataset, fit the requested estimator, return (ari, X, y)."""
+    benchmark_seed = seed + (j * 10000) + random_state
 
     if sampler == "default":
         X, y = simulate_clusters(
             k=true_k,
             plotting=False,
             random_state=benchmark_seed,
-            **settings_by_k[true_k][level],
+            **anchor_settings[level],
             **other_settings,
         )
     elif sampler == "scaling":
         if level_label not in {"n_total", "p", "embed_dim"}:
             raise ValueError("level_label must be 'n_total', 'p', or 'embed_dim'")
 
-        n_total = int(other_settings.get("n_total", 500))
-        p = int(other_settings.get("p", 50))
-        embed_dim = int(other_settings.get("embed_dim", 64))
+        n_total = SCALING_CONSTANTS["n_total"]
+        p = SCALING_CONSTANTS["p"]
+        embed_dim = SCALING_CONSTANTS["embed_dim"]
 
         if level_label == "n_total":
             n_total = int(level)
@@ -221,7 +360,7 @@ def _plotting_iter(
         else:
             raise ValueError("level_label must be 'n_total', 'p', or 'embed_dim'")
 
-        dict_key = {1: "middle", 2: "end"}.get(j, "start")
+        dict_key = {0: "start", 1: "middle", 2: "end"}[j]
 
         X, y = simulate_clusters(
             n_total=n_total,
@@ -230,7 +369,7 @@ def _plotting_iter(
             k=true_k,
             plotting=False,
             random_state=random_state,
-            **settings_by_k[true_k][dict_key],
+            **anchor_settings[dict_key],
             **other_settings,
         )
 
@@ -249,39 +388,42 @@ def _plotting_iter(
     return ari, X, y
 
 
-# --- Main plotting functions ---
+# =============================================================================
+# Public — example data plots
+# =============================================================================
 def plot_examples(
-    settings_by_k: Dict,
+    anchor_settings: Dict,
     other_settings: Dict,
-    true_cluster_counts: np.ndarray = np.array([3, 4]),
+    true_cluster_count: int = 5,
     level_label: str = "difficulty",
     levels: List[Any] = ["easy", "medium", "hard"],
     n_seeds_per_dataset: int = 20,
     estimator_type: str = "kmeans",
     example_title: str = "Gaussian Mixtures",
     sampler: Literal["default", "scaling"] = "default",
+    figsize: tuple = (12, 4),
     n_jobs: int = 1,
     random_state: int = 0,
 ) -> None:
     """
-    Visualizes example clustering datasets for different cluster counts and difficulty levels,
-    and computes baseline clustering performance (ARI) for each configuration.
+    Visualizes example clustering datasets for the three anchors at the given
+    true cluster count, and computes baseline clustering performance (ARI).
 
     Args:
-        - settings_by_k (Dict): Simulation parameters for each k and difficulty anchor.
+        - anchor_settings (Dict): Simulation parameters keyed by anchor name
+          (``easy``/``medium``/``hard`` for difficulty, ``start``/``middle``/``end``
+          for scaling).
         - other_settings (Dict): Shared/global simulation parameters.
-        - true_cluster_counts (np.ndarray): Array of cluster counts to visualize.
-        - difficulty_levels (List[str]): List of difficulty levels.
+        - true_cluster_count (int): True cluster count to visualize.
         - n_seeds_per_dataset (int): Number of replicates for baseline ARI estimation.
         - estimator_type (str): Clustering algorithm type ('kmeans', 'agglomerative' or 'spectral').
         - example_title (str): Title for the figure.
         - random_state (int): Seed for reproducibility.
+        - figsize (tuple): Figure size for the matplotlib figure.
 
     Returns:
         None. Displays the matplotlib figure.
     """
-    _, axes = plt.subplots(len(true_cluster_counts), len(levels), figsize=(12, 14))
-
     if level_label == "difficulty":
         levels = ["easy", "medium", "hard"]
     elif level_label in SCALING_RANGES:
@@ -293,70 +435,72 @@ def plot_examples(
             f"got {level_label!r}"
         )
 
+    _, axes = plt.subplots(1, len(levels), figsize=figsize)
+
     for j, level in enumerate(levels):
-        for i, true_k in enumerate(true_cluster_counts):
-            worker = delayed(_plotting_iter)
-            results = Parallel(n_jobs=n_jobs)(
-                worker(
-                    settings_by_k=settings_by_k,
-                    other_settings=other_settings,
-                    j=j,
-                    level=level,
-                    level_label=level_label,
-                    true_k=true_k,
-                    true_cluster_counts=true_cluster_counts,
-                    estimator_type=estimator_type,
-                    sampler=sampler,
-                    seed=seed,
-                    random_state=random_state,
-                )
-                for seed in range(n_seeds_per_dataset)
+        worker = delayed(_plotting_iter)
+        results = Parallel(n_jobs=n_jobs)(
+            worker(
+                anchor_settings=anchor_settings,
+                other_settings=other_settings,
+                j=j,
+                level=level,
+                level_label=level_label,
+                true_k=true_cluster_count,
+                estimator_type=estimator_type,
+                sampler=sampler,
+                seed=seed,
+                random_state=random_state,
             )
-            ari_arr = [res[0] for res in results]
-            _, X, y = results[0]
+            for seed in range(n_seeds_per_dataset)
+        )
+        ari_arr = [res[0] for res in results]
+        _, X, y = results[0]
 
-            ari_mean = np.mean(ari_arr)
+        ari_mean = np.mean(ari_arr)
 
-            # plot PCA of dataset
-            X_pca = PCA(n_components=2, random_state=0).fit_transform(X)
+        # plot PCA of dataset
+        X_pca = PCA(n_components=2, random_state=0).fit_transform(X)
 
-            # get labels and colors
-            labels = np.asarray(y)
-            cmap = _cluster_color_map(labels)
-            colors = [cmap[int(lbl)] for lbl in labels]
+        # get labels and colors
+        labels = np.asarray(y)
+        cmap = _cluster_color_map(labels)
+        colors = [cmap[int(lbl)] for lbl in labels]
 
-            # plot scatter plot
-            ax = axes[i, j]
-            ax.scatter(
-                X_pca[:, 0],
-                X_pca[:, 1],
-                c=colors,
-                s=20,
-                alpha=0.8,
-                edgecolor="k",
-                linewidth=0.2,
+        ax = axes[j]
+        ax.scatter(
+            X_pca[:, 0],
+            X_pca[:, 1],
+            c=colors,
+            s=20,
+            alpha=0.8,
+            edgecolor="k",
+            linewidth=0.2,
+        )
+
+        # titles, legends, &c.
+        if level_label == "difficulty":
+            ax.set_title(
+                f"k={true_cluster_count}, 'S/N Ratio': {level} | Baseline ARI={ari_mean:.3f}"
             )
-
-            # titles, legends, &c.
-            if level_label == "difficulty":
-                ax.set_title(
-                    f"k={true_k}, 'S/N Ratio': {level} | Baseline ARI={ari_mean:.3f}"
-                )
-            else:
-                ax.set_title(
-                    f"k={true_k}, {level_label}={level} | Baseline ARI={ari_mean:.3f}"
-                )
-            ax.set_aspect("equal", adjustable="datalim")
-            ax.set_xticks([])
-            ax.set_yticks([])
-            for spine in ax.spines.values():
-                spine.set_alpha(0.1)
+        else:
+            ax.set_title(
+                f"k={true_cluster_count}, {level_label}={level} | Baseline ARI={ari_mean:.3f}"
+            )
+        ax.set_aspect("equal", adjustable="datalim")
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_alpha(0.1)
 
     plt.suptitle(f"Example datasets: {example_title}", fontsize=16)
     plt.tight_layout()
     plt.show()
 
 
+# =============================================================================
+# Public — live benchmark snapshot
+# =============================================================================
 def plot_benchmark_snapshot(
     *,
     X: np.ndarray,
@@ -505,47 +649,128 @@ def plot_benchmark_snapshot(
     return fig_pca, fig_sum
 
 
+def display_benchmark_snapshot(
+    snapshot_handles: Dict[str, Any],
+    *,
+    X: np.ndarray,
+    results_df: pd.DataFrame,
+    plotting_dict: Mapping[str, Mapping[str, Any]],
+    true_labels: np.ndarray,
+    baseline_labels: np.ndarray,
+    baseline_ari: float,
+) -> None:
+    """Render the live benchmark snapshot in-place (tqdm-safe).
+
+    Builds the PCA + summary figures via ``plot_benchmark_snapshot`` and
+    either initializes IPython display handles (first call) or updates
+    them in place (subsequent calls). Avoiding ``clear_output()`` keeps
+    the tqdm progress bar visible and stationary throughout the loop.
+
+    Parameters
+    ----------
+    snapshot_handles : dict
+        Mutable dict with keys ``"pca"`` and ``"summary"``. Initialise both
+        to ``None`` before the loop; this function fills them on the first
+        call and reuses them thereafter.
+    """
+    from IPython.display import display
+
+    fig_pca, fig_sum = plot_benchmark_snapshot(
+        X=X,
+        results_df=results_df,
+        plotting_dict=plotting_dict,
+        true_labels=true_labels,
+        baseline_labels=baseline_labels,
+        baseline_ari=baseline_ari,
+    )
+    if snapshot_handles.get("pca") is None:
+        snapshot_handles["pca"] = display(fig_pca, display_id=True)
+        snapshot_handles["summary"] = display(fig_sum, display_id=True)
+    else:
+        snapshot_handles["pca"].update(fig_pca)
+        snapshot_handles["summary"].update(fig_sum)
+    plt.close(fig_pca)
+    plt.close(fig_sum)
+
+
+# =============================================================================
+# Public — ARI-over-difficulty line plots
+# =============================================================================
+# Fixed left-to-right slot order at each x-anchor. The ``None`` slot is a
+# blank gap that visually separates CARVE selection rules from heuristic
+# baselines. Anything in ``metrics`` that is not in this tuple is appended
+# to the right of the cluster.
+LINEPLOT_DISPLAY_ORDER: tuple[str | None, ...] = (
+    "ari_stability_1se",
+    "ari_generalizability_1se",
+    None,
+    "silhouette",
+    "davies_bouldin",
+    "calinski_harabasz",
+    "gap",
+)
+
+
 def plot_ari_over_difficulty(
     results_df: pd.DataFrame,
     *,
     metrics=(
-        "ari_generalizability_1se",
         "ari_stability_1se",
+        "ari_generalizability_1se",
         "silhouette",
-        "gap",
         "davies_bouldin",
         "calinski_harabasz",
+        "gap",
     ),
     center: str = "mean",
-    band: tuple = (0.05, 0.95),
-    show_band_for=("baseline", "ari_stability_1se", "ari_generalizability_1se"),
+    dodge: float = 0.005,
     x_col: str | None = None,
     x_label: str = "Signal/Noise Ratio",
+    x_label_font_size: int = 12,
     xscale: str = "linear",
     title: str | None = None,
     figsize: tuple = (12, 10),
     ax=None,
     ylim: tuple | str = "auto",
     show_legend: bool = True,
+    legend_ncol: int = 1,
+    band: tuple | None = None, 
+    show_band_for=None, 
 ):
     """
-    Plots ARI vs. difficulty level for selected metrics.
+    Plot ARI vs. difficulty (or scaling axis) with mean ± 1 SE error bars.
+
+    For difficulty-axis data, x-ticks are categorical ("Easy", "Medium", "Hard")
+    and metric markers are dodged horizontally in the fixed order defined by
+    ``LINEPLOT_DISPLAY_ORDER`` so antennas don't overlap.
 
     Args:
         - results_df (pd.DataFrame): DataFrame with benchmarking results.
         - metrics (tuple): Metrics to plot.
         - center (str): Central tendency measure ('mean' or 'median').
-        - band (tuple): Quantiles for uncertainty band.
-        - show_band_for (tuple): Metrics for which to show uncertainty band.
+        - dodge (float): Per-slot horizontal offset (in x-axis units).
         - title (str | None): Plot title.
         - ax: Matplotlib axis.
         - ylim (tuple | str): Y-axis limits.
+        - legend_ncol (int): Number of columns in the legend.
+        - band, show_band_for: deprecated, ignored. Retained so existing
+          callers in notebooks/grids don't break.
     """
-    axis_col, _ = _infer_axis_cols(results_df) if x_col is None else (x_col, "")
+    if x_col is None:
+        axis_col, axis_name_col = _infer_axis_cols(results_df)
+    else:
+        axis_col, axis_name_col = x_col, ""
     needed = {axis_col, "metric_name", "is_optimal", "metric_ari", "baseline_ari"}
     missing = sorted(c for c in needed if c not in results_df.columns)
     if missing:
         raise ValueError(f"results_df missing columns: {missing}")
+
+    # Detect difficulty-axis mode so we can label x-ticks with anchor names.
+    is_difficulty = (
+        axis_name_col != ""
+        and axis_name_col in results_df.columns
+        and (results_df[axis_name_col] == "difficulty_level").any()
+    ) or axis_col == "difficulty_level"
 
     present = [m for m in metrics if (results_df["metric_name"] == m).any()]
     if len(present) == 0:
@@ -554,37 +779,36 @@ def plot_ari_over_difficulty(
     # --- 1) Filter to one row per (dataset instance, metric): selected "optimal" k ---
     df_opt = results_df.loc[results_df["is_optimal"] == True].copy()
 
-    # --- 2) Baseline: dedupe per dataset instance (we only want one per (dataset instance, true_k, difficulty_level)) ---
+    # --- 2) Baseline: dedupe per dataset instance ---
     dedupe_cols = [
         c for c in [axis_col, "dataset_iteration", "true_k"] if c in results_df.columns
     ]
     base = results_df.drop_duplicates(dedupe_cols)[[axis_col, "baseline_ari"]].copy()
 
-    # Helper to get quantiles and average/median
+    # Mean ± 1 SE across replicates at each axis value.
     def _summarize(y: pd.Series):
         y = y.astype(float).dropna().values
         if y.size == 0:
-            return np.nan, np.nan, np.nan
-        lo = np.quantile(y, band[0])
-        hi = np.quantile(y, band[1])
+            return np.nan, np.nan
         mid = np.mean(y) if center == "mean" else np.median(y)
-        return mid, lo, hi
+        se = np.std(y, ddof=1) / np.sqrt(y.size) if y.size > 1 else 0.0
+        return mid, se
 
     # --- 3) Build summary tables ---
     base_sum = (
         base.groupby(axis_col)["baseline_ari"]
-        .apply(lambda s: pd.Series(_summarize(s), index=["mid", "lo", "hi"]))
+        .apply(lambda s: pd.Series(_summarize(s), index=["mid", "se"]))
         .unstack()
         .reset_index()
         .sort_values(axis_col)
-    )  # cols: difficulty_level, mid, lo, hi
+    )
 
     sums = []
     for m in metrics:
         sub = df_opt.loc[df_opt["metric_name"] == m]
         s = (
             sub.groupby(axis_col)["metric_ari"]
-            .apply(lambda s: pd.Series(_summarize(s), index=["mid", "lo", "hi"]))
+            .apply(lambda s: pd.Series(_summarize(s), index=["mid", "se"]))
             .unstack()
             .reset_index()
             .sort_values(axis_col)
@@ -592,9 +816,7 @@ def plot_ari_over_difficulty(
         s["metric_name"] = m
         sums.append(s)
 
-    sum_df = (
-        pd.concat(sums, ignore_index=True) if sums else pd.DataFrame()
-    )  # cols: difficulty_level, mid, lo, hi, metric_name
+    sum_df = pd.concat(sums, ignore_index=True) if sums else pd.DataFrame()
 
     # --- 4) Plot ---
     if ax is None:
@@ -602,74 +824,108 @@ def plot_ari_over_difficulty(
     else:
         fig = ax.figure
 
-    x = base_sum[axis_col].astype(int).values
+    # Anchor positions: contiguous integers for difficulty mode, raw values otherwise.
+    raw_levels = np.sort(base_sum[axis_col].dropna().unique())
+    if is_difficulty:
+        anchor_x = np.arange(len(raw_levels), dtype=float)
+        level_to_x = {lvl: float(i) for i, lvl in enumerate(raw_levels)}
+    else:
+        anchor_x = raw_levels.astype(float)
+        level_to_x = {lvl: float(lvl) for lvl in raw_levels}
 
-    # Plot baseline line and (optional) CI band
+    # Per-slot x-offset following LINEPLOT_DISPLAY_ORDER (gap slot included).
+    n_slots = len(LINEPLOT_DISPLAY_ORDER)
+    center_offset = (n_slots - 1) / 2
+    slot_dx: dict[str, float] = {
+        m: (i - center_offset) * dodge
+        for i, m in enumerate(LINEPLOT_DISPLAY_ORDER)
+        if m is not None
+    }
+    extras = [m for m in metrics if m not in slot_dx]
+    for j, m in enumerate(extras):
+        slot_dx[m] = (n_slots + j - center_offset) * dodge
+
+    # Apply dodge only when the categorical layout is in effect; for numeric
+    # scaling axes the absolute spacing is data-driven and a fixed unit-dodge
+    # would distort the picture.
+    effective_dx = slot_dx if is_difficulty else {k: 0.0 for k in slot_dx}
+
+    # Oracle baseline: dashed gray reference, no whiskers.
     baseline_color = (0.35, 0.35, 0.35, 1.0)
+    base_x_vals = np.array(
+        [level_to_x[v] for v in base_sum[axis_col].values], dtype=float
+    )
     ax.plot(
-        x,
+        base_x_vals,
         base_sum["mid"].values,
         color=baseline_color,
         linestyle="--",
         linewidth=2.6,
         label="Baseline (Oracle k*)",
     )
-    if "baseline" in show_band_for:
-        ax.fill_between(
-            x,
-            base_sum["lo"].values,
-            base_sum["hi"].values,
-            color=baseline_color,
-            alpha=0.15,
-        )
 
-    # Ensure metrics are actually present
-    present_metrics = []
-    for m in metrics:
-        if (sum_df["metric_name"] == m).any():
-            present_metrics.append(m)
+    # Iterate metrics in display order so legend matches left-to-right layout.
+    ordered_metrics = [
+        m
+        for m in LINEPLOT_DISPLAY_ORDER
+        if m is not None and m in metrics and (sum_df["metric_name"] == m).any()
+    ]
+    ordered_metrics += [m for m in extras if (sum_df["metric_name"] == m).any()]
 
-    color_map = _constrastive_color_map(present_metrics)
+    color_map = _constrastive_color_map(ordered_metrics)
 
-    # Plot metrics
-    for m in metrics:
-        s = sum_df.loc[sum_df["metric_name"] == m]  # Subset df to metric
+    for m in ordered_metrics:
+        s = sum_df.loc[sum_df["metric_name"] == m]
         if s.empty:
             continue
-
-        # Get values
-        xx = s[axis_col].astype(int).values
+        xx = (
+            np.array([level_to_x[v] for v in s[axis_col].values], dtype=float)
+            + effective_dx[m]
+        )
         yy = s["mid"].values
-
-        # Plot line and (optional) band
-        color = color_map[m]
-        ax.plot(
+        yerr = s["se"].values
+        ax.errorbar(
             xx,
             yy,
-            color=color,
-            linewidth=3.1 if "ari_" in m else 2.1,
+            yerr=yerr,
+            fmt="-o",
+            color=color_map[m],
+            linewidth=2.6 if "ari_" in m else 2.0,
+            markersize=5,
+            capsize=3,
+            capthick=1.2,
+            elinewidth=1.2,
             label=_pretty_metric_name(m),
         )
-        if m in show_band_for:
-            ax.fill_between(xx, s["lo"].values, s["hi"].values, color=color, alpha=0.12)
 
-    ax.set_xlabel(x_label)
-    ax.set_ylabel("ARI (selected k^hat vs. true labels)")
-    ax.set_xlim(x.min(), x.max())
+    ax.set_xlabel(x_label, fontsize=x_label_font_size)
+    ax.set_ylabel(r"ARI (selected $\hat{k}$ vs. true labels)")
+    ax.set_xticks(anchor_x)
+
+    if is_difficulty:
+        anchor_labels = {0: "Easy", 1: "Medium", 2: "Hard"}
+        ax.set_xticklabels(
+            [anchor_labels.get(int(v), str(v)) for v in raw_levels]
+        )
+        # Hug the leftmost and rightmost dodged markers with a small margin.
+        max_abs_dx = max((abs(v) for v in effective_dx.values()), default=0.0)
+        margin = max_abs_dx + 0.04
+        ax.set_xlim(anchor_x.min() - margin, anchor_x.max() + margin)
+    else:
+        if xscale in {"log", "linear"}:
+            ax.set_xscale(xscale)
+        ax.set_xlim(anchor_x.min(), anchor_x.max())
+
     if ylim != "auto":
         ax.set_ylim(ylim)
     else:
         ax.set_ylim(auto=True)
-    ax.set_xticks(np.unique(x))
-
-    if xscale in {"log", "linear"}:
-        ax.set_xscale(xscale)
 
     if title is not None:
         ax.set_title(title)
 
     if show_legend:
-        ax.legend(frameon=False, fontsize=9, ncol=2)
+        ax.legend(frameon=False, fontsize=9, ncol=legend_ncol)
 
     return fig
 
@@ -775,35 +1031,12 @@ def plot_ari_overview_grid(
     return fig
 
 
-# ---------------------------------------------------------------------------
-# Paper Figure 3 — Per-k* combined overview (examples + lineplots)
-# ---------------------------------------------------------------------------
-
-
-def _select_visually_full_seed(
-    results_list: list[tuple[float, np.ndarray, np.ndarray]],
-) -> int:
-    """Pick the seed whose 2-D PCA spread is most *square* (least whitespace).
-
-    For each seed we project X to 2-D PCA and compute the ratio
-    ``min(var) / max(var)`` of the two explained-variance components.
-    A ratio close to 1 means data fills both axes evenly → less whitespace.
-    """
-    best_idx, best_ratio = 0, -1.0
-    for idx, (_, X, _) in enumerate(results_list):
-        pca = PCA(n_components=2, random_state=0)
-        pca.fit(X)
-        ev = pca.explained_variance_ratio_[:2]
-        ratio = ev.min() / max(ev.max(), 1e-12)
-        if ratio > best_ratio:
-            best_ratio = ratio
-            best_idx = idx
-    return best_idx
-
-
+# =============================================================================
+# Public — Paper figure 3 (combined per-k* overview)
+# =============================================================================
 def plot_paper_figure(
     regimes: list[tuple],
-    k_star: int,
+    k_star: int = 5,
     *,
     difficulty: str = "medium",
     metrics: tuple[str, ...] = (
@@ -940,7 +1173,7 @@ def plot_paper_figure(
         scat_wspace = wspace
         scat_hspace = hspace
         lp_wspace = wspace
-        lp_hspace = hspace
+        lp_hspace = hspace + 0.08
     else:
         # If explicit figsize is given, use the old fractional defaults
         lp_frac_left, lp_frac_right = 0.06, 0.98
@@ -1037,7 +1270,6 @@ def plot_paper_figure(
         )
 
     # ---- Row A — example scatter plots ----
-    true_cluster_counts = np.array([3, 4, 5, 6])
     difficulty_j = {"easy": 0, "medium": 1, "hard": 2}.get(difficulty, 1)
 
     for col, (name, _df, sbk, osett, etype, sq) in enumerate(parsed):
@@ -1049,13 +1281,12 @@ def plot_paper_figure(
         worker = delayed(_plotting_iter)
         results_list = Parallel(n_jobs=n_jobs)(
             worker(
-                settings_by_k=sbk,
+                anchor_settings=sbk,
                 other_settings=osett,
                 j=difficulty_j,
                 level=difficulty,
                 level_label="difficulty",
                 true_k=k_star,
-                true_cluster_counts=true_cluster_counts,
                 estimator_type=etype,
                 sampler="default",
                 seed=seed,
@@ -1121,6 +1352,7 @@ def plot_paper_figure(
                 band=band,
                 show_band_for=show_band_for,
                 x_label="SNR",
+                x_label_font_size=tick_fontsize,
                 ax=ax,
                 ylim="auto",
                 show_legend=False,
@@ -1172,7 +1404,7 @@ def plot_paper_figure(
     grid_x0 = bot_pos.x0
     grid_x1 = bot_pos.x1
     grid_w = grid_x1 - grid_x0
-    legend_y = bot_pos.y0 - 0.03  # just below the lowest lineplot row
+    legend_y = bot_pos.y0 - 0.05  # just below the lowest lineplot row
 
     legend_kw = dict(
         frameon=False,
@@ -1212,228 +1444,9 @@ def plot_paper_figure(
     return fig
 
 
-def plot_baseline_vs_metric_ari_grid(
-    results_df: pd.DataFrame,
-    *,
-    metrics=(
-        "ari_generalizability_1se",
-        "ari_stability_1se",
-        "silhouette",
-        "gap",
-        "davies_bouldin",
-        "calinski_harabasz",
-    ),
-    ncols: int = 3,
-    figsize=(12, 10),
-    center: str = "mean",
-    point_alpha: float = 0.33,
-    point_size: float = 12.0,
-    rasterize_points: bool = True,
-    color_by_difficulty: bool = True,
-    difficulty_cmap: str = "cividis",
-    show_difficulty_colorbar: bool = True,
-    invert_x: bool = True,
-    xlim=(0.0, 1.02),
-    ylim=(0.0, 1.02),
-):
-    """
-    Plots baseline ARI vs. metric ARI scatter plots in a grid layout.
-
-    Args:
-        - results_df (pd.DataFrame): DataFrame with benchmarking results.
-        - metrics (tuple): Metrics to plot.
-        - ncols (int): Number of columns in the grid.
-        - figsize (tuple): Figure size.
-        - center (str): Central tendency measure ('mean' or 'median').
-        - point_alpha (float): Transparency of scatter points.
-        - point_size (float): Size of scatter points.
-        - rasterize_points (bool): Whether to rasterize scatter points.
-        - xlim (tuple): X-axis limits.
-        - ylim (tuple): Y-axis limits.
-    """
-    needed = {"metric_name", "is_optimal", "metric_ari", "baseline_ari"}
-    missing = sorted(c for c in needed if c not in results_df.columns)
-    if missing:
-        raise ValueError(f"results_df missing columns: {missing}")
-
-    present = [m for m in metrics if (results_df["metric_name"] == m).any()]
-    if len(present) == 0:
-        raise ValueError("none of the requested metrics were found in results_df")
-
-    color_map = _metric_color_map(present)  # Get colors
-
-    # --- 1) Filter to one row per (dataset instance, metric): selected "optimal" k ---
-    df_opt = results_df.loc[results_df["is_optimal"] == True].copy()
-
-    axis_col, axis_name_col = _infer_axis_cols(df_opt)
-    group_col = "difficulty_level" if "difficulty_level" in df_opt.columns else axis_col
-
-    # Difficulty color mapping
-    levels = None
-    diff_color = None
-    diff_cmap = None
-    diff_norm = None
-    if color_by_difficulty and group_col in df_opt.columns:
-        levels = sorted(df_opt[group_col].dropna().unique())
-        diff_cmap = plt.get_cmap(difficulty_cmap, len(levels))
-        diff_color = {lvl: diff_cmap(i) for i, lvl in enumerate(levels)}
-        diff_norm = mpl.colors.BoundaryNorm(
-            boundaries=np.arange(-0.5, len(levels) + 0.5, 1.0),
-            ncolors=len(levels),
-        )
-
-    # --- 2) Setup grid ---
-    n = len(present)  # Compute grid dims
-    nrows = int(np.ceil(n / ncols))
-
-    fig, axes = plt.subplots(
-        nrows=nrows,
-        ncols=ncols,
-        figsize=figsize,
-        sharex=True,
-        sharey=True,
-        constrained_layout=True,
-    )
-    axes = np.asarray(axes).flatten()
-
-    baseline_color = (0.35, 0.35, 0.35, 1.0)
-    diag_x = np.array([xlim[0], xlim[1]])  # Diagonal reference line
-
-    # --- 3) Plot ---
-    for i, m in enumerate(present):
-        ax = axes[i]
-        sub = df_opt.loc[df_opt["metric_name"] == m]  # Subset df to metric
-
-        # 1) Scatter actual ARIs (Baseline ARI : Metric ARI)
-        if color_by_difficulty and diff_color is not None:
-            for lvl in levels:
-                pts = sub.loc[sub[group_col] == lvl]
-                if pts.empty:
-                    continue
-                ax.scatter(
-                    pts["baseline_ari"].astype(float).values,
-                    pts["metric_ari"].astype(float).values,
-                    s=point_size,
-                    alpha=point_alpha,
-                    rasterized=rasterize_points,
-                    color=diff_color[lvl],
-                    linewidths=0,
-                )
-        else:
-            ax.scatter(
-                sub["baseline_ari"].astype(float).values,
-                sub["metric_ari"].astype(float).values,
-                s=point_size,
-                alpha=point_alpha,
-                rasterized=rasterize_points,
-                color=baseline_color,
-                linewidths=0,
-            )
-
-        # 2) Diagonal reference line
-        ax.plot(diag_x, diag_x, linestyle="--", linewidth=1.0, color=baseline_color)
-
-        # 3) Difficulty path overlay (median/mean per difficulty, connected)
-        if group_col in sub.columns:
-            g = sub.groupby(group_col)[["baseline_ari", "metric_ari"]]
-            if center == "mean":
-                path = g.mean()
-            elif center == "median":
-                path = g.median()
-            else:
-                raise ValueError("center must be 'mean' or 'median'")
-
-            # Enforce consistent ordering of difficulty steps
-            path = path.reindex(levels).dropna()
-
-            xy = path[["baseline_ari", "metric_ari"]].values
-            lvls = list(path.index)
-
-            if (
-                color_by_difficulty and diff_color is not None and len(xy) >= 2
-            ):  # Colored segments (for difficulty)
-                segments = np.stack([xy[:-1], xy[1:]], axis=1)  # (n-1, 2, 2)
-                seg_colors = [diff_color[lvl] for lvl in lvls[:-1]]
-                lc = LineCollection(
-                    segments, colors=seg_colors, linewidths=2.2, zorder=3
-                )
-                ax.add_collection(lc)
-
-                ax.scatter(  # Colored markers at each difficulty point
-                    xy[:, 0],
-                    xy[:, 1],
-                    s=40,
-                    color=[diff_color[lvl] for lvl in lvls],
-                    edgecolor="none",
-                    zorder=4,
-                )
-            else:
-                # Fallback: single-color overlay
-                ax.plot(
-                    xy[:, 0],
-                    xy[:, 1],
-                    marker="o",
-                    linewidth=2.2,
-                    color=color_map[m],
-                    zorder=3,
-                )
-
-        # 4) Compact panel annotation: median loss to oracle
-        if center == "mean":
-            loss = (
-                sub["baseline_ari"].astype(float) - sub["metric_ari"].astype(float)
-            ).mean()
-        else:
-            loss = (
-                sub["baseline_ari"].astype(float) - sub["metric_ari"].astype(float)
-            ).median()
-        ax.set_title(f"{_pretty_metric_name(m)}  ({center} Δ={loss:.3f})", fontsize=10)
-
-        # Handle axes
-        if invert_x:
-            ax.set_xlim(xlim[1], xlim[0])
-        else:
-            ax.set_xlim(*xlim)
-        ax.set_ylim(*ylim)
-        ax.set_aspect("equal", adjustable="box")
-
-    # Remove unused axes
-    for j in range(n, len(axes)):
-        axes[j].axis("off")
-
-    # Labels
-    for ax in axes[:n]:
-        ax.label_outer()
-
-    # Difficulty colorbar
-    if color_by_difficulty and show_difficulty_colorbar and diff_cmap is not None:
-        sm = mpl.cm.ScalarMappable(cmap=diff_cmap, norm=diff_norm)
-        sm.set_array([])
-        cbar = fig.colorbar(
-            sm,
-            ax=axes[:n],
-            fraction=0.03,
-            pad=0.02,
-        )
-        if group_col == "difficulty_level":
-            cbar.set_label("Signal/Noise Ratio", rotation=90)
-        else:
-            cbar.set_label(group_col, rotation=90)
-        tick_pos = np.arange(len(levels))
-        cbar.set_ticks(tick_pos)
-        cbar.set_ticklabels([str(lvl) for lvl in levels])
-
-    fig.supxlabel("Baseline ARI (Oracle k*)")
-    fig.supylabel("ARI (selected k^hat)")
-
-    return fig
-
-
-# ---------------------------------------------------------------------------
-# Section 3 paper figures — Scaling ARI + Runtime (2×2 grids per k★)
-# ---------------------------------------------------------------------------
-
-
+# =============================================================================
+# Public — Section 3 scaling plots (runtime + ARI grids per k★)
+# =============================================================================
 def plot_runtime_over_axis(
     runtimes_df: pd.DataFrame,
     *,
@@ -1544,87 +1557,6 @@ def plot_runtime_over_axis(
         ax.legend(frameon=False, fontsize=9, ncol=1)
 
     return fig
-
-
-def _split_legend_groups(handles, labels) -> list[tuple[list, list, int]]:
-    """Split legend handles into (Baseline, CARVE, Classical) groups.
-
-    Mirrors the grouping rule used inside ``plot_paper_figure`` so the
-    section-3 grids advertise their methods identically.
-    """
-    baseline_h, baseline_l = [], []
-    carve_h, carve_l = [], []
-    classical_h, classical_l = [], []
-    for h, lab in zip(handles, labels):
-        low = lab.lower()
-        if "baseline" in low or "oracle" in low:
-            baseline_h.append(h)
-            baseline_l.append(lab)
-        elif "carve" in low:
-            carve_h.append(h)
-            carve_l.append(lab)
-        else:
-            classical_h.append(h)
-            classical_l.append(lab)
-    groups: list[tuple[list, list, int]] = []
-    if baseline_h:
-        groups.append((baseline_h, baseline_l, 1))
-    if carve_h:
-        groups.append((carve_h, carve_l, 1))
-    if classical_h:
-        groups.append((classical_h, classical_l, 2))
-    return groups
-
-
-def _draw_grouped_legend(
-    fig,
-    axes_grid,
-    *,
-    fontsize: float = 12,
-    legend_y_offset: float = 0.04,
-):
-    """Add a grouped Baseline / CARVE / Classical legend below ``axes_grid``."""
-    handles, labels = axes_grid[0, 0].get_legend_handles_labels()
-    groups = _split_legend_groups(handles, labels)
-    if not groups:
-        return
-
-    # Compute the combined extent of the axes grid so the legend stays
-    # centred under the panels regardless of figsize.
-    x0 = min(ax.get_position().x0 for ax in axes_grid.ravel())
-    x1 = max(ax.get_position().x1 for ax in axes_grid.ravel())
-    y_min = min(ax.get_position().y0 for ax in axes_grid.ravel())
-    grid_w = x1 - x0
-    legend_y = y_min - legend_y_offset
-
-    legend_kw = dict(
-        frameon=False,
-        fontsize=fontsize,
-        handlelength=2.2,
-        borderpad=0.3,
-        labelspacing=0.30,
-        columnspacing=1.0,
-        handletextpad=0.5,
-    )
-    n_groups = len(groups)
-    for gi, (gh, gl, gncol) in enumerate(groups):
-        frac = (gi + 0.5) / n_groups
-        gx = x0 + frac * grid_w
-        fig.legend(
-            gh,
-            gl,
-            loc="upper center",
-            bbox_to_anchor=(gx, legend_y),
-            ncol=gncol,
-            **legend_kw,
-        )
-
-
-def _filter_true_k(df: pd.DataFrame, k_star: int) -> pd.DataFrame:
-    """Return rows of ``df`` with ``true_k == k_star`` (or all rows if absent)."""
-    if "true_k" not in df.columns:
-        return df
-    return df.loc[df["true_k"] == k_star].copy()
 
 
 def plot_scaling_ari_grid(

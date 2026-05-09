@@ -4,43 +4,36 @@ Edit constants here to change scaling ranges, metric lists, or display settings.
 All other benchmarking modules import from this file.
 """
 
+# =============================================================================
+# Imports
+# =============================================================================
 import numpy as np
 
 
-# ── Scaling ranges (must match Calibrate_Settings.ipynb) ──────────────────────
-# All axes use LINEAR spacing (np.linspace), never logarithmic.
-# To change ranges: edit here and re-run the scaling benchmarks.
+# =============================================================================
+# Scaling axis ranges
+# =============================================================================
+# Must match Calibrate_Settings.ipynb. All axes use LINEAR spacing
+# (np.linspace), never logarithmic. To change ranges: edit here and re-run
+# the scaling benchmarks.
 SCALING_RANGES: dict[str, dict[str, int]] = {
-    "n_total": {"min": 100, "max": 1500},
-    "p": {"min": 10, "max": 500},
+    "n_total": {"min": 1000, "max": 10000},
+    "p": {"min": 50, "max": 1000},
     "embed_dim": {"min": 10, "max": 500},
 }
 
-GRANULARITY = 10  # number of points per scaling axis
+SCALING_CONSTANTS = {
+    "n_total": 1500,
+    "p": 50,
+    "embed_dim": 64,
+}
+
+GRANULARITY = 3  # number of points per scaling axis (start, middle, end)
 
 
-def make_scaling_x_values(axis_name: str, granularity: int = GRANULARITY) -> list[int]:
-    """Generate linearly-spaced integer values for a scaling axis.
-
-    Uses SCALING_RANGES as the single source of truth for min/max bounds.
-
-    Args:
-        axis_name: One of the keys in SCALING_RANGES ('n_total', 'p', 'embed_dim').
-        granularity: Number of evenly-spaced points to generate.
-
-    Returns:
-        List of integer values from min to max (inclusive) with linear spacing.
-    """
-    if axis_name not in SCALING_RANGES:
-        raise ValueError(
-            f"axis_name must be one of {sorted(SCALING_RANGES)}, got {axis_name!r}"
-        )
-    r = SCALING_RANGES[axis_name]
-    return [int(x) for x in np.linspace(r["min"], r["max"], num=granularity)]
-
-
-# ── CARVE metrics ─────────────────────────────────────────────────────────────
-
+# =============================================================================
+# Metric constants — CARVE
+# =============================================================================
 CARVE_METRICS_STABILITY = [
     "ari_stability",
     "ari_stability_1se",
@@ -72,13 +65,15 @@ CARVE_METRICS_ALL = sorted(
 )
 
 
-# ── External (classical) metrics ──────────────────────────────────────────────
+# =============================================================================
+# Metric constants — Non-CARVE (classical)
+# =============================================================================
+NON_CARVE_METRICS = ("silhouette", "gap", "davies_bouldin", "calinski_harabasz")
 
-EXTERNAL_METRICS = ("silhouette", "gap", "davies_bouldin", "calinski_harabasz")
 
-
-# ── Metric display names (used by reporting and plotting) ─────────────────────
-
+# =============================================================================
+# Metric display names (used by reporting and plotting)
+# =============================================================================
 METRIC_DISPLAY_NAMES = {
     "baseline_oracle": "Baseline (Oracle)",
     # CARVE – stability
@@ -102,16 +97,17 @@ METRIC_DISPLAY_NAMES = {
     # Classical
     "silhouette": "Silhouette",
     "gap": "Gap Statistic",
-    "davies_bouldin": "Davies\u2013Bouldin",
-    "calinski_harabasz": "Calinski\u2013Harabasz",
+    "davies_bouldin": "Davies–Bouldin",
+    "calinski_harabasz": "Calinski–Harabasz",
 }
 
 
-# ── Metric groupings for plotting / reporting ─────────────────────────────────
-
+# =============================================================================
+# Metric groupings for plotting and reporting
+# =============================================================================
 SELECTED_CARVE = ["ari_generalizability_1se", "ari_stability_1se"]
 
-CLASSICAL = list(EXTERNAL_METRICS)
+NON_CARVE = list(NON_CARVE_METRICS)
 
 PLOT_METRICS = [
     "ari_average_1se",
@@ -146,8 +142,9 @@ EXCLUDE_FROM_TABLES = [
 ]
 
 
-# ── Metric colors (Okabe-Ito colorblind-safe palette) ─────────────────────────
-
+# =============================================================================
+# Metric colors (Okabe-Ito colorblind-safe palette)
+# =============================================================================
 METRIC_COLOR = {
     "ari_average_1se": "#E69F00",  # orange
     "ari_generalizability_1se": "#56B4E9",  # sky blue
@@ -167,3 +164,26 @@ METRIC_LABEL = {
     "davies_bouldin": "DB",
     "calinski_harabasz": "CH",
 }
+
+
+# =============================================================================
+# Public helpers
+# =============================================================================
+def make_scaling_x_values(axis_name: str, granularity: int = GRANULARITY) -> list[int]:
+    """Generate linearly-spaced integer values for a scaling axis.
+
+    Uses SCALING_RANGES as the single source of truth for min/max bounds.
+
+    Args:
+        axis_name: One of the keys in SCALING_RANGES ('n_total', 'p', 'embed_dim').
+        granularity: Number of evenly-spaced points to generate.
+
+    Returns:
+        List of integer values from min to max (inclusive) with linear spacing.
+    """
+    if axis_name not in SCALING_RANGES:
+        raise ValueError(
+            f"axis_name must be one of {sorted(SCALING_RANGES)}, got {axis_name!r}"
+        )
+    r = SCALING_RANGES[axis_name]
+    return [int(x) for x in np.linspace(r["min"], r["max"], num=granularity)]

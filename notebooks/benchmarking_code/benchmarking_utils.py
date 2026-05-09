@@ -1,3 +1,12 @@
+"""Generic helper utilities used across the benchmarking modules.
+
+Includes statistics primitives, metric-name parsers, estimator factories,
+and the Hungarian label-alignment routine.
+"""
+
+# =============================================================================
+# Imports
+# =============================================================================
 import inspect
 
 from typing import Type, Iterable, Any
@@ -14,38 +23,9 @@ from sklearn.metrics import confusion_matrix
 from scipy.optimize import linear_sum_assignment
 
 
-def align_labels(true_labels: np.ndarray, pred_labels: np.ndarray) -> np.ndarray:
-    """
-    Aligns predicted cluster labels to true labels by maximizing agreement using the Hungarian algorithm.
-
-    Args:
-        - true_labels (np.ndarray): Ground-truth labels for each sample (integer-coded).
-        - pred_labels (np.ndarray): Predicted cluster labels for each sample (arbitrary IDs).
-
-    Returns:
-        np.ndarray: Aligned predicted labels with IDs permuted to best match true_labels.
-    """
-    cm = confusion_matrix(true_labels, pred_labels)
-
-    row_ind, col_ind = linear_sum_assignment(-cm)
-
-    label_map = {old: new for old, new in zip(col_ind, row_ind)}
-    return np.array(
-        [label_map[lab] if lab in label_map else lab for lab in pred_labels]
-    )
-
-
-def _wilson_ci(k_success: int, n: int, z: float = 1.96) -> tuple[float, float]:
-    """wilson score interval for a binomial proportion."""
-    if n <= 0:
-        return (np.nan, np.nan)
-    p = k_success / n
-    denom = 1 + (z**2) / n
-    center = (p + (z**2) / (2 * n)) / denom
-    half = (z / denom) * np.sqrt((p * (1 - p) / n) + (z**2) / (4 * n**2))
-    return (max(0.0, center - half), min(1.0, center + half))
-
-
+# =============================================================================
+# Small primitives — sequence and statistics helpers
+# =============================================================================
 def _pick_first(value_or_sequence: Any) -> Any:
     """
     Returns the first element if v is a list/tuple; otherwise returns v unchanged.
@@ -63,7 +43,19 @@ def _pick_first(value_or_sequence: Any) -> Any:
     )
 
 
+def _wilson_ci(k_success: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """wilson score interval for a binomial proportion."""
+    if n <= 0:
+        return (np.nan, np.nan)
+    p = k_success / n
+    denom = 1 + (z**2) / n
+    center = (p + (z**2) / (2 * n)) / denom
+    half = (z / denom) * np.sqrt((p * (1 - p) / n) + (z**2) / (4 * n**2))
+    return (max(0.0, center - half), min(1.0, center + half))
+
+
 def _summary_stats(x: pd.Series, q=(0.05, 0.25, 0.50, 0.75, 0.95)) -> dict[str, float]:
+    """Summarise a numeric series with mean, sd, and standard quantiles."""
     x = pd.to_numeric(x, errors="coerce").dropna().astype(float)
     if x.empty:
         return {k: np.nan for k in ["mean", "sd", "median", "q05", "q25", "q75", "q95"]}
@@ -79,6 +71,52 @@ def _summary_stats(x: pd.Series, q=(0.05, 0.25, 0.50, 0.75, 0.95)) -> dict[str, 
     }
 
 
+# =============================================================================
+# Metric-name parsing
+# =============================================================================
+def get_rule(carve_metric: str) -> str:
+    """
+    Determines the carving rule suffix for a metric name.
+
+    Args:
+        - carve_metric (str): Metric name with optional suffixes like '_quant' or '_1se'.
+
+    Returns:
+        str: Rule identifier ('quantile', '1se', or 'max').
+    """
+    if carve_metric.endswith("_quant"):
+        rule = "quantile"
+    elif carve_metric.endswith("_1se"):
+        rule = "1se"
+    else:
+        rule = "max"
+
+    return rule
+
+
+def get_measure(carve_metric: str) -> str:
+    """
+    Extracts the base measure name from a carved metric string.
+
+    Args:
+        - carve_metric (str): Metric name with optional suffixes like '_quant' or '_1se'.
+
+    Returns:
+        str: Base measure name without suffix.
+    """
+    if carve_metric.endswith("_1se"):
+        measure = carve_metric[:-4]
+    elif carve_metric.endswith("_quant"):
+        measure = carve_metric[:-6]
+    else:
+        measure = carve_metric
+
+    return measure
+
+
+# =============================================================================
+# Estimator construction
+# =============================================================================
 def _build_estimator(
     estimator_cls: Type[ClusterMixin],
     n_clusters: int,
@@ -122,46 +160,6 @@ def _build_estimator(
     return estimator_cls(**params)
 
 
-def get_rule(carve_metric: str) -> str:
-    """
-    Determines the carving rule suffix for a metric name.
-
-    Args:
-        - carve_metric (str): Metric name with optional suffixes like '_quant' or '_1se'.
-
-    Returns:
-        str: Rule identifier ('quantile', '1se', or 'max').
-    """
-    if carve_metric.endswith("_quant"):
-        rule = "quantile"
-    elif carve_metric.endswith("_1se"):
-        rule = "1se"
-    else:
-        rule = "max"
-
-    return rule
-
-
-def get_measure(carve_metric: str) -> str:
-    """
-    Extracts the base measure name from a carved metric string.
-
-    Args:
-        - carve_metric (str): Metric name with optional suffixes like '_quant' or '_1se'.
-
-    Returns:
-        str: Base measure name without suffix.
-    """
-    if carve_metric.endswith("_1se"):
-        measure = carve_metric[:-4]
-    elif carve_metric.endswith("_quant"):
-        measure = carve_metric[:-6]
-    else:
-        measure = carve_metric
-
-    return measure
-
-
 def make_estimator_grids(
     estimator: str,
     candidate_clusters: Iterable[int],
@@ -191,3 +189,27 @@ def make_estimator_grids(
             )
         ]
     return [(KMeans, {"n_clusters": list(candidate_clusters), "n_init": [10]})]
+
+
+# =============================================================================
+# Label alignment
+# =============================================================================
+def align_labels(true_labels: np.ndarray, pred_labels: np.ndarray) -> np.ndarray:
+    """
+    Aligns predicted cluster labels to true labels by maximizing agreement using the Hungarian algorithm.
+
+    Args:
+        - true_labels (np.ndarray): Ground-truth labels for each sample (integer-coded).
+        - pred_labels (np.ndarray): Predicted cluster labels for each sample (arbitrary IDs).
+
+    Returns:
+        np.ndarray: Aligned predicted labels with IDs permuted to best match true_labels.
+    """
+    cm = confusion_matrix(true_labels, pred_labels)
+
+    row_ind, col_ind = linear_sum_assignment(-cm)
+
+    label_map = {old: new for old, new in zip(col_ind, row_ind)}
+    return np.array(
+        [label_map[lab] if lab in label_map else lab for lab in pred_labels]
+    )

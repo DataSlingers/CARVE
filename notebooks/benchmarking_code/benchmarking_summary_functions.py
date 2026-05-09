@@ -3,18 +3,25 @@
 Metric constants are imported from ``benchmarking_config`` — edit them there.
 """
 
+# =============================================================================
+# Imports
+# =============================================================================
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
 import matplotlib.pyplot as plt
 
-from pathlib import Path
-
 from benchmarking_config import PLOT_METRICS
 from benchmarking_utils import _wilson_ci as wilson_ci
 
 
+# =============================================================================
+# Paper-style figure configuration
+# =============================================================================
 def set_paper_style():
+    """Apply manuscript-grade matplotlib rcParams (used by case-study notebooks)."""
     plt.rcParams.update(
         {
             "figure.dpi": 120,
@@ -36,8 +43,11 @@ def set_paper_style():
     )
 
 
-# io – read all benchmark csvs
+# =============================================================================
+# Internal helpers — coercion and key columns
+# =============================================================================
 def _coerce_bool(series: pd.Series) -> pd.Series:
+    """Coerce a Series of booleans / 0|1 / yes|no strings to a clean bool column."""
     if series.dtype == bool:
         return series
     if pd.api.types.is_numeric_dtype(series):
@@ -52,9 +62,23 @@ def _coerce_bool(series: pd.Series) -> pd.Series:
     return out.fillna(0.0).astype(int).astype(bool)
 
 
+def instance_key_cols(results_df: pd.DataFrame) -> list[str]:
+    """Identify the columns that uniquely key a benchmark dataset instance."""
+    base = ["benchmark", "metric_name", "dataset_id", "true_k"]
+    condition_cols = []
+    for c in ["difficulty", "p", "n_samples"]:
+        if c in results_df.columns and results_df[c].notna().any():
+            condition_cols.append(c)
+    return base + condition_cols
+
+
+# =============================================================================
+# IO helpers
+# =============================================================================
 def load_benchmark_csvs(
     results_dir: str | Path, pattern: str = "results_*.csv"
 ) -> pd.DataFrame:
+    """Concatenate benchmark CSVs from ``results_dir`` into a single long-form DataFrame."""
     results_dir = Path(results_dir)
     paths = sorted(results_dir.glob(pattern))
     if not paths:
@@ -85,17 +109,33 @@ def load_benchmark_csvs(
     return out
 
 
-def instance_key_cols(results_df: pd.DataFrame) -> list[str]:
-    base = ["benchmark", "metric_name", "dataset_id", "true_k"]
-    condition_cols = []
-    for c in ["difficulty", "p", "n_samples"]:
-        if c in results_df.columns and results_df[c].notna().any():
-            condition_cols.append(c)
-    return base + condition_cols
+def print_tex_blocks(tables: dict, *keys: str, enabled: bool = True) -> None:
+    """Print one or more LaTeX strings stored in ``tables`` (typically the
+    output of ``summarize_regime_tables``/``summarize_scaling_tables``/etc.).
+
+    Used by the benchmarking notebook to keep the per-section TeX dumps to
+    a single line. If ``enabled`` is False the call is a no-op.
+    """
+    if not enabled:
+        return
+    for k in keys:
+        print(tables[k])
 
 
-# overall k-recovery summary
+def filter_plot_metrics(results: pd.DataFrame) -> pd.DataFrame:
+    """Restrict ``results`` to the metric subset defined by ``PLOT_METRICS``."""
+    return results.loc[results["metric_name"].isin(PLOT_METRICS)].copy()
+
+
+# =============================================================================
+# Summary tables (k-recovery and per-benchmark winners)
+# =============================================================================
 def summarize_true_k_accuracy(results: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate k-recovery accuracy per metric across all benchmark instances.
+
+    Returns a DataFrame with one row per metric, including the Wilson 95% CI
+    around the recovery rate plus mean absolute and signed k errors.
+    """
     sel = results.loc[results["is_optimal"]].copy()
 
     key_cols = instance_key_cols(sel)
@@ -130,6 +170,7 @@ def summarize_true_k_accuracy(results: pd.DataFrame) -> pd.DataFrame:
 
 
 def best_metric_per_benchmark(results: pd.DataFrame) -> pd.DataFrame:
+    """Return the metric with the best k-recovery accuracy in each benchmark."""
     sel = results.loc[results["is_optimal"]].copy()
 
     key_cols = instance_key_cols(sel)
@@ -154,7 +195,3 @@ def best_metric_per_benchmark(results: pd.DataFrame) -> pd.DataFrame:
         .reset_index(drop=True)
     )
     return winners
-
-
-def filter_plot_metrics(results: pd.DataFrame) -> pd.DataFrame:
-    return results.loc[results["metric_name"].isin(PLOT_METRICS)].copy()
