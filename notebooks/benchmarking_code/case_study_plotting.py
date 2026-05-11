@@ -53,7 +53,7 @@ CLUSTER_PALETTE_NAME: str = "tab20"
 CARVE_GREEN = "#009E73"
 CARVE_BLUE = "#0072B2"
 
-CARVE_LINE_COLORS = {"generalizability": CARVE_GREEN, "stability": CARVE_BLUE}
+CARVE_LINE_COLORS = {"generalizability": CARVE_BLUE, "stability": CARVE_GREEN}
 
 BASELINE_WARM = [
     "#FF36B5",  # pink
@@ -470,12 +470,19 @@ def plot_dim_red(
     fontsize: int = 12,
     title_fontsize: int | None = None,
     show_axis_labels: bool = True,
+    axis_labels: tuple[str, str] | None = None,
     axis_arrows: bool = False,
     category_draw_order: Literal["label", "size_desc"] = "label",
     ax: plt.Axes | None = None,
     show: bool = True,
+    Z: np.ndarray | None = None,
 ) -> None:
-    """Scatter plot of a 2-D embedding (PCA / t-SNE / UMAP) colored by *y*."""
+    """Scatter plot of a 2-D embedding (PCA / t-SNE / UMAP) colored by *y*.
+
+    If *Z* (an ``(n, 2)`` array) is provided it is used as the embedding directly;
+    *method* then only controls axis-label text. Otherwise the embedding is
+    computed from *X* using the selected *method*.
+    """
     # Step 1: Coerce inputs.
     if isinstance(X, pd.DataFrame):
         X = X.to_numpy()
@@ -486,8 +493,11 @@ def plot_dim_red(
     else:
         y = np.asarray(y)
 
-    # Step 2: Compute embedding.
-    if method == "pca":
+    # Step 2: Compute embedding (or use the precomputed one).
+    pca = None
+    if Z is not None:
+        pcs = np.asarray(Z)
+    elif method == "pca":
         pca = PCA(n_components=2, random_state=0)
         pcs = pca.fit_transform(X)
     elif method == "tsne":
@@ -554,7 +564,7 @@ def plot_dim_red(
         title, fontsize=title_fontsize
     ) if title_fontsize is not None else ax.set_title(title)
     if show_axis_labels:
-        if method == "pca":
+        if method == "pca" and pca is not None:
             ax.set_xlabel(
                 f"PC1 ({pca.explained_variance_ratio_[0] * 100:.2f}% var)",
                 fontsize=fontsize,
@@ -563,12 +573,18 @@ def plot_dim_red(
                 f"PC2 ({pca.explained_variance_ratio_[1] * 100:.2f}% var)",
                 fontsize=fontsize,
             )
+        elif method == "pca":
+            ax.set_xlabel("PC1", fontsize=fontsize)
+            ax.set_ylabel("PC2", fontsize=fontsize)
         elif method == "tsne":
             ax.set_xlabel("t-SNE 1", fontsize=fontsize)
             ax.set_ylabel("t-SNE 2", fontsize=fontsize)
         elif method == "umap":
             ax.set_xlabel("UMAP 1", fontsize=fontsize)
             ax.set_ylabel("UMAP 2", fontsize=fontsize)
+        if axis_labels is not None:
+            ax.set_xlabel(axis_labels[0], fontsize=fontsize)
+            ax.set_ylabel(axis_labels[1], fontsize=fontsize)
 
     if axis_arrows:
         if method == "pca":
@@ -577,6 +593,8 @@ def plot_dim_red(
             xlab, ylab = "t-SNE 1", "t-SNE 2"
         elif method == "umap":
             xlab, ylab = "UMAP 1", "UMAP 2"
+        if axis_labels is not None:
+            xlab, ylab = axis_labels
         else:
             xlab, ylab = "x", "y"
         x0, y0 = 0.04, 0.04
@@ -644,6 +662,7 @@ def plot_cluster_scatter(
     linewidth: float = 0.3,
     hide_axes: bool = True,
     title: str = "",
+    axis_labels: tuple[str, str] = ("PC1", "PC2"),
     pca_obj: PCA | None = None,
     Z: np.ndarray | None = None,
 ) -> plt.Axes:
@@ -682,8 +701,8 @@ def plot_cluster_scatter(
     # Step 3: Decorate.
     ax.set_title(title, fontsize=13)
     if pca_obj is not None and not hide_axes:
-        ax.set_xlabel(f"PC1 ({pca_obj.explained_variance_ratio_[0] * 100:.1f}%)")
-        ax.set_ylabel(f"PC2 ({pca_obj.explained_variance_ratio_[1] * 100:.1f}%)")
+        ax.set_xlabel(f"{axis_labels[0]} ({pca_obj.explained_variance_ratio_[0] * 100:.1f}%)")
+        ax.set_ylabel(f"{axis_labels[1]} ({pca_obj.explained_variance_ratio_[1] * 100:.1f}%)")
 
     if hide_axes:
         ax.set_xticks([])
@@ -708,6 +727,7 @@ def plot_baseline_best_lines(
     marker: str = "o",
     linewidth: float = 1.8,
     title: str = "Classical metrics",
+    legend_fontsize: int = 10,
     annotate: bool = True,
     grid_alpha: float = 0.22,
     normalize: bool = True,
@@ -784,15 +804,13 @@ def plot_baseline_best_lines(
     ax.grid(axis="y", alpha=grid_alpha)
     ax.xaxis.set_major_locator(mpl.ticker.MaxNLocator(integer=True))
     ax.legend(
-        fontsize=11,
+        fontsize=legend_fontsize,
         frameon=False,
         loc="upper center",
         bbox_to_anchor=(0.5, -0.18),
-        ncol=2,
+        ncol=1,
     )
     return ax
-
-
 
 
 def plot_carve_best_lines(
@@ -805,6 +823,7 @@ def plot_carve_best_lines(
     linewidth: float = 2.0,
     alpha_band: float = 0.18,
     title: str = "CARVE",
+    legend_fontsize: int = 10,
     annotate: bool = True,
     show_selected_k: bool = True,
     grid_alpha: float = 0.22,
@@ -919,7 +938,7 @@ def plot_carve_best_lines(
     ax.grid(axis="y", alpha=grid_alpha)
     ax.xaxis.set_major_locator(mpl.ticker.MaxNLocator(integer=True))
     ax.legend(
-        fontsize=11,
+        fontsize=legend_fontsize,
         frameon=False,
         loc="upper center",
         bbox_to_anchor=(0.5, -0.18),
@@ -931,7 +950,6 @@ def plot_carve_best_lines(
 # ============================================================================
 # 6. Alluvial diagrams
 # ============================================================================
-
 
 # ---------------------------------------------------------------------------
 # 6a. Plotly alluvial
@@ -994,7 +1012,7 @@ def _draw_flow(ax, x0, y0_top, y0_bot, x1, y1_top, y1_bot, color, alpha=0.35):
     ax.add_patch(patch)
 
 
-def _draw_alluvial_mpl(
+def plot_alluvial(
     ax,
     y_true,
     left_labels,
@@ -1250,191 +1268,26 @@ def _draw_alluvial_mpl(
     ax.axis("off")
 
 
-# ---------------------------------------------------------------------------
-# 6c. Standalone Plotly alluvial with cluster-aligned colors
-# ---------------------------------------------------------------------------
-def _build_alluvial_from_labels(
-    y_true,
-    left_labels,
-    right_labels,
-    left_color_map: dict[int, str],
-    right_color_map: dict[int, str],
-    left_title: str = "CARVE",
-    right_title: str = "Classical",
-    true_title: str = "Reported Label",
-    link_alpha: float = 0.35,
-    node_pad: int = 20,
-    node_thickness: int = 18,
-    font_size: int = 14,
-    height: int = 600,
-    width: int = 1200,
-    title_y: float = 1.08,
-    vertical_margin: int = 100,
-) -> go.Figure:
-    """Build an alluvial (Sankey) diagram with cluster colors matching scatter plots.
-
-    Standalone Plotly version — use ``plot_composite_figure`` with
-    ``show_alluvial=True`` for the embedded matplotlib version.
-    """
-    # Step 1: Coerce inputs and compute ordering.
-    y_true = pd.Series(y_true).astype(str).to_numpy()
-    left_labels = pd.Series(left_labels).astype(int).to_numpy()
-    right_labels = pd.Series(right_labels).astype(int).to_numpy()
-    n = len(y_true)
-
-    true_order = _unique_in_order(y_true)
-    left_order = sorted(np.unique(left_labels))
-    right_order = sorted(np.unique(right_labels))
-
-    # Step 2: True-label colors.
-    true_palette = _get_color_mapping(len(true_order), palette_name="tab10")
-    true_colors = {
-        lab: mpl.colors.to_hex(true_palette[i]) for i, lab in enumerate(true_order)
-    }
-
-    # Step 3: Cluster stats (purity, share).
-    def cluster_stats(pred):
-        df = pd.DataFrame({"pred": pred, "true": y_true})
-        ct = pd.crosstab(df["pred"], df["true"]).reindex(
-            index=sorted(df["pred"].unique()), columns=true_order, fill_value=0
-        )
-        sizes = ct.sum(axis=1).to_numpy()
-        shares = sizes / n
-        dom_true = ct.idxmax(axis=1).to_numpy()
-        purities = ct.max(axis=1).to_numpy() / np.maximum(sizes, 1)
-        return ct, sizes, shares, dom_true, purities
-
-    ct_left, _, share_left, dom_left, pur_left = cluster_stats(left_labels)
-    ct_right, _, share_right, dom_right, pur_right = cluster_stats(right_labels)
-
-    # Step 4: Node labels and colors.
-    left_node_labels, left_node_colors = [], []
-    for i, k in enumerate(left_order):
-        left_node_labels.append(
-            f"{k + 1}<br>{pur_left[i] * 100:.0f}%<br>{share_left[i] * 100:.0f}%"
-        )
-        left_node_colors.append(left_color_map.get(k, "#999999"))
-
-    true_node_labels = list(true_order)
-    true_node_colors = [true_colors[lab] for lab in true_order]
-
-    right_node_labels, right_node_colors = [], []
-    for i, k in enumerate(right_order):
-        right_node_labels.append(
-            f"{k + 1}<br>{pur_right[i] * 100:.0f}%<br>{share_right[i] * 100:.0f}%"
-        )
-        right_node_colors.append(right_color_map.get(k, "#999999"))
-
-    # Step 5: Build links.
-    nL, nT, nR = len(left_order), len(true_order), len(right_order)
-    idx_left = {k: i for i, k in enumerate(left_order)}
-    idx_true = {lab: nL + i for i, lab in enumerate(true_order)}
-    idx_right = {k: nL + nT + i for i, k in enumerate(right_order)}
-
-    sources, targets, values, colors = [], [], [], []
-
-    for k in left_order:
-        for lab in true_order:
-            v = (
-                int(ct_left.loc[k, lab])
-                if (k in ct_left.index and lab in ct_left.columns)
-                else 0
-            )
-            if v > 0:
-                sources.append(idx_left[k])
-                targets.append(idx_true[lab])
-                values.append(v)
-                colors.append(_hex_to_rgba(true_colors[lab], link_alpha))
-
-    ct_tr = pd.crosstab(
-        pd.Series(y_true, name="true"),
-        pd.Series(right_labels, name="pred"),
-    ).reindex(index=true_order, columns=right_order, fill_value=0)
-    for lab in true_order:
-        for k in right_order:
-            v = int(ct_tr.loc[lab, k])
-            if v > 0:
-                sources.append(idx_true[lab])
-                targets.append(idx_right[k])
-                values.append(v)
-                colors.append(_hex_to_rgba(true_colors[lab], link_alpha))
-
-    # Step 6: Layout positions.
-    def col_positions(m, top=0.06, bottom=0.94):
-        if m == 1:
-            return [0.5]
-        return list(np.linspace(top, bottom, m))
-
-    x = [0.0] * nL + [0.5] * nT + [1.0] * nR
-    y_pos = col_positions(nL) + col_positions(nT) + col_positions(nR)
-
-    # Step 7: Assemble figure.
-    fig = go.Figure(
-        go.Sankey(
-            arrangement="fixed",
-            node=dict(
-                pad=node_pad,
-                thickness=node_thickness,
-                line=dict(color="rgba(0,0,0,0.25)", width=0.5),
-                label=left_node_labels + true_node_labels + right_node_labels,
-                color=left_node_colors + true_node_colors + right_node_colors,
-                x=x,
-                y=y_pos,
-            ),
-            link=dict(source=sources, target=targets, value=values, color=colors),
-        )
-    )
-    fig.update_layout(
-        font=dict(size=font_size, family="Arial"),
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        width=width,
-        height=height,
-        margin=dict(
-            l=40, r=40, t=max(int(vertical_margin), 80), b=int(vertical_margin)
-        ),
-        annotations=[
-            dict(
-                x=0.0,
-                y=title_y,
-                xref="paper",
-                yref="paper",
-                text=left_title,
-                showarrow=False,
-                font=dict(size=font_size + 2),
-            ),
-            dict(
-                x=0.5,
-                y=title_y,
-                xref="paper",
-                yref="paper",
-                text=true_title,
-                showarrow=False,
-                font=dict(size=font_size + 2),
-            ),
-            dict(
-                x=1.0,
-                y=title_y,
-                xref="paper",
-                yref="paper",
-                text=right_title,
-                showarrow=False,
-                font=dict(size=font_size + 2),
-            ),
-        ],
-    )
-    return fig
-
 
 # ============================================================================
 # 7. Composite figure assembly
 # ============================================================================
-def _prepare_composite_data(
+def prepare_composite_data(
     X, y, carve_obj, comparison_labels,
     *,
     measure, rule, not_two, consensus_type, embedding,
 ):
-    """Coerce inputs, align labels, build 2-D projection and shared color maps."""
+    """Coerce inputs, align labels, build 2-D projection and shared color maps.
+
+    Used by the case-study notebooks to set up the data behind the multi-panel
+    paper figure: the same shared palette is re-used across the reported-label,
+    CARVE-clustering, and baseline-clustering scatter panels so colors are
+    comparable, and label alignment is done once up-front.
+
+    Returns a dict with keys: ``X``, ``y_arr``, ``y_cat``, ``Z``, ``pca_obj``,
+    ``carve_labels``, ``comparison_labels``, ``true_cmap``, ``carve_cmap``,
+    ``sil_cmap``.
+    """
     X = np.asarray(X)
     y_arr = np.asarray(y) if not isinstance(y, np.ndarray) else y
     comparison_labels = np.asarray(comparison_labels)
@@ -1482,299 +1335,6 @@ def _prepare_composite_data(
         "carve_cmap": carve_cmap,
         "sil_cmap": sil_cmap,
     }
-
-
-def _layout_composite_axes(fig, *, bottom_panel):
-    """Build the gridspec, return dict of axes, and apply per-variant nudges.
-
-    Layout magic numbers are preserved exactly as in the legacy
-    plot_composite_figure / plot_composite_figure_ari implementations so
-    paper-figure outputs remain pixel-comparable to before this refactor.
-    """
-    has_bottom = bottom_panel is not None
-    n_rows = 3 if has_bottom else 2
-    height_ratios = [1, 1.1, 0.9] if has_bottom else [1, 1.3]
-
-    gs = fig.add_gridspec(
-        n_rows, 6, height_ratios=height_ratios, hspace=0.5, wspace=0.6
-    )
-
-    axes = {
-        "A": fig.add_subplot(gs[0, 0:2]),
-        "B": fig.add_subplot(gs[0, 2:4]),
-        "C": fig.add_subplot(gs[0, 4:6]),
-        "D": fig.add_subplot(gs[1, 0:3]),
-        "E": fig.add_subplot(gs[1, 3:6]),
-    }
-    if has_bottom:
-        axes["F"] = fig.add_subplot(gs[2, 1:5])
-
-    if bottom_panel == "ari":
-        scatter_dy = -0.04
-        de_dy = 0.02
-        narrow_de = False
-    else:
-        scatter_dy = -0.02
-        de_dy = 0.01
-        narrow_de = True
-
-    for letter in ("A", "B", "C"):
-        ax = axes[letter]
-        box = ax.get_position()
-        ax.set_position([box.x0, box.y0 + scatter_dy, box.width, box.height])
-
-    if narrow_de:
-        de_gap = 0.02
-        box_d = axes["D"].get_position()
-        axes["D"].set_position(
-            [box_d.x0, box_d.y0 + de_dy, box_d.width - de_gap / 2, box_d.height]
-        )
-        box_e = axes["E"].get_position()
-        axes["E"].set_position(
-            [
-                box_e.x0 + de_gap / 2,
-                box_e.y0 + de_dy,
-                box_e.width - de_gap / 2,
-                box_e.height,
-            ]
-        )
-    else:
-        for letter in ("D", "E"):
-            ax = axes[letter]
-            box = ax.get_position()
-            ax.set_position([box.x0, box.y0 + de_dy, box.width, box.height])
-
-    return axes
-
-
-def _plot_top_row_scatters(
-    axes, prepared,
-    *,
-    scatter_s, scatter_alpha, embedding,
-    true_label_legend_title, carve_title, baseline_title,
-):
-    """Fill panels A (reported), B (CARVE), C (classical) with cluster scatters."""
-    Z = prepared["Z"]
-    y_arr = prepared["y_arr"]
-    y_cat = prepared["y_cat"]
-    true_cmap = prepared["true_cmap"]
-    edge = [(0.0, 0.0, 0.0, 0.6)]
-
-    ax_a = axes["A"]
-    if embedding is not None:
-        for lab in y_cat.categories:
-            m = y_arr == lab
-            ax_a.scatter(
-                Z[m, 0], Z[m, 1],
-                s=scatter_s, alpha=scatter_alpha,
-                c=[true_cmap[str(lab)]],
-                edgecolors=edge, linewidths=0.3,
-                label=str(lab),
-            )
-        ax_a.set_xticks([])
-        ax_a.set_yticks([])
-        for sp in ax_a.spines.values():
-            sp.set_visible(False)
-    else:
-        plot_dim_red(
-            prepared["X"], y=y_arr, ax=ax_a,
-            show=False, title="Reported Labels",
-            legend_title=true_label_legend_title,
-            s=scatter_s, alpha=scatter_alpha,
-            linewidth=0.3,
-            show_legend=False, hide_axes=True,
-        )
-        ax_a.set_xlabel("")
-        ax_a.set_ylabel("")
-    ax_a.set_title("Reported Labels", fontsize=13)
-
-    plot_cluster_scatter(
-        prepared["X"], prepared["carve_labels"],
-        ax=axes["B"], color_map=prepared["carve_cmap"],
-        s=scatter_s, alpha=scatter_alpha, edgecolor=edge,
-        title=carve_title, Z=Z, pca_obj=prepared["pca_obj"],
-    )
-
-    plot_cluster_scatter(
-        prepared["X"], prepared["comparison_labels"],
-        ax=axes["C"], color_map=prepared["sil_cmap"],
-        s=scatter_s, alpha=scatter_alpha, edgecolor=edge,
-        title=baseline_title, Z=Z, pca_obj=prepared["pca_obj"],
-    )
-
-
-def _plot_middle_row_lines(
-    axes,
-    *,
-    carve_obj, curves_df, best_df,
-    carve_measures, carve_line_colors, carve_line_title,
-    show_1se, not_two,
-    baseline_colors, baseline_line_title, normalize_baseline,
-):
-    """Fill panels D (CARVE lines) and E (baseline metrics lines)."""
-    plot_carve_best_lines(
-        carve_obj, ax=axes["D"], measures=carve_measures,
-        colors=carve_line_colors, title=carve_line_title,
-        show_1se=show_1se, annotate=False,
-        show_selected_k=True, not_two=not_two,
-    )
-    plot_baseline_best_lines(
-        curves_df, best_df, ax=axes["E"],
-        colors=baseline_colors, title=baseline_line_title,
-        normalize=normalize_baseline,
-    )
-
-
-def _add_panel_letters(axes, *, bottom_panel):
-    """Place A-F panel-letter labels with offsets matching the legacy figures."""
-    for letter in ("A", "B", "C", "D", "E"):
-        axes[letter].text(
-            -0.05, 1.08, letter,
-            transform=axes[letter].transAxes,
-            fontsize=18, fontweight="bold", va="top", ha="right",
-        )
-    if "F" in axes:
-        x_off = 0.05 if bottom_panel == "alluvial" else -0.05
-        axes["F"].text(
-            x_off, 1.08, "F",
-            transform=axes["F"].transAxes,
-            fontsize=18, fontweight="bold", va="top", ha="right",
-        )
-
-
-def plot_composite_figure(
-    X: np.ndarray,
-    y: np.ndarray,
-    carve_obj: Any,
-    curves_df: pd.DataFrame,
-    best_df: pd.DataFrame,
-    comparison_labels: np.ndarray,
-    *,
-    bottom_panel: Literal["alluvial", "ari", None] = "alluvial",
-    measure: str = "generalizability",
-    rule: str = "1se",
-    not_two: bool = False,
-    consensus_type: str = "stability",
-    carve_measures: list[tuple[str, str]] | None = None,
-    carve_line_colors: dict[str, str] | None = None,
-    baseline_colors: list[str] | None = None,
-    normalize_baseline: bool = True,
-    embedding: np.ndarray | None = None,
-    figsize: tuple[float, float] = (16, 14),
-    scatter_s: float = 30.0,
-    scatter_alpha: float = 0.85,
-    true_label_legend_title: str = "Stage",
-    carve_title: str = "CARVE clustering",
-    baseline_title: str = "Classical clustering",
-    carve_line_title: str = "CARVE ARI over k",
-    baseline_line_title: str = "Classical metrics over k",
-    show_1se: bool = True,
-    # Alluvial-specific (used when bottom_panel == "alluvial")
-    alluvial_left_title: str = "CARVE",
-    alluvial_right_title: str = "Classical",
-    alluvial_true_title: str = "Reported Label",
-    alluvial_link_alpha: float = 0.4,
-    alluvial_true_gap_frac: float = 0.045,
-    # ARI-specific (used when bottom_panel == "ari")
-    ari_title: str = "Agreement with Reported Labels (ARI)",
-    ari_carve_measures: list[tuple[str, str]] | None = None,
-    save_path: str | None = None,
-    dpi: int = 300,
-) -> plt.Figure:
-    """Build the composite paper figure.
-
-    Top row (3 scatter plots):
-        (A) Embedding colored by reported labels
-        (B) Embedding colored by CARVE consensus labels
-        (C) Embedding colored by baseline-selected labels
-
-    Middle row (2 line plots):
-        (D) CARVE metric-over-k (multiple measures)
-        (E) Baseline metrics-over-k (normalized to [0, 1])
-
-    Bottom row (selected via ``bottom_panel``):
-        - ``"alluvial"`` -> (F) CARVE -> True -> Baseline alluvial diagram
-        - ``"ari"``      -> (F) ARI lollipop comparing CARVE vs. classical
-        - ``None``       -> no F panel; figure is 2 rows tall
-
-    Parameters
-    ----------
-    X : array, shape (n, p)
-    y : array-like, shape (n,)
-    carve_obj : fitted CARVE instance
-    curves_df, best_df : from ``baseline_metrics_over_k()``
-    comparison_labels : array-like, shape (n,)
-    bottom_panel : {"alluvial", "ari", None}
-        Which bottom-row panel to render (or none).
-    measure, rule, not_two, consensus_type : primary CARVE selection params
-    embedding : array, shape (n, 2) or None
-        Pre-computed 2-D embedding for the scatter panels. If ``None``, PCA
-        is computed automatically.
-    """
-    if bottom_panel not in ("alluvial", "ari", None):
-        raise ValueError(
-            f"bottom_panel must be 'alluvial', 'ari', or None; got {bottom_panel!r}"
-        )
-
-    prepared = _prepare_composite_data(
-        X, y, carve_obj, comparison_labels,
-        measure=measure, rule=rule, not_two=not_two,
-        consensus_type=consensus_type, embedding=embedding,
-    )
-
-    fig_w, fig_h = figsize
-    fig = plt.figure(figsize=(fig_w, fig_h * 1.15), constrained_layout=False)
-
-    axes = _layout_composite_axes(fig, bottom_panel=bottom_panel)
-
-    _plot_top_row_scatters(
-        axes, prepared,
-        scatter_s=scatter_s, scatter_alpha=scatter_alpha,
-        embedding=embedding,
-        true_label_legend_title=true_label_legend_title,
-        carve_title=carve_title, baseline_title=baseline_title,
-    )
-
-    _plot_middle_row_lines(
-        axes,
-        carve_obj=carve_obj, curves_df=curves_df, best_df=best_df,
-        carve_measures=carve_measures,
-        carve_line_colors=carve_line_colors,
-        carve_line_title=carve_line_title,
-        show_1se=show_1se, not_two=not_two,
-        baseline_colors=baseline_colors,
-        baseline_line_title=baseline_line_title,
-        normalize_baseline=normalize_baseline,
-    )
-
-    if bottom_panel == "alluvial":
-        _draw_alluvial_mpl(
-            axes["F"],
-            y_true=prepared["y_arr"],
-            left_labels=prepared["carve_labels"],
-            right_labels=prepared["comparison_labels"],
-            left_cmap=prepared["carve_cmap"],
-            right_cmap=prepared["sil_cmap"],
-            true_cmap=prepared["true_cmap"],
-            left_title=alluvial_left_title,
-            right_title=alluvial_right_title,
-            true_title=alluvial_true_title,
-            link_alpha=alluvial_link_alpha,
-            true_gap_frac=alluvial_true_gap_frac,
-        )
-    elif bottom_panel == "ari":
-        ari_df = extract_ari_comparison(
-            prepared["y_arr"], best_df, carve_obj, prepared["X"],
-            carve_measures=ari_carve_measures, not_two=not_two,
-        )
-        plot_ari_comparison_bar(ari_df, ax=axes["F"], title=ari_title)
-
-    _add_panel_letters(axes, bottom_panel=bottom_panel)
-
-    if save_path is not None:
-        fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
-
-    return fig
 
 
 # ============================================================================

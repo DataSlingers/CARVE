@@ -8,8 +8,12 @@ Public entry points (in order of appearance):
 - ``plot_ari_overview_grid``       — 2×3 grid of ARI lineplots (one per regime)
 - ``plot_paper_figure``            — combined Section 2 paper figure (Fig 3)
 - ``plot_runtime_over_axis``       — CARVE runtime vs. scaling axis
-- ``plot_scaling_ari_grid``        — 2×2 ARI grid for scaling experiments
-- ``plot_scaling_runtime_grid``    — 2×2 runtime grid for scaling experiments
+- ``filter_true_k``                — slice a results frame to a single ``true_k``
+- ``draw_grouped_legend``          — Baseline / CARVE / Classical legend helper
+
+Scaling-experiment figures are composed at the call site (in
+``Benchmarking.ipynb``) by looping over the per-panel helpers above so the
+grid shape can adapt to which dataset families are included.
 """
 
 # =============================================================================
@@ -175,7 +179,7 @@ def _pretty_metric_name(metric: str) -> str:
     return METRIC_DISPLAY_NAMES.get(metric, metric)
 
 
-def _filter_true_k(df: pd.DataFrame, k_star: int) -> pd.DataFrame:
+def filter_true_k(df: pd.DataFrame, k_star: int) -> pd.DataFrame:
     """Return rows of ``df`` with ``true_k == k_star`` (or all rows if absent)."""
     if "true_k" not in df.columns:
         return df
@@ -249,7 +253,37 @@ def _split_legend_groups(handles, labels) -> list[tuple[list, list, int]]:
     return groups
 
 
-def _draw_grouped_legend(
+def _draw_lineplot_series(
+    ax,
+    x,
+    mid,
+    se,
+    *,
+    color,
+    label: str,
+    linewidth: float = 2.6,
+):
+    """Antenna-style errorbar series shared by ARI and runtime line plots.
+
+    Caps + marker + line widths match the section-2/3 visual identity so the
+    runtime panels stay legible alongside the ARI panels.
+    """
+    ax.errorbar(
+        x,
+        mid,
+        yerr=se,
+        fmt="-o",
+        color=color,
+        linewidth=linewidth,
+        markersize=5,
+        capsize=3,
+        capthick=1.2,
+        elinewidth=1.2,
+        label=label,
+    )
+
+
+def draw_grouped_legend(
     fig,
     axes_grid,
     *,
@@ -882,23 +916,17 @@ def plot_ari_over_difficulty(
             np.array([level_to_x[v] for v in s[axis_col].values], dtype=float)
             + effective_dx[m]
         )
-        yy = s["mid"].values
-        yerr = s["se"].values
-        ax.errorbar(
+        _draw_lineplot_series(
+            ax,
             xx,
-            yy,
-            yerr=yerr,
-            fmt="-o",
+            s["mid"].values,
+            s["se"].values,
             color=color_map[m],
-            linewidth=2.6 if "ari_" in m else 2.0,
-            markersize=5,
-            capsize=3,
-            capthick=1.2,
-            elinewidth=1.2,
             label=_pretty_metric_name(m),
+            linewidth=2.6 if "ari_" in m else 2.0,
         )
 
-    ax.set_xlabel(x_label, fontsize=x_label_font_size)
+    ax.set_xlabel(x_label, fontsize=x_label_font_size, labelpad=8)
     ax.set_ylabel(r"ARI (selected $\hat{k}$ vs. true labels)")
     ax.set_xticks(anchor_x)
 
@@ -1456,10 +1484,10 @@ def plot_runtime_over_axis(
         "CARVE Generalizability",
     ),
     center: str = "mean",
-    band: tuple[float, float] = (0.05, 0.95),
-    show_band: bool = True,
+    dodge: float = 0.01,
     x_col: str | None = None,
     x_label: str = "Number of samples (n)",
+    x_label_font_size: int = 12,
     xscale: str = "linear",
     yscale: str = "log",
     y_label: str = "Runtime (seconds)",
@@ -1470,20 +1498,20 @@ def plot_runtime_over_axis(
 ):
     """Plot CARVE runtime vs. a scaling axis.
 
-    Mirrors :func:`plot_ari_over_difficulty` for runtime data: groups rows by
-    the inferred axis column, summarises each ``runtime_cols`` series with a
-    centre + quantile band, and draws one coloured line per series.
+    Mirrors :func:`plot_ari_over_difficulty` visually: each series is rendered
+    by :func:`_draw_lineplot_series` with mean ± 1 SE antennas (capped error
+    bars), and the two CARVE-mode curves are dodged horizontally by a small
+    fraction of the x-range so the antennas don't overlap at each anchor.
 
     Args:
         runtimes_df: Long-form runtimes dataframe with at least
             ``axis_value`` (or one of ``n_total``/``p``/``embed_dim``),
             ``dataset_iteration`` and the columns listed in ``runtime_cols``.
-        runtime_cols: Column names to plot as separate lines. Defaults to the
-            two CARVE-mode totals.
+        runtime_cols: Column names to plot as separate lines.
         runtime_labels: Display labels for ``runtime_cols`` (same length).
         center: ``'mean'`` or ``'median'``.
-        band: Quantile pair for the uncertainty band.
-        show_band: If True, draw a filled band around each line.
+        dodge: Per-series horizontal offset, expressed as a fraction of the
+            x-range. Set to ``0`` to disable.
         yscale: ``'log'`` (default) or ``'linear'``.
     """
     if len(runtime_cols) != len(runtime_labels):
@@ -1498,18 +1526,16 @@ def plot_runtime_over_axis(
     def _summarize(y: pd.Series):
         y = y.astype(float).dropna().values
         if y.size == 0:
-            return np.nan, np.nan, np.nan
-        lo = np.quantile(y, band[0])
-        hi = np.quantile(y, band[1])
+            return np.nan, np.nan
         mid = np.mean(y) if center == "mean" else np.median(y)
-        return mid, lo, hi
+        se = np.std(y, ddof=1) / np.sqrt(y.size) if y.size > 1 else 0.0
+        return mid, se
 
-    # Build summary table per runtime column
     sums = []
     for col in runtime_cols:
         s = (
             runtimes_df.groupby(axis_col)[col]
-            .apply(lambda v: pd.Series(_summarize(v), index=["mid", "lo", "hi"]))
+            .apply(lambda v: pd.Series(_summarize(v), index=["mid", "se"]))
             .unstack()
             .reset_index()
             .sort_values(axis_col)
@@ -1527,21 +1553,42 @@ def plot_runtime_over_axis(
     # stability → green, generalizability → blue.
     palette = [mpl.colors.to_rgba(c) for c in lines_pallette_contrastive_carve]
 
+    # Per-series horizontal offset so the two curves' antennas don't collide
+    # at each anchor. Sized as a fraction of the x-range (or the log-x range
+    # so it works on both scales).
+    x_all = sum_df[axis_col].astype(float).values
+    if dodge and x_all.size > 1:
+        if xscale == "log" and (x_all > 0).all():
+            log_span = np.log10(x_all.max()) - np.log10(x_all.min())
+            dx_unit = dodge * log_span  # additive in log-space
+        else:
+            dx_unit = dodge * (x_all.max() - x_all.min())
+    else:
+        dx_unit = 0.0
+    n = len(runtime_cols)
+    center_off = (n - 1) / 2
+
     for i, (col, lab) in enumerate(zip(runtime_cols, runtime_labels)):
         s = sum_df.loc[sum_df["runtime_col"] == col]
         if s.empty:
             continue
-        xx = s[axis_col].astype(int).values
-        yy = s["mid"].values
-        color = palette[i % len(palette)]
-        ax.plot(xx, yy, color=color, linewidth=3.1, label=lab)
-        if show_band:
-            ax.fill_between(xx, s["lo"].values, s["hi"].values, color=color, alpha=0.15)
+        x_base = s[axis_col].astype(float).values
+        if dx_unit and xscale == "log":
+            xx = 10.0 ** (np.log10(x_base) + (i - center_off) * dx_unit)
+        else:
+            xx = x_base + (i - center_off) * dx_unit
+        _draw_lineplot_series(
+            ax,
+            xx,
+            s["mid"].values,
+            s["se"].values,
+            color=palette[i % len(palette)],
+            label=lab,
+        )
 
-    ax.set_xlabel(x_label)
+    ax.set_xlabel(x_label, fontsize=x_label_font_size, labelpad=8)
     ax.set_ylabel(y_label)
 
-    x_all = sum_df[axis_col].astype(int).values
     if x_all.size > 0:
         ax.set_xlim(x_all.min(), x_all.max())
         ax.set_xticks(np.unique(x_all))
@@ -1559,198 +1606,3 @@ def plot_runtime_over_axis(
     return fig
 
 
-def plot_scaling_ari_grid(
-    *,
-    gaussian_samples: pd.DataFrame,
-    moons_samples: pd.DataFrame,
-    gaussian_dim: pd.DataFrame,
-    moons_dim: pd.DataFrame,
-    k_star: int,
-    metrics: tuple[str, ...] = (
-        "ari_stability_1se",
-        "ari_generalizability_1se",
-        "silhouette",
-        "gap",
-        "davies_bouldin",
-        "calinski_harabasz",
-    ),
-    center: str = "mean",
-    band: tuple = (0.05, 0.95),
-    show_band_for: tuple = (),
-    figsize: tuple = (12, 9),
-    title_fontsize: float = 14,
-    legend_fontsize: float = 12,
-    suptitle: str | None = None,
-):
-    """2×2 ARI grid for the section-3 scaling experiments at a given ``k★``.
-
-    Layout:
-        ┌───────────────────┬───────────────────┐
-        │ Gaussians         │ RFF Moons         │   row 0 → n_total
-        │  vs n_total       │  vs n_total       │
-        ├───────────────────┼───────────────────┤
-        │ Gaussians         │ RFF Moons         │   row 1 → p / embed_dim
-        │  vs p             │  vs embed_dim     │
-        └───────────────────┴───────────────────┘
-
-    Each panel is rendered by :func:`plot_ari_over_difficulty` after filtering
-    its dataframe to ``true_k == k_star``.
-    """
-    panels = [
-        [
-            ("Gaussian Mixtures", gaussian_samples, "Number of samples (n)"),
-            ("RFF Embedded Moons", moons_samples, "Number of samples (n)"),
-        ],
-        [
-            ("Gaussian Mixtures", gaussian_dim, "Number of features (p)"),
-            ("RFF Embedded Moons", moons_dim, "Embedding dimensions"),
-        ],
-    ]
-
-    fig, axes = plt.subplots(2, 2, figsize=figsize, constrained_layout=False)
-
-    for r in range(2):
-        for c in range(2):
-            ax = axes[r, c]
-            name, df, x_label = panels[r][c]
-            df_k = _filter_true_k(df, k_star)
-            if df_k.empty:
-                ax.set_visible(False)
-                continue
-            plot_ari_over_difficulty(
-                df_k,
-                metrics=metrics,
-                center=center,
-                band=band,
-                show_band_for=show_band_for,
-                x_label=x_label,
-                title=None,
-                ax=ax,
-                show_legend=False,
-            )
-            # Only the top row gets the column title.
-            if r == 0:
-                ax.set_title(name, fontsize=title_fontsize, fontweight="bold")
-            # Shared y-label only on the leftmost column.
-            if c == 0:
-                ax.set_ylabel(r"ARI (selected $\hat{k}$ vs. true labels)", fontsize=11)
-            else:
-                ax.set_ylabel("")
-
-    if suptitle is None:
-        suptitle = f"k★ = {k_star}"
-    fig.suptitle(suptitle, fontsize=title_fontsize + 2, fontweight="bold")
-
-    fig.subplots_adjust(
-        hspace=0.30,
-        wspace=0.15,
-        bottom=0.16,
-        top=0.92,
-        left=0.08,
-        right=0.97,
-    )
-
-    _draw_grouped_legend(fig, axes, fontsize=legend_fontsize, legend_y_offset=0.05)
-
-    return fig
-
-
-def plot_scaling_runtime_grid(
-    *,
-    gaussian_samples: pd.DataFrame,
-    moons_samples: pd.DataFrame,
-    gaussian_dim: pd.DataFrame,
-    moons_dim: pd.DataFrame,
-    k_star: int,
-    runtime_cols: tuple[str, str] = ("t_carve_sec_s", "t_carve_sec_g"),
-    runtime_labels: tuple[str, str] = (
-        "CARVE Stability",
-        "CARVE Generalizability",
-    ),
-    yscale: str = "log",
-    center: str = "mean",
-    band: tuple = (0.05, 0.95),
-    show_band: bool = True,
-    figsize: tuple = (12, 9),
-    title_fontsize: float = 14,
-    legend_fontsize: float = 12,
-    suptitle: str | None = None,
-):
-    """2×2 runtime grid for the section-3 scaling experiments at a given ``k★``.
-
-    Same layout as :func:`plot_scaling_ari_grid`. Each panel is rendered by
-    :func:`plot_runtime_over_axis`. ``yscale`` is forwarded so callers can
-    flip a single figure between log and linear without modifying the helper.
-    """
-    panels = [
-        [
-            ("Gaussian Mixtures", gaussian_samples, "Number of samples (n)"),
-            ("RFF Embedded Moons", moons_samples, "Number of samples (n)"),
-        ],
-        [
-            ("Gaussian Mixtures", gaussian_dim, "Number of features (p)"),
-            ("RFF Embedded Moons", moons_dim, "Embedding dimensions"),
-        ],
-    ]
-
-    fig, axes = plt.subplots(2, 2, figsize=figsize, constrained_layout=False)
-
-    for r in range(2):
-        for c in range(2):
-            ax = axes[r, c]
-            name, df, x_label = panels[r][c]
-            df_k = _filter_true_k(df, k_star)
-            if df_k.empty:
-                ax.set_visible(False)
-                continue
-            plot_runtime_over_axis(
-                df_k,
-                runtime_cols=runtime_cols,
-                runtime_labels=runtime_labels,
-                center=center,
-                band=band,
-                show_band=show_band,
-                x_label=x_label,
-                yscale=yscale,
-                title=None,
-                ax=ax,
-                show_legend=False,
-            )
-            if r == 0:
-                ax.set_title(name, fontsize=title_fontsize, fontweight="bold")
-            if c == 0:
-                ax.set_ylabel("Runtime (seconds)", fontsize=11)
-            else:
-                ax.set_ylabel("")
-
-    if suptitle is None:
-        suptitle = f"k★ = {k_star}"
-    fig.suptitle(suptitle, fontsize=title_fontsize + 2, fontweight="bold")
-
-    fig.subplots_adjust(
-        hspace=0.30,
-        wspace=0.15,
-        bottom=0.14,
-        top=0.92,
-        left=0.08,
-        right=0.97,
-    )
-
-    # Single shared legend (just the two CARVE-mode handles)
-    handles, labels = axes[0, 0].get_legend_handles_labels()
-    if handles:
-        x0 = min(ax.get_position().x0 for ax in axes.ravel())
-        x1 = max(ax.get_position().x1 for ax in axes.ravel())
-        y_min = min(ax.get_position().y0 for ax in axes.ravel())
-        legend_x = (x0 + x1) / 2
-        fig.legend(
-            handles,
-            labels,
-            loc="upper center",
-            bbox_to_anchor=(legend_x, y_min - 0.05),
-            ncol=len(handles),
-            frameon=False,
-            fontsize=legend_fontsize,
-        )
-
-    return fig
