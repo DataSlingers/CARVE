@@ -49,9 +49,7 @@ cmap = cm.get_cmap("Dark2")
 cmap_length = cmap.N
 
 cluster_pallette = [
-    color
-    for i, color in enumerate(cmap.colors)
-    if i != 99
+    color for i, color in enumerate(cmap.colors) if i != 99
 ]  # Exclude yellow as nth color if needed
 
 # cluster_pallette = [
@@ -396,15 +394,21 @@ def _plotting_iter(
 
         dict_key = {0: "start", 1: "middle", 2: "end"}[j]
 
+        filtered_other = {
+            k: v
+            for k, v in other_settings.items()
+            if k not in ("n_total", "p", "embed_dim")
+        }
+
         X, y = simulate_clusters(
             n_total=n_total,
             p=p,
             embed_dim=embed_dim,
             k=true_k,
             plotting=False,
-            random_state=random_state,
+            random_state=benchmark_seed,
             **anchor_settings[dict_key],
-            **other_settings,
+            **filtered_other,
         )
 
     if estimator_type == "agglomerative":
@@ -768,8 +772,8 @@ def plot_ari_over_difficulty(
     ylim: tuple | str = "auto",
     show_legend: bool = True,
     legend_ncol: int = 1,
-    band: tuple | None = None, 
-    show_band_for=None, 
+    band: tuple | None = None,
+    show_band_for=None,
 ):
     """
     Plot ARI vs. difficulty (or scaling axis) with mean ± 1 SE error bars.
@@ -932,9 +936,7 @@ def plot_ari_over_difficulty(
 
     if is_difficulty:
         anchor_labels = {0: "Easy", 1: "Medium", 2: "Hard"}
-        ax.set_xticklabels(
-            [anchor_labels.get(int(v), str(v)) for v in raw_levels]
-        )
+        ax.set_xticklabels([anchor_labels.get(int(v), str(v)) for v in raw_levels])
         # Hug the leftmost and rightmost dodged markers with a small margin.
         max_abs_dx = max((abs(v) for v in effective_dx.values()), default=0.0)
         margin = max_abs_dx + 0.04
@@ -1604,5 +1606,3 @@ def plot_runtime_over_axis(
         ax.legend(frameon=False, fontsize=9, ncol=1)
 
     return fig
-
-

@@ -45,16 +45,16 @@ def compute_consensus_matrix(
     # co_sample_counts = np.zeros((n_samples, n_samples), dtype=float)
 
     # for sample_idx, labels in runs:
-        # co_sample_counts[np.ix_(sample_idx, sample_idx)] += 1
+    # co_sample_counts[np.ix_(sample_idx, sample_idx)] += 1
 
-        # for label in np.unique(labels):
-        #     label_idx = sample_idx[labels == label]
-        #     co_cluster_counts[np.ix_(label_idx, label_idx)] += 1
-        
+    # for label in np.unique(labels):
+    #     label_idx = sample_idx[labels == label]
+    #     co_cluster_counts[np.ix_(label_idx, label_idx)] += 1
+
     N = sum(len(np.unique(labels)) for _, labels in runs)
-        
+
     S = np.zeros((n_samples, len(runs)), dtype=np.float32)
-    B = np.zeros((n_samples, N), dtype=np.float32)                                                                                                           
+    B = np.zeros((n_samples, N), dtype=np.float32)
 
     col = 0
     for r, (sample_idx, labels) in enumerate(runs):
@@ -64,7 +64,7 @@ def compute_consensus_matrix(
             B[members, col] = 1
             col += 1
 
-    co_sample_counts  = S @ S.T
+    co_sample_counts = S @ S.T
     co_cluster_counts = B @ B.T
 
     with np.errstate(divide="ignore", invalid="ignore"):

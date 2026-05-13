@@ -701,8 +701,12 @@ def plot_cluster_scatter(
     # Step 3: Decorate.
     ax.set_title(title, fontsize=13)
     if pca_obj is not None and not hide_axes:
-        ax.set_xlabel(f"{axis_labels[0]} ({pca_obj.explained_variance_ratio_[0] * 100:.1f}%)")
-        ax.set_ylabel(f"{axis_labels[1]} ({pca_obj.explained_variance_ratio_[1] * 100:.1f}%)")
+        ax.set_xlabel(
+            f"{axis_labels[0]} ({pca_obj.explained_variance_ratio_[0] * 100:.1f}%)"
+        )
+        ax.set_ylabel(
+            f"{axis_labels[1]} ({pca_obj.explained_variance_ratio_[1] * 100:.1f}%)"
+        )
 
     if hide_axes:
         ax.set_xticks([])
@@ -950,6 +954,7 @@ def plot_carve_best_lines(
 # ============================================================================
 # 6. Alluvial diagrams
 # ============================================================================
+
 
 # ---------------------------------------------------------------------------
 # 6a. Plotly alluvial
@@ -1268,14 +1273,20 @@ def plot_alluvial(
     ax.axis("off")
 
 
-
 # ============================================================================
 # 7. Composite figure assembly
 # ============================================================================
 def prepare_composite_data(
-    X, y, carve_obj, comparison_labels,
+    X,
+    y,
+    carve_obj,
+    comparison_labels,
     *,
-    measure, rule, not_two, consensus_type, embedding,
+    measure,
+    rule,
+    not_two,
+    consensus_type,
+    embedding,
 ):
     """Coerce inputs, align labels, build 2-D projection and shared color maps.
 
@@ -1518,5 +1529,3 @@ def plot_ari_comparison_bar(
             fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
 
     return fig
-
-

@@ -267,11 +267,7 @@ def benchmark_cluster_metrics(
                 seed = rng.randint(0, n_seeds_per_dataset - 1)
 
             # --- 0) Deterministic seed ---
-            benchmark_seed = (
-                seed
-                + (difficulty_idx * 10000)
-                + random_state
-            )
+            benchmark_seed = seed + (difficulty_idx * 10000) + random_state
             plotting_dict: dict = {}
 
             # --- 1) Simulate data ---
@@ -310,8 +306,7 @@ def benchmark_cluster_metrics(
 
             # Get consensus ARIs for all candidate k (parallel over k)
             carve_results = Parallel(n_jobs=n_jobs)(
-                delayed(_carve_labels_and_ari)(carve, k, y)
-                for k in candidate_clusters
+                delayed(_carve_labels_and_ari)(carve, k, y) for k in candidate_clusters
             )
             carve_labels_by_k = [labels for _, labels, _ in carve_results]
             carve_aris = [ari for _, _, ari in carve_results]
@@ -341,9 +336,7 @@ def benchmark_cluster_metrics(
                             "metric_value": value,
                             "is_optimal": k == optimal_k,
                             "is_correct": k == true_cluster_count,
-                            "metric_ari": carve_aris[
-                                list(candidate_clusters).index(k)
-                            ],
+                            "metric_ari": carve_aris[list(candidate_clusters).index(k)],
                         }
                     )
 
@@ -459,11 +452,7 @@ def benchmark_scaling(
     for stage_idx, (stage_label, x_value) in enumerate(zip(STAGE_LABELS, x_values)):
         for seed in range(n_seeds_per_value):
             # --- 0) Deterministic seed ---
-            benchmark_seed = (
-                seed
-                + (stage_idx * 10000)
-                + random_state
-            )
+            benchmark_seed = seed + (stage_idx * 10000) + random_state
 
             # --- 1) Simulate data ---
             X, y = parse_range_and_simulate(
@@ -529,9 +518,7 @@ def benchmark_scaling(
             carve_aris_g = [ari for _, _, ari in results_g]
 
             # Record CARVE metric results
-            all_carve = sorted(
-                _carve_metrics_s.union(CARVE_METRICS_GENERALIZABILITY)
-            )
+            all_carve = sorted(_carve_metrics_s.union(CARVE_METRICS_GENERALIZABILITY))
             for carve_metric in all_carve:
                 rule = get_rule(carve_metric)
                 measure = get_measure(carve_metric)
