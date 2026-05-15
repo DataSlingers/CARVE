@@ -1,4 +1,4 @@
-[![CI](https://github.com/tzUNC/ClusteringValidation/actions/workflows/ci.yml/badge.svg)](https://github.com/tzUNC/ClusteringValidation/actions/workflows/ci.yml)
+[![CI](https://github.com/DataSlingers/CARVE/actions/workflows/ci.yml/badge.svg)](https://github.com/DataSlingers/CARVE/actions/workflows/ci.yml)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)
 ![Version](https://img.shields.io/badge/version-0.1.0-orange.svg)
 
@@ -29,8 +29,8 @@ Choosing the number of clusters is a recurring challenge in unsupervides machine
 CARVE requires **Python 3.12**.
 
 ```bash
-git clone https://github.com/tzUNC/ClusteringValidation.git
-cd ClusteringValidation
+git clone https://github.com/DataSlingers/CARVE.git
+cd CARVE
 pip install -e .
 ```
 
@@ -108,7 +108,7 @@ If you use CARVE in your research, please cite:
 
 ## Contributing
 
-Contributions are welcome! Please open an [issue](https://github.com/tzUNC/ClusteringValidation/issues) or submit a pull request.
+Contributions are welcome! Please open an [issue](https://github.com/DataSlingers/CARVE/issues) or submit a pull request.
 
 This project uses [Ruff](https://docs.astral.sh/ruff/) for linting and formatting, and [pytest](https://docs.pytest.org/) for testing:
 

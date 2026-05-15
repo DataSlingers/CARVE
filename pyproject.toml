@@ -20,6 +20,11 @@ dependencies = [
   "matplotlib>=3.9.4",
 ]
 
+[project.urls]
+Homepage = "https://github.com/DataSlingers/CARVE"
+Repository = "https://github.com/DataSlingers/CARVE"
+Issues = "https://github.com/DataSlingers/CARVE/issues"
+
 [project.optional-dependencies]
 dev = [
   "ruff",

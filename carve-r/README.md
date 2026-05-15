@@ -9,7 +9,7 @@
 
 **Cluster Analysis with Resampling for Validation and Exploration** —
 the R companion to the Python
-[`carve`](https://github.com/tzUNC/ClusteringValidation) package.
+[`carve`](https://github.com/DataSlingers/CARVE) package.
 
 Choosing the number of clusters is a recurring challenge in unsupervised
 learning, and standard internal cluster validity indices can be brittle
@@ -31,7 +31,7 @@ workflow with `ggplot2` visualisations and first-class `Seurat` /
 
 ``` r
 # install.packages("remotes")
-remotes::install_github("tzUNC/ClusteringValidation", subdir = "code/carve-r")
+remotes::install_github("DataSlingers/CARVE", subdir = "code/carve-r")
 ```
 
 CARVE depends only on CRAN packages (`R6`, `clue`, `ranger`, `RSpectra`,

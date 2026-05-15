@@ -15,8 +15,8 @@ The entry point is [CARVE], an R6 estimator class, with S3 dispatch via
 \seealso{
 Useful links:
 \itemize{
-  \item \url{https://github.com/tzUNC/ClusteringValidation}
-  \item Report bugs at \url{https://github.com/tzUNC/ClusteringValidation/issues}
+  \item \url{https://github.com/DataSlingers/CARVE}
+  \item Report bugs at \url{https://github.com/DataSlingers/CARVE/issues}
 }
 
 }
