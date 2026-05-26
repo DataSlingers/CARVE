@@ -38,7 +38,12 @@ from sklearn.metrics import adjusted_rand_score
 
 from carve.sim import simulate_clusters
 
-from benchmarking_config import SCALING_RANGES, METRIC_DISPLAY_NAMES, SCALING_CONSTANTS
+from benchmarking_config import (
+    SCALING_RANGES,
+    METRIC_DISPLAY_NAMES,
+    SCALING_CONSTANTS,
+    NON_CARVE_METRICS,
+)
 from benchmarking_utils import _wilson_ci
 
 
@@ -260,23 +265,30 @@ def _draw_lineplot_series(
     color,
     label: str,
     linewidth: float = 2.6,
+    linestyle: str = "-",
+    element_scale: float = 1.0,
 ):
     """Antenna-style errorbar series shared by ARI and runtime line plots.
 
     Caps + marker + line widths match the section-2/3 visual identity so the
-    runtime panels stay legible alongside the ARI panels.
+    runtime panels stay legible alongside the ARI panels. ``linestyle`` lets
+    callers dash a series (e.g. CVIs) so the solid CARVE metrics stand out.
+    ``element_scale`` uniformly scales every visual dimension (line, marker,
+    error-bar caps) so a narrower figure inserted at the same ``\\linewidth``
+    can be made to render at the same apparent thickness as a wider one.
     """
     ax.errorbar(
         x,
         mid,
         yerr=se,
-        fmt="-o",
+        fmt="o",
+        linestyle=linestyle,
         color=color,
-        linewidth=linewidth,
-        markersize=5,
-        capsize=3,
-        capthick=1.2,
-        elinewidth=1.2,
+        linewidth=linewidth * element_scale,
+        markersize=5 * element_scale,
+        capsize=3 * element_scale,
+        capthick=1.2 * element_scale,
+        elinewidth=1.2 * element_scale,
         label=label,
     )
 
@@ -774,6 +786,7 @@ def plot_ari_over_difficulty(
     legend_ncol: int = 1,
     band: tuple | None = None,
     show_band_for=None,
+    element_scale: float = 1.0,
 ):
     """
     Plot ARI vs. difficulty (or scaling axis) with mean ± 1 SE error bars.
@@ -898,7 +911,7 @@ def plot_ari_over_difficulty(
         base_sum["mid"].values,
         color=baseline_color,
         linestyle="--",
-        linewidth=2.6,
+        linewidth=2.6 * element_scale,
         label="Baseline (Oracle k*)",
     )
 
@@ -920,6 +933,8 @@ def plot_ari_over_difficulty(
             np.array([level_to_x[v] for v in s[axis_col].values], dtype=float)
             + effective_dx[m]
         )
+        # CVIs are dashed so the solid CARVE metrics stand out.
+        is_cvi = m in NON_CARVE_METRICS
         _draw_lineplot_series(
             ax,
             xx,
@@ -928,6 +943,8 @@ def plot_ari_over_difficulty(
             color=color_map[m],
             label=_pretty_metric_name(m),
             linewidth=2.6 if "ari_" in m else 2.0,
+            linestyle="--" if is_cvi else "-",
+            element_scale=element_scale,
         )
 
     ax.set_xlabel(x_label, fontsize=x_label_font_size, labelpad=8)
@@ -1405,7 +1422,7 @@ def plot_paper_figure(
         va="center",
         ha="center",
         rotation=90,
-        fontsize=title_fontsize - 1,
+        fontsize=tick_fontsize,
     )
 
     # ---- shared legend (grouped: Baseline | CARVE | Classical) ----
@@ -1497,6 +1514,7 @@ def plot_runtime_over_axis(
     figsize: tuple = (6, 4.5),
     ax=None,
     show_legend: bool = True,
+    element_scale: float = 1.0,
 ):
     """Plot CARVE runtime vs. a scaling axis.
 
@@ -1586,6 +1604,7 @@ def plot_runtime_over_axis(
             s["se"].values,
             color=palette[i % len(palette)],
             label=lab,
+            element_scale=element_scale,
         )
 
     ax.set_xlabel(x_label, fontsize=x_label_font_size, labelpad=8)
