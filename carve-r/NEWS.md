@@ -3,8 +3,7 @@
 Initial release. R port of the Python
 [`carve`](https://github.com/DataSlingers/CARVE) package
 accompanying the manuscript *"CARVE: Cluster Analysis with Resampling
-for Validation and Exploration"* (under review at PLoS Computational
-Biology).
+for Validation and Exploration"*.
 
 ## Features
 
