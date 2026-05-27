@@ -57,7 +57,7 @@ SpectralClusteringCARVE <- R6::R6Class(
     labels_ = NULL,
     #' @field embedding_ Row-normalized spectral embedding matrix.
     embedding_ = NULL,
-    #' @field affinity_ Affinity matrix actually used.
+    #' @field affinity_ The resolved affinity matrix.
     affinity_ = NULL,
     #' @field evals_ Eigenvalues of the normalized Laplacian.
     evals_ = NULL,

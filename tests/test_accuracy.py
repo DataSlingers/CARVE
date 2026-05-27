@@ -27,7 +27,7 @@ class TestComputeGeneralizabilityScores:
             (np.array([0, 1, 2, 3]), np.array([0, 0, 1, 1]), np.array([0, 1, 0, 1])),
         ]
         scores = compute_generalizability_scores(4, runs)
-        # After alignment, 2 out of 4 are wrong
+        # After alignment, 2 of 4 wrong
         assert np.any(scores < 1.0)
 
     def test_never_evaluated(self):
@@ -43,11 +43,10 @@ class TestComputeGeneralizabilityScores:
         assert scores[4] == 0.0
 
     def test_partial_accuracy(self):
-        """Genuine misclassification that alignment cannot fix.
+        """Misclassification not fixed via aligning.
 
-        With multiple samples per cluster, alignment maps pred labels to
-        maximize overall agreement. Samples that are structurally wrong
-        (not just permuted) remain wrong after alignment.
+        Alignment maps predicted labels to maximize agreement, so samples
+        that are structurally wrong (not just permuted) stay wrong.
         """
         # true: 2 samples in cluster 0, 2 in cluster 1
         # pred: sample 2 (true=1) predicted as 0 — a real error

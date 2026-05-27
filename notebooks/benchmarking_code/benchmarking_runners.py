@@ -134,8 +134,8 @@ def _evaluate_non_carve_metrics(
             optimal k (used for live snapshot visualisation).
     """
     # --- Cluster data set (one fit per k, in parallel) ---
-    # NOTE: KMeans uses OpenMP internally; nesting it under joblib threads
-    # can deadlock/oversubscribe, so use processes (joblib default) here.
+    # KMeans uses OpenMP internally; running it under joblib threads can
+    # deadlock, so use processes (joblib default) here.
     fit_results = Parallel(n_jobs=n_jobs)(
         delayed(_fit_estimator_at_k)(
             X,
@@ -149,7 +149,7 @@ def _evaluate_non_carve_metrics(
     labels_by_k: dict[int, np.ndarray] = dict(fit_results)
 
     # --- Evaluate (metric, k) pairs ---
-    # gap_statistic refits respective estimator inside each task, so use processes here too.
+    # gap_statistic refits the estimator in each task, so use processes here too.
     tasks = [
         delayed(_evaluate_single_metric_at_k)(
             X,

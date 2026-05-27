@@ -65,7 +65,7 @@ labels <- fit$get_labels(measure = "stability", rule = "max")
 ```
 
 The S3 entry point `carve()` accepts a matrix, a numeric data frame, or
-— when the optional packages are installed — a `Seurat` or
+(when the optional packages are installed) a `Seurat` or
 `SingleCellExperiment` object:
 
 ``` r

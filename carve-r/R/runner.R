@@ -75,8 +75,8 @@ run_validation <- function(X,
     random_state = random_state, verbose = verbose
   )
 
-  # Flatten grids to a list of (type, params) configs for straightforward
-  # iteration and to mirror Python's ParameterGrid behavior.
+  # Flatten grids to a list of (type, params) configs, mirroring Python's
+  # ParameterGrid.
   configs <- unlist(
     lapply(estimator_grids, function(g) {
       lapply(expand_grid_spec(g$grid), function(p) {

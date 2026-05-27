@@ -35,5 +35,5 @@ Pure-math primitives (consensus formulas, Hungarian alignment,
 selection rules, ARI) are pinned to byte-exact agreement in the test
 suite. End-to-end fits agree statistically (±0.05 ARI, ±0.03 PAC /
 Gini / CE) on the fixed-seed datasets in
-`vignette("cross-validation")`; bit-exact agreement is infeasible
-because the underlying RNGs differ between languages.
+`vignette("cross-validation")`. Results won't match bit-for-bit, since
+R and Python use different RNGs.

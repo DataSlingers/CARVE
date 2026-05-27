@@ -380,8 +380,8 @@ def _render_grouped_tex(
     raw_metrics = df["_metric_raw"].values.copy()
     metric_col_vals = df["Metric"].values.copy()
 
-    # Extract just the numeric data into a fresh DataFrame with integer column indices.
-    # This avoids all MultiIndex/tuple ambiguity when accessing cells.
+    # Copy numeric data into a fresh DataFrame with integer columns to
+    # avoid MultiIndex/tuple ambiguity when accessing cells.
     n_rows = len(df)
     n_val = len(value_cols)
     raw_data = np.empty((n_rows, n_val), dtype=object)

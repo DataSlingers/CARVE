@@ -77,8 +77,7 @@ class CARVE(BaseEstimator):
         Classifier used to score generalizability. If None (default), a
         ``RandomForestClassifier`` is built with ``n_trees`` trees. Must
         implement the sklearn classifier interface (``fit``/``predict``).
-        The classifier is cloned for each resample so state does not leak
-        across iterations.
+        Cloned per resample to avoid state leakage.
     n_trees : int, default=100
         Number of trees in the default random-forest classifier. Ignored
         when ``classifier`` is provided.

@@ -6,23 +6,23 @@
 
 **Clustering Analysis with Resampling for Validation and Exploration**
 
-Choosing the number of clusters is a recurring challenge in unsupervides machine learning more generally, as well as in biological data analysis. Yet, widely used internal clustering validation indices (CVIs) can be brittle in high-dimensional, noisy, or nonlinear settings. CARVE quantifies clustering robustness via two resampling-based concepts: **stability** (reproducibility of cluster assignments under data perturbation) and **generalizability** (agreement between held-out clusterings and predictions from an classifier trained on the clustering). It produces global, cluster-level, and sample-level diagnostics alongside easy-to-use visualizations — all through a scikit-learn-compatible API.
+Choosing the number of clusters is hard, especially for high-dimensional biological data where standard internal clustering validation indices (CVIs) are often unreliable. CARVE measures clustering robustness through two resampling-based concepts: **stability** (reproducibility of cluster assignments under data perturbation) and **generalizability** (agreement between held-out clusterings and predictions from a classifier trained on the clustering). It reports global, cluster-level, and sample-level diagnostics with visualizations, all through a scikit-learn-compatible API.
 
 <p align="center">
   <img src="carve_overview.png" width="700" alt="CARVE overview">
 </p>
 
-## Key Features
+## Features
 
-- **Scikit-learn-compatible API** — `CARVE` extends `BaseEstimator`; standard `fit` / `get_labels` / `get_k` workflow
-- **Dual validation** — stability (intra-subsample ARI) and generalizability (held-out prediction accuracy)
-- **Multi-level diagnostics** — global, per-cluster, and per-sample scores for fine-grained analyses
-- **Multiple metrics** — ARIs, Consensus PAC, Gini, and cross-entropy, and predictive accuracy
-- **Selection rules** — `max`, `1se` (one-standard-error), and `quantile` for principled choice of *k*
-- **Built-in clustering algorithms** — CARVE uses a custom spectral clustering with self-tuning affinity (based on <TODO – citation>)
-- **Flexible preprocessing** — normalization (identity, StandardScaler, log1p) and dimensionality reduction (identity, PCA, t-SNE, UMAP), with optional randomized preprocessing per resample
-- **High-quality visualization** — metric-over-*k* curves, consensus heatmaps, box plots, violin plots, and scatter plots
-- **Parallelized** — joblib-backed parallel resampling via `n_jobs`
+- Scikit-learn-compatible API: `CARVE` extends `BaseEstimator` with a `fit` / `get_labels` / `get_k` workflow
+- Stability (intra-subsample ARI) and generalizability (held-out prediction accuracy) metrics
+- Diagnostics at the global, per-cluster, and per-sample level
+- Metrics: ARI, consensus PAC, Gini, cross-entropy, and predictive accuracy
+- Selection rules: `max`, `1se` (one-standard-error), and `quantile`
+- Custom spectral clustering with self-tuning affinity (based on <TODO – citation>)
+- Preprocessing: normalization (identity, StandardScaler, log1p) and dimensionality reduction (identity, PCA, t-SNE, UMAP), optionally randomized per resample
+- Plots: metric-over-*k* curves, consensus heatmaps, box plots, violin plots, and scatter plots
+- Parallel resampling via joblib (`n_jobs`)
 
 ## Installation
 
@@ -65,7 +65,7 @@ labels = carve.get_labels(measure="generalizability", rule="1se")
 print(f"Selected k={k}")
 ```
 
-See [`notebooks/Tutorial.ipynb`](notebooks/Tutorial.ipynb) for a comprehensive walkthrough, and [`notebooks/case_studies/`](notebooks/case_studies/) for real-world analyses on scRNA-seq and mass cytometry datasets.
+See [`notebooks/Tutorial.ipynb`](notebooks/Tutorial.ipynb) for a walkthrough, and [`notebooks/case_studies/`](notebooks/case_studies/) for real-world analyses on scRNA-seq and mass cytometry datasets.
 
 ## Visualization
 

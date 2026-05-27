@@ -370,12 +370,12 @@ def plot_consensus_matrix(
             "consensus_matrix and labels must have matching first dimension."
         )
 
-    # Ensure symmetric, bounded matrix for display
+    # Symmetrize and bound for display
     M = 0.5 * (M + M.T)
     M = np.clip(np.nan_to_num(M, nan=0.5), 0.0, 1.0)
     np.fill_diagonal(M, 1.0)
 
-    # Stable ordering by cluster id for contiguous blocks
+    # Sort by cluster id so blocks are contiguous
     order = np.argsort(labels, kind="stable")
     M_ord = M[np.ix_(order, order)]
     labels_ord = labels[order]
@@ -912,8 +912,7 @@ def plot_cluster_violin(
     else:
         effective_ylim = ylim
 
-    # Clip violin polygon vertices to ylim to prevent KDE tails from
-    # visually extending beyond the axis boundaries.
+    # Clip violin vertices to ylim so KDE tails don't spill past the axes
     if effective_ylim is not None:
         ymin, ymax = effective_ylim
         for body in vp["bodies"]:
@@ -1406,9 +1405,7 @@ def plot_diagnostic_scatter(
     except Exception:
         uniq = np.array(sorted(uniq, key=lambda x: str(x)))
 
-    if len(uniq) > len(
-        markers
-    ):  # Warn if more clusters than markers, but still proceed with cycling
+    if len(uniq) > len(markers):  # More clusters than markers: warn, then cycle
         warnings.warn(
             f"Number of clusters ({len(uniq)}) exceeds available markers "
             f"({len(markers)}). Markers will cycle.",
@@ -1452,7 +1449,7 @@ def plot_diagnostic_scatter(
         fig = ax.figure
 
     # --- Draw points (per-cluster for distinct markers) ---
-    # Order clusters: draw stable (high mean) first, unstable (low mean) last (on top)
+    # Draw stable clusters (high mean) first, unstable on top
     cluster_means = {
         lab: float(np.nanmean(scores[(labels == lab) & valid]))
         if np.any((labels == lab) & valid)
