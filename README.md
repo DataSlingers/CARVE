@@ -89,14 +89,7 @@ All plotting methods return a matplotlib `Axes` object and accept `save` and `dp
 
 If you use CARVE in your research, please cite:
 
-```bibtex
-@article{wycik2025carve,
-  title   = {{CARVE}: Clustering Analysis with Resampling for Validation and Exploration},
-  author  = {Wycik, Kai R. and Zikry, Tarek M. and Tang, Tiffany M. and Allen, Genevera I.},
-  journal = {PLoS Computational Biology},
-  year    = {2025},
-  note    = {Under review}
-}
+TODO
 ```
 
 ## Authors
