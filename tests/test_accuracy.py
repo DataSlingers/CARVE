@@ -20,7 +20,7 @@ class TestComputeGeneralizabilityScores:
         assert scores[2] == 1.0
 
     def test_wrong_predictions(self):
-        """Predictions with a genuinely wrong assignment (not just permuted)."""
+        """Predictions with a wrong assignment (not just permuted)."""
         # true: [0, 0, 1, 1], pred: [0, 1, 0, 1] — after alignment,
         # some samples are still wrong
         runs = [
