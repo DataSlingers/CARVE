@@ -119,22 +119,7 @@ across `n_jobs` values when the seed is fixed.
   `reticulate`.
 
 ## Citation
-
-``` r
-citation("CARVE")
-```
-
-``` bibtex
-@article{wycik2026carve,
-  title   = {{CARVE}: Cluster Analysis with Resampling for Validation
-             and Exploration},
-  author  = {Wycik, Kai R. and Zikry, Tarek M. and Tang, Tiffany M. and
-             Allen, Genevera I.},
-  journal = {PLoS Computational Biology},
-  year    = {2026},
-  note    = {Under review}
-}
-```
+TODO
 
 ## License
 
