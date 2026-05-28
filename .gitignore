@@ -20,3 +20,9 @@ vis/
 __pycache__/
 *.egg-info/
 .ipynb_checkpoints/
+
+# test / coverage artifacts
+.coverage
+coverage.xml
+report.xml
+.pytest_cache/

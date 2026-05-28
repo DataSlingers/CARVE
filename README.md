@@ -1,4 +1,6 @@
 [![CI](https://github.com/DataSlingers/CARVE/actions/workflows/ci.yml/badge.svg)](https://github.com/DataSlingers/CARVE/actions/workflows/ci.yml)
+[![R CMD check](https://github.com/DataSlingers/CARVE/actions/workflows/r-ci.yml/badge.svg)](https://github.com/DataSlingers/CARVE/actions/workflows/r-ci.yml)
+[![codecov](https://codecov.io/gh/DataSlingers/CARVE/branch/main/graph/badge.svg)](https://codecov.io/gh/DataSlingers/CARVE)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)
 ![Version](https://img.shields.io/badge/version-0.1.0-orange.svg)
 

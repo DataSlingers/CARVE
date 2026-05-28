@@ -15,7 +15,6 @@ class TestComputeGeneralizabilityScores:
         ]
         scores = compute_generalizability_scores(4, runs)
         assert scores.shape == (4,)
-        # All evaluated samples should have accuracy 1.0
         assert scores[1] == 1.0
         assert scores[2] == 1.0
 

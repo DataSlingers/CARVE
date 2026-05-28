@@ -29,6 +29,7 @@ Issues = "https://github.com/DataSlingers/CARVE/issues"
 dev = [
   "ruff",
   "pytest",
+  "pytest-cov",
 ]
 notebooks = [
   "jupyterlab>=4.2,<5",
@@ -54,6 +55,13 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["carve"]
+omit = ["*/carve/sim/*"]
+
+[tool.coverage.report]
+show_missing = true
 
 [dependency-groups]
 dev = [
