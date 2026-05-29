@@ -13,8 +13,7 @@ import numpy as np
 # =============================================================================
 # Scaling axis ranges
 # =============================================================================
-# Must match Calibrate_Settings.ipynb. All axes use LINEAR spacing
-# (np.linspace), never logarithmic. To change ranges: edit here and re-run
+# Must match Calibrate_Settings.ipynb. To change ranges: edit here and re-run
 # the scaling benchmarks.
 SCALING_RANGES: dict[str, dict[str, int]] = {
     "n_total": {"min": 1000, "max": 10000},
