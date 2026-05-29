@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "DataSlingers/CARVE: CARVE v1.0 — Initial public release"
+type: software
+authors:
+  - family-names: Wycik
+    given-names: Kai
+  - family-names: Tang
+    given-names: Tiffany M.
+  - family-names: Zikry
+    given-names: Tarek M.
+  - family-names: Allen
+    given-names: Genevera I.
+version: v1.0
+doi: 10.5281/zenodo.20417991
+date-released: "2026-05-01"
+url: "https://doi.org/10.5281/zenodo.20417991"
+repository-code: "https://github.com/DataSlingers/CARVE"
+license: MIT
+notes: "Tarek M. Zikry and Genevera I. Allen are co-corresponding authors."
