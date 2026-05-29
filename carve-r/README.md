@@ -119,7 +119,8 @@ across `n_jobs` values when the seed is fixed.
   `reticulate`.
 
 ## Citation
-TODO
+If you use CARVE in your research, please cite:
+
 
 ## License
 
