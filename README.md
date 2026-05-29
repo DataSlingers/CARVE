@@ -91,8 +91,6 @@ All plotting methods return a matplotlib `Axes` object and accept `save` and `dp
 
 If you use CARVE in your research, please cite:
 
-TODO
-```
 
 ## Authors
 
