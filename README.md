@@ -16,12 +16,11 @@ Choosing the number of clusters is hard, especially for high-dimensional biologi
 ## Features
 
 - Scikit-learn-compatible API: `CARVE` extends `BaseEstimator` with a `fit` / `get_labels` / `get_k` workflow
-- Stability (intra-subsample ARI) and generalizability (held-out prediction accuracy) metrics
+- Stability (ARI on subsample overlap) and generalizability (ARI on held-out predictions) metrics
 - Diagnostics at the global, per-cluster, and per-sample level
-- Metrics: ARI, consensus PAC, Gini, cross-entropy, and predictive accuracy
+- Metrics: stability and generalizability ARIs, consensus PAC, Gini, cross-entropy, and predictive accuracy
 - Selection rules: `max`, `1se` (one-standard-error), and `quantile`
 - Custom spectral clustering with self-tuning affinity (based on Zelnik-Manor & Perona, *Self-Tuning Spectral Clustering*, NeurIPS 2004)
-- Preprocessing: normalization (identity, StandardScaler, log1p) and dimensionality reduction (identity, PCA, t-SNE, UMAP), optionally randomized per resample
 - Plots: metric-over-*k* curves, consensus heatmaps, box plots, violin plots, and scatter plots
 - Parallel resampling via joblib (`n_jobs`)
 
