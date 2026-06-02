@@ -39,17 +39,9 @@ jobs:
       - name: Run tests
         run: >
           pytest -v --tb=short
-          --cov=carve --cov-report=xml --cov-report=term-missing
+          --cov=carve --cov-report=term-missing
           --cov-fail-under=75
           --junitxml=report.xml
-
-      - name: Upload coverage to Codecov
-        if: always()
-        uses: codecov/codecov-action@v4
-        with:
-          files: coverage.xml
-          flags: python
-          token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload test report
         if: always()
