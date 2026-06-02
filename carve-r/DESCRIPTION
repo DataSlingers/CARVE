@@ -1,8 +1,8 @@
 Package: CARVE
 Title: Cluster Analysis with Resampling for Validation and Exploration
-Version: 0.1.0
+Version: 1.0.0
 Authors@R: c(
-    person("Kai", "Wycik", email = "kai.wycik@yahoo.com", role = c("aut", "cre"))
+    person("Kai", "Wycik", email = "kai.wycik@columbia.edu", role = c("aut", "cre"))
   )
 Description: Stability- and generalizability-based validation of clustering
     methods via repeated subsampling, consensus matrices, and rule-based

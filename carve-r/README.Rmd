@@ -132,8 +132,23 @@ across `n_jobs` values when the seed is fixed.
   `reticulate`.
 
 ## Citation
+
 If you use CARVE in your research, please cite:
 
+> Wycik, K. R., Tang, T. M., Zikry, T. M., & Allen, G. I. (2026). *CARVE: Cluster
+> Analysis with Resampling for Validation and Exploration.* Zenodo.
+> https://doi.org/10.5281/zenodo.20448965
+
+```bibtex
+@software{wycik2026carve,
+  author    = {Wycik, Kai R. and Tang, Tiffany M. and Zikry, Tarek M. and Allen, Genevera I.},
+  title     = {{CARVE}: Cluster Analysis with Resampling for Validation and Exploration},
+  year      = {2026},
+  publisher = {Zenodo},
+  doi       = {10.5281/zenodo.20448965},
+  url       = {https://doi.org/10.5281/zenodo.20448965}
+}
+```
 
 ## License
 

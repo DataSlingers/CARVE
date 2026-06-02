@@ -1,4 +1,4 @@
-# CARVE 0.1.0 (unreleased)
+# CARVE 1.0.0
 
 Initial release. R port of the Python
 [`carve`](https://github.com/DataSlingers/CARVE) package

@@ -21,7 +21,7 @@ Useful links:
 
 }
 \author{
-\strong{Maintainer}: Kai Wycik \email{kai.wycik@yahoo.com}
+\strong{Maintainer}: Kai Wycik \email{kai.wycik@columbia.edu}
 
 }
 \keyword{internal}
