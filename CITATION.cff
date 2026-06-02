@@ -12,9 +12,9 @@ authors:
   - family-names: Allen
     given-names: Genevera I.
 version: v1.0
-doi: 10.5281/zenodo.20417991
+doi: 10.5281/zenodo.20448965
 date-released: "2026-05-01"
-url: "https://doi.org/10.5281/zenodo.20417991"
+url: "https://doi.org/10.5281/zenodo.20448965"
 repository-code: "https://github.com/DataSlingers/CARVE"
 license: MIT
 notes: "Tarek M. Zikry and Genevera I. Allen are co-corresponding authors."

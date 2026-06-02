@@ -31,21 +31,22 @@ Choosing the number of clusters is hard, especially for high-dimensional biologi
 CARVE requires **Python 3.12**.
 
 ```bash
+pip install carve-validate
+```
+
+The distribution is named `carve-validate`; the import name is `carve`:
+
+```python
+from carve import CARVE
+```
+
+### From source (development)
+
+```bash
 git clone https://github.com/DataSlingers/CARVE.git
 cd CARVE
-pip install -e .
-```
-
-Install with development tools (linting + testing):
-
-```bash
-pip install -e ".[dev]"
-```
-
-Install with notebook support (Jupyter, Scanpy, scVI, etc.):
-
-```bash
-pip install -e ".[notebooks]"
+pip install -e ".[dev]"        # linting + testing
+pip install -e ".[notebooks]"  # Jupyter, Scanpy, scVI, etc.
 ```
 
 ## Quick Start
@@ -91,12 +92,26 @@ All plotting methods return a matplotlib `Axes` object and accept `save` and `dp
 
 If you use CARVE in your research, please cite:
 
+> Wycik, K. R., Tang, T. M., Zikry, T. M., & Allen, G. I. (2026). *CARVE: Cluster
+> Analysis with Resampling for Validation and Exploration.* Zenodo.
+> https://doi.org/10.5281/zenodo.20448965
+
+```bibtex
+@software{wycik2026carve,
+  author    = {Wycik, Kai R. and Tang, Tiffany M. and Zikry, Tarek M. and Allen, Genevera I.},
+  title     = {{CARVE}: Cluster Analysis with Resampling for Validation and Exploration},
+  year      = {2026},
+  publisher = {Zenodo},
+  doi       = {10.5281/zenodo.20448965},
+  url       = {https://doi.org/10.5281/zenodo.20448965}
+}
+```
 
 ## Authors
 
 - [Kai R. Wycik](mailto:kai.wycik@columbia.edu) — Columbia University
-- Tarek M. Zikry — UNC Chapel Hill
 - Tiffany M. Tang — University of Notre Dame
+- Tarek M. Zikry — UNC Chapel Hill
 - Genevera I. Allen — Columbia University
 
 ## Contributing
