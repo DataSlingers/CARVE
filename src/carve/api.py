@@ -382,7 +382,7 @@ class CARVE(BaseEstimator):
     def get_labels(
         self,
         *,
-        measure: str = "generalizability",
+        measure: str = "stability",
         rule: str = "1se",
         k: int | None = None,
         not_two: bool = False,
@@ -393,7 +393,7 @@ class CARVE(BaseEstimator):
 
         Parameters
         ----------
-        measure : str, default="generalizability"
+        measure : str, default="stability"
             Metric key used to select the best configuration. Common
             aliases: ``"stability"`` / ``"s"``, ``"generalizability"`` /
             ``"g"``, ``"average"`` / ``"avg"``, ``"pac"``, ``"gini"``,
@@ -516,7 +516,7 @@ class CARVE(BaseEstimator):
     def get_k(
         self,
         *,
-        measure: str = "generalizability",
+        measure: str = "stability",
         rule: str = "1se",
         not_two: bool = False,
     ) -> int:
@@ -524,7 +524,7 @@ class CARVE(BaseEstimator):
 
         Parameters
         ----------
-        measure : str, default="generalizability"
+        measure : str, default="stability"
             Metric key used to select the best configuration. Common
             aliases: ``"stability"`` / ``"s"``, ``"generalizability"`` /
             ``"g"``, ``"average"`` / ``"avg"``, ``"pac"``, ``"gini"``,
@@ -557,7 +557,7 @@ class CARVE(BaseEstimator):
     def get_estimator(
         self,
         *,
-        measure: str = "generalizability",
+        measure: str = "stability",
         rule: str = "1se",
         not_two: bool = False,
     ) -> ClusterMixin:
@@ -565,7 +565,7 @@ class CARVE(BaseEstimator):
 
         Parameters
         ----------
-        measure : str, default="generalizability"
+        measure : str, default="stability"
             Metric key used to select the best configuration. Common
             aliases: ``"stability"`` / ``"s"``, ``"generalizability"`` /
             ``"g"``, ``"average"`` / ``"avg"``, ``"pac"``, ``"gini"``,
@@ -606,7 +606,7 @@ class CARVE(BaseEstimator):
     def plot_metric_over_n_clusters(
         self,
         *,
-        measure: str = "generalizability",
+        measure: str = "stability",
         rule: str = "1se",
         not_two: bool = False,
         ax=None,
@@ -631,7 +631,7 @@ class CARVE(BaseEstimator):
 
         Parameters
         ----------
-        measure : str, default="generalizability"
+        measure : str, default="stability"
             Metric to plot. Options include: "stability", "ari_stability",
             "generalizability", "ari_generalizability", "average", "ari_average",
             "pac", "consensus_pac_stability", "gini", "consensus_gini_stability",
@@ -712,7 +712,7 @@ class CARVE(BaseEstimator):
     def plot_consensus_matrix(
         self,
         *,
-        measure: str = "generalizability",
+        measure: str = "stability",
         rule: str = "1se",
         not_two: bool = False,
         mode: Literal["default", "stability", "generalizability"] = "default",
@@ -735,7 +735,7 @@ class CARVE(BaseEstimator):
 
         Parameters
         ----------
-        measure : str, default="generalizability"
+        measure : str, default="stability"
             Metric key used for model selection.
         rule : str, default="1se"
             Selection rule ("max", "1se", "quantile").
@@ -833,7 +833,7 @@ class CARVE(BaseEstimator):
         self,
         *,
         source: Literal["gini", "ce", "accuracy"] = "gini",
-        measure: str = "generalizability",
+        measure: str = "stability",
         rule: str = "1se",
         not_two: bool = False,
         mode: Literal["default", "stability", "generalizability"] = "default",
@@ -864,7 +864,7 @@ class CARVE(BaseEstimator):
         ----------
         source : {"gini", "ce", "accuracy"}, default="gini"
             Score source for per-sample values.
-        measure : str, default="generalizability"
+        measure : str, default="stability"
             Metric key used for model selection.
         rule : str, default="1se"
             Selection rule.
@@ -1018,7 +1018,7 @@ class CARVE(BaseEstimator):
         self,
         *,
         source: Literal["gini", "ce", "accuracy"] = "gini",
-        measure: str = "generalizability",
+        measure: str = "stability",
         rule: str = "1se",
         not_two: bool = False,
         mode: Literal["default", "stability", "generalizability"] = "default",
@@ -1055,7 +1055,7 @@ class CARVE(BaseEstimator):
         ----------
         source : {"gini", "ce", "accuracy"}, default="gini"
             Score source for per-sample values.
-        measure : str, default="generalizability"
+        measure : str, default="stability"
             Metric key used for model selection.
         rule : str, default="1se"
             Selection rule.
@@ -1221,7 +1221,7 @@ class CARVE(BaseEstimator):
         self,
         *,
         source: Literal["gini", "ce", "accuracy"] = "gini",
-        measure: str = "generalizability",
+        measure: str = "stability",
         rule: str = "1se",
         not_two: bool = False,
         mode: Literal["default", "stability", "generalizability"] = "default",
@@ -1260,7 +1260,7 @@ class CARVE(BaseEstimator):
         ----------
         source : {"gini", "ce", "accuracy"}, default="gini"
             Score source for per-sample values.
-        measure : str, default="generalizability"
+        measure : str, default="stability"
             Metric key used for model selection.
         rule : str, default="1se"
             Selection rule.
@@ -1438,7 +1438,7 @@ class CARVE(BaseEstimator):
         self,
         *,
         source: Literal["gini", "ce", "accuracy"] = "gini",
-        measure: str = "generalizability",
+        measure: str = "stability",
         rule: str = "1se",
         not_two: bool = False,
         mode: Literal["default", "stability", "generalizability"] = "default",
@@ -1483,7 +1483,7 @@ class CARVE(BaseEstimator):
         ----------
         source : {"gini", "ce", "accuracy"}, default="gini"
             Score source for per-sample values.
-        measure : str, default="generalizability"
+        measure : str, default="stability"
             Metric key used for model selection.
         rule : str, default="1se"
             Selection rule.

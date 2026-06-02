@@ -84,7 +84,7 @@ def _build_estimator_label(
 def plot_metric_over_n_clusters(
     results_df: pd.DataFrame,
     *,
-    measure: str = "generalizability",
+    measure: str = "stability",
     rule: str = "1se",
     not_two: bool = False,
     ax: Axes | None = None,
@@ -112,7 +112,7 @@ def plot_metric_over_n_clusters(
     results_df : pd.DataFrame
         Results DataFrame from CARVE.fit(), containing columns:
         "estimator", "n_clusters", metric columns, and hyperparameter columns.
-    measure : str, default="generalizability"
+    measure : str, default="stability"
         Metric to plot. Options: "stability", "ari_stability", "generalizability",
         "ari_generalizability", "average", "ari_average", "pac",
         "consensus_pac_stability", "gini", "consensus_gini_stability",
