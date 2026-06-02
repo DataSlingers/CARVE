@@ -11,16 +11,7 @@
 the R companion to the Python
 [`carve`](https://github.com/DataSlingers/CARVE) package.
 
-Choosing the number of clusters is a recurring challenge in unsupervised
-learning, and standard internal cluster validity indices can be brittle
-in high-dimensional, noisy, or nonlinear settings. CARVE quantifies
-clustering robustness via two resampling-based concepts:
-
-- **Stability** — the reproducibility of cluster assignments under data
-  perturbation, summarised through ARI, consensus PAC, Gini, and
-  cross-entropy.
-- **Generalizability** — the agreement between held-out clusterings and
-  the predictions of a classifier trained on the in-sample clustering.
+Choosing the number of clusters is hard, especially for high-dimensional biological data where standard internal clustering validation indices (CVIs) are often unreliable. CARVE measures clustering robustness through two resampling-based concepts: **stability** (reproducibility of cluster assignments under data subsampling) and **generalizability** (agreement between held-out cluster labels and predictions from a classifier trained on a subsample of the data). CARVE reports global, cluster-level, and sample-level diagnostics with visualizations, all through a scikit-learn-compatible API.
 
 Both metrics are produced at global, per-cluster, and per-sample
 resolutions, and all of it lives behind a familiar fit / get-labels
@@ -104,10 +95,6 @@ fit <- CARVE$new(n_clusters = 2:10, n_resamples = 100,
                  n_jobs = 4L, random_state = 1L)
 progressr::with_progress(fit$fit(X, show_progress = TRUE))
 ```
-
-`n_jobs > 1` opens a scoped `future::multisession()` plan and pins
-worker RNGs to Mersenne-Twister so results are bit-for-bit reproducible
-across `n_jobs` values when the seed is fixed.
 
 ## Vignettes
 
