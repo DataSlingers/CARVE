@@ -358,8 +358,9 @@ CARVE <- R6::R6Class(
     #' @param measure,rule,not_two Selection knobs (see [select_best_k()]).
     #' @param title,xlabel,ylabel Optional plot labels.
     #' @param legend Whether to draw the estimator legend.
-    #' @param palette Discrete palette name. Currently only `"Accent"` is
-    #'   honored; other values fall back to a qualitative HCL palette.
+    #' @param palette Discrete palette name. Any value from
+    #'   [grDevices::palette.pals()] is accepted (e.g., `"Tableau 10"`,
+    #'   `"Okabe-Ito"`, `"Accent"`, `"Set 2"`).
     plot_metric_over_n_clusters = function(measure = "generalizability",
                                             rule = "1se",
                                             not_two = FALSE,
@@ -367,7 +368,7 @@ CARVE <- R6::R6Class(
                                             xlabel = NULL,
                                             ylabel = NULL,
                                             legend = TRUE,
-                                            palette = "Accent") {
+                                            palette = "Tableau 10") {
       private$require_fitted()
       .plot_metric_over_n_clusters_df(
         self$estimator_results_, measure = measure, rule = rule,
@@ -394,7 +395,7 @@ CARVE <- R6::R6Class(
                                                "generalizability"),
                                       k = NULL,
                                       cmap = "viridis",
-                                      palette = "Accent",
+                                      palette = "Tableau 10",
                                       colorbar = TRUE,
                                       colorbar_label = "Consensus",
                                       title = NULL) {
@@ -459,7 +460,7 @@ CARVE <- R6::R6Class(
                                               "generalizability"),
                                      k = NULL,
                                      order = NULL,
-                                     palette = "Accent",
+                                     palette = "Tableau 10",
                                      showfliers = FALSE,
                                      width = 0.75,
                                      title = NULL,
@@ -501,7 +502,7 @@ CARVE <- R6::R6Class(
                                              "generalizability"),
                                     k = NULL,
                                     order = NULL,
-                                    palette = "Accent",
+                                    palette = "Tableau 10",
                                     density_norm = c("width", "area", "count"),
                                     stripplot = TRUE,
                                     jitter = TRUE,
@@ -556,7 +557,7 @@ CARVE <- R6::R6Class(
                                      k = NULL,
                                      X = NULL,
                                      embedding = NULL,
-                                     palette = "Accent",
+                                     palette = "Tableau 10",
                                      alpha_range = c(0.45, 0.9),
                                      size_range = c(1.5, 5.0),
                                      sort_order = TRUE,

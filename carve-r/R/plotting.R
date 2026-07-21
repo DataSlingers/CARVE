@@ -9,21 +9,17 @@
 
 # --- Palettes ----------------------------------------------------------------
 
-# Python's default palette is matplotlib's "Accent" (a ColorBrewer-style
-# qualitative palette). We hard-code the 8 hex codes to avoid adding a
-# RColorBrewer dependency; we cycle for n > 8.
-.ACCENT_PAL <- c(
-  "#7FC97F", "#BEAED4", "#FDC086", "#FFFF99",
-  "#386CB0", "#F0027F", "#BF5B17", "#666666"
-)
-
-
-.discrete_palette <- function(n, name = "Accent") {
-  if (identical(name, "Accent")) {
-    return(.ACCENT_PAL[((seq_len(n) - 1L) %% length(.ACCENT_PAL)) + 1L])
-  }
-  # Fallback: hcl.colors with a qualitative palette.
-  grDevices::hcl.colors(max(n, 1L), palette = "Dark 3")
+.discrete_palette <- function(n, name = "Tableau 10") {
+  full <- tryCatch(
+    grDevices::palette.colors(palette = name),
+    error = function(e) {
+      stop(sprintf(
+        "Unknown palette '%s'. Available palettes: %s",
+        name, paste(grDevices::palette.pals(), collapse = ", ")
+      ), call. = FALSE)
+    }
+  )
+  unname(full[((seq_len(n) - 1L) %% length(full)) + 1L])
 }
 
 
@@ -59,6 +55,11 @@
     }
   }
   paste(unlist(parts), collapse = if (tight_layout) "\n" else ", ")
+}
+
+
+.wrap_label <- function(label, width = 40L) {
+  paste(strwrap(label, width = width), collapse = "\n")
 }
 
 
@@ -152,7 +153,7 @@
                                             xlabel = NULL,
                                             ylabel = NULL,
                                             legend = TRUE,
-                                            palette = "Accent") {
+                                            palette = "Tableau 10") {
   if (is.null(results_df) || nrow(results_df) == 0L) {
     stop("Results DataFrame is empty.", call. = FALSE)
   }
@@ -188,8 +189,9 @@
   unique_keys <- unique(df$.group_key)
   label_map <- vapply(unique_keys, function(kk) {
     first_row <- df[df$.group_key == kk, , drop = FALSE][1L, , drop = FALSE]
-    .build_estimator_label(first_row, exclude_cols)
+    .build_estimator_label(first_row, c(exclude_cols, ".group_key"))
   }, character(1L))
+  label_map <- vapply(label_map, .wrap_label, character(1L), width = 40L)
   df$.group_label <- factor(label_map[df$.group_key], levels = unname(label_map))
 
   df$.metric <- df[[measure_col]]
@@ -222,12 +224,14 @@
   )
   if (!is.null(best_k)) {
     rule_str <- if (identical(rule, "1se")) "1-SE" else tools::toTitleCase(rule)
+    ks <- sort(unique(df$n_clusters))
+    hjust <- if (best_k > stats::median(ks)) 1.05 else -0.05
     p <- p +
       ggplot2::geom_vline(xintercept = best_k, linetype = "dashed",
                           color = "gray40", linewidth = 0.7, alpha = 0.7) +
       ggplot2::annotate("text", x = best_k, y = Inf,
                         label = sprintf("Selected k (%s): %d", rule_str, best_k),
-                        vjust = 1.4, hjust = -0.05,
+                        vjust = 1.4, hjust = hjust,
                         color = "gray30", size = 3.2)
   }
 
@@ -254,7 +258,7 @@
 # --- 2) Consensus matrix ----------------------------------------------------
 
 .plot_consensus_matrix_mat <- function(consensus_matrix, labels,
-                                       cmap = "viridis", palette = "Accent",
+                                       cmap = "viridis", palette = "Tableau 10",
                                        colorbar = TRUE,
                                        colorbar_label = "Consensus",
                                        title = NULL) {
@@ -301,12 +305,13 @@
     )
   }
   p_main <- p_main +
-    ggplot2::labs(x = "Samples (ordered by cluster)", y = NULL, title = title) +
+    ggplot2::labs(x = "Samples (ordered by cluster)", y = NULL) +
     ggplot2::theme_minimal(base_size = 11) +
     ggplot2::theme(
       axis.text = ggplot2::element_blank(),
       axis.ticks = ggplot2::element_blank(),
-      panel.grid = ggplot2::element_blank()
+      panel.grid = ggplot2::element_blank(),
+      plot.margin = ggplot2::margin(t = 0, r = 5.5, b = 5.5, l = 5.5, unit = "pt")
     )
   if (!isTRUE(colorbar)) p_main <- p_main + ggplot2::guides(fill = "none")
 
@@ -322,18 +327,36 @@
       ggplot2::aes(x = .data$j, y = .data$y, fill = .data$cluster)) +
     ggplot2::geom_raster() +
     ggplot2::scale_fill_manual(values = colors) +
-    ggplot2::coord_cartesian(expand = FALSE) +
+    ggplot2::coord_fixed(ratio = 0.04 * n, expand = FALSE) +
     ggplot2::guides(fill = "none") +
-    ggplot2::theme_void()
+    ggplot2::theme_void() +
+    ggplot2::theme(plot.margin = ggplot2::margin(0, 0, 0, 0))
 
-  patchwork::wrap_plots(p_band, p_main, ncol = 1L, heights = c(0.06, 1))
+  boundaries <- which(labels_ord[-length(labels_ord)] != labels_ord[-1L]) + 0.5
+  for (b in boundaries) {
+    p_main <- p_main +
+      ggplot2::geom_hline(yintercept = b, color = "white",
+                          linewidth = 0.4, alpha = 0.8) +
+      ggplot2::geom_vline(xintercept = b, color = "white",
+                          linewidth = 0.4, alpha = 0.8)
+    p_band <- p_band +
+      ggplot2::geom_vline(xintercept = b, color = "white",
+                          linewidth = 0.5, alpha = 0.9)
+  }
+
+  combined <- patchwork::wrap_plots(p_band, p_main, ncol = 1L,
+                                    heights = c(0.04, 1))
+  if (!is.null(title)) {
+    combined <- combined + patchwork::plot_annotation(title = title)
+  }
+  combined
 }
 
 
 # --- 3) Cluster boxplot -----------------------------------------------------
 
 .plot_cluster_boxplot_scores <- function(scores, labels, order = NULL,
-                                         palette = "Accent",
+                                         palette = "Tableau 10",
                                          showfliers = FALSE, width = 0.75,
                                          title = NULL, xlabel = "Cluster",
                                          ylabel = "Uncertainty",
@@ -369,11 +392,10 @@
     )
   }
   if (!is.null(annotation)) {
-    p <- p + ggplot2::annotate(
-      "label", x = Inf, y = Inf, label = annotation,
-      vjust = 1.1, hjust = 1.05, size = 3.0,
-      fill = "white", color = "gray20"
-    )
+    p <- p + ggplot2::labs(subtitle = annotation) +
+      ggplot2::theme(plot.subtitle = ggplot2::element_text(
+        size = 9, color = "gray30"
+      ))
   }
   p
 }
@@ -382,7 +404,7 @@
 # --- 4) Cluster violin ------------------------------------------------------
 
 .plot_cluster_violin_scores <- function(scores, labels, order = NULL,
-                                        palette = "Accent",
+                                        palette = "Tableau 10",
                                         density_norm = c("width", "area", "count"),
                                         stripplot = TRUE, jitter = TRUE,
                                         size = 1.0, alpha = 0.22,
@@ -440,11 +462,10 @@
     )
   }
   if (!is.null(annotation)) {
-    p <- p + ggplot2::annotate(
-      "label", x = Inf, y = Inf, label = annotation,
-      vjust = 1.1, hjust = 1.05, size = 3.0,
-      fill = "white", color = "gray20"
-    )
+    p <- p + ggplot2::labs(subtitle = annotation) +
+      ggplot2::theme(plot.subtitle = ggplot2::element_text(
+        size = 9, color = "gray30"
+      ))
   }
   p
 }
@@ -453,7 +474,7 @@
 # --- 5) Cluster scatter (alpha + size by score) -----------------------------
 
 .plot_cluster_scatter_xy <- function(X, labels, scores, embedding = NULL,
-                                     palette = "Accent",
+                                     palette = "Tableau 10",
                                      alpha_range = c(0.45, 0.9),
                                      size_range = c(1.5, 5.0),
                                      sort_order = TRUE,
@@ -553,17 +574,18 @@
     p <- p + ggplot2::theme(
       panel.border = ggplot2::element_blank(),
       panel.grid = ggplot2::element_blank(),
-      axis.line = ggplot2::element_blank()
+      axis.line = ggplot2::element_blank(),
+      axis.text = ggplot2::element_blank(),
+      axis.ticks = ggplot2::element_blank()
     )
   }
   if (!isTRUE(legend)) p <- p + ggplot2::guides(color = "none")
 
   if (!is.null(annotation) && identical(annotation_style, "box")) {
-    p <- p + ggplot2::annotate(
-      "label", x = Inf, y = Inf, label = annotation,
-      vjust = 1.1, hjust = 1.05, size = 3.0,
-      fill = "white", color = "gray20"
-    )
+    p <- p + ggplot2::labs(subtitle = annotation) +
+      ggplot2::theme(plot.subtitle = ggplot2::element_text(
+        size = 9, color = "gray30"
+      ))
   }
 
   p
@@ -617,7 +639,7 @@
 
   # ggplot plotting characters (pch codes) as shape defaults; 14 of them.
   if (is.null(markers)) {
-    markers <- c(16, 15, 17, 18, 25, 3, 8, 4, 11, 13, 9, 10, 12, 14)
+    markers <- c(21, 22, 24, 23, 25, 3, 8, 4, 11, 13, 9, 10, 12, 14)
   }
 
   uniq <- .sort_unique_labels(labels)
@@ -664,16 +686,15 @@
 
   color_title <- colorbar_label %||% scores_name
   fill_scale <- if (identical(cmap, "Greens_r")) {
-    ggplot2::scale_color_gradient(low = "#00441b", high = "#f7fcf5",
-                                  limits = c(lo_score, hi_score),
-                                  name = color_title)
-  } else if (identical(cmap, "Greens")) {
-    ggplot2::scale_color_gradient(low = "#f7fcf5", high = "#00441b",
-                                  limits = c(lo_score, hi_score),
-                                  name = color_title)
+    ggplot2::scale_fill_gradient(low = "#00441b", high = "#f7fcf5",
+                                 limits = c(lo_score, hi_score),
+                                 name = color_title)
   } else {
-    ggplot2::scale_color_viridis_c(limits = c(lo_score, hi_score),
-                                   name = color_title)
+    ggplot2::scale_fill_gradientn(
+      colors = grDevices::hcl.colors(256L, palette = cmap),
+      limits = c(lo_score, hi_score),
+      name = color_title
+    )
   }
 
   shape_title <- if (!is.null(annotation) &&
@@ -684,9 +705,9 @@
   }
 
   p <- ggplot2::ggplot(df,
-      ggplot2::aes(x = .data$x, y = .data$y, color = .data$score,
+      ggplot2::aes(x = .data$x, y = .data$y, fill = .data$score,
                    shape = .data$cluster, alpha = .data$alpha)) +
-    ggplot2::geom_point(size = marker_size, stroke = 0.3) +
+    ggplot2::geom_point(size = marker_size, stroke = 0.5, color = "gray40") +
     fill_scale +
     ggplot2::scale_shape_manual(values = shapes, name = shape_title) +
     ggplot2::scale_alpha_identity(guide = "none") +
@@ -697,18 +718,19 @@
     p <- p + ggplot2::theme(
       panel.border = ggplot2::element_blank(),
       panel.grid = ggplot2::element_blank(),
-      axis.line = ggplot2::element_blank()
+      axis.line = ggplot2::element_blank(),
+      axis.text = ggplot2::element_blank(),
+      axis.ticks = ggplot2::element_blank()
     )
   }
   if (!isTRUE(legend)) p <- p + ggplot2::guides(shape = "none")
-  if (!isTRUE(colorbar)) p <- p + ggplot2::guides(color = "none")
+  if (!isTRUE(colorbar)) p <- p + ggplot2::guides(fill = "none")
 
   if (!is.null(annotation) && identical(annotation_style, "box")) {
-    p <- p + ggplot2::annotate(
-      "label", x = Inf, y = Inf, label = annotation,
-      vjust = 1.1, hjust = 1.05, size = 3.0,
-      fill = "white", color = "gray20"
-    )
+    p <- p + ggplot2::labs(subtitle = annotation) +
+      ggplot2::theme(plot.subtitle = ggplot2::element_text(
+        size = 9, color = "gray30"
+      ))
   }
 
   p
