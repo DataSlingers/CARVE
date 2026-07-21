@@ -22,7 +22,7 @@ workflow with `ggplot2` visualisations and first-class `Seurat` /
 
 ``` r
 # install.packages("remotes")
-remotes::install_github("DataSlingers/CARVE", subdir = "code/carve-r")
+remotes::install_github("DataSlingers/CARVE", subdir = "carve-r")
 ```
 
 CARVE depends only on CRAN packages (`R6`, `clue`, `ranger`, `RSpectra`,
