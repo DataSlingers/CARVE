@@ -11,12 +11,9 @@
 the R companion to the Python
 [`carve`](https://github.com/DataSlingers/CARVE) package.
 
-Choosing the number of clusters is hard, especially for high-dimensional biological data where standard internal clustering validation indices (CVIs) are often unreliable. CARVE measures clustering robustness through two resampling-based concepts: **stability** (reproducibility of cluster assignments under data subsampling) and **generalizability** (agreement between held-out cluster labels and predictions from a classifier trained on a subsample of the data). CARVE reports global, cluster-level, and sample-level diagnostics with visualizations, all through a scikit-learn-compatible API.
+Choosing the number of clusters is hard, especially for high-dimensional biological data where standard internal clustering validation indices (CVIs) are often unreliable. CARVE measures clustering robustness through two resampling-based notions: **stability** (reproducibility of cluster assignments under data subsampling) and **generalizability** (agreement between held-out cluster labels and predictions from a classifier trained on a subsample of the data). CARVE reports global, cluster-level, and sample-level diagnostics with visualizations to help find insightful clustering solutions.
 
-Both metrics are produced at global, per-cluster, and per-sample
-resolutions, and all of it lives behind a familiar fit / get-labels
-workflow with `ggplot2` visualisations and first-class `Seurat` /
-`SingleCellExperiment` integration.
+Both metrics are produced at global, per-cluster, and per-sample resolutions, and all of it lives behind a familiar fit / get-labels workflow with `ggplot2` visualisations and first-class `Seurat` / `SingleCellExperiment` integration.
 
 ## Installation
 
@@ -127,3 +124,36 @@ If you use CARVE in your research, please cite:
 ## License
 
 MIT (see `LICENSE`).
+
+abc def ghi jkl mno pqr stu
+
+
+set.seed(1)
+centers <- rbind(c(0, 0), c(6, 0), c(3, 5))
+X <- do.call(rbind, lapply(seq_len(nrow(centers)), function(i) {
+  matrix(stats::rnorm(60, 0, 0.4), ncol = 2) +
+    matrix(centers[i, ], 30, 2, byrow = TRUE)
+}))
+
+fit <- CARVE$new(
+  n_clusters = 2:6,
+  n_resamples = 50,
+  subsample_ratio = 0.8,
+  random_state = 1L
+)
+fit$fit(X)
+
+fit$get_k(measure = "stability", rule = "max")
+#> [1] 3
+
+fit$plot_consensus_matrix(measure = "stability", rule = "max")
+fit$plot_cluster_violin(source = "gini", measure = "stability", rule = "max")
+
+data("pbmc_small")
+
+pbmc_small <- RunCARVE(pbmc_small, reduction = "pca", n_dims = 10,
+                       n_clusters = 2:6, n_resamples = 30, random_state = 1L)
+pbmc_small <- AddCarveLabels(pbmc_small,
+                              measure = "stability", rule = "max")
+
+                 n_jobs = 4L, random_state = 1L)
