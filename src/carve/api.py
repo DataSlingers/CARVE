@@ -1,7 +1,7 @@
 """Public CARVE API."""
 
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal
 
@@ -12,11 +12,21 @@ import pandas as pd
 from sklearn.base import BaseEstimator, ClassifierMixin, ClusterMixin
 from sklearn.cluster import AgglomerativeClustering
 
-from ._types import GridSpec, PreprocOption, RunMode, resolve_mode
 from ._output import _print_run_footer, _print_run_header
 from ._runner import run_validation
 from ._consensus import compute_consensus_metrics
 from ._selection import select_best_estimator, select_best_k, select_best_row_by_rule
+from ._types import GridSpec, NoisePolicy, PreprocOption, RunMode, resolve_mode
+from ._sweep import (
+    SweepSpec,
+    config_id_of,
+    grid_sweep_values,
+    infer_sweep_param,
+    observed_k,
+    resolve_sweep,
+    sweep_param_name,
+    validate_grids,
+)
 
 from ._plotting import (
     _get_annotation,
@@ -38,7 +48,6 @@ from ._utils import (
     align_cluster_labels,
     ensure_2d_array,
     summarize_preprocessing_records,
-    _coerce_n_clusters,
 )
 
 
@@ -56,6 +65,31 @@ class CARVE(BaseEstimator):
     n_clusters : int or np.ndarray, default=10
         Number(s) of clusters to evaluate. If an integer *K* is provided,
         all values from 2 to *K* (inclusive) are evaluated.
+    resolution : float or ndarray, optional
+        Resolution values for graph-community estimators (Leiden, Louvain).
+        Supplying this switches the run to **resolution mode**: granularity
+        is swept over ``resolution`` and the number of clusters becomes an
+        observed outcome rather than an input. Mutually exclusive with a
+        conflicting ``sweep``.
+    sweep : str, optional
+        Name of the hyperparameter to sweep. Defaults to ``"resolution"``
+        when ``resolution`` is given, otherwise ``"n_clusters"``. When
+        custom ``estimator_param_grids`` are supplied, CARVE infers this
+        from the grids. A single run sweeps exactly one parameter;
+        k-based and resolution-based estimators cannot be compared in the
+        same run.
+    sweep_values : array-like, optional
+        Values for ``sweep`` when it is neither ``"n_clusters"`` nor
+        ``"resolution"`` (e.g. HDBSCAN's ``min_cluster_size``).
+    finer_is_larger : bool, optional
+        Whether larger values of ``sweep`` yield more clusters. Inferred
+        for known parameters (True for ``n_clusters`` and ``resolution``,
+        False for ``min_cluster_size``); required for unknown ones.
+    noise_policy : {"drop", "as_cluster", "singleton"}, default="drop"
+        How to resolve the ``-1`` labels emitted by density-based methods
+        such as HDBSCAN. ``"drop"`` treats noise points as un-sampled for
+        that resample, so they contribute nothing to the consensus matrix,
+        the ARI, or the classifier.
     n_resamples : int, default=100
         Number of resampling iterations per estimator configuration.
     subsample_ratio : float, default=0.618
@@ -103,6 +137,8 @@ class CARVE(BaseEstimator):
         Resolved estimator grids used during fitting.
     preprocessing_results_ : pandas.DataFrame or None
         Preprocessing summary when ``randomize_preprocessing=True``.
+    sweep_ : SweepSpec or None
+        The resolved sweep axis used during fitting.
     consensus_matrices_ : list of ndarray
         Stability consensus matrices, one per configuration.
     consensus_generalizability_matrices_ : list of ndarray
@@ -127,22 +163,31 @@ class CARVE(BaseEstimator):
 
     See Also
     --------
-    SpectralClusteringCARVE : Custom spectral clustering variant included
+    SpectralClustering : Custom spectral clustering variant included
         in the default estimator grid.
 
     Examples
     --------
     >>> from carve import CARVE
-    >>> carve = CARVE(n_clusters=10, n_resamples=200, subsample_ratio=0.6)
+    >>> carve = CARVE(n_clusters=10, n_resamples=80, subsample_ratio=0.6)
     >>> carve.fit(X)
     >>> labels = carve.get_labels(measure="stability", rule="1se")
     >>> k = carve.get_k(measure="generalizability", rule="1se")
+    
+    >>> import numpy as np
+    >>> carve = CARVE(resolution=np.arange(0.2, 2.01, 0.2)).fit(X)
+    >>> carve.get_sweep_value(), carve.get_k()
     """
 
     # --- Constructor parameters ---
     n_clusters: int | np.ndarray = field(
         default_factory=lambda: np.arange(2, 10 + 1, dtype=int)
     )
+    resolution: float | np.ndarray | None = None
+    sweep: str | None = None
+    sweep_values: np.ndarray | None = None
+    finer_is_larger: bool | None = None
+    noise_policy: NoisePolicy = "drop"
     n_resamples: int = 100
     subsample_ratio: float = 0.618
 
@@ -164,6 +209,7 @@ class CARVE(BaseEstimator):
     estimator_results_: pd.DataFrame | None = field(init=False, default=None)
     estimator_param_grids_: list[GridSpec] | None = field(init=False, default=None)
     preprocessing_results_: pd.DataFrame | None = field(init=False, default=None)
+    sweep_: SweepSpec | None = field(init=False, default=None)
 
     # --- Consensus matrices ---
     consensus_matrices_: list[np.ndarray] | None = field(init=False, default=None)
@@ -224,8 +270,9 @@ class CARVE(BaseEstimator):
         Raises
         ------
         ValueError
-            If estimator parameter grids have inconsistent ``n_clusters``
-            values.
+            If estimator parameter grids have inconsistent sweep values, or if
+            they mix more than one sweep parameter (k-based and
+            resolution-based estimators cannot be compared in one run).
         """
         policy = resolve_mode(mode)
         if policy.mode != "default":
@@ -254,32 +301,54 @@ class CARVE(BaseEstimator):
 
             self.reference_labels = ref_arr
 
-        # --- Resolve default grids including n_clusters ---
-        if (
-            self.estimator_param_grids == "light"
-            or self.estimator_param_grids == "full"
-        ):  # Default estimator grids
-            n_clusters_arr = _coerce_n_clusters(self.n_clusters)
-            estimator_param_grids = default_estimator_grids(
-                X, n_clusters_arr, preset=self.estimator_param_grids
+        # --- Resolve the sweep axis ---
+        custom_grids = not isinstance(self.estimator_param_grids, str)
+
+        sweep_arg = self.sweep
+        sweep_values = self.sweep_values
+
+        if custom_grids:
+            # Let the grids determine the sweep parameter, e.g.,
+            # estimator_param_grids=[(LeidenClustering, {"resolution": [...]})]
+            # works without also passing resolution=.
+            if sweep_arg is None and self.resolution is None:
+                sweep_arg = infer_sweep_param(self.estimator_param_grids)
+                
+            if sweep_values is None and sweep_arg is not None:
+                sweep_values = grid_sweep_values(
+                    self.estimator_param_grids, sweep_arg
+                )
+
+        sweep_spec = resolve_sweep(
+            n_clusters=self.n_clusters,
+            resolution=self.resolution,
+            sweep=sweep_arg,
+            sweep_values=sweep_values,
+            finer_is_larger=self.finer_is_larger,
+        )
+
+        # --- Resolve estimator grids along that axis ---
+        if custom_grids:
+            estimator_param_grids = self.estimator_param_grids
+            sweep_spec = replace(
+                sweep_spec,
+                values=validate_grids(estimator_param_grids, sweep_spec),
             )
 
-        else:  # User-provided estimator grids (verify consistency of n_clusters)
-            estimator_param_grids = self.estimator_param_grids
+        elif self.estimator_param_grids in ("light", "full"):
+            estimator_param_grids = default_estimator_grids(
+                X, preset=self.estimator_param_grids, sweep=sweep_spec
+            )
 
-            # Extract n_clusters from first grid
-            n_clusters_arr = estimator_param_grids[0][1].get("n_clusters", None)
-
-            # Verify all grids have the same n_clusters
-            for _, grid in estimator_param_grids[1:]:
-                grid_n_clusters = grid.get("n_clusters", None)
-
-                if not np.array_equal(n_clusters_arr, grid_n_clusters):
-                    raise ValueError(
-                        "All estimator parameter grids must contain the same n_clusters values."
-                    )
+        else:
+            raise ValueError(
+                f"Unknown estimator_param_grids preset "
+                f"{self.estimator_param_grids!r}. Expected 'light', 'full', "
+                "or a list of (EstimatorClass, param_grid) tuples."
+            )
 
         self.estimator_param_grids_ = estimator_param_grids
+        self.sweep_ = sweep_spec
 
         # --- Resolve preprocessing options ---
         norm_options = self.normalization_options or default_normalization_options()
@@ -290,7 +359,7 @@ class CARVE(BaseEstimator):
         # --- Print run header ---
         _print_run_header(
             X=X,
-            n_clusters=n_clusters_arr,
+            sweep=sweep_spec,
             n_resamples=self.n_resamples,
             subsample_ratio=self.subsample_ratio,
             estimator_grids=self.estimator_param_grids_,
@@ -319,8 +388,10 @@ class CARVE(BaseEstimator):
             randomize_preprocessing=randomize_preprocessing,
             n_jobs=self.n_jobs,
             random_state=self.random_state if random_state is None else random_state,
-            mode=policy.mode,
+            sweep=sweep_spec,
+            noise_policy=self.noise_policy,
             show_progress=show_progress,
+            mode=policy.mode,
             verbose=self.verbose,
         )
 
@@ -329,10 +400,21 @@ class CARVE(BaseEstimator):
         self.preprocessing_results_ = (
             None
             if not randomize_preprocessing
-            else summarize_preprocessing_records(pipeline_records)
+            else summarize_preprocessing_records(
+                pipeline_records, sweep_param=sweep_spec.param
+            )
         )
 
         n_rows = int(self.estimator_results_.shape[0])
+        
+        # --- Sanity check: config_id alignment ---
+        if not np.array_equal(
+            self.estimator_results_["config_id"].to_numpy(), np.arange(n_rows)
+        ):
+            raise RuntimeError(
+                "config_id is misaligned with the per-configuration artifact "
+                "containers. This is an internal CARVE error."
+            )
 
         # --- Stability-derived metrics ---
         if (
@@ -378,6 +460,92 @@ class CARVE(BaseEstimator):
         _print_run_footer(estimator_df=self.estimator_results_, verbose=self.verbose)
 
         return self
+    
+    def _select_row(
+        self,
+        *,
+        measure: str,
+        rule: str,
+        not_two: bool = False,
+        k: int | None = None,
+        sweep_value: float | None = None,
+    ) -> tuple[pd.Series, int, int, bool]:
+        """Resolve selection criteria to a single configuration row.
+
+        Parameters
+        ----------
+        measure : str
+            Metric key used to select the best configuration.
+        rule : str
+            Selection rule ("max", "1se", "quantile").
+        not_two : bool, default=False
+            Whether to exclude two-cluster configurations.
+        k : int, optional
+            Restrict selection to configurations with this number of
+            clusters. Only valid when the run swept ``n_clusters``.
+        sweep_value : float, optional
+            Restrict selection to configurations at this value of the
+            swept hyperparameter (e.g. a specific Leiden ``resolution``).
+
+        Returns
+        -------
+        row : pandas.Series
+            The selected configuration.
+        config_id : int
+            Key into the per-configuration artifact containers
+            (``consensus_matrices_``,
+            ``consensus_generalizability_matrices_``,
+            ``generalizability_scores_``, and the sample-level score
+            arrays). Read from the row's ``config_id`` column. This is a
+            *join*, not a positional slice: it stays correct after the
+            caller sorts, filters or reindexes ``estimator_results_``.
+        n_clusters : int
+            Number of clusters for this row: the requested ``n_clusters``
+            in k mode, otherwise the rounded mean observed count.
+        pinned : bool
+            Whether the user pinned the configuration.
+
+        Raises
+        ------
+        RuntimeError
+            If the instance has not been fitted yet.
+        ValueError
+            If both pins are given, if ``k`` is used outside k mode, or if
+            no configuration matches the pin.
+        """
+        if self.estimator_results_ is None:
+            raise RuntimeError("Call fit() first.")
+
+        df = self.estimator_results_
+        param = sweep_param_name(df)
+
+        if k is not None and sweep_value is not None:
+            raise ValueError("Pass at most one of k= and sweep_value=.")
+
+        if k is not None and param != "n_clusters":
+            raise ValueError(
+                f"This run swept {param!r}, not 'n_clusters'. Use "
+                f"sweep_value=... to pin a {param}, and consensus_k=... to "
+                "fix the number of clusters used to cut the consensus matrix."
+            )
+
+        pin = k if k is not None else sweep_value
+
+        if pin is None:
+            row = select_best_row_by_rule(
+                df, measure=measure, rule=rule, not_two=not_two
+            )
+        else:
+            col = "sweep_value"
+            df_pin = df[np.isclose(df[col].astype(float), float(pin))]
+
+            if df_pin.empty:
+                pin_name = "k" if param == "n_clusters" else param
+                raise ValueError(f"No configurations found for {pin_name}={pin}.")
+
+            row = select_best_row_by_rule(df_pin, measure=measure, rule=rule)
+
+        return row, config_id_of(row), observed_k(row), pin is not None
 
     def get_labels(
         self,
@@ -385,6 +553,8 @@ class CARVE(BaseEstimator):
         measure: str = "stability",
         rule: str = "1se",
         k: int | None = None,
+        sweep_value: float | None = None,
+        consensus_k: int | None = None,
         not_two: bool = False,
         mode: Literal["default", "generalizability"] = "default",
         estimator: ClusterMixin | None = None,
@@ -404,8 +574,15 @@ class CARVE(BaseEstimator):
             standard error of the best score. ``"quantile"`` picks the
             largest *k* within the best score's quantile bounds.
         k : int or None, default=None
-            Optional fixed number of clusters to select. If None, uses the
-            value selected by ``measure`` and ``rule``.
+            Optional fixed number of clusters to select. Only valid when
+            the run swept ``n_clusters``.
+        sweep_value : float or None, default=None
+            Optional fixed value of the swept hyperparameter (e.g. a
+            specific Leiden ``resolution``).
+        consensus_k : int or None, default=None
+            Number of clusters used to cut the consensus matrix. Defaults
+            to the requested ``n_clusters`` in k mode, or to the rounded
+            mean number of clusters observed at the selected sweep value.
         not_two : bool, default=False
             If True, exclude k=2 configurations during selection. Ignored
             when ``k`` is explicitly provided.
@@ -444,30 +621,33 @@ class CARVE(BaseEstimator):
         df = self.estimator_results_
 
         # --- Select best configuration ---
-        if k is None:
-            row = select_best_row_by_rule(
-                df, measure=measure, rule=rule, not_two=not_two
+        row, config_id, selected_k, _ = self._select_row(
+            measure=measure,
+            rule=rule,
+            not_two=not_two,
+            k=k,
+            sweep_value=sweep_value,
+        )
+
+        # In resolution mode number of clusters is an outcome;
+        # consensus dendrogram is cut at count actually observed.
+        cut_k = int(consensus_k) if consensus_k is not None else int(selected_k)
+
+        if cut_k < 2:
+            raise ValueError(
+                f"Cannot cut the consensus matrix at {cut_k} cluster(s). "
+                "The selected configuration is degenerate; pass consensus_k= "
+                "explicitly or exclude that end of the sweep."
             )
-            k = int(row["n_clusters"])
-            best_idx = int(row.name)
-
-        else:
-            df_k = df[df["n_clusters"] == k]
-
-            if df_k.empty:
-                raise ValueError(f"No configurations found for k={k}.")
-
-            row = select_best_row_by_rule(df_k, measure=measure, rule=rule)
-            best_idx = int(row.name)
 
         # --- Retrieve the consensus matrix ---
         if policy.run_stability and self.consensus_matrices_ is not None:
-            M_raw = self.consensus_matrices_[best_idx]
+            M_raw = self.consensus_matrices_[config_id]
         elif (
             policy.run_generalizability
             and self.consensus_generalizability_matrices_ is not None
         ):
-            M_raw = self.consensus_generalizability_matrices_[best_idx]
+            M_raw = self.consensus_generalizability_matrices_[config_id]
         else:
             raise ValueError("Mode must be 'default' or 'generalizability'.")
 
@@ -494,7 +674,7 @@ class CARVE(BaseEstimator):
 
         if estimator is None:
             estimator = AgglomerativeClustering(
-                n_clusters=k,
+                n_clusters=cut_k,
                 linkage="average",
                 metric="precomputed",
             )
@@ -540,7 +720,9 @@ class CARVE(BaseEstimator):
         Returns
         -------
         k : int
-            Selected number of clusters.
+            Selected number of clusters. In resolution mode this is the
+            rounded mean number of clusters observed across resamples at the
+            selected sweep value.
 
         Raises
         ------
@@ -553,6 +735,43 @@ class CARVE(BaseEstimator):
         return select_best_k(
             self.estimator_results_, measure=measure, rule=rule, not_two=not_two
         )
+        
+    def get_sweep_value(
+        self,
+        *,
+        measure: str = "stability",
+        rule: str = "1se",
+        not_two: bool = False,
+    ) -> float:
+        """Return the selected value of the swept hyperparameter.
+
+        In the default k mode this is the selected number of clusters; in
+        resolution mode it is the selected ``resolution``.
+
+        Parameters
+        ----------
+        measure : str, default="stability"
+            Metric key used to select the best configuration.
+        rule : str, default="1se"
+            Selection rule ("max", "1se", "quantile").
+        not_two : bool, default=False
+            If True, exclude two-cluster configurations from selection.
+
+        Returns
+        -------
+        value : float
+            Selected sweep value.
+
+        Raises
+        ------
+        RuntimeError
+            If the instance has not been fitted yet.
+        """
+        row, _, _, _ = self._select_row(
+            measure=measure, rule=rule, not_two=not_two
+        )
+        
+        return float(row["sweep_value"])
 
     def get_estimator(
         self,
@@ -717,6 +936,7 @@ class CARVE(BaseEstimator):
         not_two: bool = False,
         mode: Literal["default", "stability", "generalizability"] = "default",
         k: int | None = None,
+        sweep_value: float | None = None,
         ax=None,
         figsize: tuple | None = None,
         cmap: str = "viridis",
@@ -743,6 +963,10 @@ class CARVE(BaseEstimator):
             Which consensus matrix family to plot.
         k : int, optional
             If given, restrict selection to this number of clusters.
+            Only valid when the run swept ``n_clusters``.
+        sweep_value : float, optional
+            If given, restrict selection to this value of the swept
+            hyperparameter (e.g. a specific Leiden ``resolution``).
         ax : matplotlib.axes.Axes, optional
             Axis for the heatmap; if None a new figure is created.
         figsize : tuple, optional
@@ -788,20 +1012,12 @@ class CARVE(BaseEstimator):
                 f"Consensus matrices for mode={mode!r} are not available."
             )
 
-        df = self.estimator_results_
-        if k is None:
-            row = select_best_row_by_rule(
-                df, measure=measure, rule=rule, not_two=not_two
-            )
-        else:
-            df_k = df[df["n_clusters"] == k]
-            if df_k.empty:
-                raise ValueError(f"No configurations found for k={k}.")
-            row = select_best_row_by_rule(df_k, measure=measure, rule=rule)
+        row, config_id, selected_k, _ = self._select_row(
+            measure=measure, rule=rule, not_two=not_two, k=k,
+            sweep_value=sweep_value,
+        )
 
-        best_idx = int(row.name)
-        selected_k = int(row["n_clusters"])
-        matrix = matrices[best_idx]
+        matrix = matrices[config_id]
         if matrix is None:
             raise RuntimeError(
                 f"Selected consensus matrix is not available for mode={mode!r}."
@@ -810,7 +1026,10 @@ class CARVE(BaseEstimator):
         labels = self.get_labels(
             measure=measure,
             rule=rule,
-            k=selected_k,
+            k=k,
+            sweep_value=sweep_value,
+            not_two=not_two,
+            consensus_k=selected_k,
             mode=labels_mode,
         )
 
@@ -838,6 +1057,7 @@ class CARVE(BaseEstimator):
         not_two: bool = False,
         mode: Literal["default", "stability", "generalizability"] = "default",
         k: int | None = None,
+        sweep_value: float | None = None,
         ax=None,
         figsize: tuple | None = None,
         order: list[int | str] | None = None,
@@ -872,6 +1092,10 @@ class CARVE(BaseEstimator):
             Consensus matrix mode for label extraction.
         k : int, optional
             If given, restrict selection to this number of clusters.
+            Only valid when the run swept ``n_clusters``.
+        sweep_value : float, optional
+            If given, restrict selection to this value of the swept
+            hyperparameter (e.g. a specific Leiden ``resolution``).
         ax : matplotlib.axes.Axes, optional
             Axes object to plot on. If None, creates a new figure.
         figsize : tuple, optional
@@ -910,22 +1134,11 @@ class CARVE(BaseEstimator):
         ax : matplotlib.axes.Axes or None
             The Axes object, or None if ``save`` is provided.
         """
-        if self.estimator_results_ is None:
-            raise RuntimeError("Call fit() first.")
-
+        row, config_id, selected_k, pinned = self._select_row(
+            measure=measure, rule=rule, not_two=not_two, k=k,
+            sweep_value=sweep_value,
+        )
         df = self.estimator_results_
-        if k is None:
-            row = select_best_row_by_rule(
-                df, measure=measure, rule=rule, not_two=not_two
-            )
-        else:
-            df_k = df[df["n_clusters"] == k]
-            if df_k.empty:
-                raise ValueError(f"No configurations found for k={k}.")
-            row = select_best_row_by_rule(df_k, measure=measure, rule=rule)
-
-        best_idx = int(row.name)
-        selected_k = int(row["n_clusters"])
 
         # --- Resolve score source ---
         if source == "gini":
@@ -933,7 +1146,7 @@ class CARVE(BaseEstimator):
                 raise RuntimeError(
                     "Gini stability scores are not available for this run."
                 )
-            scores = np.asarray(self.stability_gini_scores_[best_idx], dtype=float)
+            scores = np.asarray(self.stability_gini_scores_[config_id], dtype=float)
             default_ylabel = "Cluster Stability (Gini)"
 
         elif source == "ce":
@@ -941,7 +1154,7 @@ class CARVE(BaseEstimator):
                 raise RuntimeError(
                     "CE stability scores are not available for this run."
                 )
-            scores = np.asarray(self.stability_ce_scores_[best_idx], dtype=float)
+            scores = np.asarray(self.stability_ce_scores_[config_id], dtype=float)
             default_ylabel = "Cluster Stability (CE)"
 
         elif source == "accuracy":
@@ -949,7 +1162,7 @@ class CARVE(BaseEstimator):
                 raise RuntimeError(
                     "Generalizability scores are not available for this run."
                 )
-            scores = np.asarray(self.generalizability_scores_[best_idx], dtype=float)
+            scores = np.asarray(self.generalizability_scores_[config_id], dtype=float)
             default_ylabel = "Cluster Generalizability"
 
         else:
@@ -969,7 +1182,10 @@ class CARVE(BaseEstimator):
         labels = self.get_labels(
             measure=measure,
             rule=rule,
-            k=selected_k,
+            k=k,
+            sweep_value=sweep_value,
+            not_two=not_two,
+            consensus_k=selected_k,
             mode=labels_mode,
         )
 
@@ -981,10 +1197,10 @@ class CARVE(BaseEstimator):
             annotation_text = _get_annotation(
                 measure=measure,
                 rule=rule,
-                k=k,
                 estimator_results=df,
                 row=row,
                 selected_k=selected_k,
+                pinned=pinned,
             )
 
         elif isinstance(annotation, str):
@@ -1023,6 +1239,7 @@ class CARVE(BaseEstimator):
         not_two: bool = False,
         mode: Literal["default", "stability", "generalizability"] = "default",
         k: int | None = None,
+        sweep_value: float | None = None,
         ax=None,
         figsize: tuple | None = None,
         order: list[int | str] | None = None,
@@ -1063,6 +1280,10 @@ class CARVE(BaseEstimator):
             Consensus matrix mode for label extraction.
         k : int, optional
             If given, restrict selection to this number of clusters.
+            Only valid when the run swept ``n_clusters``.
+        sweep_value : float, optional
+            If given, restrict selection to this value of the swept
+            hyperparameter (e.g. a specific Leiden ``resolution``).
         ax : matplotlib.axes.Axes, optional
             Axes object to plot on. If None, creates a new figure.
         figsize : tuple, optional
@@ -1109,22 +1330,11 @@ class CARVE(BaseEstimator):
         ax : matplotlib.axes.Axes or None
             The Axes object, or None if ``save`` is provided.
         """
-        if self.estimator_results_ is None:
-            raise RuntimeError("Call fit() first.")
-
+        row, config_id, selected_k, pinned = self._select_row(
+            measure=measure, rule=rule, not_two=not_two, k=k,
+            sweep_value=sweep_value,
+        )
         df = self.estimator_results_
-        if k is None:
-            row = select_best_row_by_rule(
-                df, measure=measure, rule=rule, not_two=not_two
-            )
-        else:
-            df_k = df[df["n_clusters"] == k]
-            if df_k.empty:
-                raise ValueError(f"No configurations found for k={k}.")
-            row = select_best_row_by_rule(df_k, measure=measure, rule=rule)
-
-        best_idx = int(row.name)
-        selected_k = int(row["n_clusters"])
 
         # --- Resolve score source ---
         if source == "gini":
@@ -1132,7 +1342,7 @@ class CARVE(BaseEstimator):
                 raise RuntimeError(
                     "Gini stability scores are not available for this run."
                 )
-            scores = np.asarray(self.stability_gini_scores_[best_idx], dtype=float)
+            scores = np.asarray(self.stability_gini_scores_[config_id], dtype=float)
             default_ylabel = "Cluster Stability (Gini)"
 
         elif source == "ce":
@@ -1140,7 +1350,7 @@ class CARVE(BaseEstimator):
                 raise RuntimeError(
                     "CE stability scores are not available for this run."
                 )
-            scores = np.asarray(self.stability_ce_scores_[best_idx], dtype=float)
+            scores = np.asarray(self.stability_ce_scores_[config_id], dtype=float)
             default_ylabel = "Cluster Stability (CE)"
 
         elif source == "accuracy":
@@ -1148,7 +1358,7 @@ class CARVE(BaseEstimator):
                 raise RuntimeError(
                     "Generalizability scores are not available for this run."
                 )
-            scores = np.asarray(self.generalizability_scores_[best_idx], dtype=float)
+            scores = np.asarray(self.generalizability_scores_[config_id], dtype=float)
             default_ylabel = "Cluster Generalizability"
 
         else:
@@ -1168,7 +1378,10 @@ class CARVE(BaseEstimator):
         labels = self.get_labels(
             measure=measure,
             rule=rule,
-            k=selected_k,
+            k=k,
+            sweep_value=sweep_value,
+            not_two=not_two,
+            consensus_k=selected_k,
             mode=labels_mode,
         )
 
@@ -1180,10 +1393,10 @@ class CARVE(BaseEstimator):
             annotation_text = _get_annotation(
                 measure=measure,
                 rule=rule,
-                k=k,
                 estimator_results=df,
                 row=row,
                 selected_k=selected_k,
+                pinned=pinned,
             )
 
         elif isinstance(annotation, str):
@@ -1226,6 +1439,7 @@ class CARVE(BaseEstimator):
         not_two: bool = False,
         mode: Literal["default", "stability", "generalizability"] = "default",
         k: int | None = None,
+        sweep_value: float | None = None,
         X: np.ndarray | None = None,
         embedding: np.ndarray | None = None,
         ax=None,
@@ -1268,6 +1482,10 @@ class CARVE(BaseEstimator):
             Consensus matrix mode for label extraction.
         k : int, optional
             If given, restrict selection to this number of clusters.
+            Only valid when the run swept ``n_clusters``.
+        sweep_value : float, optional
+            If given, restrict selection to this value of the swept
+            hyperparameter (e.g. a specific Leiden ``resolution``).
         X : ndarray, optional
             Data array to use. If None, uses ``self.X_``.
         embedding : ndarray of shape (n_samples, 2), optional
@@ -1319,22 +1537,11 @@ class CARVE(BaseEstimator):
         ax : matplotlib.axes.Axes or None
             The Axes object, or None if ``save`` is provided.
         """
-        if self.estimator_results_ is None:
-            raise RuntimeError("Call fit() first.")
-
+        row, config_id, selected_k, pinned = self._select_row(
+            measure=measure, rule=rule, not_two=not_two, k=k,
+            sweep_value=sweep_value,
+        )
         df = self.estimator_results_
-        if k is None:
-            row = select_best_row_by_rule(
-                df, measure=measure, rule=rule, not_two=not_two
-            )
-        else:
-            df_k = df[df["n_clusters"] == k]
-            if df_k.empty:
-                raise ValueError(f"No configurations found for k={k}.")
-            row = select_best_row_by_rule(df_k, measure=measure, rule=rule)
-
-        best_idx = int(row.name)
-        selected_k = int(row["n_clusters"])
 
         # --- Resolve score source ---
         if source == "gini":
@@ -1342,21 +1549,21 @@ class CARVE(BaseEstimator):
                 raise RuntimeError(
                     "Gini stability scores are not available for this run."
                 )
-            scores = np.asarray(self.stability_gini_scores_[best_idx], dtype=float)
+            scores = np.asarray(self.stability_gini_scores_[config_id], dtype=float)
             scores_name = "Gini Stability"
         elif source == "ce":
             if self.stability_ce_scores_ is None:
                 raise RuntimeError(
                     "CE stability scores are not available for this run."
                 )
-            scores = np.asarray(self.stability_ce_scores_[best_idx], dtype=float)
+            scores = np.asarray(self.stability_ce_scores_[config_id], dtype=float)
             scores_name = "CE Stability"
         elif source == "accuracy":
             if self.generalizability_scores_ is None:
                 raise RuntimeError(
                     "Generalizability scores are not available for this run."
                 )
-            scores = np.asarray(self.generalizability_scores_[best_idx], dtype=float)
+            scores = np.asarray(self.generalizability_scores_[config_id], dtype=float)
             scores_name = "Generalizability"
         else:
             raise ValueError("source must be one of: 'accuracy', 'gini', 'ce'.")
@@ -1375,7 +1582,10 @@ class CARVE(BaseEstimator):
         labels = self.get_labels(
             measure=measure,
             rule=rule,
-            k=selected_k,
+            k=k,
+            sweep_value=sweep_value,
+            not_two=not_two,
+            consensus_k=selected_k,
             mode=labels_mode,
         )
 
@@ -1392,10 +1602,10 @@ class CARVE(BaseEstimator):
             annotation_text = _get_annotation(
                 measure=measure,
                 rule=rule,
-                k=k,
                 estimator_results=df,
                 row=row,
                 selected_k=selected_k,
+                pinned=pinned,
                 tight_layout=tight_layout,
             )
         elif isinstance(annotation, str):
@@ -1443,6 +1653,7 @@ class CARVE(BaseEstimator):
         not_two: bool = False,
         mode: Literal["default", "stability", "generalizability"] = "default",
         k: int | None = None,
+        sweep_value: float | None = None,
         X: np.ndarray | None = None,
         embedding: np.ndarray | None = None,
         ax=None,
@@ -1491,6 +1702,10 @@ class CARVE(BaseEstimator):
             Consensus matrix mode for label extraction.
         k : int, optional
             If given, restrict selection to this number of clusters.
+            Only valid when the run swept ``n_clusters``.
+        sweep_value : float, optional
+            If given, restrict selection to this value of the swept
+            hyperparameter (e.g. a specific Leiden ``resolution``).
         X : ndarray, optional
             Data array to use. If None, uses ``self.X_``.
         embedding : ndarray of shape (n_samples, 2), optional
@@ -1548,22 +1763,11 @@ class CARVE(BaseEstimator):
         ax : matplotlib.axes.Axes or None
             The Axes object, or None if ``save`` is provided.
         """
-        if self.estimator_results_ is None:
-            raise RuntimeError("Call fit() first.")
-
+        row, config_id, selected_k, pinned = self._select_row(
+            measure=measure, rule=rule, not_two=not_two, k=k,
+            sweep_value=sweep_value,
+        )
         df = self.estimator_results_
-        if k is None:
-            row = select_best_row_by_rule(
-                df, measure=measure, rule=rule, not_two=not_two
-            )
-        else:
-            df_k = df[df["n_clusters"] == k]
-            if df_k.empty:
-                raise ValueError(f"No configurations found for k={k}.")
-            row = select_best_row_by_rule(df_k, measure=measure, rule=rule)
-
-        best_idx = int(row.name)
-        selected_k = int(row["n_clusters"])
 
         # --- Resolve score source ---
         if source == "gini":
@@ -1571,21 +1775,21 @@ class CARVE(BaseEstimator):
                 raise RuntimeError(
                     "Gini stability scores are not available for this run."
                 )
-            scores = np.asarray(self.stability_gini_scores_[best_idx], dtype=float)
+            scores = np.asarray(self.stability_gini_scores_[config_id], dtype=float)
             scores_name = "Gini Stability"
         elif source == "ce":
             if self.stability_ce_scores_ is None:
                 raise RuntimeError(
                     "CE stability scores are not available for this run."
                 )
-            scores = np.asarray(self.stability_ce_scores_[best_idx], dtype=float)
+            scores = np.asarray(self.stability_ce_scores_[config_id], dtype=float)
             scores_name = "CE Stability"
         elif source == "accuracy":
             if self.generalizability_scores_ is None:
                 raise RuntimeError(
                     "Generalizability scores are not available for this run."
                 )
-            scores = np.asarray(self.generalizability_scores_[best_idx], dtype=float)
+            scores = np.asarray(self.generalizability_scores_[config_id], dtype=float)
             scores_name = "Generalizability"
         else:
             raise ValueError("source must be one of: 'accuracy', 'gini', 'ce'.")
@@ -1604,7 +1808,10 @@ class CARVE(BaseEstimator):
         labels = self.get_labels(
             measure=measure,
             rule=rule,
-            k=selected_k,
+            k=k,
+            sweep_value=sweep_value,
+            not_two=not_two,
+            consensus_k=selected_k,
             mode=labels_mode,
         )
 
@@ -1621,10 +1828,10 @@ class CARVE(BaseEstimator):
             annotation_text = _get_annotation(
                 measure=measure,
                 rule=rule,
-                k=k,
                 estimator_results=df,
                 row=row,
                 selected_k=selected_k,
+                pinned=pinned,
                 tight_layout=tight_layout,
             )
         elif isinstance(annotation, str):

@@ -1,8 +1,12 @@
 """Tests for carve._runner module."""
 
+import warnings
+from collections import Counter
+
 import numpy as np
 import pytest
-from sklearn.cluster import KMeans
+from sklearn.base import BaseEstimator, ClusterMixin
+from sklearn.cluster import HDBSCAN, AgglomerativeClustering, KMeans
 
 from carve._runner import (
     ResampleResult,
@@ -11,7 +15,48 @@ from carve._runner import (
     run_validation,
     validation_iter,
 )
+from carve._sweep import resolve_sweep
 from carve._types import ModePolicy
+
+
+class _LabelStub(BaseEstimator, ClusterMixin):
+    """Estimator returning a fixed label pattern, ignoring its input.
+
+    Lets the runner's sanity checks be exercised deterministically without
+    depending on what a real clusterer happens to produce on a subsample.
+    """
+
+    _pattern: np.ndarray
+
+    def __init__(self, **params):
+        for key, value in params.items():
+            setattr(self, key, value)
+
+    def fit(self, X, y=None):
+        n = np.asarray(X).shape[0]
+        self.labels_ = np.resize(self._pattern, n)
+        return self
+
+    def fit_predict(self, X, y=None):
+        return self.fit(X, y).labels_
+
+
+class _TwoClusterStub(_LabelStub):
+    """Always produces exactly 2 clusters."""
+
+    _pattern = np.array([0, 1])
+
+
+class _OneClusterStub(_LabelStub):
+    """Always produces a single cluster (a degenerate partition)."""
+
+    _pattern = np.array([0])
+
+
+class _NoisyStub(_LabelStub):
+    """Produces 2 clusters plus noise points, like HDBSCAN."""
+
+    _pattern = np.array([0, 1, -1, 0, 1])
 
 
 @pytest.fixture()
@@ -65,13 +110,19 @@ class TestResampleResult:
             dim_reduction_params={},
             normalization_name="Identity",
             dim_reduction_name="Identity",
+            n_clusters_train=2,
+            n_clusters_test=2,
+            n_clusters_stability=2,
+            noise_fraction=0.0,
         )
         assert r.ari_stability == 0.8
         assert r.ari_generalizability == 0.7
         assert r.normalization_name == "Identity"
+        assert r.n_clusters_train == 2
+        assert r.noise_fraction == 0.0
 
     def test_field_count(self):
-        assert len(ResampleResult._fields) == 13
+        assert len(ResampleResult._fields) == 17
 
 
 # -----------------------------------------------------------------------
@@ -337,3 +388,193 @@ class TestRunValidation:
         assert -0.5 <= rec["ari_stability"] <= 1.0
         assert -0.5 <= rec["ari_generalizability"] <= 1.0
         assert rec["ari_stability_se"] >= 0
+
+
+# -----------------------------------------------------------------------
+# Sweep bookkeeping and noise handling
+# -----------------------------------------------------------------------
+
+
+class TestValidationIterSweepMode:
+    def _run(self, X, **kwargs):
+        params = kwargs.pop("params", {"n_clusters": 2})
+        est_class = kwargs.pop("est_class", KMeans)
+        return validation_iter(
+            X=X,
+            est_class=est_class,
+            params=params,
+            subsample_ratio=0.8,
+            n_resamples=3,
+            seed=0,
+            normalization_options=[],
+            dim_reduction_options=[],
+            randomize_preprocessing=False,
+            mode="default",
+            random_state=0,
+            **kwargs,
+        )
+
+    def test_records_cluster_counts(self, X_two_clusters):
+        result = self._run(X_two_clusters)
+        assert result.n_clusters_train == 2
+        assert result.n_clusters_test == 2
+        assert result.n_clusters_stability == 2
+
+    def test_noise_fraction_zero_without_noise(self, X_two_clusters):
+        assert self._run(X_two_clusters).noise_fraction == 0.0
+
+    def test_k_mode_warns_on_wrong_cluster_count(self, X_two_clusters):
+        """The expected-k check only makes sense when k is pinned."""
+        with pytest.warns(UserWarning, match="expected 3"):
+            self._run(
+                X_two_clusters,
+                est_class=_TwoClusterStub,
+                params={"n_clusters": 3},
+                sweep_param="n_clusters",
+            )
+
+    def test_sweep_mode_does_not_warn_about_expected_k(self, X_two_clusters):
+        """Resolution mode has no expected k, so that check must be skipped."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            self._run(
+                X_two_clusters,
+                est_class=_TwoClusterStub,
+                params={"resolution": 0.5},
+                sweep_param="resolution",
+            )
+
+    def test_sweep_mode_warns_on_degenerate_partition(self, X_two_clusters):
+        with pytest.warns(UserWarning, match="degenerate at this point"):
+            self._run(
+                X_two_clusters,
+                est_class=_OneClusterStub,
+                params={"resolution": 0.01},
+                sweep_param="resolution",
+            )
+
+    def test_noise_policy_drop_shrinks_indices(self, X_two_clusters):
+        result = self._run(
+            X_two_clusters,
+            est_class=_NoisyStub,
+            params={"resolution": 1.0},
+            sweep_param="resolution",
+            noise_policy="drop",
+        )
+        assert result.noise_fraction > 0
+        assert result.labels_train.shape == result.train_indices.shape
+        assert (result.labels_train >= 0).all()
+
+    def test_noise_policy_as_cluster_keeps_noise(self, X_two_clusters):
+        result = self._run(
+            X_two_clusters,
+            est_class=_NoisyStub,
+            params={"resolution": 1.0},
+            sweep_param="resolution",
+            noise_policy="as_cluster",
+        )
+        assert result.noise_fraction > 0
+        assert (result.labels_train < 0).any()
+
+    def test_noise_fraction_agrees_across_policies(self, X_two_clusters):
+        """noise_fraction is measured before the policy is applied."""
+        fractions = {
+            policy: self._run(
+                X_two_clusters,
+                est_class=_NoisyStub,
+                params={"resolution": 1.0},
+                sweep_param="resolution",
+                noise_policy=policy,
+            ).noise_fraction
+            for policy in ("drop", "as_cluster", "singleton")
+        }
+        assert len(set(fractions.values())) == 1
+
+    def test_unknown_noise_policy_raises(self, X_two_clusters):
+        with pytest.raises(ValueError, match="Unknown noise_policy"):
+            self._run(X_two_clusters, noise_policy="bogus")
+
+
+class TestRunValidationRecords:
+    def _records(self, X, **kwargs):
+        records, *_ = run_validation(
+            X=X,
+            estimator_grids=kwargs.pop(
+                "estimator_grids", [(KMeans, {"n_clusters": [2, 3]})]
+            ),
+            n_resamples=3,
+            subsample_ratio=0.8,
+            normalization_options=[],
+            dim_reduction_options=[],
+            n_jobs=1,
+            random_state=0,
+            **kwargs,
+        )
+        return records
+
+    def test_identity_columns_present(self, X_two_clusters):
+        records = self._records(X_two_clusters)
+        for record in records:
+            assert set(record) >= {"config_id", "method_id", "method_label"}
+
+    def test_config_id_is_contiguous(self, X_two_clusters):
+        records = self._records(X_two_clusters)
+        assert [r["config_id"] for r in records] == list(range(len(records)))
+
+    def test_sweep_columns_present(self, X_two_clusters):
+        for record in self._records(X_two_clusters):
+            assert set(record) >= {
+                "sweep_param",
+                "sweep_value",
+                "sweep_rank",
+                "n_clusters_observed",
+                "n_clusters_observed_se",
+                "noise_fraction",
+            }
+
+    def test_sweep_values_and_ranks(self, X_two_clusters):
+        records = self._records(X_two_clusters)
+        assert [r["sweep_param"] for r in records] == ["n_clusters"] * 2
+        assert [r["sweep_value"] for r in records] == [2, 3]
+        assert [r["sweep_rank"] for r in records] == [0, 1]
+
+    def test_observed_k_matches_requested_k(self, X_two_clusters):
+        records = self._records(X_two_clusters)
+        assert [r["n_clusters_observed"] for r in records] == [2.0, 3.0]
+
+    def test_one_method_id_per_curve(self, X_two_clusters):
+        records = self._records(
+            X_two_clusters,
+            estimator_grids=[
+                (KMeans, {"n_clusters": [2, 3]}),
+                (
+                    AgglomerativeClustering,
+                    {"n_clusters": [2, 3], "linkage": ["ward", "average"]},
+                ),
+            ],
+        )
+        counts = Counter(r["method_id"] for r in records)
+        assert len(counts) == 3
+        assert set(counts.values()) == {2}
+
+    def test_method_label_omits_the_swept_param(self, X_two_clusters):
+        records = self._records(
+            X_two_clusters,
+            estimator_grids=[
+                (
+                    AgglomerativeClustering,
+                    {"n_clusters": [2, 3], "linkage": ["ward"]},
+                )
+            ],
+        )
+        labels = {r["method_label"] for r in records}
+        assert labels == {"AgglomerativeClustering, linkage=ward"}
+
+    def test_sweep_rank_inverted_for_min_cluster_size(self, X_two_clusters):
+        records = self._records(
+            X_two_clusters,
+            estimator_grids=[(HDBSCAN, {"min_cluster_size": [3, 5, 8]})],
+            sweep=resolve_sweep(sweep="min_cluster_size", sweep_values=[3, 5, 8]),
+        )
+        assert [r["sweep_value"] for r in records] == [3, 5, 8]
+        assert [r["sweep_rank"] for r in records] == [2, 1, 0]

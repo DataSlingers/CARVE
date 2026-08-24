@@ -7,12 +7,13 @@ from sklearn.base import ClusterMixin
 from sklearn.model_selection import ParameterGrid
 from tqdm.auto import tqdm
 
+from ._sweep import SweepSpec
 from ._types import EstimatorRecord, GridSpec
 
 
 def _print_run_header(
     X: np.ndarray,
-    n_clusters: int | np.ndarray,
+    sweep: SweepSpec,
     n_resamples: int,
     subsample_ratio: float,
     estimator_grids: list[GridSpec],
@@ -27,8 +28,8 @@ def _print_run_header(
     ----------
     X : ndarray of shape (n_samples, n_features)
         Input data.
-    n_clusters : int or ndarray
-        Number(s) of clusters evaluated.
+    sweep : SweepSpec
+        The swept hyperparameter axis.
     n_resamples : int
         Number of resampling iterations.
     subsample_ratio : float
@@ -54,7 +55,8 @@ def _print_run_header(
     print("[CARVE] Validation Settings:")
     print(f"[CARVE] n_samples          : {X.shape[0]}")
     print(f"[CARVE] n_features         : {X.shape[1]}")
-    print(f"[CARVE] n_clusters         : {n_clusters}")
+    print(f"[CARVE] sweep parameter    : {sweep.param}")
+    print(f"[CARVE] {sweep.param:<19}: {sweep.values}")
     print(f"[CARVE] n_resamples        : {n_resamples}")
     print(f"[CARVE] subsample_ratio    : {subsample_ratio}")
     print(f"[CARVE] n_jobs             : {n_jobs}")
@@ -92,6 +94,7 @@ def _log_config_progress(
     params: dict[str, Any],
     record: EstimatorRecord,
     pbar_obj: tqdm | None,
+    sweep_param: str = "n_clusters",
     verbose: int = 0,
 ) -> None:
     """Log per-configuration progress during grid evaluation.
@@ -110,20 +113,21 @@ def _log_config_progress(
         Metrics for the current configuration.
     pbar_obj : tqdm or None
         Optional progress-bar object used to display messages.
+    sweep_param : str, default="n_clusters"
+        Name of the swept hyperparameter to report.
     verbose : int, default=0
         Verbosity level; logs only if >= 1.
     """
     if verbose <= 0:
         return
 
-    n_clusters = params.get("n_clusters", "?")
+    sweep_value = params.get(sweep_param, "?")
     msg = (
         f"[CARVE] [{config_idx}/{total_configs}] "
         f"est={est_class.__name__} "
-        f"n_clusters={n_clusters} | "
+        f"{sweep_param}={sweep_value} | "
         f"ARI_stab={record['ari_stability']:.3f}±{record['ari_stability_se']:.3f}  "
         f"ARI_gen={record['ari_generalizability']:.3f}±{record['ari_generalizability_se']:.3f}  "
-        # f"ARI_avg={record['ari_average']:.3f}±{record['ari_average_se']:.3f}"
     )
 
     if pbar_obj is not None:

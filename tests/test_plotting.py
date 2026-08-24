@@ -20,6 +20,8 @@ from carve._plotting import (
     plot_metric_over_n_clusters,
 )
 
+from conftest import with_sweep_cols
+
 
 @pytest.fixture()
 def metric_results_df():
@@ -28,21 +30,63 @@ def metric_results_df():
     Includes a 'linkage' column so that the groupby in
     plot_metric_over_n_clusters has at least one group key.
     """
-    return pd.DataFrame(
+    return with_sweep_cols(
+        pd.DataFrame(
+            {
+                "estimator": ["KMeans"] * 3,
+                "n_clusters": [2, 3, 4],
+                "linkage": ["ward"] * 3,
+                "ari_stability": [0.9, 0.85, 0.7],
+                "ari_stability_se": [0.02, 0.03, 0.05],
+                "ari_stability_upper": [0.92, 0.88, 0.75],
+                "ari_stability_lower": [0.88, 0.82, 0.65],
+                "ari_generalizability": [0.85, 0.80, 0.65],
+                "ari_generalizability_se": [0.03, 0.04, 0.06],
+                "ari_generalizability_upper": [0.88, 0.84, 0.71],
+                "ari_generalizability_lower": [0.82, 0.76, 0.59],
+            }
+        ),
+        param="n_clusters",
+        method_label="KMeans, linkage=ward",
+        observed=[2.0, 3.0, 4.0],
+    )
+
+
+def _two_method_df():
+    """Two methods x three sweep values, one with an all-NaN param column.
+
+    Mirrors a custom grid mixing KMeans (no ``affinity``) with spectral
+    clustering, which is where the old substring-heuristic grouping used
+    to fragment curves.
+    """
+    df = pd.DataFrame(
         {
-            "estimator": ["KMeans"] * 3,
-            "n_clusters": [2, 3, 4],
-            "linkage": ["ward"] * 3,
-            "ari_stability": [0.9, 0.85, 0.7],
-            "ari_stability_se": [0.02, 0.03, 0.05],
-            "ari_stability_upper": [0.92, 0.88, 0.75],
-            "ari_stability_lower": [0.88, 0.82, 0.65],
-            "ari_generalizability": [0.85, 0.80, 0.65],
-            "ari_generalizability_se": [0.03, 0.04, 0.06],
-            "ari_generalizability_upper": [0.88, 0.84, 0.71],
-            "ari_generalizability_lower": [0.82, 0.76, 0.59],
+            "estimator": ["KMeans"] * 3 + ["SpectralClustering"] * 3,
+            "n_clusters": [2, 3, 4, 2, 3, 4],
+            "affinity": [np.nan] * 3 + ["self_tuning"] * 3,
+            "ari_stability": [0.9, 0.85, 0.7, 0.88, 0.82, 0.68],
+            "ari_stability_se": [0.02, 0.03, 0.05, 0.02, 0.03, 0.05],
+            "ari_stability_upper": [0.92, 0.88, 0.75, 0.90, 0.85, 0.73],
+            "ari_stability_lower": [0.88, 0.82, 0.65, 0.86, 0.79, 0.63],
+            "ari_generalizability": [0.85, 0.80, 0.65, 0.83, 0.78, 0.63],
+            "ari_generalizability_se": [0.03, 0.04, 0.06, 0.03, 0.04, 0.06],
+            "ari_generalizability_upper": [0.88, 0.84, 0.71, 0.86, 0.82, 0.69],
+            "ari_generalizability_lower": [0.82, 0.76, 0.59, 0.80, 0.74, 0.57],
         }
     )
+    df = with_sweep_cols(
+        df,
+        param="n_clusters",
+        method_label="",
+        observed=[2.0, 3.0, 4.0, 2.0, 3.0, 4.0],
+    )
+    # Two curves: the runner assigns one method_id per (estimator, params
+    # except the swept one).
+    df["method_id"] = ["m0"] * 3 + ["m1"] * 3
+    df["method_label"] = ["KMeans"] * 3 + [
+        "SpectralClustering, affinity=self_tuning"
+    ] * 3
+    return df
 
 
 @pytest.fixture(autouse=True)
@@ -58,36 +102,47 @@ def close_figures():
 
 
 class TestBuildEstimatorLabel:
-    def test_basic(self):
-        row = pd.Series({"estimator": "KMeans", "n_clusters": 3, "linkage": "ward"})
-        label = _build_estimator_label(row, exclude_cols={"n_clusters"})
-        assert "KMeans" in label
-        assert "linkage=ward" in label
-        assert "n_clusters" not in label
+    """The label is now produced by the runner and carried on the row.
 
-    def test_excludes_metrics(self):
+    The formatting rules themselves live in ``_sweep.format_method_label``
+    and are tested in ``test_sweep.py``.
+    """
+
+    def test_returns_method_label_verbatim(self):
         row = pd.Series(
             {
                 "estimator": "KMeans",
-                "ari_stability": 0.9,
+                "method_label": "KMeans, linkage=ward",
                 "n_clusters": 3,
+                "ari_stability": 0.9,
             }
         )
-        label = _build_estimator_label(
-            row,
-            exclude_cols={"n_clusters", "ari_stability"},
+        assert _build_estimator_label(row) == "KMeans, linkage=ward"
+
+    def test_ignores_other_columns(self):
+        """Metric and sweep columns never leak into the label."""
+        row = pd.Series(
+            {
+                "estimator": "KMeans",
+                "method_label": "KMeans",
+                "ari_stability": 0.9,
+                "sweep_value": 3,
+                "gamma": 0.123456,
+            }
         )
+        label = _build_estimator_label(row)
+        assert label == "KMeans"
         assert "ari_stability" not in label
+        assert "gamma" not in label
 
-    def test_float_formatting(self):
-        row = pd.Series({"estimator": "Spectral", "gamma": 0.123456})
-        label = _build_estimator_label(row, exclude_cols=set())
-        assert "gamma=" in label
+    def test_tight_layout_wraps_on_commas(self):
+        row = pd.Series({"method_label": "AgglomerativeClustering, linkage=ward"})
+        label = _build_estimator_label(row, tight_layout=True)
+        assert label == "AgglomerativeClustering\nlinkage=ward"
 
-    def test_nan_skipped(self):
-        row = pd.Series({"estimator": "KMeans", "linkage": np.nan})
-        label = _build_estimator_label(row, exclude_cols=set())
-        assert "linkage" not in label
+    def test_tight_layout_single_part_unchanged(self):
+        row = pd.Series({"method_label": "KMeans"})
+        assert _build_estimator_label(row, tight_layout=True) == "KMeans"
 
 
 # -----------------------------------------------------------------------
@@ -202,22 +257,12 @@ class TestPlotMetricOverNClusters:
         assert ax is not None
 
     def test_mixed_estimators_single_nan_group_col(self):
-        """Regression: custom grid with 2 estimators produces single NaN group column."""
-        df = pd.DataFrame(
-            {
-                "estimator": ["KMeans"] * 3 + ["SpectralClusteringCARVE"] * 3,
-                "n_clusters": [2, 3, 4, 2, 3, 4],
-                "affinity": [np.nan] * 3 + ["self_tuning"] * 3,
-                "ari_stability": [0.9, 0.85, 0.7, 0.88, 0.82, 0.68],
-                "ari_stability_se": [0.02, 0.03, 0.05, 0.02, 0.03, 0.05],
-                "ari_stability_upper": [0.92, 0.88, 0.75, 0.90, 0.85, 0.73],
-                "ari_stability_lower": [0.88, 0.82, 0.65, 0.86, 0.79, 0.63],
-                "ari_generalizability": [0.85, 0.80, 0.65, 0.83, 0.78, 0.63],
-                "ari_generalizability_se": [0.03, 0.04, 0.06, 0.03, 0.04, 0.06],
-                "ari_generalizability_upper": [0.88, 0.84, 0.71, 0.86, 0.82, 0.69],
-                "ari_generalizability_lower": [0.82, 0.76, 0.59, 0.80, 0.74, 0.57],
-            }
-        )
+        """Regression: 2 estimators, one with an all-NaN param column.
+
+        Grouping is on ``method_id``, so a column that is NaN for one
+        estimator can no longer fragment or drop a curve.
+        """
+        df = _two_method_df()
         ax = plot_metric_over_n_clusters(df, measure="stability")
         lines = [
             c
@@ -227,6 +272,38 @@ class TestPlotMetricOverNClusters:
             and len(c.get_xydata()) > 1
         ]
         assert len(lines) >= 2
+
+    def test_one_line_per_method_not_per_row(self):
+        """Two methods x three sweep values draws two curves, not six."""
+        df = _two_method_df()
+        ax = plot_metric_over_n_clusters(df, measure="stability")
+        # Errorbar caps share the data lines' point count, so identify the
+        # curves themselves by their solid linestyle.
+        curves = [
+            line
+            for line in ax.get_lines()
+            if line.get_linestyle() == "-" and len(line.get_xydata()) == 3
+        ]
+        assert len(curves) == 2
+
+    def test_legend_labels_are_method_labels(self):
+        df = _two_method_df()
+        ax = plot_metric_over_n_clusters(df, measure="stability")
+        texts = [t.get_text() for t in ax.get_legend().get_texts()]
+        assert "KMeans" in texts
+        assert "SpectralClustering, affinity=self_tuning" in texts
+
+    def test_xlabel_follows_sweep_param(self, metric_results_df):
+        ax = plot_metric_over_n_clusters(metric_results_df, measure="stability")
+        assert ax.get_xlabel() == "Number of Clusters (k)"
+
+    def test_xlabel_resolution_mode(self, resolution_results_df):
+        ax = plot_metric_over_n_clusters(resolution_results_df, measure="stability")
+        assert ax.get_xlabel() == "Resolution"
+
+    def test_xticks_are_sweep_values(self, resolution_results_df):
+        ax = plot_metric_over_n_clusters(resolution_results_df, measure="stability")
+        np.testing.assert_allclose(ax.get_xticks(), [0.25, 0.5, 1.0, 2.0])
 
     def test_custom_labels(self, metric_results_df):
         ax = plot_metric_over_n_clusters(

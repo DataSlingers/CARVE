@@ -5,12 +5,15 @@ import pandas as pd
 import pytest
 from sklearn.cluster import KMeans, AgglomerativeClustering
 
+from carve._runner import ResampleResult
 from carve._utils import (
     split_subsample_indices,
     _coerce_n_clusters,
     _summarize_ari_scores,
-    cluster_labels,
     align_cluster_labels,
+    apply_noise_policy,
+    cluster_labels,
+    count_clusters,
     ensure_2d_array,
     summarize_preprocessing_records,
 )
@@ -232,3 +235,184 @@ class TestEnsure2dArray:
     def test_invalid_type(self):
         with pytest.raises(ValueError):
             ensure_2d_array("not an array")
+
+
+# -----------------------------------------------------------------------
+# count_clusters
+# -----------------------------------------------------------------------
+
+
+class TestCountClusters:
+    def test_basic(self):
+        assert count_clusters(np.array([0, 0, 1, 1, 2])) == 3
+
+    def test_ignores_noise(self):
+        """Density-based methods mark unassigned points with -1."""
+        assert count_clusters(np.array([-1, -1, 0, 0, 1])) == 2
+
+    def test_all_noise(self):
+        assert count_clusters(np.array([-1, -1, -1])) == 0
+
+    def test_none(self):
+        assert count_clusters(None) == 0
+
+    def test_empty(self):
+        assert count_clusters(np.array([])) == 0
+
+    def test_non_contiguous_labels(self):
+        assert count_clusters(np.array([0, 5, 5, 9])) == 3
+
+
+# -----------------------------------------------------------------------
+# apply_noise_policy
+# -----------------------------------------------------------------------
+
+
+class TestApplyNoisePolicy:
+    def _noisy(self):
+        indices = np.array([10, 11, 12, 13, 14])
+        labels = np.array([0, -1, 1, -1, 1])
+        return indices, labels
+
+    def test_drop_shrinks_both_arrays(self):
+        indices, labels = self._noisy()
+        idx, lab, frac = apply_noise_policy(indices, labels, "drop")
+        np.testing.assert_array_equal(idx, [10, 12, 14])
+        np.testing.assert_array_equal(lab, [0, 1, 1])
+        assert frac == pytest.approx(0.4)
+        assert len(idx) == len(lab)
+
+    def test_drop_is_the_default(self):
+        indices, labels = self._noisy()
+        assert np.array_equal(
+            apply_noise_policy(indices, labels)[1],
+            apply_noise_policy(indices, labels, "drop")[1],
+        )
+
+    def test_as_cluster_is_a_no_op(self):
+        indices, labels = self._noisy()
+        idx, lab, frac = apply_noise_policy(indices, labels, "as_cluster")
+        np.testing.assert_array_equal(idx, indices)
+        np.testing.assert_array_equal(lab, labels)
+        assert frac == pytest.approx(0.4)
+
+    def test_singleton_preserves_length(self):
+        indices, labels = self._noisy()
+        idx, lab, frac = apply_noise_policy(indices, labels, "singleton")
+        np.testing.assert_array_equal(idx, indices)
+        assert len(lab) == len(labels)
+        assert frac == pytest.approx(0.4)
+        # Two noise points become two new, distinct, non-negative clusters.
+        assert (lab >= 0).all()
+        assert np.unique(lab).size == 4
+
+    def test_singleton_does_not_collide_with_existing_labels(self):
+        indices = np.array([0, 1, 2])
+        labels = np.array([0, 3, -1])
+        _, lab, _ = apply_noise_policy(indices, labels, "singleton")
+        assert lab[2] == 4
+        assert np.unique(lab).size == 3
+
+    def test_singleton_all_noise_starts_at_zero(self):
+        indices = np.array([0, 1])
+        labels = np.array([-1, -1])
+        _, lab, frac = apply_noise_policy(indices, labels, "singleton")
+        np.testing.assert_array_equal(lab, [0, 1])
+        assert frac == pytest.approx(1.0)
+
+    def test_no_noise_passes_through(self):
+        indices = np.array([0, 1, 2])
+        labels = np.array([0, 1, 1])
+        for policy in ("drop", "as_cluster", "singleton"):
+            idx, lab, frac = apply_noise_policy(indices, labels, policy)
+            np.testing.assert_array_equal(idx, indices)
+            np.testing.assert_array_equal(lab, labels)
+            assert frac == 0.0
+
+    def test_all_noise_dropped_leaves_empty_arrays(self):
+        indices = np.array([0, 1, 2])
+        labels = np.array([-1, -1, -1])
+        idx, lab, frac = apply_noise_policy(indices, labels, "drop")
+        assert idx.size == 0
+        assert lab.size == 0
+        assert frac == pytest.approx(1.0)
+
+    def test_empty_input(self):
+        idx, lab, frac = apply_noise_policy(
+            np.array([], dtype=int), np.array([], dtype=int), "drop"
+        )
+        assert idx.size == 0
+        assert lab.size == 0
+        assert frac == 0.0
+
+    def test_unknown_policy_raises(self):
+        indices, labels = self._noisy()
+        with pytest.raises(ValueError, match="Unknown noise_policy"):
+            apply_noise_policy(indices, labels, "bogus")
+
+
+# -----------------------------------------------------------------------
+# summarize_preprocessing_records
+# -----------------------------------------------------------------------
+
+
+def _pipeline_record(sweep_param, sweep_value):
+    """One randomized-preprocessing record with two identity-pipeline runs."""
+    blank = dict.fromkeys(
+        (
+            "labels_train",
+            "labels_test",
+            "labels_predicted",
+            "labels_stability",
+            "train_indices",
+            "test_indices",
+            "stability_indices",
+        ),
+        None,
+    )
+    results = [
+        ResampleResult(
+            ari_stability=s,
+            ari_generalizability=g,
+            normalization_params={},
+            dim_reduction_params={},
+            normalization_name="StandardScaler",
+            dim_reduction_name="PCA",
+            n_clusters_train=3,
+            n_clusters_test=3,
+            n_clusters_stability=3,
+            noise_fraction=0.0,
+            **blank,
+        )
+        for s, g in [(0.8, 0.7), (0.6, 0.5)]
+    ]
+    return {
+        "estimator": "KMeans",
+        "params": {sweep_param: sweep_value},
+        "results": results,
+    }
+
+
+class TestSummarizePreprocessingRecords:
+    def test_groups_on_n_clusters_by_default(self):
+        records = [_pipeline_record("n_clusters", 2), _pipeline_record("n_clusters", 3)]
+        out = summarize_preprocessing_records(records)
+        assert "n_clusters" in out.columns
+        assert set(out["n_clusters"]) == {2, 3}
+        assert set(out["norm__func"]) == {"StandardScaler"}
+        assert set(out["dr__method"]) == {"PCA"}
+
+    def test_averages_within_a_group(self):
+        out = summarize_preprocessing_records([_pipeline_record("n_clusters", 2)])
+        assert out["ari_stability"].iloc[0] == pytest.approx(0.7)
+        assert out["ari_generalizability"].iloc[0] == pytest.approx(0.6)
+
+    def test_groups_on_sweep_param(self):
+        records = [
+            _pipeline_record("resolution", 0.5),
+            _pipeline_record("resolution", 1.0),
+        ]
+        out = summarize_preprocessing_records(records, sweep_param="resolution")
+        assert "resolution" in out.columns
+        assert "n_clusters" not in out.columns
+        assert set(out["resolution"]) == {0.5, 1.0}

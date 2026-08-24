@@ -10,7 +10,13 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from carve import CARVE
+import warnings
+
+import carve._runner as carve_runner
+import carve.api as carve_api
+from carve import CARVE, LeidenClustering, LouvainClustering
+
+from conftest import requires_graph
 
 
 # ---------------------------------------------------------------------------
@@ -592,3 +598,526 @@ class TestEdgeCases:
         assert nested.exists()
         loaded = CARVE.load(nested)
         assert loaded.estimator_results_ is not None
+
+
+# ---------------------------------------------------------------------------
+# Resolution mode
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def X_res_blobs():
+    """Three well-separated blobs, large enough for a 15-neighbor graph."""
+    rng = np.random.RandomState(0)
+    return np.vstack([rng.randn(40, 6) + c for c in np.eye(6)[:3] * 6])
+
+
+@pytest.fixture(scope="module")
+def fitted_resolution(X_res_blobs):
+    """CARVE fitted in resolution mode (Leiden + Louvain defaults)."""
+    carve = CARVE(
+        resolution=np.array([0.5, 1.0, 2.0]),
+        n_resamples=3,
+        normalization_options=[],
+        dim_reduction_options=[],
+        n_jobs=1,
+        random_state=0,
+        verbose=0,
+    )
+    carve.fit(X_res_blobs)
+    return carve
+
+
+@requires_graph
+class TestResolutionMode:
+    def test_sweep_spec_recorded(self, fitted_resolution):
+        sweep = fitted_resolution.sweep_
+        assert sweep.param == "resolution"
+        assert not sweep.is_k_mode
+        assert not sweep.fixes_k
+        assert sweep.finer_is_larger
+        assert sweep.label == "Resolution"
+        np.testing.assert_allclose(sweep.values, [0.5, 1.0, 2.0])
+
+    def test_results_carry_sweep_columns(self, fitted_resolution):
+        df = fitted_resolution.estimator_results_
+        assert set(df.columns) >= {
+            "config_id",
+            "method_id",
+            "method_label",
+            "sweep_param",
+            "sweep_value",
+            "sweep_rank",
+            "n_clusters_observed",
+            "n_clusters_observed_se",
+            "noise_fraction",
+            "resolution",
+        }
+
+    def test_no_n_clusters_column(self, fitted_resolution):
+        assert "n_clusters" not in fitted_resolution.estimator_results_.columns
+
+    def test_sweep_values_and_ranks(self, fitted_resolution):
+        df = fitted_resolution.estimator_results_
+        assert set(df["sweep_param"]) == {"resolution"}
+        np.testing.assert_allclose(sorted(df["sweep_value"].unique()), [0.5, 1.0, 2.0])
+        # Two estimators x three resolutions.
+        assert df.shape[0] == 6
+        assert sorted(df["sweep_rank"].unique()) == [0, 1, 2]
+
+    def test_estimators_are_graph_methods(self, fitted_resolution):
+        assert set(fitted_resolution.estimator_results_["estimator"]) == {
+            "LeidenClustering",
+            "LouvainClustering",
+        }
+
+    def test_noise_fraction_is_zero(self, fitted_resolution):
+        """Graph community methods assign every point."""
+        assert (fitted_resolution.estimator_results_["noise_fraction"] == 0).all()
+
+    def test_get_sweep_value(self, fitted_resolution):
+        value = fitted_resolution.get_sweep_value()
+        assert value in [0.5, 1.0, 2.0]
+
+    def test_get_k_uses_observed_clusters(self, fitted_resolution):
+        assert fitted_resolution.get_k() >= 2
+
+    def test_get_labels_shape(self, fitted_resolution, X_res_blobs):
+        labels = fitted_resolution.get_labels()
+        assert labels.shape == (X_res_blobs.shape[0],)
+        assert np.unique(labels).size == fitted_resolution.get_k()
+
+    def test_get_labels_rejects_k(self, fitted_resolution):
+        with pytest.raises(ValueError, match="sweep_value"):
+            fitted_resolution.get_labels(k=3)
+
+    def test_get_labels_accepts_sweep_value(self, fitted_resolution, X_res_blobs):
+        labels = fitted_resolution.get_labels(sweep_value=1.0)
+        assert labels.shape == (X_res_blobs.shape[0],)
+
+    def test_get_labels_unknown_sweep_value_raises(self, fitted_resolution):
+        with pytest.raises(ValueError, match="No configurations found"):
+            fitted_resolution.get_labels(sweep_value=99.0)
+
+    def test_get_labels_rejects_both_pins(self, fitted_resolution):
+        with pytest.raises(ValueError, match="at most one of"):
+            fitted_resolution.get_labels(k=3, sweep_value=1.0)
+
+    def test_consensus_k_overrides_the_cut(self, fitted_resolution):
+        labels = fitted_resolution.get_labels(consensus_k=4)
+        assert np.unique(labels).size == 4
+
+    def test_get_estimator_is_a_graph_method(self, fitted_resolution):
+        est = fitted_resolution.get_estimator()
+        assert isinstance(est, (LeidenClustering, LouvainClustering))
+        assert est.resolution == fitted_resolution.get_sweep_value()
+
+    def test_plot_xlabel_is_resolution(self, fitted_resolution):
+        ax = fitted_resolution.plot_metric_over_n_clusters()
+        assert ax.get_xlabel() == "Resolution"
+
+    def test_plot_draws_one_curve_per_method(self, fitted_resolution):
+        ax = fitted_resolution.plot_metric_over_n_clusters()
+        texts = [t.get_text() for t in ax.get_legend().get_texts()]
+        method_labels = set(fitted_resolution.estimator_results_["method_label"])
+        assert method_labels <= set(texts)
+        assert len(method_labels) == 2
+
+    def test_plot_consensus_matrix_accepts_sweep_value(self, fitted_resolution):
+        ax = fitted_resolution.plot_consensus_matrix(sweep_value=1.0)
+        assert ax is not None
+
+    def test_save_load_round_trips_sweep(self, fitted_resolution, tmp_path):
+        path = tmp_path / "res.carve"
+        fitted_resolution.save(path)
+        loaded = CARVE.load(path)
+        # SweepSpec holds an ndarray, so compare field-by-field rather than
+        # relying on dataclass equality.
+        original = fitted_resolution.sweep_
+        assert loaded.sweep_.param == original.param
+        assert loaded.sweep_.label == original.label
+        assert loaded.sweep_.fixes_k == original.fixes_k
+        assert loaded.sweep_.finer_is_larger == original.finer_is_larger
+        np.testing.assert_allclose(loaded.sweep_.values, original.values)
+        assert loaded.get_sweep_value() == fitted_resolution.get_sweep_value()
+
+    def test_inferred_from_custom_grids(self, X_res_blobs):
+        """Supplying resolution grids alone switches the run to that axis."""
+        carve = CARVE(
+            estimator_param_grids=[
+                (LeidenClustering, {"resolution": [0.5, 1.0], "n_neighbors": [15]})
+            ],
+            n_resamples=2,
+            normalization_options=[],
+            dim_reduction_options=[],
+            n_jobs=1,
+            random_state=0,
+            verbose=0,
+        ).fit(X_res_blobs)
+        assert carve.sweep_.param == "resolution"
+
+    def test_mixing_sweep_axes_raises(self, X_res_blobs):
+        carve = CARVE(
+            estimator_param_grids=[
+                (KMeans, {"n_clusters": [2, 3]}),
+                (LeidenClustering, {"resolution": [0.5, 1.0]}),
+            ],
+            n_resamples=2,
+            normalization_options=[],
+            dim_reduction_options=[],
+            n_jobs=1,
+            verbose=0,
+        )
+        with pytest.raises(ValueError, match="one sweep axis"):
+            carve.fit(X_res_blobs)
+
+
+# ---------------------------------------------------------------------------
+# min_cluster_size / HDBSCAN mode
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def fitted_hdbscan(X_res_blobs):
+    """CARVE fitted over HDBSCAN's min_cluster_size axis."""
+    carve = CARVE(
+        sweep="min_cluster_size",
+        sweep_values=np.array([3, 5, 8]),
+        n_resamples=3,
+        normalization_options=[],
+        dim_reduction_options=[],
+        n_jobs=1,
+        random_state=0,
+        verbose=0,
+    )
+    carve.fit(X_res_blobs)
+    return carve
+
+
+class TestMinClusterSizeMode:
+    def test_sweep_spec_is_inverted(self, fitted_hdbscan):
+        sweep = fitted_hdbscan.sweep_
+        assert sweep.param == "min_cluster_size"
+        assert not sweep.finer_is_larger
+        assert not sweep.fixes_k
+        assert sweep.label == "Minimum Cluster Size"
+
+    def test_uses_hdbscan(self, fitted_hdbscan):
+        assert set(fitted_hdbscan.estimator_results_["estimator"]) == {"HDBSCAN"}
+
+    def test_ranks_run_backwards(self, fitted_hdbscan):
+        df = fitted_hdbscan.estimator_results_.sort_values("sweep_value")
+        assert df["sweep_rank"].tolist() == [2, 1, 0]
+
+    def test_records_noise(self, fitted_hdbscan):
+        """HDBSCAN leaves points unassigned; the runner must record that."""
+        assert (fitted_hdbscan.estimator_results_["noise_fraction"] > 0).any()
+        assert (fitted_hdbscan.estimator_results_["noise_fraction"] <= 1).all()
+
+    def test_observed_k_is_recorded(self, fitted_hdbscan):
+        assert (fitted_hdbscan.estimator_results_["n_clusters_observed"] > 0).all()
+
+    def test_get_sweep_value_and_k(self, fitted_hdbscan):
+        assert fitted_hdbscan.get_sweep_value() in [3, 5, 8]
+        assert fitted_hdbscan.get_k() >= 2
+
+    def test_get_labels(self, fitted_hdbscan, X_res_blobs):
+        labels = fitted_hdbscan.get_labels()
+        assert labels.shape == (X_res_blobs.shape[0],)
+
+    def test_plot_xlabel(self, fitted_hdbscan):
+        ax = fitted_hdbscan.plot_metric_over_n_clusters()
+        assert ax.get_xlabel() == "Minimum Cluster Size"
+
+    def _fit(self, X, **kwargs):
+        return CARVE(
+            sweep="min_cluster_size",
+            sweep_values=np.array([5, 10, 20]),
+            n_resamples=3,
+            normalization_options=[],
+            dim_reduction_options=[],
+            n_jobs=1,
+            random_state=0,
+            verbose=0,
+            **kwargs,
+        ).fit(X)
+
+    def test_all_noise_resample_does_not_crash(self, X_res_blobs):
+        """Regression: a held-out split labelled entirely as noise.
+
+        Under noise_policy="drop" such a resample yields no predicted
+        labels at all. Those resamples must be skipped when aggregating,
+        not passed on to the consensus and accuracy machinery.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            carve = self._fit(X_res_blobs)
+        assert carve.estimator_results_.shape[0] == 3
+        assert carve.consensus_matrices_[0] is not None
+
+    def test_noise_fraction_agrees_across_policies(self, X_res_blobs):
+        """noise_fraction is measured before the policy is applied."""
+        fractions = {}
+        for policy in ("drop", "as_cluster", "singleton"):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                carve = self._fit(X_res_blobs, noise_policy=policy)
+            fractions[policy] = carve.estimator_results_["noise_fraction"].tolist()
+
+        assert fractions["drop"] == pytest.approx(fractions["as_cluster"])
+        assert fractions["drop"] == pytest.approx(fractions["singleton"])
+
+    def test_non_integer_sweep_values_rejected(self, X_res_blobs):
+        carve = CARVE(
+            sweep="min_cluster_size",
+            sweep_values=np.array([5.5, 10.0]),
+            n_resamples=2,
+            normalization_options=[],
+            dim_reduction_options=[],
+            n_jobs=1,
+            verbose=0,
+        )
+        with pytest.raises(TypeError, match="must be integers"):
+            carve.fit(X_res_blobs)
+
+
+# ---------------------------------------------------------------------------
+# Row identity: artifacts are joined on config_id, never on row position
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def fitted_identity():
+    """A multi-row k-mode run with more than one method."""
+    rng = np.random.RandomState(42)
+    X = np.vstack(
+        [
+            rng.randn(30, 5) + [6, 0, 0, 0, 0],
+            rng.randn(30, 5) + [0, 6, 0, 0, 0],
+            rng.randn(30, 5) + [0, 0, 6, 0, 0],
+        ]
+    )
+    carve = CARVE(
+        n_clusters=np.array([2, 3, 4]),
+        n_resamples=4,
+        estimator_param_grids=[
+            (KMeans, {"n_clusters": [2, 3, 4]}),
+            (
+                AgglomerativeClustering,
+                {"n_clusters": [2, 3, 4], "linkage": ["ward", "average"]},
+            ),
+        ],
+        normalization_options=[],
+        dim_reduction_options=[],
+        n_jobs=1,
+        random_state=0,
+        verbose=0,
+    )
+    carve.fit(X)
+    return carve
+
+
+@pytest.fixture(scope="module")
+def fitted_identity_single():
+    """A single-method run, so rule-based selection is unambiguous.
+
+    ``select_best_row_1se`` breaks ties with ``idxmax``, which follows the
+    frame's current row order. With several methods the top metric can tie
+    across them, and a shuffle would then legitimately select a different
+    row -- masking, rather than testing, the config_id join. One method
+    over three k values gives exactly one qualifying row.
+    """
+    rng = np.random.RandomState(42)
+    X = np.vstack(
+        [
+            rng.randn(30, 5) + [6, 0, 0, 0, 0],
+            rng.randn(30, 5) + [0, 6, 0, 0, 0],
+            rng.randn(30, 5) + [0, 0, 6, 0, 0],
+        ]
+    )
+    carve = CARVE(
+        n_clusters=np.array([2, 3, 4]),
+        n_resamples=4,
+        estimator_param_grids=[(KMeans, {"n_clusters": [2, 3, 4]})],
+        normalization_options=[],
+        dim_reduction_options=[],
+        n_jobs=1,
+        random_state=0,
+        verbose=0,
+    )
+    carve.fit(X)
+    return carve
+
+
+class TestRowIdentity:
+    def test_selection_is_unambiguous(self, fitted_identity_single):
+        """Guards the premise of the shuffle tests below."""
+        df = fitted_identity_single.estimator_results_
+        best = df["ari_stability"].max()
+        threshold = best - df.loc[df["ari_stability"].idxmax(), "ari_stability_se"]
+        assert (df["ari_stability"] >= threshold).sum() == 1
+        # ...and the selected row is not at position 0, so a label/position
+        # mix-up would actually show up.
+        assert fitted_identity_single.get_k() == 3
+
+    def test_config_id_indexes_the_artifact_containers(self, fitted_identity):
+        config_ids = fitted_identity.estimator_results_["config_id"].tolist()
+        assert config_ids == list(range(len(fitted_identity.consensus_matrices_)))
+        assert config_ids == list(range(len(fitted_identity.generalizability_scores_)))
+        assert config_ids == list(range(len(fitted_identity.stability_gini_scores_)))
+
+    @staticmethod
+    def _reindexed(df):
+        """Reorder rows AND relabel the index.
+
+        ``sample(frac=1)`` alone preserves index labels, so the old
+        ``int(row.name)`` lookup would still land on the right artifact and
+        the test would prove nothing. Dropping the index is what actually
+        divorces label from position.
+        """
+        return df.sort_values("ari_stability").reset_index(drop=True)
+
+    def test_reindexing_actually_divorces_label_from_position(
+        self, fitted_identity_single
+    ):
+        """Non-vacuity guard for the three tests below.
+
+        If the selected row's index label still equalled its config_id,
+        those tests would pass even with the bug reinstated.
+        """
+        reindexed = self._reindexed(fitted_identity_single.estimator_results_)
+        row, config_id, _, _ = fitted_identity_single._select_row(
+            measure="stability", rule="1se"
+        )
+        selected = reindexed[reindexed["config_id"] == config_id]
+        assert len(selected) == 1
+        assert int(selected.index[0]) != config_id
+
+    def test_select_row_joins_on_config_id_not_index_label(
+        self, fitted_identity_single
+    ):
+        """The regression this whole change exists for.
+
+        Before config_id, artifact lookups used the row's index *label* as
+        a list position, so any reordering silently returned the wrong
+        consensus matrix -- with no error, and plausible-looking output.
+        """
+        _, before_id, _, _ = fitted_identity_single._select_row(
+            measure="stability", rule="1se"
+        )
+        original = fitted_identity_single.estimator_results_
+        try:
+            fitted_identity_single.estimator_results_ = self._reindexed(original)
+            row, after_id, _, _ = fitted_identity_single._select_row(
+                measure="stability", rule="1se"
+            )
+            assert after_id == before_id
+            # The label moved; the join key did not.
+            assert int(row.name) != after_id
+        finally:
+            fitted_identity_single.estimator_results_ = original
+
+    def test_consensus_matrix_survives_reindexing(self, fitted_identity_single):
+        before = fitted_identity_single.plot_consensus_matrix()
+        before_data = before.images[0].get_array().copy()
+        plt.close("all")
+
+        original = fitted_identity_single.estimator_results_
+        try:
+            fitted_identity_single.estimator_results_ = self._reindexed(original)
+            after = fitted_identity_single.plot_consensus_matrix()
+            np.testing.assert_array_equal(after.images[0].get_array(), before_data)
+        finally:
+            fitted_identity_single.estimator_results_ = original
+            plt.close("all")
+
+    def test_labels_survive_reindexing(self, fitted_identity_single):
+        before = fitted_identity_single.get_labels()
+        original = fitted_identity_single.estimator_results_
+        try:
+            fitted_identity_single.estimator_results_ = self._reindexed(original)
+            np.testing.assert_array_equal(fitted_identity_single.get_labels(), before)
+        finally:
+            fitted_identity_single.estimator_results_ = original
+
+    def test_labels_survive_row_reordering(self, fitted_identity_single):
+        """Reordering without relabelling must also be safe."""
+        before = fitted_identity_single.get_labels()
+        original = fitted_identity_single.estimator_results_
+        try:
+            fitted_identity_single.estimator_results_ = original.sample(
+                frac=1, random_state=0
+            )
+            np.testing.assert_array_equal(fitted_identity_single.get_labels(), before)
+        finally:
+            fitted_identity_single.estimator_results_ = original
+
+    def test_get_estimator_ignores_identity_columns(self, fitted_identity_single):
+        """row_to_estimator_params must filter the bookkeeping columns out."""
+        est = fitted_identity_single.get_estimator()
+        params = est.get_params()
+        for column in (
+            "config_id",
+            "method_id",
+            "method_label",
+            "sweep_param",
+            "sweep_value",
+            "sweep_rank",
+            "n_clusters_observed",
+            "noise_fraction",
+        ):
+            assert column not in params
+
+    def test_get_estimator_survives_a_shuffle(self, fitted_identity_single):
+        before = fitted_identity_single.get_estimator().get_params()
+        original = fitted_identity_single.estimator_results_
+        try:
+            fitted_identity_single.estimator_results_ = original.sample(
+                frac=1, random_state=1
+            )
+            assert fitted_identity_single.get_estimator().get_params() == before
+        finally:
+            fitted_identity_single.estimator_results_ = original
+
+    def test_one_method_id_per_curve(self, fitted_identity):
+        sizes = fitted_identity.estimator_results_.groupby("method_id")[
+            "sweep_value"
+        ].size()
+        # KMeans + ward + average = 3 curves, 3 swept values each.
+        assert len(sizes) == 3
+        assert set(sizes) == {3}
+
+    def test_method_label_is_unique_per_method_id(self, fitted_identity):
+        pairs = fitted_identity.estimator_results_[
+            ["method_id", "method_label"]
+        ].drop_duplicates()
+        assert len(pairs) == pairs["method_id"].nunique()
+
+    def test_misaligned_config_id_raises(self, X_two_clusters):
+        """The fit()-time guard is the last line of defence."""
+        carve = CARVE(
+            n_clusters=np.array([2, 3]),
+            n_resamples=2,
+            estimator_param_grids=[(KMeans, {"n_clusters": [2, 3]})],
+            normalization_options=[],
+            dim_reduction_options=[],
+            n_jobs=1,
+            random_state=0,
+            verbose=0,
+        )
+        original = carve_runner.run_validation
+
+        def _corrupt(*args, **kwargs):
+            records, *rest = original(*args, **kwargs)
+            for record in records:
+                record["config_id"] = 0
+            return (records, *rest)
+
+        carve_runner.run_validation = _corrupt
+        carve_api.run_validation = _corrupt
+        try:
+            with pytest.raises(RuntimeError, match="config_id is misaligned"):
+                carve.fit(X_two_clusters)
+        finally:
+            carve_runner.run_validation = original
+            carve_api.run_validation = original

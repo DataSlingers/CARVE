@@ -1,18 +1,20 @@
 """Custom spectral clustering implementation for CARVE."""
 
+import importlib
+
 import numpy as np
 from typing import Literal
 from sklearn.base import BaseEstimator, ClusterMixin
 from sklearn.cluster import KMeans
-from sklearn.neighbors import NearestNeighbors
-from scipy.sparse import csr_matrix, diags
+from sklearn.neighbors import NearestNeighbors, kneighbors_graph
+from scipy.sparse import coo_matrix, csr_matrix, diags, triu
 from scipy.sparse.linalg import eigsh, ArpackNoConvergence
 from scipy.linalg import eigh
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import pairwise_distances
 
 
-class SpectralClusteringCARVE(BaseEstimator, ClusterMixin):
+class SpectralClustering(BaseEstimator, ClusterMixin):
     """Spectral clustering with self-tuning, RBF, or kNN affinity.
 
     Parameters
@@ -293,7 +295,7 @@ class SpectralClusteringCARVE(BaseEstimator, ClusterMixin):
 
         Returns
         -------
-        self : SpectralClusteringCARVE
+        self : SpectralClustering
             Fitted estimator.
         """
         X = np.asarray(X, dtype=np.float64)
@@ -328,5 +330,361 @@ class SpectralClusteringCARVE(BaseEstimator, ClusterMixin):
         -------
         labels : ndarray of shape (n_samples,)
             Cluster labels.
+        """
+        return self.fit(X, y).labels_
+
+
+# ---------------------------------------------------------------------- #
+#  Graph-community clustering                                            #
+# ---------------------------------------------------------------------- #
+
+
+def _require(module: str, package: str):
+    """Import an optional dependency or raise an ImportError."""
+    try:
+        return importlib.import_module(module)
+    except ImportError as exc:  # pragma: no cover - depends on environment
+        raise ImportError(
+            f"{package} is required for graph-community clustering. "
+            'Install it with: pip install "carve-validate[graph]"'
+        ) from exc
+
+
+def build_knn_graph(
+    X: np.ndarray,
+    *,
+    n_neighbors: int = 15,
+    metric: str = "euclidean",
+    weighting: Literal["connectivity", "jaccard"] = "connectivity",
+):
+    """Build a symmetric weighted k-nearest-neighbor graph.
+
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        Input data.
+    n_neighbors : int, default=15
+        Number of nearest neighbors per point. Clipped to ``n_samples - 1``.
+    metric : str, default="euclidean"
+        Distance metric passed to ``sklearn.neighbors.kneighbors_graph``.
+    weighting : {"connectivity", "jaccard"}, default="connectivity"
+        ``"connectivity"`` gives every kNN edge weight 1 after
+        symmetrization. ``"jaccard"`` weights each edge by the Jaccard
+        index of its endpoints' neighbor sets (a shared-nearest-neighbor
+        graph, as used by Seurat), which suppresses spurious edges between
+        clusters.
+
+    Returns
+    -------
+    graph : igraph.Graph
+        Undirected graph on ``n_samples`` vertices with edge weights in the
+        ``"weight"`` attribute.
+
+    Raises
+    ------
+    ImportError
+        If ``igraph`` is not installed.
+    ValueError
+        If weighting is not recognized.
+    """
+    ig = _require("igraph", "igraph")
+
+    n = X.shape[0]
+    k = int(min(n_neighbors, max(n - 1, 1)))
+
+    A = kneighbors_graph(
+        X, n_neighbors=k, metric=metric, mode="connectivity", include_self=False
+    )
+
+    if weighting == "connectivity":
+        W = A.maximum(A.T)
+
+    elif weighting == "jaccard":
+        shared = (A @ A.T).tocsr()
+        shared.setdiag(0)
+        shared.eliminate_zeros()
+        S = shared.tocoo()
+        jaccard = S.data / (2.0 * k - S.data)
+        W = coo_matrix((jaccard, (S.row, S.col)), shape=A.shape)
+        W = W.multiply(A.maximum(A.T))
+
+    else:
+        raise ValueError(
+            f"Unknown weighting: {weighting!r}. "
+            "Expected 'connectivity' or 'jaccard'."
+        )
+
+    W = triu(csr_matrix(W), k=1).tocoo()
+
+    graph = ig.Graph(
+        n=n,
+        edges=list(zip(W.row.tolist(), W.col.tolist())),
+        directed=False,
+    )
+    graph.es["weight"] = W.data.astype(float).tolist()
+    return graph
+
+
+class LeidenClustering(BaseEstimator, ClusterMixin):
+    """Leiden community detection on a k-nearest-neighbor graph.
+
+    Unlike k-means or agglomerative clustering, Leiden takes no number of
+    clusters. Granularity is controlled by ``resolution``: larger values
+    yield more, smaller communities. Use CARVE's resolution sweep mode
+    (``CARVE(resolution=...)``) to validate across that axis.
+
+    Parameters
+    ----------
+    resolution : float, default=1.0
+        Resolution parameter of the partition quality function. Larger
+        values produce more clusters.
+    n_neighbors : int, default=15
+        Number of nearest neighbors used to build the graph.
+    metric : str, default="euclidean"
+        Distance metric for neighbor search.
+    weighting : {"connectivity", "jaccard"}, default="connectivity"
+        Edge weighting scheme; see :func:`build_knn_graph`.
+    objective_function : {"modularity", "cpm"}, default="modularity"
+        Partition quality function. ``"modularity"`` uses the RB
+        configuration model; ``"cpm"`` uses the constant Potts model.
+        The two use different resolution scales and must not be compared
+        on a shared resolution grid.
+    n_iterations : int, default=-1
+        Number of Leiden iterations. ``-1`` iterates until stable.
+    random_state : int or None, default=None
+        Seed for the Leiden optimizer.
+    scale : bool, default=False
+        Whether to standardize X before building the graph.
+
+    Attributes
+    ----------
+    labels_ : ndarray of shape (n_samples,)
+        Community assignment per sample.
+    n_clusters_ : int
+        Number of communities found.
+    graph_ : igraph.Graph
+        The kNN graph the partition was computed on.
+    quality_ : float
+        Quality of the final partition.
+
+    Notes
+    -----
+    Requires ``igraph`` and ``leidenalg``::
+
+        pip install "carve-validate[graph]"
+
+    References
+    ----------
+    Traag, Waltman & van Eck (2019). From Louvain to Leiden: guaranteeing
+    well-connected communities. Scientific Reports 9:5233.
+
+    See Also
+    --------
+    LouvainClustering : Modularity-based alternative on the same graph.
+    """
+
+    def __init__(
+        self,
+        resolution: float = 1.0,
+        n_neighbors: int = 15,
+        metric: str = "euclidean",
+        weighting: Literal["connectivity", "jaccard"] = "connectivity",
+        objective_function: Literal["modularity", "cpm"] = "modularity",
+        n_iterations: int = -1,
+        random_state: int | None = None,
+        scale: bool = False,
+    ):
+        self.resolution = resolution
+        self.n_neighbors = n_neighbors
+        self.metric = metric
+        self.weighting = weighting
+        self.objective_function = objective_function
+        self.n_iterations = n_iterations
+        self.random_state = random_state
+        self.scale = scale
+
+    def fit(self, X, y=None):
+        """Fit the Leiden model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input data.
+        y : None
+            Ignored (sklearn compatibility).
+
+        Returns
+        -------
+        self : LeidenClustering
+            Fitted estimator.
+        """
+        la = _require("leidenalg", "leidenalg")
+
+        partition_types = {
+            "modularity": "RBConfigurationVertexPartition",
+            "cpm": "CPMVertexPartition",
+        }
+        if self.objective_function not in partition_types:
+            raise ValueError(
+                f"Unknown objective_function: {self.objective_function!r}. "
+                "Expected 'modularity' or 'cpm'."
+            )
+        partition_type = getattr(la, partition_types[self.objective_function])
+
+        X = np.asarray(X, dtype=np.float64)
+        Xp = StandardScaler().fit_transform(X) if self.scale else X
+
+        graph = build_knn_graph(
+            Xp,
+            n_neighbors=self.n_neighbors,
+            metric=self.metric,
+            weighting=self.weighting,
+        )
+        self.graph_ = graph
+
+        partition = la.find_partition(
+            graph,
+            partition_type,
+            resolution_parameter=float(self.resolution),
+            weights="weight",
+            n_iterations=self.n_iterations,
+            seed=self.random_state,
+        )
+
+        self.labels_ = np.asarray(partition.membership, dtype=np.int32)
+        self.n_clusters_ = int(np.unique(self.labels_).size)
+        self.quality_ = float(partition.quality())
+        return self
+
+    def fit_predict(self, X, y=None):
+        """Fit the model and return community labels.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input data.
+        y : None
+            Ignored (sklearn compatibility).
+
+        Returns
+        -------
+        labels : ndarray of shape (n_samples,)
+            Community labels.
+        """
+        return self.fit(X, y).labels_
+
+
+class LouvainClustering(BaseEstimator, ClusterMixin):
+    """Louvain community detection on a k-nearest-neighbor graph.
+
+    Provided as a baseline alongside :class:`LeidenClustering`. Louvain can
+    produce internally disconnected communities, which Leiden fixes; prefer
+    Leiden unless you specifically need Louvain for comparison.
+
+    Parameters
+    ----------
+    resolution : float, default=1.0
+        Resolution of the modularity objective. Larger values produce more
+        clusters.
+    n_neighbors : int, default=15
+        Number of nearest neighbors used to build the graph.
+    metric : str, default="euclidean"
+        Distance metric for neighbor search.
+    weighting : {"connectivity", "jaccard"}, default="connectivity"
+        Edge weighting scheme; see :func:`build_knn_graph`.
+    scale : bool, default=False
+        Whether to standardize X before building the graph.
+
+    Attributes
+    ----------
+    labels_ : ndarray of shape (n_samples,)
+        Community assignment per sample.
+    n_clusters_ : int
+        Number of communities found.
+    graph_ : igraph.Graph
+        The kNN graph the partition was computed on.
+    modularity_ : float
+        Modularity of the final partition.
+
+    Notes
+    -----
+    Requires ``igraph``::
+
+        pip install "carve-validate[graph]"
+
+    ``igraph.Graph.community_multilevel`` takes no seed; results are
+    deterministic given the graph, and the graph is deterministic given X.
+
+    References
+    ----------
+    Blondel, Guillaume, Lambiotte & Lefebvre (2008). Fast unfolding of
+    communities in large networks. J. Stat. Mech. P10008.
+    """
+
+    def __init__(
+        self,
+        resolution: float = 1.0,
+        n_neighbors: int = 15,
+        metric: str = "euclidean",
+        weighting: Literal["connectivity", "jaccard"] = "connectivity",
+        scale: bool = False,
+    ):
+        self.resolution = resolution
+        self.n_neighbors = n_neighbors
+        self.metric = metric
+        self.weighting = weighting
+        self.scale = scale
+
+    def fit(self, X, y=None):
+        """Fit the Louvain model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input data.
+        y : None
+            Ignored (sklearn compatibility).
+
+        Returns
+        -------
+        self : LouvainClustering
+            Fitted estimator.
+        """
+        X = np.asarray(X, dtype=np.float64)
+        Xp = StandardScaler().fit_transform(X) if self.scale else X
+
+        graph = build_knn_graph(
+            Xp,
+            n_neighbors=self.n_neighbors,
+            metric=self.metric,
+            weighting=self.weighting,
+        )
+        self.graph_ = graph
+
+        partition = graph.community_multilevel(
+            weights="weight", resolution=float(self.resolution)
+        )
+
+        self.labels_ = np.asarray(partition.membership, dtype=np.int32)
+        self.n_clusters_ = int(np.unique(self.labels_).size)
+        self.modularity_ = float(
+            graph.modularity(partition.membership, weights="weight")
+        )
+        return self
+
+    def fit_predict(self, X, y=None):
+        """Fit the model and return community labels.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input data.
+        y : None
+            Ignored (sklearn compatibility).
+
+        Returns
+        -------
+        labels : ndarray of shape (n_samples,)
+            Community labels.
         """
         return self.fit(X, y).labels_

@@ -20,11 +20,19 @@ from ._output import _log_config_progress
 from ._consensus import compute_consensus_matrix
 from ._accuracy import compute_generalizability_scores
 from ._pipeline import build_preprocessing_pipeline
-from ._utils import cluster_labels, split_subsample_indices, _summarize_ari_scores
+from ._sweep import MethodIds, SweepSpec, resolve_sweep as _resolve_sweep
+from ._utils import (
+    apply_noise_policy,
+    cluster_labels, 
+    count_clusters,
+    split_subsample_indices, 
+    _summarize_ari_scores
+)
 
 from ._types import (
     EstimatorRecord,
     GridSpec,
+    NoisePolicy,
     PipelineRecord,
     PreprocSpec,
     RunMode,
@@ -74,8 +82,16 @@ class ResampleResult(NamedTuple):
         Class name of the normalization transformer.
     dim_reduction_name : str
         Class name of the dimensionality reduction transformer.
+    n_clusters_train : int
+        Number of non-noise clusters found on the training subsample.
+    n_clusters_test : int
+        Number of non-noise clusters found on the held-out set.
+    n_clusters_stability : int
+        Number of non-noise clusters found on the second subsample.
+    noise_fraction : float
+        Fraction of training-subsample points labelled as noise before the
+        noise policy was applied.
     """
-
     ari_stability: float
     ari_generalizability: float
     labels_train: np.ndarray
@@ -89,6 +105,10 @@ class ResampleResult(NamedTuple):
     dim_reduction_params: dict[str, Any]
     normalization_name: str
     dim_reduction_name: str
+    n_clusters_train: int
+    n_clusters_test: int
+    n_clusters_stability: int
+    noise_fraction: float
 
 
 def run_validation(
@@ -103,6 +123,8 @@ def run_validation(
     randomize_preprocessing: bool = False,
     n_jobs: int = 1,
     random_state: int = None,
+    sweep: SweepSpec | None = None,
+    noise_policy: NoisePolicy = "drop",
     show_progress: bool = False,
     mode: RunMode = "default",
     verbose: int = 0,
@@ -133,6 +155,11 @@ def run_validation(
         Number of parallel jobs for resamples.
     random_state : int or None, default=None
         Random seed for reproducibility.
+    sweep : SweepSpec, optional
+        The swept hyperparameter axis. Defaults to an ``n_clusters`` sweep
+        inferred from the first estimator grid.
+    noise_policy : {"drop", "as_cluster", "singleton"}, default="drop"
+        How to resolve negative labels emitted by density-based methods.
     show_progress : bool, default=False
         If True, display a progress bar for grid configurations.
     mode : Literal['default', 'stability', 'generalizability'], default='default'
@@ -157,6 +184,16 @@ def run_validation(
         Per-sample generalizability arrays for each configuration.
     """
     policy = resolve_mode(mode)
+    
+    # If sweep is not provided, default to sweeping over n_clusters 
+    if sweep is None:
+        sweep = _resolve_sweep(
+            n_clusters=np.asarray(estimator_grids[0][1]["n_clusters"])
+        )
+    
+    # Method identity is defined relative to the sweep axis, so this is
+    # built after the sweep is resolved and shared across the whole run.
+    method_ids = MethodIds(sweep.param)
 
     estimator_records: list[EstimatorRecord] = []
     pipeline_records: list[PipelineRecord] = []
@@ -192,6 +229,8 @@ def run_validation(
                         classifier=classifier,
                         n_trees=n_trees,
                         randomize_preprocessing=randomize_preprocessing,
+                        sweep_param=sweep.param,
+                        noise_policy=noise_policy,
                         mode=mode,
                         random_state=random_state,
                     )
@@ -207,11 +246,31 @@ def run_validation(
                     else [np.nan] * n_resamples
                 )
 
+                # --- Drop degenerate resamples ---
+                #
+                # Under noise_policy="drop" a subsample can be labelled
+                # entirely as noise, leaving nothing to aggregate. Those
+                # resamples already warned and carry empty or None labels;
+                # they must not reach the consensus/accuracy aggregators.
+                stab_runs = [
+                    r
+                    for r in results
+                    if r.labels_train is not None and np.size(r.labels_train)
+                ]
+                gen_runs = [
+                    r
+                    for r in results
+                    if r.labels_predicted is not None
+                    and np.size(r.labels_predicted)
+                    and r.labels_test is not None
+                    and np.size(r.labels_test)
+                ]
+
                 # --- Build consensus matrices ---
                 M = (
                     compute_consensus_matrix(
                         n_samples=n,
-                        runs=[(r.train_indices, r.labels_train) for r in results],
+                        runs=[(r.train_indices, r.labels_train) for r in stab_runs],
                     )
                     if policy.run_stability
                     else None
@@ -220,7 +279,7 @@ def run_validation(
                 M_g = (
                     compute_consensus_matrix(
                         n_samples=n,
-                        runs=[(r.test_indices, r.labels_predicted) for r in results],
+                        runs=[(r.test_indices, r.labels_predicted) for r in gen_runs],
                     )
                     if policy.run_generalizability
                     else None
@@ -232,7 +291,7 @@ def run_validation(
                         n_samples=n,
                         runs=[
                             (r.test_indices, r.labels_test, r.labels_predicted)
-                            for r in results
+                            for r in gen_runs
                         ],
                     )
                     if policy.run_generalizability
@@ -253,9 +312,43 @@ def run_validation(
                 avg_mean, avg_se, avg_q95, avg_q05 = _summarize_ari_scores(
                     aris_avg, n_resamples
                 )
+                
+                # --- Observed granularity (if sweep parameter does not fix k) ---
+                k_obs = np.array(
+                    [r.n_clusters_train for r in results], dtype=float
+                )
+                
+                n_clusters_observed = float(np.mean(k_obs))
+                n_clusters_observed_se = (
+                    float(np.std(k_obs, ddof=1) / np.sqrt(k_obs.size))
+                    if k_obs.size > 1
+                    else np.nan
+                )
+                
+                # --- Observed noise fraction ---
+                noise = np.array([r.noise_fraction for r in results], dtype=float)
+                noise_fraction = float(np.mean(noise))
+                sweep_value = params[sweep.param]
+
+                # --- Assign method ID for this configuration ---
+                method_id, method_label = method_ids.assign(
+                    est_class.__name__, params
+                )
+                
                 record: EstimatorRecord = {
+                    # config_id keys the per-configuration artifact
+                    # containers appended just above. 
+                    "config_id": config_idx - 1,
+                    "method_id": method_id,
+                    "method_label": method_label,
                     "estimator": est_class.__name__,
                     **params,
+                    "sweep_param": sweep.param,
+                    "sweep_value": sweep_value,
+                    "sweep_rank": sweep.rank_of(sweep_value),
+                    "n_clusters_observed": n_clusters_observed,
+                    "n_clusters_observed_se": n_clusters_observed_se,
+                    "noise_fraction": noise_fraction,
                     "ari_stability": stab_mean,
                     "ari_stability_se": stab_se,
                     "ari_stability_upper": stab_q95,
@@ -287,6 +380,7 @@ def run_validation(
                     params=params,
                     record=record,
                     pbar_obj=pbar if show_progress else None,
+                    sweep_param=sweep.param,
                     verbose=verbose,
                 )
 
@@ -312,6 +406,8 @@ def validation_iter(
     dim_reduction_options: list[PreprocSpec],
     classifier: ClassifierMixin | None = None,
     n_trees: int = 100,
+    sweep_param: str = "n_clusters",
+    noise_policy: NoisePolicy = "drop",
     randomize_preprocessing: bool = False,
     mode: RunMode = "default",
     random_state: int = None,
@@ -340,6 +436,11 @@ def validation_iter(
         Classifier used to score generalizability.
     n_trees : int, default=100
         Number of trees in the default random-forest classifier.
+    sweep_param : str, default="n_clusters"
+        Name of the swept hyperparameter. Cluster-count sanity checks are
+        only meaningful when this is ``"n_clusters"``.
+    noise_policy : {"drop", "as_cluster", "singleton"}, default="drop"
+        How to resolve negative labels emitted by density-based methods.
     randomize_preprocessing : bool, default=False
         Whether to randomize preprocessing.
     mode : Literal['default', 'stability', 'generalizability'], default='default'
@@ -410,26 +511,59 @@ def validation_iter(
         else None
     )
 
-    # --- Cluster count sanity checks ---
-    n_clusters = params.get("n_clusters")
+    # --- Resolve noise labels (density-based methods emit -1) ---
+    #
+    # Under "drop" policy, index arrays shrink:
+    # feature matrices must be re-sliced to stay aligned with labels.
+    P_1_idx, labels_1, noise_fraction = apply_noise_policy(
+        P_1_idx, labels_1, noise_policy
+    )
+    X_1 = X_preprocessed[P_1_idx]
 
-    if len(np.unique(labels_1)) != n_clusters:
-        warnings.warn(
-            f"labels_1 has {len(np.unique(labels_1))} clusters, expected {n_clusters}"
+    if policy.run_generalizability:
+        P_test_idx, labels_test, _ = apply_noise_policy(
+            P_test_idx, labels_test, noise_policy
         )
+        X_test = X_preprocessed[P_test_idx]
 
-    if policy.run_generalizability and len(np.unique(labels_test)) != n_clusters:
-        warnings.warn(
-            f"labels_test has {len(np.unique(labels_test))} clusters, expected {n_clusters}"
+    if policy.run_stability:
+        P_2_idx, labels_2, _ = apply_noise_policy(
+            P_2_idx, labels_2, noise_policy
         )
+        X_2 = X_preprocessed[P_2_idx]
 
-    if policy.run_stability and len(np.unique(labels_2)) != n_clusters:
+    # --- Cluster count bookkeeping ---
+    k_1 = count_clusters(labels_1)
+    k_test = count_clusters(labels_test) if policy.run_generalizability else 0
+    k_2 = count_clusters(labels_2) if policy.run_stability else 0
+
+    if sweep_param == "n_clusters":
+        expected = params.get("n_clusters")
+
+        if k_1 != expected:
+            warnings.warn(f"labels_1 has {k_1} clusters, expected {expected}")
+
+        if policy.run_generalizability and k_test != expected:
+            warnings.warn(f"labels_test has {k_test} clusters, expected {expected}")
+
+        if policy.run_stability and k_2 != expected:
+            warnings.warn(f"labels_2 has {k_2} clusters, expected {expected}")
+
+    elif k_1 < 2:
         warnings.warn(
-            f"labels_2 has {len(np.unique(labels_2))} clusters, expected {n_clusters}"
+            f"{est_class.__name__} with {params!r} produced {k_1} cluster(s) "
+            "on a subsample; stability and generalizability are degenerate "
+            "at this point on the sweep axis."
         )
 
     # --- Stability ARI (overlap between two independent subsamples) ---
-    ari_stab = _compute_stability_ari(policy, P_1_idx, P_2_idx, labels_1, labels_2)
+    ari_stab = _compute_stability_ari(
+        policy=policy, 
+        P_1_idx=P_1_idx, 
+        P_2_idx=P_2_idx, 
+        labels_1=labels_1, 
+        labels_2=labels_2
+    )
 
     # --- Generalizability ARI (RF prediction on held-out set) ---
     labels_pred, ari_pred = _compute_generalizability_ari(
@@ -440,7 +574,7 @@ def validation_iter(
         labels_test=labels_test,
         classifier=classifier,
         n_trees=n_trees,
-        seed=random_state0 + seed,
+        seed=random_state0+seed,
     )
 
     return ResampleResult(
@@ -457,6 +591,10 @@ def validation_iter(
         dim_reduction_params=dim_reduction_params,
         normalization_name=normalization_name,
         dim_reduction_name=dim_reduction_name,
+        n_clusters_train=k_1,
+        n_clusters_test=k_test,
+        n_clusters_stability=k_2,
+        noise_fraction=noise_fraction,
     )
 
 
@@ -490,6 +628,15 @@ def _compute_stability_ari(
         stability is skipped.
     """
     if not policy.run_stability:
+        return np.nan
+
+    if P_1_idx.size == 0 or P_2_idx.size == 0:
+        warnings.warn(
+            "All points in a subsample were labelled as noise and dropped "
+            "(noise_policy='drop'); stability ARI is undefined for this "
+            "resample. Consider relaxing the clustering parameters or "
+            "switching to noise_policy='as_cluster'."
+        )
         return np.nan
 
     _, i_1, i_2 = np.intersect1d(P_1_idx, P_2_idx, return_indices=True)
@@ -538,6 +685,15 @@ def _compute_generalizability_ari(
         ``NaN`` when skipped.
     """
     if not policy.run_generalizability:
+        return None, np.nan
+
+    if X_1.shape[0] == 0 or X_test.shape[0] == 0:
+        warnings.warn(
+            "All points in a subsample were labelled as noise and dropped "
+            "(noise_policy='drop'); generalizability ARI is undefined for "
+            "this resample. Consider relaxing the clustering parameters or "
+            "switching to noise_policy='as_cluster'."
+        )
         return None, np.nan
 
     if classifier is None:

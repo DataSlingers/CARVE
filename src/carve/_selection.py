@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import ClusterMixin
 
+from ._sweep import observed_k, observed_k_series
 from ._types import GridSpec, Measure, Rule
 
 # Maps short measure aliases to canonical column names in estimator_results_
@@ -56,17 +57,19 @@ def select_best_row_by_rule(
         best score. ``"quantile"`` picks the largest *k* within the best
         score's quantile bounds.
     return_idx : bool, default=False
-        If True, return the selected row index instead of the row itself.
+        If True, return the row's index label instead of the row. This is
+        a pandas label, not a positional index -- do not use it to index
+        into ``consensus_matrices_``; use the row's ``config_id``.
     not_two : bool, default=False
         If True, exclude configurations with k=2 from selection.
 
     Returns
     -------
     row : pandas.Series or int
-        Selected row (or row index if ``return_idx=True``).
+        Selected row (or its index label if ``return_idx=True``).
     """
     if not_two:
-        results_df = results_df[results_df["n_clusters"] != 2]
+        results_df = results_df[observed_k_series(results_df) != 2]
         if results_df.empty:
             raise ValueError("No configurations remain after excluding k=2.")
 
@@ -137,7 +140,10 @@ def select_best_estimator(
         Instantiated estimator with parameters from the selected row.
     """
     if k is not None:
-        results_df = results_df[results_df["n_clusters"] == k]
+        results_df = results_df[observed_k_series(results_df) == k]
+        
+    if results_df.empty:
+            raise ValueError(f"No configurations found for k={k}.")
 
     row = select_best_row_by_rule(
         results_df,
@@ -155,7 +161,8 @@ def select_best_k(
     rule: Rule = "max",
     not_two: bool = False,
 ) -> int:
-    """Select the best number of clusters from results.
+    """Selected number of clusters. In sweep modes that do not fix k, this
+    is the rounded mean number of clusters observed across resamples.
 
     Parameters
     ----------
@@ -183,7 +190,7 @@ def select_best_k(
         return_idx=False,
         not_two=not_two,
     )
-    return row["n_clusters"]
+    return observed_k(row)
 
 
 def select_best_row_max(
@@ -201,12 +208,14 @@ def select_best_row_max(
     measure : Measure, default="stability"
         Metric key.
     return_idx : bool, default=False
-        If True, return the row index instead of the row.
+        If True, return the row's index *label* instead of the row. This is
+        a pandas label, not a positional index -- do not use it to index
+        into ``consensus_matrices_``; use the row's ``config_id``.
 
     Returns
     -------
     row : pandas.Series or int
-        Selected row (or row index if ``return_idx=True``).
+        Selected row (or its index label if ``return_idx=True``).
     """
     measure_col = MEASURE_MAP[measure]
 
@@ -222,7 +231,9 @@ def select_best_row_1se(
     measure: Measure = "stability",
     return_idx: bool = False,
 ) -> pd.Series:
-    """Select the model with the largest k within 1 SE of the best score.
+    """Select the finest-granularity model within 1 SE of the best score.
+    
+    Granularity is ordered by ``sweep_rank`` (0 = coarsest).
 
     Parameters
     ----------
@@ -231,12 +242,14 @@ def select_best_row_1se(
     measure : Measure, default="stability"
         Metric key.
     return_idx : bool, default=False
-        If True, return the row index instead of the row.
+        If True, return the row's index *label* instead of the row. This is
+        a pandas label, not a positional index -- do not use it to index
+        into ``consensus_matrices_``; use the row's ``config_id``.
 
     Returns
     -------
     row : pandas.Series or int
-        Selected row (or row index if ``return_idx=True``).
+        Selected row (or its index label if ``return_idx=True``).
     """
     if measure not in MEASURE_MAP:
         raise ValueError(f"Invalid measure {measure!r}. Options: {list(MEASURE_MAP)}")
@@ -248,11 +261,12 @@ def select_best_row_1se(
     threshold = best_score - se
 
     within_1se = results_df[results_df[measure_col] >= threshold]
+    order_col = "sweep_rank"
 
     if return_idx:
-        return within_1se["n_clusters"].idxmax()
+        return within_1se[order_col].idxmax()
 
-    return within_1se.loc[within_1se["n_clusters"].idxmax()]
+    return within_1se.loc[within_1se[order_col].idxmax()]
 
 
 def select_best_row_quantile(
@@ -270,12 +284,14 @@ def select_best_row_quantile(
     measure : Measure, default="stability"
         Metric key.
     return_idx : bool, default=False
-        If True, return the row index instead of the row.
+        If True, return the row's index *label* instead of the row. This is
+        a pandas label, not a positional index -- do not use it to index
+        into ``consensus_matrices_``; use the row's ``config_id``.
 
     Returns
     -------
     row : pandas.Series or int
-        Selected row (or row index if ``return_idx=True``).
+        Selected row (or its index label if ``return_idx=True``).
     """
     if measure not in MEASURE_MAP:
         raise ValueError(f"Invalid measure {measure!r}. Options: {list(MEASURE_MAP)}")
@@ -289,6 +305,7 @@ def select_best_row_quantile(
         (results_df[measure_col] >= threshold_lower)
         & (results_df[measure_col] <= threshold_upper)
     ]
+    order_col = "sweep_rank"
 
     if within_quantiles.empty:
         warnings.warn(
@@ -301,9 +318,9 @@ def select_best_row_quantile(
         return results_df.loc[results_df[measure_col].idxmax()]
 
     if return_idx:
-        return within_quantiles["n_clusters"].idxmax()
+        return within_quantiles[order_col].idxmax()
 
-    return within_quantiles.loc[within_quantiles["n_clusters"].idxmax()]
+    return within_quantiles.loc[within_quantiles[order_col].idxmax()]
 
 
 def build_estimator_from_row(

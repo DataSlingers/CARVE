@@ -18,6 +18,8 @@ from carve._selection import (
     select_best_row_quantile,
 )
 
+from conftest import with_sweep_cols
+
 
 # -----------------------------------------------------------------------
 # select_best_row_max
@@ -59,13 +61,18 @@ class TestSelectBestRow1se:
         assert row["n_clusters"] == 2
 
     def test_wider_se(self):
-        df = pd.DataFrame(
-            {
-                "estimator": ["KMeans"] * 4,
-                "n_clusters": [2, 3, 4, 5],
-                "ari_stability": [0.90, 0.89, 0.88, 0.50],
-                "ari_stability_se": [0.05, 0.04, 0.03, 0.02],
-            }
+        df = with_sweep_cols(
+            pd.DataFrame(
+                {
+                    "estimator": ["KMeans"] * 4,
+                    "n_clusters": [2, 3, 4, 5],
+                    "ari_stability": [0.90, 0.89, 0.88, 0.50],
+                    "ari_stability_se": [0.05, 0.04, 0.03, 0.02],
+                }
+            ),
+            param="n_clusters",
+            method_label="KMeans",
+            observed=[2.0, 3.0, 4.0, 5.0],
         )
         row = select_best_row_1se(df, measure="stability")
         # Threshold: 0.90 - 0.05 = 0.85; k=2,3,4 all >= 0.85
@@ -94,15 +101,20 @@ class TestSelectBestRowQuantile:
         assert row["n_clusters"] == 2
 
     def test_wider_bounds(self):
-        df = pd.DataFrame(
-            {
-                "estimator": ["KMeans"] * 3,
-                "n_clusters": [2, 3, 4],
-                "ari_stability": [0.85, 0.83, 0.80],
-                "ari_stability_se": [0.03, 0.03, 0.03],
-                "ari_stability_upper": [0.90, 0.88, 0.85],
-                "ari_stability_lower": [0.80, 0.78, 0.75],
-            }
+        df = with_sweep_cols(
+            pd.DataFrame(
+                {
+                    "estimator": ["KMeans"] * 3,
+                    "n_clusters": [2, 3, 4],
+                    "ari_stability": [0.85, 0.83, 0.80],
+                    "ari_stability_se": [0.03, 0.03, 0.03],
+                    "ari_stability_upper": [0.90, 0.88, 0.85],
+                    "ari_stability_lower": [0.80, 0.78, 0.75],
+                }
+            ),
+            param="n_clusters",
+            method_label="KMeans",
+            observed=[2.0, 3.0, 4.0],
         )
         row = select_best_row_quantile(df, measure="stability")
         # Best at k=2: bounds [0.80, 0.90]; k=3 (0.83) and k=4 (0.80)
@@ -315,3 +327,127 @@ class TestMeasureMap:
         assert MEASURE_MAP["gini"] == "consensus_gini_stability"
         assert MEASURE_MAP["ce"] == "consensus_ce_stability"
         assert MEASURE_MAP["acc"] == "accuracy_generalizability"
+
+
+# -----------------------------------------------------------------------
+# Sweep-axis selection (rank, not k)
+# -----------------------------------------------------------------------
+
+
+class TestSelectionOnResolutionAxis:
+    def test_1se_picks_finest_within_one_se(self, resolution_results_df):
+        # Threshold: 0.90 - 0.02 = 0.88; only resolution 0.25 (0.90) and
+        # 0.5 (0.85 -> below) qualify, so the coarsest survives.
+        row = select_best_row_1se(resolution_results_df, measure="stability")
+        assert row["sweep_value"] == 0.25
+        assert row["sweep_rank"] == 0
+
+    def test_1se_agrees_with_k_mode_on_the_same_numbers(
+        self, resolution_results_df, results_df
+    ):
+        """The rule is axis-agnostic: identical metrics select the same rank."""
+        k_row = select_best_row_1se(results_df, measure="stability")
+        r_row = select_best_row_1se(resolution_results_df, measure="stability")
+        assert k_row["sweep_rank"] == r_row["sweep_rank"]
+
+    def test_1se_picks_finer_rank_when_ses_are_wide(self):
+        df = with_sweep_cols(
+            pd.DataFrame(
+                {
+                    "estimator": ["LeidenClustering"] * 4,
+                    "resolution": [0.25, 0.5, 1.0, 2.0],
+                    "ari_stability": [0.90, 0.89, 0.88, 0.50],
+                    "ari_stability_se": [0.05, 0.04, 0.03, 0.02],
+                }
+            ),
+            param="resolution",
+            method_label="LeidenClustering",
+            observed=[2.0, 3.0, 5.0, 9.0],
+        )
+        # Threshold 0.85; resolutions 0.25/0.5/1.0 qualify, finest is 1.0.
+        row = select_best_row_1se(df, measure="stability")
+        assert row["sweep_value"] == 1.0
+        assert row["sweep_rank"] == 2
+
+    def test_select_best_k_uses_observed_clusters(self, resolution_results_df):
+        """There is no n_clusters column; k comes from n_clusters_observed."""
+        assert "n_clusters" not in resolution_results_df.columns
+        assert select_best_k(resolution_results_df, measure="stability") == 2
+
+    def test_select_best_k_rounds(self):
+        df = with_sweep_cols(
+            pd.DataFrame(
+                {
+                    "estimator": ["LeidenClustering"] * 2,
+                    "resolution": [0.5, 1.0],
+                    "ari_stability": [0.9, 0.5],
+                    "ari_stability_se": [0.01, 0.01],
+                }
+            ),
+            param="resolution",
+            method_label="LeidenClustering",
+            observed=[3.4, 8.6],
+        )
+        assert select_best_k(df, measure="stability", rule="max") == 3
+
+    def test_not_two_filters_on_observed_k(self, resolution_results_df):
+        row = select_best_row_by_rule(
+            resolution_results_df, measure="stability", rule="1se", not_two=True
+        )
+        assert row["n_clusters_observed"] != 2.0
+        assert row["sweep_value"] == 0.5
+
+    def test_not_two_exhausted_raises(self):
+        df = with_sweep_cols(
+            pd.DataFrame(
+                {
+                    "estimator": ["LeidenClustering"] * 2,
+                    "resolution": [0.5, 1.0],
+                    "ari_stability": [0.9, 0.8],
+                    "ari_stability_se": [0.01, 0.01],
+                }
+            ),
+            param="resolution",
+            method_label="LeidenClustering",
+            observed=[2.0, 2.4],
+        )
+        with pytest.raises(ValueError, match="excluding k=2"):
+            select_best_row_by_rule(df, measure="stability", rule="max", not_two=True)
+
+
+class TestSelectionOnInvertedAxis:
+    """min_cluster_size is the one axis where larger means coarser."""
+
+    def test_ranks_run_backwards(self, min_cluster_size_results_df):
+        np.testing.assert_array_equal(
+            min_cluster_size_results_df["sweep_rank"], [2, 1, 0]
+        )
+
+    def test_1se_picks_smallest_size_within_one_se(self, min_cluster_size_results_df):
+        # Best is size 25 (0.88); threshold 0.88 - 0.02 = 0.86. Size 10
+        # (0.85) is below it, so only size 25 qualifies.
+        row = select_best_row_1se(min_cluster_size_results_df, measure="stability")
+        assert row["min_cluster_size"] == 25
+
+    def test_1se_prefers_finer_rank_not_larger_value(self):
+        """With a wide SE the *smallest* size wins, i.e. the finest rank."""
+        df = with_sweep_cols(
+            pd.DataFrame(
+                {
+                    "estimator": ["HDBSCAN"] * 3,
+                    "min_cluster_size": [5, 10, 25],
+                    "ari_stability": [0.86, 0.87, 0.88],
+                    "ari_stability_se": [0.02, 0.02, 0.05],
+                }
+            ),
+            param="min_cluster_size",
+            method_label="HDBSCAN",
+            observed=[9.0, 5.0, 3.0],
+        )
+        # Threshold 0.83; all three qualify. Finest rank is size 5.
+        row = select_best_row_1se(df, measure="stability")
+        assert row["min_cluster_size"] == 5
+        assert row["sweep_rank"] == 2
+
+    def test_select_best_k_on_inverted_axis(self, min_cluster_size_results_df):
+        assert select_best_k(min_cluster_size_results_df, measure="stability") == 3

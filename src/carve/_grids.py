@@ -3,14 +3,15 @@
 from typing import Literal
 
 import numpy as np
-from sklearn.cluster import KMeans, AgglomerativeClustering
+from sklearn.cluster import HDBSCAN, KMeans, AgglomerativeClustering
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import FunctionTransformer, StandardScaler
 from umap import UMAP
 
-from .cluster import SpectralClusteringCARVE
+from .cluster import LeidenClustering, LouvainClustering, SpectralClustering
+from ._sweep import SweepSpec, resolve_sweep
 from ._types import GridSpec, PreprocSpec
 
 
@@ -55,33 +56,65 @@ def default_estimator_grids(
     X: np.ndarray,
     n_clusters: int | np.ndarray = 10,
     preset: Literal["light", "full"] = "light",
+    *,
+    sweep: SweepSpec | None = None,
 ) -> list[GridSpec]:
-    """Return default clustering estimator grids.
+    """Return default clustering estimator grids for a run's sweep axis.
 
     Parameters
     ----------
     X : ndarray of shape (n_samples, n_features)
         Input data used to derive data-driven hyperparameters (e.g., gamma).
     n_clusters : int or ndarray, default=10
-        Number(s) of clusters to evaluate.
+        Number(s) of clusters to evaluate. Ignored when ``sweep`` is given.
     preset : {"light", "full"}, default="light"
         ``"light"`` includes KMeans, Ward-linkage agglomerative, and
         self-tuning spectral clustering. ``"full"`` adds average- and
         single-linkage agglomerative clustering and RBF-kernel spectral
         clustering with data-driven gamma.
+    sweep : SweepSpec, optional
+        Resolved sweep axis. Defaults to an ``n_clusters`` sweep built
+        from n_clusters.
 
     Returns
     -------
     grids : list of tuple
         List of (EstimatorClass, param_grid) tuples suitable for
         ``sklearn.model_selection.ParameterGrid``.
+
+    Raises
+    ------
+    ValueError
+        If no default grids exist for the sweep parameter.
     """
+    if sweep is None:
+        sweep = resolve_sweep(n_clusters=n_clusters)
+
+    if sweep.param == "n_clusters":
+        return _default_k_grids(X, sweep.values, preset)
+    if sweep.param == "resolution":
+        return _default_resolution_grids(sweep.values, preset)
+    if sweep.param == "min_cluster_size":
+        return _default_min_cluster_size_grids(sweep.values, preset)
+
+    raise ValueError(
+        f"No default estimator grids for sweep parameter {sweep.param!r}. "
+        "Pass estimator_param_grids=... explicitly."
+    )
+
+
+def _default_k_grids(
+    X: np.ndarray,
+    n_clusters: np.ndarray,
+    preset: Literal["light", "full"] = "light",
+) -> list[GridSpec]:
+    """Grids for estimators that take an explicit number of clusters."""
     ks = list(np.asarray(n_clusters).tolist())
 
     grids: list[GridSpec] = [
         (KMeans, {"n_clusters": ks}),
         (AgglomerativeClustering, {"n_clusters": ks, "linkage": ["ward"]}),
-        (SpectralClusteringCARVE, {"n_clusters": ks, "affinity": ["self_tuning"]}),
+        (SpectralClustering, {"n_clusters": ks, "affinity": ["self_tuning"]}),
     ]
 
     if preset == "full":
@@ -94,9 +127,84 @@ def default_estimator_grids(
 
         grids.append(
             (
-                SpectralClusteringCARVE,
+                SpectralClustering,
                 {"n_clusters": ks, "affinity": ["rbf"], "gamma": estimate_knn_gamma(X)},
             ),
+        )
+
+    return grids
+
+
+def _default_resolution_grids(
+    resolutions: np.ndarray,
+    preset: Literal["light", "full"] = "light",
+) -> list[GridSpec]:
+    """Grids for graph-community estimators swept over ``resolution``.
+
+    Parameters
+    ----------
+    resolutions : ndarray
+        Resolution values to evaluate.
+    preset : {"light", "full"}, default="light"
+        ``"light"`` uses Leiden and Louvain on a 15-neighbor graph.
+        ``"full"`` additionally varies the neighborhood size.
+
+    Returns
+    -------
+    grids : list of tuple
+        List of (EstimatorClass, param_grid) tuples.
+    """
+    res = [float(r) for r in np.asarray(resolutions).tolist()]
+
+    grids: list[GridSpec] = [
+        (LeidenClustering, {"resolution": res, "n_neighbors": [15]}),
+        (LouvainClustering, {"resolution": res, "n_neighbors": [15]}),
+    ]
+
+    if preset == "full":
+        grids.append(
+            (LeidenClustering, {"resolution": res, "n_neighbors": [10, 30]})
+        )
+        grids.append(
+            (LouvainClustering, {"resolution": res, "n_neighbors": [10, 30]})
+        )
+
+    return grids
+
+
+def _default_min_cluster_size_grids(
+    min_cluster_sizes: np.ndarray,
+    preset: Literal["light", "full"] = "light",
+) -> list[GridSpec]:
+    """Grids for HDBSCAN swept over ``min_cluster_size``.
+
+    Parameters
+    ----------
+    min_cluster_sizes : ndarray
+        Minimum cluster sizes to evaluate.
+    preset : {"light", "full"}, default="light"
+        ``"full"`` additionally evaluates leaf cluster selection.
+
+    Returns
+    -------
+    grids : list of tuple
+        List of (EstimatorClass, param_grid) tuples.
+    """
+    sizes = [int(s) for s in np.asarray(min_cluster_sizes).tolist()]
+
+    grids: list[GridSpec] = [
+        (
+            HDBSCAN,
+            {"min_cluster_size": sizes, "cluster_selection_method": ["eom"]},
+        ),
+    ]
+
+    if preset == "full":
+        grids.append(
+            (
+                HDBSCAN,
+                {"min_cluster_size": sizes, "cluster_selection_method": ["leaf"]},
+            )
         )
 
     return grids

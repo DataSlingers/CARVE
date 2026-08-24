@@ -1,11 +1,84 @@
 """Shared fixtures for CARVE test suite."""
 
+import importlib.util
+
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.cluster import KMeans
 
-from carve import CARVE
+from carve._sweep import resolve_sweep
+
+# Leiden and Louvain live behind the optional [graph] extra.
+requires_graph = pytest.mark.skipif(
+    not all(importlib.util.find_spec(m) is not None for m in ("igraph", "leidenalg")),
+    reason="requires the [graph] extra (igraph + leidenalg)",
+)
+
+
+def with_sweep_cols(
+    df: pd.DataFrame,
+    *,
+    param: str,
+    method_label: str,
+    observed: list[float],
+    observed_se: list[float] | None = None,
+    noise_fraction: list[float] | None = None,
+    finer_is_larger: bool | None = None,
+) -> pd.DataFrame:
+    """Attach the bookkeeping columns the runner writes onto every record.
+
+    Adds the three identity columns (``config_id``, ``method_id``,
+    ``method_label``) and the six sweep columns (``sweep_param``,
+    ``sweep_value``, ``sweep_rank``, ``n_clusters_observed``,
+    ``n_clusters_observed_se``, ``noise_fraction``).
+
+    ``sweep_rank`` is taken from a real :class:`~carve._sweep.SweepSpec`
+    rather than from an argsort of the frame: rank is a property of the
+    swept axis, not of row order.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Frame carrying at least the column named by *param*.
+    param : str
+        Name of the swept hyperparameter.
+    method_label : str
+        Human-readable label shared by every row (one curve).
+    observed : list of float
+        Mean number of clusters observed per row.
+    observed_se : list of float, optional
+        Standard error of *observed*. Defaults to zeros.
+    noise_fraction : list of float, optional
+        Mean noise fraction per row. Defaults to zeros.
+    finer_is_larger : bool, optional
+        Passed through to ``resolve_sweep`` for parameters outside the
+        registry.
+
+    Returns
+    -------
+    df : pandas.DataFrame
+        A copy of *df* with the nine columns prepended.
+    """
+    df = df.copy()
+    values = df[param].to_numpy()
+
+    spec = resolve_sweep(
+        sweep=param, sweep_values=values, finer_is_larger=finer_is_larger
+    )
+
+    n = len(df)
+    df.insert(0, "config_id", list(range(n)))
+    df.insert(1, "method_id", ["m0"] * n)
+    df.insert(2, "method_label", [method_label] * n)
+    df["sweep_param"] = param
+    df["sweep_value"] = values
+    df["sweep_rank"] = [spec.rank_of(v) for v in values]
+    df["n_clusters_observed"] = [float(v) for v in observed]
+    df["n_clusters_observed_se"] = (
+        [0.0] * n if observed_se is None else list(observed_se)
+    )
+    df["noise_fraction"] = [0.0] * n if noise_fraction is None else list(noise_fraction)
+    return df
 
 
 @pytest.fixture()
@@ -37,53 +110,85 @@ def X_three_clusters(rng):
     )
 
 
-@pytest.fixture(scope="module")
-def fitted_carve_module():
-    """Module-scoped fitted CARVE instance for read-only tests."""
-    rng = np.random.RandomState(42)
-    X = np.vstack(
-        [
-            rng.randn(30, 5) + [4, 0, 0, 0, 0],
-            rng.randn(30, 5) + [0, 4, 0, 0, 0],
-        ]
+@pytest.fixture()
+def results_df():
+    """Synthetic k-mode estimator results DataFrame for selection tests."""
+    return with_sweep_cols(
+        pd.DataFrame(
+            {
+                "estimator": ["KMeans"] * 4,
+                "n_clusters": [2, 3, 4, 5],
+                "ari_stability": [0.9, 0.85, 0.7, 0.6],
+                "ari_stability_se": [0.02, 0.03, 0.05, 0.06],
+                "ari_stability_upper": [0.92, 0.88, 0.75, 0.66],
+                "ari_stability_lower": [0.88, 0.82, 0.65, 0.54],
+                "ari_generalizability": [0.85, 0.80, 0.65, 0.55],
+                "ari_generalizability_se": [0.03, 0.04, 0.06, 0.07],
+                "ari_generalizability_upper": [0.88, 0.84, 0.71, 0.62],
+                "ari_generalizability_lower": [0.82, 0.76, 0.59, 0.48],
+                "ari_average": [0.875, 0.825, 0.675, 0.575],
+                "ari_average_se": [0.025, 0.035, 0.055, 0.065],
+                "ari_average_upper": [0.90, 0.86, 0.73, 0.64],
+                "ari_average_lower": [0.85, 0.79, 0.62, 0.51],
+                "consensus_pac_stability": [0.95, 0.90, 0.80, 0.70],
+                "consensus_gini_stability": [0.92, 0.87, 0.75, 0.65],
+                "consensus_ce_stability": [0.91, 0.86, 0.74, 0.64],
+                "accuracy_generalizability": [0.88, 0.83, 0.68, 0.58],
+            }
+        ),
+        param="n_clusters",
+        method_label="KMeans",
+        observed=[2.0, 3.0, 4.0, 5.0],
     )
-    carve = CARVE(
-        n_clusters=2,
-        n_resamples=5,
-        subsample_ratio=0.8,
-        estimator_param_grids=[(KMeans, {"n_clusters": [2]})],
-        normalization_options=[],
-        dim_reduction_options=[],
-        n_jobs=1,
-        random_state=0,
-        verbose=0,
-    )
-    carve.fit(X)
-    return carve
 
 
 @pytest.fixture()
-def results_df():
-    """Synthetic estimator results DataFrame for selection tests."""
-    return pd.DataFrame(
-        {
-            "estimator": ["KMeans"] * 4,
-            "n_clusters": [2, 3, 4, 5],
-            "ari_stability": [0.9, 0.85, 0.7, 0.6],
-            "ari_stability_se": [0.02, 0.03, 0.05, 0.06],
-            "ari_stability_upper": [0.92, 0.88, 0.75, 0.66],
-            "ari_stability_lower": [0.88, 0.82, 0.65, 0.54],
-            "ari_generalizability": [0.85, 0.80, 0.65, 0.55],
-            "ari_generalizability_se": [0.03, 0.04, 0.06, 0.07],
-            "ari_generalizability_upper": [0.88, 0.84, 0.71, 0.62],
-            "ari_generalizability_lower": [0.82, 0.76, 0.59, 0.48],
-            "ari_average": [0.875, 0.825, 0.675, 0.575],
-            "ari_average_se": [0.025, 0.035, 0.055, 0.065],
-            "ari_average_upper": [0.90, 0.86, 0.73, 0.64],
-            "ari_average_lower": [0.85, 0.79, 0.62, 0.51],
-            "consensus_pac_stability": [0.95, 0.90, 0.80, 0.70],
-            "consensus_gini_stability": [0.92, 0.87, 0.75, 0.65],
-            "consensus_ce_stability": [0.91, 0.86, 0.74, 0.64],
-            "accuracy_generalizability": [0.88, 0.83, 0.68, 0.58],
-        }
+def resolution_results_df():
+    """Synthetic resolution-mode results table for selection tests.
+
+    ``sweep_rank`` runs coarse -> fine and ``config_id`` runs 0..n-1,
+    matching what the runner writes.
+    """
+    return with_sweep_cols(
+        pd.DataFrame(
+            {
+                "estimator": ["LeidenClustering"] * 4,
+                "resolution": [0.25, 0.5, 1.0, 2.0],
+                "n_neighbors": [15] * 4,
+                "ari_stability": [0.9, 0.85, 0.7, 0.6],
+                "ari_stability_se": [0.02, 0.03, 0.05, 0.06],
+                "ari_stability_upper": [0.92, 0.88, 0.75, 0.66],
+                "ari_stability_lower": [0.88, 0.82, 0.65, 0.54],
+            }
+        ),
+        param="resolution",
+        method_label="LeidenClustering, n_neighbors=15",
+        observed=[2.0, 3.0, 5.0, 9.0],
+        observed_se=[0.0, 0.1, 0.3, 0.5],
+    )
+
+
+@pytest.fixture()
+def min_cluster_size_results_df():
+    """Synthetic min_cluster_size results table (descending sweep_rank).
+
+    ``min_cluster_size`` is the one registry parameter where larger values
+    yield *fewer* clusters, so ``sweep_rank`` runs 2 -> 0 as the size grows.
+    """
+    return with_sweep_cols(
+        pd.DataFrame(
+            {
+                "estimator": ["HDBSCAN"] * 3,
+                "min_cluster_size": [5, 10, 25],
+                "cluster_selection_method": ["eom"] * 3,
+                "ari_stability": [0.70, 0.85, 0.88],
+                "ari_stability_se": [0.05, 0.03, 0.02],
+                "ari_stability_upper": [0.75, 0.88, 0.90],
+                "ari_stability_lower": [0.65, 0.82, 0.86],
+            }
+        ),
+        param="min_cluster_size",
+        method_label="HDBSCAN, cluster_selection_method=eom",
+        observed=[9.0, 5.0, 3.0],
+        noise_fraction=[0.05, 0.10, 0.20],
     )

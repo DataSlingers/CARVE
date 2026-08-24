@@ -3,6 +3,12 @@
 __version__ = "1.0.0"
 
 from .api import CARVE
-from .cluster import SpectralClusteringCARVE
+from .cluster import LeidenClustering, LouvainClustering, SpectralClustering
 
-__all__ = ["__version__", "CARVE", "SpectralClusteringCARVE"]
+__all__ = [
+    "__version__",
+    "CARVE",
+    "LeidenClustering",
+    "LouvainClustering",
+    "SpectralClustering",
+]

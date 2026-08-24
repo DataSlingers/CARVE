@@ -13,6 +13,8 @@ from sklearn.base import ClusterMixin
 from sklearn.metrics.cluster import contingency_matrix
 from numpy.typing import ArrayLike
 
+from ._types import NoisePolicy
+
 
 def split_subsample_indices(
     n_samples: int,
@@ -46,6 +48,100 @@ def split_subsample_indices(
     test_idx = np.setdiff1d(all_idx, train_idx)
 
     return train_idx, test_idx
+
+
+def count_clusters(labels: np.ndarray | None) -> int:
+    """Count distinct non-noise clusters in a label vector.
+
+    Density-based methods such as HDBSCAN mark unassigned points with a
+    negative label; those are not counted as a cluster.
+
+    Parameters
+    ----------
+    labels : ndarray or None
+        Cluster labels.
+
+    Returns
+    -------
+    n_clusters : int
+        Number of distinct non-negative labels, or 0 for empty input.
+    """
+    if labels is None:
+        return 0
+
+    labels = np.asarray(labels)
+    if labels.size == 0:
+        return 0
+
+    return int(np.unique(labels[labels >= 0]).size)
+
+
+def apply_noise_policy(
+    indices: np.ndarray,
+    labels: np.ndarray,
+    policy: NoisePolicy = "drop",
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """Resolve negative (noise) labels according to policy.
+
+    Density-based methods such as HDBSCAN mark unassigned points with
+    ``-1``. Left unhandled, those samples are treated as a cluster by 
+    the consensus matrix and by ARI, which inflates stability.
+
+    Parameters
+    ----------
+    indices : ndarray of shape (n_subsample,)
+        Row indices of these points in the original dataset.
+    labels : ndarray of shape (n_subsample,)
+        Cluster labels, possibly containing negative noise markers.
+    policy : {"drop", "as_cluster", "singleton"}, default="drop"
+        ``"drop"`` removes noise points from this iteration entirely, so
+        they count as un-sampled and contribute nothing to the consensus
+        matrix, the ARI, or the classifier. ``"as_cluster"`` keeps ``-1``
+        as an ordinary label. ``"singleton"`` gives each noise point its
+        own cluster.
+
+    Returns
+    -------
+    indices : ndarray
+        Possibly filtered indices, aligned with labels.
+    labels : ndarray
+        Labels with noise resolved.
+    noise_fraction : float
+        Fraction of the input points that carried a negative label.
+
+    Raises
+    ------
+    ValueError
+        If policy is not a recognized noise policy.
+    """
+    if policy not in ("drop", "as_cluster", "singleton"):
+        raise ValueError(
+            f"Unknown noise_policy {policy!r}. Expected 'drop', 'as_cluster', "
+            "or 'singleton'."
+        )
+
+    labels = np.asarray(labels)
+    indices = np.asarray(indices)
+
+    if labels.size == 0:
+        return indices, labels, 0.0
+
+    noise_mask = labels < 0
+    noise_fraction = float(noise_mask.mean())
+
+    if not noise_mask.any() or policy == "as_cluster":
+        return indices, labels, noise_fraction
+
+    if policy == "drop":
+        keep = ~noise_mask
+        return indices[keep], labels[keep], noise_fraction
+
+    # policy == "singleton"
+    out = labels.copy()
+    assigned = labels[~noise_mask]
+    start = int(assigned.max()) + 1 if assigned.size else 0
+    out[noise_mask] = np.arange(start, start + int(noise_mask.sum()))
+    return indices, out, noise_fraction
 
 
 def _coerce_n_clusters(value: int | np.ndarray) -> np.ndarray:
@@ -184,6 +280,7 @@ def cluster_labels(
 
 def summarize_preprocessing_records(
     pipeline_records: list[dict[str, Any]],
+    sweep_param: str = "n_clusters",
 ) -> pd.DataFrame:
     """Summarize randomized preprocessing records.
 
@@ -191,16 +288,18 @@ def summarize_preprocessing_records(
     ----------
     pipeline_records : list of dict
         Records from randomized preprocessing runs.
+    sweep_param : str, default="n_clusters"
+        Name of the swept hyperparameter used as the grouping key.
 
     Returns
     -------
     summary : pandas.DataFrame
-        Mean ARI metrics grouped by normalization, DR, and k.
+        Mean ARI metrics grouped by normalization, DR, and the sweep value.
     """
     rows = []
     for record in pipeline_records:
         params = record["params"]
-        n_clusters = params["n_clusters"]
+        sweep_value = params[sweep_param]
 
         for r in record["results"]:
             ari_s = r.ari_stability
@@ -224,7 +323,7 @@ def summarize_preprocessing_records(
 
             rows.append(
                 {
-                    "n_clusters": n_clusters,
+                    sweep_param: sweep_value,
                     "norm__func": norm_label,
                     "dr__method": dr_label,
                     "ari_stability": ari_s,
@@ -235,7 +334,7 @@ def summarize_preprocessing_records(
     dfp = pd.DataFrame(rows)
 
     return dfp.groupby(
-        ["norm__func", "dr__method", "n_clusters"], as_index=False
+        ["norm__func", "dr__method", sweep_param], as_index=False
     ).mean()
 
 

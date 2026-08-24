@@ -18,9 +18,11 @@ from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from sklearn.decomposition import PCA
 
-from ._selection import MEASURE_MAP, select_best_k
-
-_GROUPBY_NA_SENTINEL = "_NA_"
+from ._selection import MEASURE_MAP, select_best_row_by_rule
+from ._sweep import (
+    sweep_axis_label,
+    sweep_param_name,
+)
 
 _DEFAULT_DIAGNOSTIC_MARKERS = [
     "o",
@@ -41,7 +43,7 @@ _DEFAULT_DIAGNOSTIC_MARKERS = [
 
 
 def _build_estimator_label(
-    row: pd.Series, exclude_cols: set, *, tight_layout: bool = False
+    row: pd.Series, *, tight_layout: bool = False
 ) -> str:
     """Build a human-readable estimator label from a results row.
 
@@ -49,8 +51,6 @@ def _build_estimator_label(
     ----------
     row : pd.Series
         A row from estimator_results_ DataFrame.
-    exclude_cols : set
-        Column names to exclude from the label (e.g., n_clusters, metrics).
     tight_layout : bool, default=False
         Whether to separate with line feeds.
 
@@ -59,26 +59,8 @@ def _build_estimator_label(
     label : str
         Human-readable estimator label.
     """
-    parts = [row["estimator"]]
-
-    for col in row.index:
-        if (
-            col not in exclude_cols
-            and not pd.isna(row[col])
-            and row[col] != _GROUPBY_NA_SENTINEL
-        ):
-            val = row[col]
-            if isinstance(val, (int, np.integer)):
-                parts.append(f"{col}={val}")
-            elif isinstance(val, (float, np.floating)):
-                if val == int(val):
-                    parts.append(f"{col}={int(val)}")
-                else:
-                    parts.append(f"{col}={val:.3g}")
-            else:
-                parts.append(f"{col}={val}")
-
-    return ", ".join(parts) if not tight_layout else "\n".join(parts)
+    label = str(row["method_label"])
+    return label if not tight_layout else label.replace(", ", "\n")
 
 
 def plot_metric_over_n_clusters(
@@ -100,25 +82,25 @@ def plot_metric_over_n_clusters(
     dpi: int = 300,
     **kwargs,
 ) -> Axes:
-    """Plot stability or generalizability metric across n_clusters.
+    """Plot stability or generalizability metric across the sweep axis.
 
     Creates a line plot with one line per unique estimator configuration
-    (estimator name + hyperparameters, excluding n_clusters). Error bars
-    are drawn at +/-1 standard error. A vertical dashed line indicates the
-    selected k according to the specified rule.
+    (grouped by ``method_id``). Error bars are drawn at +/-1 standard
+    error. A vertical dashed line indicates the selected configuration
+    according to the specified rule.
 
     Parameters
     ----------
     results_df : pd.DataFrame
-        Results DataFrame from CARVE.fit(), containing columns:
-        "estimator", "n_clusters", metric columns, and hyperparameter columns.
+        Results DataFrame from CARVE.fit(), containing the sweep-axis
+        columns, metric columns, and hyperparameter columns.
     measure : str, default="stability"
         Metric to plot. Options: "stability", "ari_stability", "generalizability",
         "ari_generalizability", "average", "ari_average", "pac",
         "consensus_pac_stability", "gini", "consensus_gini_stability",
         "ce", "consensus_ce_stability", "accuracy", etc.
     rule : str, default="1se"
-        Selection rule for choosing best k. Options: "max", "1se", "quantile".
+        Selection rule for choosing best configuration. Options: "max", "1se", "quantile".
     ax : matplotlib.axes.Axes, optional
         Axes object to plot on. If None, creates a new figure.
     figsize : tuple, optional
@@ -126,7 +108,7 @@ def plot_metric_over_n_clusters(
     title : str, optional
         Figure title.
     xlabel : str, optional
-        X-axis label. Default is "Number of Clusters (k)".
+        X-axis label. Default is derived from the sweep parameter.
     ylabel : str, optional
         Y-axis label. If None, auto-generated from measure name.
     legend : bool, default=True
@@ -190,45 +172,24 @@ def plot_metric_over_n_clusters(
     else:
         fig = ax.figure
 
-    # --- Identify metric and grouping columns ---
-    metric_cols = {
-        col
-        for col in results_df.columns
-        if any(
-            x in col
-            for x in [
-                "ari_",
-                "consensus_",
-                "accuracy_",
-                "_se",
-                "_upper",
-                "_lower",
-            ]
-        )
-    }
-    exclude_cols = metric_cols | {"estimator", "n_clusters", "index"}
+    # --- Identify grouping and x-axis columns ---
+    x_col = "sweep_value"
+    param = sweep_param_name(results_df)
 
-    group_cols = [
-        c for c in results_df.columns if c not in exclude_cols and c != "n_clusters"
-    ]
+    group_cols = ["method_id"]
     results_df = results_df.copy()
-    results_df[group_cols] = results_df[group_cols].fillna(_GROUPBY_NA_SENTINEL)
     grouped = results_df.groupby(group_cols)
 
     colors = plt.cm.get_cmap(palette)(np.linspace(0, 1, len(grouped)))
 
     # --- Plot each estimator configuration ---
     for color_idx, (group_key, group_df) in enumerate(grouped):
-        if isinstance(group_key, tuple):
-            label_row = pd.Series(dict(zip(group_cols, group_key)))
-            label_row["estimator"] = group_df.iloc[0]["estimator"]
-        else:
-            label_row = group_df.iloc[0]
+        label_row = group_df.iloc[0]
 
-        label = _build_estimator_label(label_row, exclude_cols)
-        group_df_sorted = group_df.sort_values("n_clusters")
+        label = _build_estimator_label(label_row)
+        group_df_sorted = group_df.sort_values(x_col)
 
-        x = group_df_sorted["n_clusters"].values
+        x = group_df_sorted[x_col].values
         y = group_df_sorted[measure_col].values
         yerr = group_df_sorted[se_col].values if has_se else None
         color = colors[color_idx % len(colors)]
@@ -248,17 +209,21 @@ def plot_metric_over_n_clusters(
             **kwargs,
         )
 
-    # --- Vertical line at selected k ---
+    # --- Vertical line at the selected sweep value ---
     try:
-        best_k = select_best_k(results_df, measure=measure, rule=rule, not_two=not_two)
+        best_row = select_best_row_by_rule(
+            results_df, measure=measure, rule=rule, not_two=not_two
+        )
+        best_x = float(best_row[x_col])
         rule_str = "1-SE" if rule == "1se" else rule.title()
+        pretty = "k" if param == "n_clusters" else param
         ax.axvline(
-            best_k,
+            best_x,
             color="gray",
             linestyle="--",
             linewidth=2,
             alpha=0.6,
-            label=f"Selected k ({rule_str} rule): {best_k}",
+            label=f"Selected {pretty} ({rule_str} rule): {best_x:g}",
             zorder=0,
         )
     except Exception:
@@ -266,7 +231,7 @@ def plot_metric_over_n_clusters(
 
     # --- Labels and formatting ---
     if xlabel is None:
-        xlabel = "Number of Clusters (k)"
+        xlabel = sweep_axis_label(results_df)
     ax.set_xlabel(xlabel, fontsize=12)
 
     if ylabel is None:
@@ -277,9 +242,9 @@ def plot_metric_over_n_clusters(
     if title is not None:
         ax.set_title(title, fontsize=13, pad=15)
 
-    n_clusters_unique = sorted(results_df["n_clusters"].unique())
-    if len(n_clusters_unique) <= 20:
-        ax.set_xticks(n_clusters_unique)
+    x_unique = sorted(results_df[x_col].unique())
+    if len(x_unique) <= 20:
+        ax.set_xticks(x_unique)
 
     if legend:
         ax.legend(
@@ -583,10 +548,11 @@ def _place_adaptive_annotation(
 def _get_annotation(
     measure: str,
     rule: str,
-    k: int | None,
     estimator_results: pd.DataFrame,
     row: pd.Series,
     selected_k: int | None,
+    *,
+    pinned: bool = False,
     tight_layout: bool = False,
 ) -> str:
     """Build an annotation string describing the selected model and criteria.
@@ -601,16 +567,14 @@ def _get_annotation(
         Metric key used for model selection (e.g., ``"generalizability"``).
     rule : str
         Selection rule (``"max"``, ``"1se"``, or ``"quantile"``).
-    k : int or None
-        User-supplied number of clusters, or None if *k* was selected
-        automatically. When not None, the annotation marks *k* as fixed.
     estimator_results : pd.DataFrame
-        Full results DataFrame, used to identify metric columns that
-        should be excluded from the estimator label.
+        Full results DataFrame.
     row : pd.Series
         The selected row from ``estimator_results``.
     selected_k : int or None
         The resolved number of clusters shown in the annotation.
+    pinned : bool, default=False
+        Whether the user pinned the configuration.
     tight_layout : bool, default=False
         Whether to separate label components with line feeds.
 
@@ -618,39 +582,26 @@ def _get_annotation(
     -------
     annotation : str
         Two-line annotation string of the form
-        ``"<estimator> (k = <n>[, fixed])\n<Measure>, <Rule> rule"``.
+        ``"<estimator> (<detail>)\n<Measure>, <Rule> rule"``.
     """
-    metric_cols = {
-        col
-        for col in estimator_results.columns
-        if any(
-            x in col
-            for x in [
-                "ari_",
-                "consensus_",
-                "accuracy_",
-                "_se",
-                "_upper",
-                "_lower",
-            ]
-        )
-    }
-
-    exclude_cols = metric_cols | {"estimator", "n_clusters", "index"}
-    model_label = _build_estimator_label(row, exclude_cols, tight_layout=tight_layout)
+    model_label = _build_estimator_label(row, tight_layout=tight_layout)
 
     rule_str = "1-SE" if rule == "1se" else rule.title()
     measure_str = measure.replace("_", " ").title()
 
-    if k is not None:
-        annotation_text = (
-            f"{model_label} (k = {selected_k}, fixed)\n{measure_str}, {rule_str} rule"
-        )
-
+    param = sweep_param_name(estimator_results)
+    if param == "n_clusters":
+        detail = f"k = {selected_k}"
     else:
-        annotation_text = (
-            f"{model_label} (k = {selected_k})\n{measure_str}, {rule_str} rule"
-        )
+        value = float(row["sweep_value"])
+        detail = f"{param} = {value:g}, k ≈ {selected_k}"
+
+    if pinned:
+        detail += ", fixed"
+
+    annotation_text = (
+        f"{model_label} ({detail})\n{measure_str}, {rule_str} rule"
+    )
 
     if tight_layout:
         annotation_text += "\n"
