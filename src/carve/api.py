@@ -173,7 +173,7 @@ class CARVE(BaseEstimator):
     >>> carve.fit(X)
     >>> labels = carve.get_labels(measure="stability", rule="1se")
     >>> k = carve.get_k(measure="generalizability", rule="1se")
-    
+
     >>> import numpy as np
     >>> carve = CARVE(resolution=np.arange(0.2, 2.01, 0.2)).fit(X)
     >>> carve.get_sweep_value(), carve.get_k()
@@ -313,11 +313,9 @@ class CARVE(BaseEstimator):
             # works without also passing resolution=.
             if sweep_arg is None and self.resolution is None:
                 sweep_arg = infer_sweep_param(self.estimator_param_grids)
-                
+
             if sweep_values is None and sweep_arg is not None:
-                sweep_values = grid_sweep_values(
-                    self.estimator_param_grids, sweep_arg
-                )
+                sweep_values = grid_sweep_values(self.estimator_param_grids, sweep_arg)
 
         sweep_spec = resolve_sweep(
             n_clusters=self.n_clusters,
@@ -406,7 +404,7 @@ class CARVE(BaseEstimator):
         )
 
         n_rows = int(self.estimator_results_.shape[0])
-        
+
         # --- Sanity check: config_id alignment ---
         if not np.array_equal(
             self.estimator_results_["config_id"].to_numpy(), np.arange(n_rows)
@@ -460,7 +458,7 @@ class CARVE(BaseEstimator):
         _print_run_footer(estimator_df=self.estimator_results_, verbose=self.verbose)
 
         return self
-    
+
     def _select_row(
         self,
         *,
@@ -735,7 +733,7 @@ class CARVE(BaseEstimator):
         return select_best_k(
             self.estimator_results_, measure=measure, rule=rule, not_two=not_two
         )
-        
+
     def get_sweep_value(
         self,
         *,
@@ -767,10 +765,8 @@ class CARVE(BaseEstimator):
         RuntimeError
             If the instance has not been fitted yet.
         """
-        row, _, _, _ = self._select_row(
-            measure=measure, rule=rule, not_two=not_two
-        )
-        
+        row, _, _, _ = self._select_row(measure=measure, rule=rule, not_two=not_two)
+
         return float(row["sweep_value"])
 
     def get_estimator(
@@ -1013,7 +1009,10 @@ class CARVE(BaseEstimator):
             )
 
         row, config_id, selected_k, _ = self._select_row(
-            measure=measure, rule=rule, not_two=not_two, k=k,
+            measure=measure,
+            rule=rule,
+            not_two=not_two,
+            k=k,
             sweep_value=sweep_value,
         )
 
@@ -1135,7 +1134,10 @@ class CARVE(BaseEstimator):
             The Axes object, or None if ``save`` is provided.
         """
         row, config_id, selected_k, pinned = self._select_row(
-            measure=measure, rule=rule, not_two=not_two, k=k,
+            measure=measure,
+            rule=rule,
+            not_two=not_two,
+            k=k,
             sweep_value=sweep_value,
         )
         df = self.estimator_results_
@@ -1331,7 +1333,10 @@ class CARVE(BaseEstimator):
             The Axes object, or None if ``save`` is provided.
         """
         row, config_id, selected_k, pinned = self._select_row(
-            measure=measure, rule=rule, not_two=not_two, k=k,
+            measure=measure,
+            rule=rule,
+            not_two=not_two,
+            k=k,
             sweep_value=sweep_value,
         )
         df = self.estimator_results_
@@ -1538,7 +1543,10 @@ class CARVE(BaseEstimator):
             The Axes object, or None if ``save`` is provided.
         """
         row, config_id, selected_k, pinned = self._select_row(
-            measure=measure, rule=rule, not_two=not_two, k=k,
+            measure=measure,
+            rule=rule,
+            not_two=not_two,
+            k=k,
             sweep_value=sweep_value,
         )
         df = self.estimator_results_
@@ -1764,7 +1772,10 @@ class CARVE(BaseEstimator):
             The Axes object, or None if ``save`` is provided.
         """
         row, config_id, selected_k, pinned = self._select_row(
-            measure=measure, rule=rule, not_two=not_two, k=k,
+            measure=measure,
+            rule=rule,
+            not_two=not_two,
+            k=k,
             sweep_value=sweep_value,
         )
         df = self.estimator_results_

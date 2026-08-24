@@ -23,10 +23,10 @@ from ._pipeline import build_preprocessing_pipeline
 from ._sweep import MethodIds, SweepSpec, resolve_sweep as _resolve_sweep
 from ._utils import (
     apply_noise_policy,
-    cluster_labels, 
+    cluster_labels,
     count_clusters,
-    split_subsample_indices, 
-    _summarize_ari_scores
+    split_subsample_indices,
+    _summarize_ari_scores,
 )
 
 from ._types import (
@@ -92,6 +92,7 @@ class ResampleResult(NamedTuple):
         Fraction of training-subsample points labelled as noise before the
         noise policy was applied.
     """
+
     ari_stability: float
     ari_generalizability: float
     labels_train: np.ndarray
@@ -184,13 +185,13 @@ def run_validation(
         Per-sample generalizability arrays for each configuration.
     """
     policy = resolve_mode(mode)
-    
-    # If sweep is not provided, default to sweeping over n_clusters 
+
+    # If sweep is not provided, default to sweeping over n_clusters
     if sweep is None:
         sweep = _resolve_sweep(
             n_clusters=np.asarray(estimator_grids[0][1]["n_clusters"])
         )
-    
+
     # Method identity is defined relative to the sweep axis, so this is
     # built after the sweep is resolved and shared across the whole run.
     method_ids = MethodIds(sweep.param)
@@ -312,32 +313,28 @@ def run_validation(
                 avg_mean, avg_se, avg_q95, avg_q05 = _summarize_ari_scores(
                     aris_avg, n_resamples
                 )
-                
+
                 # --- Observed granularity (if sweep parameter does not fix k) ---
-                k_obs = np.array(
-                    [r.n_clusters_train for r in results], dtype=float
-                )
-                
+                k_obs = np.array([r.n_clusters_train for r in results], dtype=float)
+
                 n_clusters_observed = float(np.mean(k_obs))
                 n_clusters_observed_se = (
                     float(np.std(k_obs, ddof=1) / np.sqrt(k_obs.size))
                     if k_obs.size > 1
                     else np.nan
                 )
-                
+
                 # --- Observed noise fraction ---
                 noise = np.array([r.noise_fraction for r in results], dtype=float)
                 noise_fraction = float(np.mean(noise))
                 sweep_value = params[sweep.param]
 
                 # --- Assign method ID for this configuration ---
-                method_id, method_label = method_ids.assign(
-                    est_class.__name__, params
-                )
-                
+                method_id, method_label = method_ids.assign(est_class.__name__, params)
+
                 record: EstimatorRecord = {
                     # config_id keys the per-configuration artifact
-                    # containers appended just above. 
+                    # containers appended just above.
                     "config_id": config_idx - 1,
                     "method_id": method_id,
                     "method_label": method_label,
@@ -527,9 +524,7 @@ def validation_iter(
         X_test = X_preprocessed[P_test_idx]
 
     if policy.run_stability:
-        P_2_idx, labels_2, _ = apply_noise_policy(
-            P_2_idx, labels_2, noise_policy
-        )
+        P_2_idx, labels_2, _ = apply_noise_policy(P_2_idx, labels_2, noise_policy)
         X_2 = X_preprocessed[P_2_idx]
 
     # --- Cluster count bookkeeping ---
@@ -558,11 +553,11 @@ def validation_iter(
 
     # --- Stability ARI (overlap between two independent subsamples) ---
     ari_stab = _compute_stability_ari(
-        policy=policy, 
-        P_1_idx=P_1_idx, 
-        P_2_idx=P_2_idx, 
-        labels_1=labels_1, 
-        labels_2=labels_2
+        policy=policy,
+        P_1_idx=P_1_idx,
+        P_2_idx=P_2_idx,
+        labels_1=labels_1,
+        labels_2=labels_2,
     )
 
     # --- Generalizability ARI (RF prediction on held-out set) ---
@@ -574,7 +569,7 @@ def validation_iter(
         labels_test=labels_test,
         classifier=classifier,
         n_trees=n_trees,
-        seed=random_state0+seed,
+        seed=random_state0 + seed,
     )
 
     return ResampleResult(

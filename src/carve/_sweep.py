@@ -35,8 +35,8 @@ SWEEP_META_COLS = frozenset(
     }
 )
 
-# Columns that identify a row. ``config_id`` keys the per-configuration 
-# artifact containers; ``method_id`` groups rows into curves. 
+# Columns that identify a row. ``config_id`` keys the per-configuration
+# artifact containers; ``method_id`` groups rows into curves.
 # Like SWEEP_META_COLS these are not estimator hyperparameters.
 IDENTITY_COLS = frozenset({"config_id", "method_id", "method_label"})
 
@@ -68,17 +68,18 @@ class SweepSpec:
     label : str
         Axis label used by plots and console output.
     """
+
     param: str
     values: np.ndarray
     finer_is_larger: bool
     fixes_k: bool
     label: str
-    
+
     @property
     def is_k_mode(self) -> bool:
         """Whether this run sweeps ``n_clusters`` (original mode)."""
         return self.param == "n_clusters"
-    
+
     def ranks(self) -> np.ndarray:
         """Return the coarse-to-fine rank of a single sweep value."""
         keys = self.values if self.finer_is_larger else -self.values
@@ -86,13 +87,11 @@ class SweepSpec:
         ranks = np.empty(self.values.size, dtype=int)
         ranks[order] = np.arange(self.values.size)
         return ranks
-    
+
     def rank_of(self, value: Any) -> int:
         """Return the coarse-to-fine rank of a single sweep value."""
-        matches = np.flatnonzero(
-            np.isclose(self.values.astype(float), float(value))
-        )
-        
+        matches = np.flatnonzero(np.isclose(self.values.astype(float), float(value)))
+
         if matches.size == 0:
             raise ValueError(
                 f"{value!r} is not among the swept {self.param} values "
@@ -118,30 +117,31 @@ def coerce_sweep_values(value: Any, param: str) -> np.ndarray:
     """
     if param == "n_clusters":
         return _coerce_n_clusters(value)
-    
+
     if param == "min_cluster_size":
         arr = np.atleast_1d(np.asarray(value))
-        
-        # Catch non-integer types and values < 2. 
+
+        # Catch non-integer types and values < 2.
         # (HDBSCAN's min_cluster_size must be an integer >= 2.)
         if not np.issubdtype(arr.dtype, np.integer):
             raise TypeError("min_cluster_size values must be integers.")
         if np.any(arr < 2):
             raise ValueError("All min_cluster_size values must be >= 2.")
-        
+
         return np.sort(arr.astype(int, copy=False))
 
     # Case: param == "resolution" or any other float-valued sweep parameter.
     arr = np.atleast_1d(np.asarray(value, dtype=float))
-    
+
     # Catch non-scalar, non-1D arrays and values <= 0.
     if arr.ndim != 1:
         raise ValueError(f"{param} must be a scalar or a 1D array.")
     if np.any(arr <= 0):
         raise ValueError(f"All {param} values must be > 0.")
-    
+
     return np.sort(arr)
-    
+
+
 def resolve_sweep(
     *,
     n_clusters: Any = None,
@@ -178,38 +178,38 @@ def resolve_sweep(
             f"resolution= was given but sweep={sweep!r}. Pass sweep_values= "
             "instead, or drop resolution=."
         )
-        
+
     if sweep is None:
         sweep = "resolution" if resolution is not None else "n_clusters"
-        
+
     if sweep_values is None:
         if sweep == "n_clusters":
             sweep_values = n_clusters
         elif sweep == "resolution":
             sweep_values = resolution
-        
+
     if sweep_values is None:
         raise ValueError(
             f"No values supplied for sweep parameter {sweep!r}. Pass "
             "sweep_values=, or supply estimator grids that contain it."
         )
-        
+
     values = coerce_sweep_values(sweep_values, sweep)
     known = SWEEP_REGISTRY.get(sweep)
-    
+
     if known is None:
         if finer_is_larger is None:
             raise ValueError(
                 f"Unknown sweep parameter {sweep!r}. Pass finer_is_larger= to "
                 "declare whether larger values yield more clusters."
             )
-            
+
         default_finer, fixes_k, label = (
             bool(finer_is_larger),
             False,
             sweep.replace("_", " ").title(),
         )
-    
+
     else:
         default_finer, fixes_k, label = known
 
@@ -222,6 +222,7 @@ def resolve_sweep(
         fixes_k=fixes_k,
         label=label,
     )
+
 
 def infer_sweep_param(estimator_grids: list[GridSpec]) -> str | None:
     """Infer the sweep parameter from user-supplied grids, if unambiguous.
@@ -242,7 +243,7 @@ def infer_sweep_param(estimator_grids: list[GridSpec]) -> str | None:
         for _, grid in estimator_grids
     ]
     union: set[str] = set().union(*present) if present else set()
-    
+
     if not union:
         return None
     if len(union) > 1:
@@ -253,6 +254,7 @@ def infer_sweep_param(estimator_grids: list[GridSpec]) -> str | None:
         )
     return union.pop()
 
+
 def grid_sweep_values(
     estimator_grids: list[GridSpec],
     param: str,
@@ -262,6 +264,7 @@ def grid_sweep_values(
         if param in grid:
             return list(grid[param])
     return None
+
 
 def validate_grids(
     estimator_grids: list[GridSpec],
@@ -279,9 +282,9 @@ def validate_grids(
     """
     if not estimator_grids:
         raise ValueError("estimator_param_grids must not be empty.")
-    
+
     other_params = set(SWEEP_REGISTRY) - {sweep.param}
-    
+
     for est_class, grid in estimator_grids:
         if sweep.param not in grid:
             raise ValueError(
@@ -289,7 +292,7 @@ def validate_grids(
                 f"sweep parameter {sweep.param!r}. All grids in a run must "
                 "sweep the same parameter."
             )
-            
+
         clash = {p for p in other_params.intersection(grid) if len(grid[p]) > 1}
         if clash:
             raise ValueError(
@@ -299,7 +302,7 @@ def validate_grids(
                 "resolution-based estimators cannot be compared in the same "
                 "run."
             )
-            
+
     reference = np.asarray(estimator_grids[0][1][sweep.param])
     for est_class, grid in estimator_grids[1:]:
         if not np.array_equal(reference, np.asarray(grid[sweep.param])):
@@ -309,7 +312,7 @@ def validate_grids(
             )
 
     return coerce_sweep_values(reference, sweep.param)
-    
+
 
 # ---------------------------------------------------------------------- #
 #  Results-table helpers                                                 #
@@ -317,6 +320,7 @@ def validate_grids(
 def sweep_param_name(results_df: pd.DataFrame) -> str:
     """Return the swept hyperparameter name recorded in a results table."""
     return str(results_df["sweep_param"].iloc[0])
+
 
 # def sweep_axis_col(results_df: pd.DataFrame) -> str:
 #     """Return the column holding the sweep value (the plot x-axis)."""
@@ -326,13 +330,11 @@ def sweep_param_name(results_df: pd.DataFrame) -> str:
 #     """Return the column ordering configurations coarse -> fine."""
 #     return "sweep_rank"
 
+
 def sweep_exclude_cols(results_df: pd.DataFrame) -> set[str]:
     """Columns describing the sweep axis or row identity, not the estimator."""
-    return (
-        set(SWEEP_META_COLS)
-        | set(IDENTITY_COLS)
-        | {sweep_param_name(results_df)}
-    )
+    return set(SWEEP_META_COLS) | set(IDENTITY_COLS) | {sweep_param_name(results_df)}
+
 
 def sweep_axis_label(results_df: pd.DataFrame) -> str:
     """Human-readable axis label for the sweep parameter."""
@@ -340,9 +342,11 @@ def sweep_axis_label(results_df: pd.DataFrame) -> str:
     known = SWEEP_REGISTRY.get(param)
     return known[2] if known else param.replace("_", " ").title()
 
+
 def observed_k_series(results_df: pd.DataFrame) -> pd.Series:
     """Per-row cluster count from ``n_clusters_observed``."""
     return results_df["n_clusters_observed"].round()
+
 
 def observed_k(row: pd.Series) -> int:
     """Return the number of clusters associated with a single results row."""
@@ -378,6 +382,7 @@ def _format_param_value(val: Any) -> str:
         return f"{int(val)}" if val == int(val) else f"{val:.3g}"
     return f"{val}"
 
+
 def format_method_label(est_name: str, params: dict, sweep_param: str) -> str:
     """Build a human-readable label for one method.
 
@@ -404,8 +409,9 @@ def format_method_label(est_name: str, params: dict, sweep_param: str) -> str:
         for key in sorted(params)
         if key != sweep_param
     ]
-    
+
     return ", ".join(parts)
+
 
 class MethodIds:
     """Assign method identifiers during a run.
@@ -426,10 +432,11 @@ class MethodIds:
     >>> ids.assign("KMeans", {"n_clusters": 3})[0]
     'm0'
     """
+
     def __init__(self, sweep_param: str):
         self._sweep_param = sweep_param
         self._seen: dict[tuple, tuple[str, str]] = {}
-        
+
     def assign(self, est_name: str, params: dict) -> tuple[str, str]:
         """Return the ``(method_id, method_label)`` pair for a configuration.
 
@@ -458,15 +465,16 @@ class MethodIds:
                 )
             ),
         )
-        
+
         if key not in self._seen:
             self._seen[key] = (
                 f"m{len(self._seen)}",
                 format_method_label(est_name, params, self._sweep_param),
             )
-        
+
         return self._seen[key]
-    
+
+
 def config_id_of(row: pd.Series) -> int:
     """Return the artifact-container key for a results row.
 
@@ -486,6 +494,7 @@ def config_id_of(row: pd.Series) -> int:
         arrays.
     """
     return int(row["config_id"])
+
 
 # def method_group_cols(results_df: pd.DataFrame) -> list[str]:
 #     """Return the columns that identify one curve in a results table.

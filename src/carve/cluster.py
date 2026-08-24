@@ -410,8 +410,7 @@ def build_knn_graph(
 
     else:
         raise ValueError(
-            f"Unknown weighting: {weighting!r}. "
-            "Expected 'connectivity' or 'jaccard'."
+            f"Unknown weighting: {weighting!r}. Expected 'connectivity' or 'jaccard'."
         )
 
     W = triu(csr_matrix(W), k=1).tocoo()

@@ -229,6 +229,24 @@ class TestSelectBestEstimator:
         est = select_best_estimator(results_df, grids, measure="stability", k=3)
         assert est.n_clusters == 3
 
+    def test_unmatched_k_filter_names_the_k(self, results_df):
+        grids = [(KMeans, {"n_clusters": [2, 3, 4, 5]})]
+        with pytest.raises(ValueError, match=r"No configurations found for k=99\."):
+            select_best_estimator(results_df, grids, measure="stability", k=99)
+
+    def test_empty_results_df_does_not_blame_k(self, results_df):
+        """An empty table is not a k problem, so the message must not say so."""
+        grids = [(KMeans, {"n_clusters": [2, 3, 4, 5]})]
+        empty = results_df.iloc[:0]
+        with pytest.raises(ValueError, match="no configurations to select from"):
+            select_best_estimator(empty, grids, measure="stability")
+
+    def test_empty_results_df_with_k_still_reports_clearly(self, results_df):
+        grids = [(KMeans, {"n_clusters": [2, 3, 4, 5]})]
+        empty = results_df.iloc[:0]
+        with pytest.raises(ValueError, match="no configurations to select from"):
+            select_best_estimator(empty, grids, measure="stability", k=3)
+
 
 # -----------------------------------------------------------------------
 # build_estimator_from_row

@@ -84,7 +84,7 @@ def apply_noise_policy(
     """Resolve negative (noise) labels according to policy.
 
     Density-based methods such as HDBSCAN mark unassigned points with
-    ``-1``. Left unhandled, those samples are treated as a cluster by 
+    ``-1``. Left unhandled, those samples are treated as a cluster by
     the consensus matrix and by ARI, which inflates stability.
 
     Parameters
@@ -333,9 +333,7 @@ def summarize_preprocessing_records(
 
     dfp = pd.DataFrame(rows)
 
-    return dfp.groupby(
-        ["norm__func", "dr__method", sweep_param], as_index=False
-    ).mean()
+    return dfp.groupby(["norm__func", "dr__method", sweep_param], as_index=False).mean()
 
 
 def align_cluster_labels(

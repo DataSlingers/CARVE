@@ -162,12 +162,8 @@ def _default_resolution_grids(
     ]
 
     if preset == "full":
-        grids.append(
-            (LeidenClustering, {"resolution": res, "n_neighbors": [10, 30]})
-        )
-        grids.append(
-            (LouvainClustering, {"resolution": res, "n_neighbors": [10, 30]})
-        )
+        grids.append((LeidenClustering, {"resolution": res, "n_neighbors": [10, 30]}))
+        grids.append((LouvainClustering, {"resolution": res, "n_neighbors": [10, 30]}))
 
     return grids
 

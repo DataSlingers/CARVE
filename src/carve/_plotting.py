@@ -42,9 +42,7 @@ _DEFAULT_DIAGNOSTIC_MARKERS = [
 ]
 
 
-def _build_estimator_label(
-    row: pd.Series, *, tight_layout: bool = False
-) -> str:
+def _build_estimator_label(row: pd.Series, *, tight_layout: bool = False) -> str:
     """Build a human-readable estimator label from a results row.
 
     Parameters
@@ -599,9 +597,7 @@ def _get_annotation(
     if pinned:
         detail += ", fixed"
 
-    annotation_text = (
-        f"{model_label} ({detail})\n{measure_str}, {rule_str} rule"
-    )
+    annotation_text = f"{model_label} ({detail})\n{measure_str}, {rule_str} rule"
 
     if tight_layout:
         annotation_text += "\n"

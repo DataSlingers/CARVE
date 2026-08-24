@@ -139,10 +139,13 @@ def select_best_estimator(
     estimator : ClusterMixin
         Instantiated estimator with parameters from the selected row.
     """
+    if results_df.empty:
+        raise ValueError("results_df contains no configurations to select from.")
+
     if k is not None:
         results_df = results_df[observed_k_series(results_df) == k]
-        
-    if results_df.empty:
+
+        if results_df.empty:
             raise ValueError(f"No configurations found for k={k}.")
 
     row = select_best_row_by_rule(
@@ -232,7 +235,7 @@ def select_best_row_1se(
     return_idx: bool = False,
 ) -> pd.Series:
     """Select the finest-granularity model within 1 SE of the best score.
-    
+
     Granularity is ordered by ``sweep_rank`` (0 = coarsest).
 
     Parameters

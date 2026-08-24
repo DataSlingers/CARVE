@@ -61,6 +61,7 @@ RunMode = Literal["default", "stability", "generalizability"]
 # How to resolve negative ("noise") labels emitted by density-based methods
 NoisePolicy = Literal["drop", "as_cluster", "singleton"]
 
+
 @dataclass(frozen=True)
 class ModePolicy:
     """Immutable policy controlling which pipeline stages are executed.
