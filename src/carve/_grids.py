@@ -3,16 +3,16 @@
 from typing import Literal
 
 import numpy as np
-from sklearn.cluster import HDBSCAN, KMeans, AgglomerativeClustering
+from sklearn.cluster import HDBSCAN, AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import FunctionTransformer, StandardScaler
 from umap import UMAP
 
-from .cluster import LeidenClustering, LouvainClustering, SpectralClustering
 from ._sweep import SweepSpec, resolve_sweep
 from ._types import GridSpec, PreprocSpec
+from .cluster import LeidenClustering, LouvainClustering, SpectralClustering
 
 
 def estimate_knn_gamma(

@@ -5,7 +5,7 @@ derives stability statistics such as Gini, cross-entropy, and PAC.
 """
 
 import numpy as np
-from scipy.cluster.hierarchy import linkage, leaves_list
+from scipy.cluster.hierarchy import leaves_list, linkage
 from scipy.spatial.distance import squareform
 
 # (sample_indices, labels) pair from a single clustering run

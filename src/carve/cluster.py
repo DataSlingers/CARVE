@@ -1,17 +1,17 @@
 """Custom spectral clustering implementation for CARVE."""
 
 import importlib
+from typing import Literal
 
 import numpy as np
-from typing import Literal
+from scipy.linalg import eigh
+from scipy.sparse import coo_matrix, csr_matrix, diags, triu
+from scipy.sparse.linalg import ArpackNoConvergence, eigsh
 from sklearn.base import BaseEstimator, ClusterMixin
 from sklearn.cluster import KMeans
-from sklearn.neighbors import NearestNeighbors, kneighbors_graph
-from scipy.sparse import coo_matrix, csr_matrix, diags, triu
-from scipy.sparse.linalg import eigsh, ArpackNoConvergence
-from scipy.linalg import eigh
-from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import pairwise_distances
+from sklearn.neighbors import NearestNeighbors, kneighbors_graph
+from sklearn.preprocessing import StandardScaler
 
 
 class SpectralClustering(BaseEstimator, ClusterMixin):

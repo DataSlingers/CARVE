@@ -6,17 +6,41 @@ from pathlib import Path
 from typing import Literal
 
 import joblib
-
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, ClassifierMixin, ClusterMixin
 from sklearn.cluster import AgglomerativeClustering
 
-from ._output import _print_run_footer, _print_run_header
-from ._runner import run_validation
 from ._consensus import compute_consensus_metrics
+from ._grids import (
+    default_dim_reduction_options,
+    default_estimator_grids,
+    default_normalization_options,
+)
+from ._output import _print_run_footer, _print_run_header
+from ._plotting import (
+    _get_annotation,
+)
+from ._plotting import (
+    plot_cluster_boxplot as _plot_cluster_boxplot,
+)
+from ._plotting import (
+    plot_cluster_scatter as _plot_cluster_scatter,
+)
+from ._plotting import (
+    plot_cluster_violin as _plot_cluster_violin,
+)
+from ._plotting import (
+    plot_consensus_matrix as _plot_consensus_matrix,
+)
+from ._plotting import (
+    plot_diagnostic_scatter as _plot_diagnostic_scatter,
+)
+from ._plotting import (
+    plot_metric_over_n_clusters as _plot_metric_over_n_clusters,
+)
+from ._runner import run_validation
 from ._selection import select_best_estimator, select_best_k, select_best_row_by_rule
-from ._types import GridSpec, NoisePolicy, PreprocOption, RunMode, resolve_mode
 from ._sweep import (
     SweepSpec,
     config_id_of,
@@ -27,23 +51,7 @@ from ._sweep import (
     sweep_param_name,
     validate_grids,
 )
-
-from ._plotting import (
-    _get_annotation,
-    plot_metric_over_n_clusters as _plot_metric_over_n_clusters,
-    plot_consensus_matrix as _plot_consensus_matrix,
-    plot_cluster_boxplot as _plot_cluster_boxplot,
-    plot_cluster_violin as _plot_cluster_violin,
-    plot_cluster_scatter as _plot_cluster_scatter,
-    plot_diagnostic_scatter as _plot_diagnostic_scatter,
-)
-
-from ._grids import (
-    default_estimator_grids,
-    default_normalization_options,
-    default_dim_reduction_options,
-)
-
+from ._types import GridSpec, NoisePolicy, PreprocOption, RunMode, resolve_mode
 from ._utils import (
     align_cluster_labels,
     ensure_2d_array,
@@ -615,8 +623,6 @@ class CARVE(BaseEstimator):
             or self.estimator_results_ is None
         ):
             raise RuntimeError("Call fit() first.")
-
-        df = self.estimator_results_
 
         # --- Select best configuration ---
         row, config_id, selected_k, _ = self._select_row(

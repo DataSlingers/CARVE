@@ -20,7 +20,6 @@ import pandas as pd
 from ._types import GridSpec
 from ._utils import _coerce_n_clusters
 
-
 # Bookkeeping columns CARVE adds to describe the sweep axis. These are not
 # estimator hyperparameters and must be excluded from estimator labels and
 # from plot grouping keys.

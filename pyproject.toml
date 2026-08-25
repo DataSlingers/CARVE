@@ -48,7 +48,9 @@ Issues = "https://github.com/DataSlingers/CARVE/issues"
 
 [project.optional-dependencies]
 dev = [
-  "ruff",
+  # Pinned: ruff changes its default rule set between minor releases, which
+  # breaks CI on ruff's schedule rather than on ours. See [tool.ruff.lint].
+  "ruff==0.16.4",
   "pytest",
   "pytest-cov",
 ]
@@ -78,6 +80,18 @@ notebooks = [
 [tool.setuptools.packages.find]
 where = ["src"]
 exclude = ["carve.sim", "carve.sim.*"]
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+# Pinned explicitly rather than relying on ruff's defaults, which expand
+# between minor releases: 0.15 flagged 1 issue here, 0.16 flagged 45, with
+# no change to our source. An explicit set keeps CI reproducible.
+#   E4/E7/E9, F -- ruff's historical default (pyflakes + core pycodestyle)
+#   I           -- import sorting
+#   UP          -- pyupgrade, scoped by target-version
+select = ["E4", "E7", "E9", "F", "I", "UP"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

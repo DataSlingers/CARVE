@@ -4,14 +4,13 @@ This module provides publication-ready visualizations for CARVE results,
 following the conventions of scanpy and other scientific Python packages.
 """
 
+import warnings
 from pathlib import Path
 from typing import Literal
-import warnings
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-
 from matplotlib.axes import Axes
 from matplotlib.legend import Legend
 from matplotlib.lines import Line2D
@@ -178,7 +177,7 @@ def plot_metric_over_n_clusters(
     results_df = results_df.copy()
     grouped = results_df.groupby(group_cols)
 
-    colors = plt.cm.get_cmap(palette)(np.linspace(0, 1, len(grouped)))
+    colors = plt.get_cmap(palette)(np.linspace(0, 1, len(grouped)))
 
     # --- Plot each estimator configuration ---
     for color_idx, (group_key, group_df) in enumerate(grouped):

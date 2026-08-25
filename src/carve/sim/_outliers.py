@@ -1,8 +1,9 @@
 """Outlier sampling utilities for simulations."""
 
-import numpy as np
 import warnings
 from typing import Literal
+
+import numpy as np
 
 from ._centers import _validate_center_box
 

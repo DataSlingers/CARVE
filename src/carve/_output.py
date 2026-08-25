@@ -1,8 +1,9 @@
 """Console output helpers for CARVE runs."""
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
-from typing import Any
 from sklearn.base import ClusterMixin
 from sklearn.model_selection import ParameterGrid
 from tqdm.auto import tqdm

@@ -1,8 +1,9 @@
 """Plotting helpers for simulations."""
 
-import numpy as np
-import matplotlib.pyplot as plt
 import warnings
+
+import matplotlib.pyplot as plt
+import numpy as np
 from sklearn.decomposition import PCA
 
 

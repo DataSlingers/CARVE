@@ -1,7 +1,8 @@
 """Sampling routines for synthetic cluster distributions."""
 
-import numpy as np
 from typing import Literal
+
+import numpy as np
 
 
 def _chol_spd(A: np.ndarray, eps: float = 1e-10) -> np.ndarray:

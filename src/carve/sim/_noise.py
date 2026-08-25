@@ -1,7 +1,8 @@
 """Noise feature generation for simulations."""
 
-import numpy as np
 from typing import Literal
+
+import numpy as np
 
 
 def _sample_noise(

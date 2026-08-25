@@ -8,10 +8,10 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from numpy.typing import ArrayLike
 from scipy.optimize import linear_sum_assignment
 from sklearn.base import ClusterMixin
 from sklearn.metrics.cluster import contingency_matrix
-from numpy.typing import ArrayLike
 
 from ._types import NoisePolicy
 

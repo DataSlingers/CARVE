@@ -1,7 +1,8 @@
 """Nonlinear embedding helpers for simulations."""
 
-import numpy as np
 from typing import Literal
+
+import numpy as np
 
 
 def _apply_embedding(
@@ -76,7 +77,7 @@ def _apply_embedding(
 
         cols = [X, X**d]
         if X.shape[1] >= 2:
-            cols.append((X[:, [0]] * X[:, [1]]))
+            cols.append(X[:, [0]] * X[:, [1]])
 
         return np.hstack(cols)
 

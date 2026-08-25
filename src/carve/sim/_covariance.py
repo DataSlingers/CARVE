@@ -1,7 +1,8 @@
 """Correlation and covariance helpers for simulations."""
 
-import numpy as np
 from typing import Literal
+
+import numpy as np
 
 
 def _build_correlation_matrix(

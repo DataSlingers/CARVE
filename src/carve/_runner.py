@@ -8,27 +8,20 @@ matrices, and computes generalizability scores.
 import warnings
 from typing import Any, NamedTuple
 
-from joblib import Parallel, delayed
 import numpy as np
-from sklearn.base import clone, ClassifierMixin
+from joblib import Parallel, delayed
+from sklearn.base import ClassifierMixin, clone
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import adjusted_rand_score
 from sklearn.model_selection import ParameterGrid
 from tqdm.auto import tqdm
 
-from ._output import _log_config_progress
-from ._consensus import compute_consensus_matrix
 from ._accuracy import compute_generalizability_scores
+from ._consensus import compute_consensus_matrix
+from ._output import _log_config_progress
 from ._pipeline import build_preprocessing_pipeline
-from ._sweep import MethodIds, SweepSpec, resolve_sweep as _resolve_sweep
-from ._utils import (
-    apply_noise_policy,
-    cluster_labels,
-    count_clusters,
-    split_subsample_indices,
-    _summarize_ari_scores,
-)
-
+from ._sweep import MethodIds, SweepSpec
+from ._sweep import resolve_sweep as _resolve_sweep
 from ._types import (
     EstimatorRecord,
     GridSpec,
@@ -37,6 +30,13 @@ from ._types import (
     PreprocSpec,
     RunMode,
     resolve_mode,
+)
+from ._utils import (
+    _summarize_ari_scores,
+    apply_noise_policy,
+    cluster_labels,
+    count_clusters,
+    split_subsample_indices,
 )
 
 # Full return type for run_validation

@@ -1,7 +1,8 @@
 """Cluster size and scaling utilities for simulations."""
 
-import numpy as np
 import warnings
+
+import numpy as np
 
 
 def _compute_cluster_sizes(

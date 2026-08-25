@@ -5,8 +5,9 @@ Defines shared type aliases (``GridSpec``, ``PreprocSpec``, ``Measure``,
 pipeline stages are executed.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 from sklearn.base import ClusterMixin, TransformerMixin
 

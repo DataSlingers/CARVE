@@ -2,16 +2,17 @@
 
 from collections.abc import Callable
 from typing import Literal
+
 import numpy as np
 
-from ._outliers import _parse_outliers, _sample_outliers
 from ._centers import _sample_centers
-from ._sizes import _compute_cluster_sizes, _get_cluster_scales, _post_embed_scaling
 from ._covariance import _build_correlation_matrix, _cluster_covariances
 from ._distributions import _sample_cluster_points
 from ._embed import _apply_embedding
-from ._plot import _plot_simulation
 from ._noise import _sample_noise
+from ._outliers import _parse_outliers, _sample_outliers
+from ._plot import _plot_simulation
+from ._sizes import _compute_cluster_sizes, _get_cluster_scales, _post_embed_scaling
 
 
 def simulate_clusters(
