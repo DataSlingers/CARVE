@@ -28,17 +28,29 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    name: test (Python ${{ matrix.python-version }})
     steps:
       - uses: actions/checkout@v5
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       # [graph] pulls igraph + leidenalg. Without it the Leiden/Louvain and
       # resolution-sweep tests skip, leaving that mode uncovered in CI.
       - name: Install dependencies
         run: pip install -e ".[dev,graph]"
+
+      # umap-learn is an optional extra and its wheels lag new Python
+      # releases, so only exercise the UMAP code path where it installs
+      # cleanly. The suite skips those assertions when it is absent.
+      - name: Install umap extra
+        if: matrix.python-version == '3.12'
+        run: pip install -e ".[umap]"
 
       - name: Run tests
         run: >
@@ -51,5 +63,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-report
+          name: test-report-py${{ matrix.python-version }}
           path: report.xml

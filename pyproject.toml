@@ -7,7 +7,7 @@ name = "carve-validate"
 version = "1.0.0"
 description = "Cluster Analysis with Resampling for Validation and Exploration: stability- and generalizability-based clustering validation."
 readme = "README.md"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [
@@ -22,26 +22,28 @@ keywords = [
   "scikit-learn",
 ]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Intended Audience :: Science/Research",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering :: Bio-Informatics",
+  "Typing :: Typed",
 ]
 dependencies = [
-  "numpy>=2.0,<2.1",
-  "scipy>=1.16,<1.17",
-  "scikit-learn>=1.7.2,<1.8",
-  "pandas>=2.2,<2.3",
-  "joblib>=1.5,<1.6",
-  "tqdm>=4.67,<5",
-  "numba>=0.60,<0.61",
-  "llvmlite>=0.43,<0.44",
-  "umap-learn>=0.5.6",
-  "pynndescent>=0.5.10,<0.6",
+  "anndata>=0.13",
+  "joblib>=1.5",
   "matplotlib>=3.9.4",
+  "numpy>=2.0",
+  "pandas>=2.2",
+  "scikit-learn>=1.7.2",
+  "scipy>=1.16",
+  "tqdm>=4.67",
 ]
 
 [project.urls]
+Documentation = "https://carve-validate.readthedocs.io/"
 Homepage = "https://github.com/DataSlingers/CARVE"
 Repository = "https://github.com/DataSlingers/CARVE"
 Issues = "https://github.com/DataSlingers/CARVE/issues"
@@ -58,6 +60,9 @@ graph = [
   "igraph>=0.11",
   "leidenalg>=0.10",
 ]
+umap = [
+  "umap-learn>=0.5.6",
+]
 notebooks = [
   "jupyterlab>=4.2,<5",
   "ipykernel>=6.29,<7",
@@ -72,7 +77,7 @@ notebooks = [
   "leidenalg>=0.11.0",
   "pyteomics>=4.7.5",
   "lxml>=6.0.2",
-  "scvi>=0.6.8",
+  "scvi-tools>=1.0",
   "cmap>=0.7.0",
   "glasbey>=0.3.0",
 ]
@@ -102,8 +107,3 @@ omit = ["*/carve/sim/*"]
 
 [tool.coverage.report]
 show_missing = true
-
-[dependency-groups]
-dev = [
-    "optuna>=4.8.0",
-]

@@ -14,7 +14,7 @@ from typing import Type, Iterable, Any
 import numpy as np
 import pandas as pd
 
-from carve.cluster import SpectralClusteringCARVE
+from carve.cluster import SpectralClustering
 
 from sklearn.base import ClusterMixin
 from sklearn.cluster import AgglomerativeClustering, KMeans
@@ -184,7 +184,7 @@ def make_estimator_grids(
     if estimator == "spectral":
         return [
             (
-                SpectralClusteringCARVE,
+                SpectralClustering,
                 {"n_clusters": list(candidate_clusters), "affinity": ["self_tuning"]},
             )
         ]

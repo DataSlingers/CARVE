@@ -357,10 +357,16 @@ class CARVE(BaseEstimator):
         self.sweep_ = sweep_spec
 
         # --- Resolve preprocessing options ---
+        # The default option lists are only consumed when a random pipeline is
+        # sampled per resample (see _pipeline.build_preprocessing_pipeline), so
+        # resolving them otherwise would import UMAP for nothing.
         norm_options = self.normalization_options or default_normalization_options()
-        dr_options = self.dim_reduction_options or default_dim_reduction_options(
-            X, self.subsample_ratio
-        )
+        if self.dim_reduction_options is not None:
+            dr_options = self.dim_reduction_options
+        elif randomize_preprocessing:
+            dr_options = default_dim_reduction_options(X, self.subsample_ratio)
+        else:
+            dr_options = []
 
         # --- Print run header ---
         _print_run_header(

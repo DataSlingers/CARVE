@@ -26,3 +26,13 @@ __pycache__/
 coverage.xml
 report.xml
 .pytest_cache/
+
+# build artifacts
+dist/
+build/
+.ruff_cache/
+.hatch/
+
+# docs build output
+docs/_build/
+docs/api/generated/

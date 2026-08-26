@@ -1,5 +1,7 @@
 """Tests for carve._grids module."""
 
+import importlib.util
+
 import numpy as np
 import pytest
 from sklearn.cluster import HDBSCAN, KMeans, AgglomerativeClustering
@@ -158,7 +160,26 @@ class TestDefaultDimReductionOptions:
         X = np.random.RandomState(0).randn(100, 10)
         options = default_dim_reduction_options(X)
         assert isinstance(options, list)
-        assert len(options) == 4  # identity, PCA, t-SNE, UMAP
+        # identity, PCA, t-SNE, and UMAP only when the [umap] extra is present.
+        expected = 4 if importlib.util.find_spec("umap") is not None else 3
+        assert len(options) == expected
+
+    def test_contains_umap_when_installed(self):
+        pytest.importorskip("umap")
+        from umap import UMAP
+
+        X = np.random.RandomState(0).randn(100, 10)
+        options = default_dim_reduction_options(X)
+        assert any(cls is UMAP for cls, _ in options)
+
+    def test_warns_when_umap_missing(self, monkeypatch):
+        monkeypatch.setattr(
+            "carve._grids.importlib.util.find_spec", lambda name: None
+        )
+        X = np.random.RandomState(0).randn(100, 10)
+        with pytest.warns(UserWarning, match="umap-learn is not installed"):
+            options = default_dim_reduction_options(X)
+        assert len(options) == 3
 
     def test_contains_identity(self):
         X = np.random.RandomState(0).randn(100, 10)

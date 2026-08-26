@@ -45,10 +45,9 @@ jobs:
         run: |
           set -e
           NOTEBOOKS=(
-            # "notebooks/Benchmarking Dimensionality.ipynb"
-            "notebooks/Benchmarking Non-Linear.ipynb"
-            # "notebooks/Benchmarking Sample Size.ipynb"
             "notebooks/Benchmarking.ipynb"
+            "notebooks/Tutorial.ipynb"
+            "notebooks/Resolution_Tutorial.ipynb"
           )
 
           mkdir -p executed

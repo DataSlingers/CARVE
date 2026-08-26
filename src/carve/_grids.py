@@ -1,5 +1,7 @@
 """Default estimator and preprocessing grids for CARVE."""
 
+import importlib.util
+import warnings
 from typing import Literal
 
 import numpy as np
@@ -8,7 +10,6 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import FunctionTransformer, StandardScaler
-from umap import UMAP
 
 from ._sweep import SweepSpec, resolve_sweep
 from ._types import GridSpec, PreprocSpec
@@ -242,16 +243,32 @@ def default_dim_reduction_options(
     n_samples, p = X.shape
     min_n = int(round(n_samples * (1 - subsample_ratio))) - 1
 
-    return [
+    options: list[PreprocSpec] = [
         (FunctionTransformer, {}),
         (PCA, {"n_components": list(range(2, min(min_n, p)))}),
         (TSNE, {"n_components": [2], "perplexity": list(range(5, min(min_n, 51)))}),
-        (
-            UMAP,
-            {
-                "n_components": list(range(2, min(min_n, p))),
-                "n_neighbors": list(range(5, 51)),
-                "min_dist": [0.1],
-            },
-        ),
     ]
+
+    if importlib.util.find_spec("umap") is not None:
+        from umap import UMAP
+
+        options.append(
+            (
+                UMAP,
+                {
+                    "n_components": list(range(2, min(min_n, p))),
+                    "n_neighbors": list(range(5, 51)),
+                    "min_dist": [0.1],
+                },
+            )
+        )
+    else:
+        warnings.warn(
+            "umap-learn is not installed; UMAP is omitted from the default "
+            "dimensionality reduction options. Install it with "
+            '`pip install "carve-validate[umap]"`.',
+            UserWarning,
+            stacklevel=2,
+        )
+
+    return options

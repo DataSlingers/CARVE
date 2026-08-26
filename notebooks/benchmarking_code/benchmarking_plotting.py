@@ -32,7 +32,7 @@ import matplotlib.pyplot as plt
 from pylab import cm
 
 from sklearn.cluster import AgglomerativeClustering, KMeans
-from carve.cluster import SpectralClusteringCARVE
+from carve.cluster import SpectralClustering
 from sklearn.decomposition import PCA
 from sklearn.metrics import adjusted_rand_score
 
@@ -426,7 +426,7 @@ def _plotting_iter(
     if estimator_type == "agglomerative":
         estimator = AgglomerativeClustering(n_clusters=true_k)
     elif estimator_type == "spectral":
-        estimator = SpectralClusteringCARVE(
+        estimator = SpectralClustering(
             n_clusters=true_k, affinity="self_tuning", random_state=benchmark_seed
         )
     else:
