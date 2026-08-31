@@ -4,11 +4,13 @@ Provides subsample splitting, cluster label alignment via the Hungarian
 algorithm, ARI score summarization, and array coercion utilities.
 """
 
+import warnings
 from typing import Any
 
 import numpy as np
 import pandas as pd
 from numpy.typing import ArrayLike
+from scipy import sparse
 from scipy.optimize import linear_sum_assignment
 from sklearn.base import ClusterMixin
 from sklearn.metrics.cluster import contingency_matrix
@@ -370,13 +372,24 @@ def align_cluster_labels(
     return aligned
 
 
-def ensure_2d_array(X: ArrayLike) -> np.ndarray:
+def ensure_2d_array(
+    X: ArrayLike, *, dense_warn_elements: int = 50_000_000
+) -> np.ndarray:
     """Ensure input is a 2D NumPy array.
+
+    Sparse input is densified rather than passed through. Several estimators
+    on the default grid (agglomerative clustering, t-SNE, and the RBF affinity
+    of :class:`~carve.SpectralClustering`) require dense input, so keeping the
+    matrix sparse would only move the failure into a parallel worker.
 
     Parameters
     ----------
     X : array-like
-        Input data.
+        Input data. Accepts NumPy arrays, pandas DataFrames, lists, and
+        SciPy sparse matrices and arrays.
+    dense_warn_elements : int, default=50_000_000
+        Warn when densifying a sparse matrix with more entries than this
+        (50M float64 entries is roughly 400 MB).
 
     Returns
     -------
@@ -397,7 +410,23 @@ def ensure_2d_array(X: ArrayLike) -> np.ndarray:
             return X
         else:
             raise ValueError("Input NumPy array must be 1D or 2D.")
+    elif sparse.issparse(X):
+        if X.ndim != 2:
+            raise ValueError("Input sparse matrix must be 2D.")
+        n_elements = int(X.shape[0]) * int(X.shape[1])
+        if n_elements > dense_warn_elements:
+            warnings.warn(
+                f"Densifying a sparse matrix with {n_elements:,} entries "
+                f"(~{n_elements * 8 / 1e9:.1f} GB dense). Pass a reduced "
+                "representation instead, e.g. use_rep='X_pca'.",
+                UserWarning,
+                stacklevel=2,
+            )
+        return np.asarray(X.todense())
     elif isinstance(X, list):
         return np.atleast_2d(np.array(X))
     else:
-        raise ValueError("Input must be a NumPy array, Pandas DataFrame, or a list.")
+        raise ValueError(
+            "Input must be a NumPy array, SciPy sparse matrix, Pandas "
+            "DataFrame, or a list."
+        )

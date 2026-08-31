@@ -8,9 +8,11 @@ from typing import Literal
 import joblib
 import numpy as np
 import pandas as pd
+from matplotlib.axes import Axes
 from sklearn.base import BaseEstimator, ClassifierMixin, ClusterMixin
 from sklearn.cluster import AgglomerativeClustering
 
+from . import _anndata
 from ._consensus import compute_consensus_metrics
 from ._grids import (
     default_dim_reduction_options,
@@ -239,6 +241,9 @@ class CARVE(BaseEstimator):
         X: np.ndarray,
         y: np.ndarray | None = None,
         *,
+        use_rep: str | None = None,
+        layer: str | None = None,
+        n_pcs: int | None = None,
         reference_labels: np.ndarray | None = None,
         randomize_preprocessing: bool = False,
         show_progress: bool = False,
@@ -249,10 +254,22 @@ class CARVE(BaseEstimator):
 
         Parameters
         ----------
-        X : array-like of shape (n_samples, n_features)
-            Input data.
+        X : array-like of shape (n_samples, n_features) or AnnData
+            Input data. Accepts NumPy arrays, pandas DataFrames, SciPy
+            sparse matrices, and :class:`~anndata.AnnData` objects. Sparse
+            input is densified; see :func:`carve._utils.ensure_2d_array`.
         y : ignored
             Included for sklearn compatibility.
+        use_rep : str, optional
+            Only valid when ``X`` is an AnnData. Key in ``adata.obsm`` to
+            cluster, or ``"X"`` for ``adata.X``. Defaults to ``"X_pca"``
+            when present, else ``adata.X``.
+        layer : str, optional
+            Only valid when ``X`` is an AnnData. Key in ``adata.layers`` to
+            cluster. Mutually exclusive with ``use_rep``.
+        n_pcs : int, optional
+            Only valid when ``X`` is an AnnData. Restrict the chosen
+            representation to its first ``n_pcs`` columns.
         reference_labels : array-like of shape (n_samples,), optional
             Reference labels used for generalizability metrics.
             Overrides the ``reference_labels`` passed at __init__ if given.
@@ -280,7 +297,14 @@ class CARVE(BaseEstimator):
         ValueError
             If estimator parameter grids have inconsistent sweep values, or if
             they mix more than one sweep parameter (k-based and
-            resolution-based estimators cannot be compared in one run).
+            resolution-based estimators cannot be compared in one run). Also
+            if ``use_rep``, ``layer`` or ``n_pcs`` is given for a non-AnnData
+            ``X``.
+
+        See Also
+        --------
+        carve.tl.carve : AnnData-native entry point that also writes the
+            results back into the object.
         """
         policy = resolve_mode(mode)
         if policy.mode != "default":
@@ -298,6 +322,16 @@ class CARVE(BaseEstimator):
             )
 
         # --- Resolve X and reference labels ---
+        if _anndata.is_anndata(X):
+            X = _anndata.get_representation(
+                X, use_rep=use_rep, layer=layer, n_pcs=n_pcs
+            )
+        elif use_rep is not None or layer is not None or n_pcs is not None:
+            raise ValueError(
+                "use_rep=, layer= and n_pcs= select a representation out of "
+                "an AnnData; they are not valid when X is an array. Pass the "
+                "array you want to cluster directly."
+            )
         X = ensure_2d_array(X)
         self.X_ = X
 
@@ -848,7 +882,7 @@ class CARVE(BaseEstimator):
         save: str | Path | None = None,
         dpi: int = 300,
         **kwargs,
-    ):
+    ) -> Axes | None:
         """Plot clustering validation metrics across cluster numbers.
 
         Creates a line plot showing one line for each unique estimator
@@ -955,7 +989,7 @@ class CARVE(BaseEstimator):
         show: bool = False,
         save: str | Path | None = None,
         dpi: int = 300,
-    ):
+    ) -> Axes | None:
         """Plot the selected consensus matrix with a flush top cluster band.
 
         The best configuration is chosen according to ``measure`` and
@@ -1085,7 +1119,7 @@ class CARVE(BaseEstimator):
         show: bool = False,
         save: str | Path | None = None,
         dpi: int = 300,
-    ):
+    ) -> Axes | None:
         """Plot cluster-level uncertainty as a boxplot.
 
         The best configuration is chosen via ``measure`` and ``rule``,
@@ -1274,7 +1308,7 @@ class CARVE(BaseEstimator):
         show: bool = False,
         save: str | Path | None = None,
         dpi: int = 300,
-    ):
+    ) -> Axes | None:
         """Plot cluster-level uncertainty as a violin plot.
 
         The API mirrors common scanpy arguments (``stripplot``, ``jitter``,
@@ -1477,7 +1511,7 @@ class CARVE(BaseEstimator):
         show: bool = False,
         save: str | Path | None = None,
         dpi: int = 300,
-    ):
+    ) -> Axes | None:
         """Plot data in 2D with score-encoded opacity and point size.
 
         The best configuration is chosen via ``measure`` and ``rule``,
@@ -1699,7 +1733,7 @@ class CARVE(BaseEstimator):
         show: bool = False,
         save: str | Path | None = None,
         dpi: int = 300,
-    ):
+    ) -> Axes | None:
         """Diagnostic scatter plot with shape-per-cluster and color-per-score.
 
         Cluster membership is encoded via marker shapes, while per-sample

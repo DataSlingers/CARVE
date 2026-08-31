@@ -192,3 +192,79 @@ def min_cluster_size_results_df():
         observed=[9.0, 5.0, 3.0],
         noise_fraction=[0.05, 0.10, 0.20],
     )
+
+
+# -----------------------------------------------------------------------
+# AnnData fixtures
+# -----------------------------------------------------------------------
+
+
+@pytest.fixture
+def adata_three_clusters(X_three_clusters):
+    """AnnData with three well-separated clusters, X_pca and X_umap."""
+    import anndata as ad
+
+    adata = ad.AnnData(np.asarray(X_three_clusters, dtype=np.float32))
+    adata.obs_names = [f"cell{i}" for i in range(adata.n_obs)]
+    adata.var_names = [f"gene{j}" for j in range(adata.n_vars)]
+    adata.obsm["X_pca"] = np.asarray(X_three_clusters[:, :3], dtype=np.float32)
+    adata.obsm["X_umap"] = np.asarray(X_three_clusters[:, :2], dtype=np.float32)
+    adata.layers["counts"] = adata.X.copy()
+    adata.obs["cell_type"] = pd.Categorical(["a"] * 30 + ["b"] * 30 + ["c"] * 30)
+    return adata
+
+
+@pytest.fixture
+def adata_sparse(X_three_clusters):
+    """AnnData whose ``.X`` is CSR, as a typical scRNA-seq object would be."""
+    import anndata as ad
+    from scipy import sparse
+
+    adata = ad.AnnData(
+        sparse.csr_matrix(np.asarray(X_three_clusters, dtype=np.float32))
+    )
+    adata.obsm["X_pca"] = np.asarray(X_three_clusters[:, :3], dtype=np.float32)
+    return adata
+
+
+@pytest.fixture(scope="module")
+def fitted_adata():
+    """A small AnnData carrying results from ``tl.carve``.
+
+    Module-scoped: fitting is the expensive part of these tests, and none of
+    the consumers mutate it.
+    """
+    import anndata as ad
+
+    import carve
+
+    rng = np.random.RandomState(0)
+    X = np.vstack(
+        [
+            rng.randn(30, 6) + 8,
+            rng.randn(30, 6) - 8,
+            rng.randn(30, 6) * 0.4,
+        ]
+    ).astype(np.float32)
+    adata = ad.AnnData(X)
+    adata.obsm["X_pca"] = X[:, :4]
+    adata.obsm["X_umap"] = X[:, :2]
+    carve.tl.carve(
+        adata,
+        use_rep="X_pca",
+        n_clusters=range(2, 5),
+        n_resamples=5,
+        random_state=0,
+    )
+    return adata
+
+
+@pytest.fixture(autouse=True)
+def _headless_matplotlib():
+    """Render to a file-backed canvas and never leak figures between tests."""
+    import matplotlib
+    import matplotlib.pyplot as plt
+
+    matplotlib.use("Agg", force=True)
+    yield
+    plt.close("all")

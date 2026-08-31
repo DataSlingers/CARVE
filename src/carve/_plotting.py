@@ -78,7 +78,7 @@ def plot_metric_over_n_clusters(
     save: str | Path | None = None,
     dpi: int = 300,
     **kwargs,
-) -> Axes:
+) -> Axes | None:
     """Plot stability or generalizability metric across the sweep axis.
 
     Creates a line plot with one line per unique estimator configuration
@@ -283,7 +283,7 @@ def plot_consensus_matrix(
     show: bool = False,
     save: str | Path | None = None,
     dpi: int = 300,
-) -> Axes:
+) -> Axes | None:
     """Plot a consensus matrix with a flush top cluster-color band.
 
     Samples are ordered by cluster labels before plotting.
@@ -624,7 +624,7 @@ def plot_cluster_boxplot(
     show: bool = False,
     save: str | Path | None = None,
     dpi: int = 300,
-) -> Axes:
+) -> Axes | None:
     """Plot per-cluster score distributions as a boxplot.
 
     Parameters
@@ -760,7 +760,7 @@ def plot_cluster_violin(
     show: bool = False,
     save: str | Path | None = None,
     dpi: int = 300,
-) -> Axes:
+) -> Axes | None:
     """Plot per-cluster score distributions as a violin plot.
 
     The interface mirrors common scanpy options (``stripplot``, ``jitter``,
@@ -953,7 +953,7 @@ def plot_cluster_scatter(
     show: bool = False,
     save: str | Path | None = None,
     dpi: int = 300,
-) -> Axes:
+) -> Axes | None:
     """Scatter plot with per-sample opacity and size score encoding.
 
     Per-sample scores are mapped to alpha (low scores are more opaque,
@@ -1228,7 +1228,7 @@ def plot_diagnostic_scatter(
     show: bool = False,
     save: str | Path | None = None,
     dpi: int = 300,
-) -> Axes:
+) -> Axes | None:
     """Diagnostic scatter plot with shape-per-cluster and color-per-score encoding.
 
     Cluster membership is encoded via marker shapes, while per-sample scores

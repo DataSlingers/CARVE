@@ -32,7 +32,15 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.13"]
-    name: test (Python ${{ matrix.python-version }})
+        resolution: [highest]
+        include:
+          # Oldest supported dependency set. This leg is not redundant: the
+          # h5ad writer rejects the object-dtype columns a heterogeneous
+          # estimator grid produces under pandas 2.3, while pandas 3's str
+          # dtype hides the same bug entirely. Only this leg catches it.
+          - python-version: "3.12"
+            resolution: lowest-direct
+    name: test (py${{ matrix.python-version }}, ${{ matrix.resolution }} deps)
     steps:
       - uses: actions/checkout@v5
 
@@ -42,15 +50,21 @@ jobs:
 
       # [graph] pulls igraph + leidenalg. Without it the Leiden/Louvain and
       # resolution-sweep tests skip, leaving that mode uncovered in CI.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
       - name: Install dependencies
-        run: pip install -e ".[dev,graph]"
+        run: >
+          uv pip install --system
+          --resolution ${{ matrix.resolution }}
+          -e ".[dev,graph]"
 
       # umap-learn is an optional extra and its wheels lag new Python
       # releases, so only exercise the UMAP code path where it installs
       # cleanly. The suite skips those assertions when it is absent.
       - name: Install umap extra
-        if: matrix.python-version == '3.12'
-        run: pip install -e ".[umap]"
+        if: matrix.python-version == '3.12' && matrix.resolution == 'highest'
+        run: uv pip install --system -e ".[umap]"
 
       - name: Run tests
         run: >
@@ -63,5 +77,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-report-py${{ matrix.python-version }}
+          name: test-report-py${{ matrix.python-version }}-${{ matrix.resolution }}
           path: report.xml
