@@ -17,8 +17,27 @@
 The spec's artifact schema has no runtime columns, but `paper_fig_scaling_runtime_k5.png` is a
 manuscript figure (`CARVE_manuscript.tex:1476`). The old `benchmark_scaling` returned
 `(scores_df, runtimes_df)` and the unified schema kept only the first. Task 1 adds a runtime
-sidecar to the compute layer before anything tries to plot from it. This is a small amendment to
-`_artifacts.py` and `_run.py`, not a redesign.
+sidecar to the compute layer before anything tries to plot from it.
+
+The published figure carries two curves, not one. `plot_runtime_over_axis` defaults to
+`runtime_cols=("t_carve_sec_s", "t_carve_sec_g")`, labeled "CARVE Stability" and "CARVE
+Generalizability", and the notebook does not override them. The old scaling runner could produce
+two numbers because it fit two CARVE objects, one per mode, and timed each. The rebuilt runner
+does a single default-mode fit, which computes both consensus matrices in one pass and therefore
+yields one timing.
+
+Decision taken: reproduce the published figure exactly by running two extra mode-specific fits
+whose only purpose is timing. Their clustering results are discarded, so this cannot reintroduce
+the `ari_at_k` mode bug that plan 1 fixed. The cost is real, so it is opt-in per scenario through
+`TIMED_SCENARIOS` in the registry, and only the two scaling scenarios carry it.
+
+Two consequences to keep in view. `carve.fit` warns
+`"Non-default mode is experimental and may break downstream functionality."` (`api.py:310`) on
+every mode-specific fit, so the published runtimes come from a path the package itself flags as
+experimental; the runner suppresses that one warning deliberately and says why in a comment. And
+the two timed fits together cost more than a user actually pays, since one default fit yields
+both measures. `t_default_s` is recorded alongside them so the honest single-fit number is
+available without a re-run.
 
 A second, smaller correction: the spec says "nine paper figures". There are ten
 `\includegraphics` references, of which two (`clustering_problem.png`, `CARVE_schema.png`) are
@@ -57,18 +76,27 @@ covers all eight.
 **Files:**
 - Modify: `src/benchmarks/_artifacts.py`
 - Modify: `src/benchmarks/_run.py`
+- Modify: `src/benchmarks/_registry.py`
 - Modify: `tests/benchmarks/test_artifacts.py`
 - Modify: `tests/benchmarks/test_run.py`
 
 **Interfaces:**
 - Consumes: `run_dir`, `read_run` from plan 1 Task 9; `run_cell`, `run_scenario` from plan 1 Task 10.
 - Produces:
-  - `RUNTIME_SCHEMA: tuple[str, ...]` = `("run_id", "scenario", "axis_name", "axis_value", "axis_label", "seed", "n_samples", "n_features", "n_resamples", "n_jobs", "estimator", "t_carve_s", "t_carve_per_k_s")`
+  - `RUNTIME_SCHEMA: tuple[str, ...]` = `("run_id", "scenario", "axis_name", "axis_value", "axis_label", "seed", "n_samples", "n_features", "n_resamples", "n_jobs", "estimator", "t_default_s", "t_stability_s", "t_generalizability_s", "t_per_k_stability_s", "t_per_k_generalizability_s")`
   - `write_runtime_checkpoint(rd: Path, axis_label: str, seed: int, rows: list[dict]) -> Path`
   - `read_runtimes(rd: Path) -> pd.DataFrame`
-  - `run_cell(...) -> tuple[list[dict], dict]` — now returns `(metric_rows, runtime_row)`
+  - `TIMED_SCENARIOS: frozenset[str]` in `_registry.py`, equal to `{"gaussians_samples", "gaussians_dimensionality"}`
+  - `run_cell(..., timing_fits: bool = False) -> tuple[list[dict], dict]` — now returns `(metric_rows, runtime_row)`
+  - `run_scenario(..., timing_fits: bool | None = None)` — `None` consults `TIMED_SCENARIOS`
 
-This changes `run_cell`'s return type. `run_scenario` is the only caller inside the package; update it in the same task so nothing is left broken between commits.
+Column names spell the mode out. The old names were `t_carve_sec_s` and `t_carve_sec_g`, where
+`sec` meant seconds and the trailing `_s` meant stability, so `_s` carried two meanings in one
+name. Here `_s` is only ever seconds.
+
+This changes `run_cell`'s return type and adds a parameter. `run_scenario` is the only caller
+inside the package; update it and the eight tests that bind a single name in the same task, so no
+commit leaves the suite red.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -95,8 +123,11 @@ def _runtime_row(**overrides):
         "n_resamples": 3,
         "n_jobs": 1,
         "estimator": "kmeans",
-        "t_carve_s": 1.25,
-        "t_carve_per_k_s": 0.25,
+        "t_default_s": 1.25,
+        "t_stability_s": 0.80,
+        "t_generalizability_s": 0.95,
+        "t_per_k_stability_s": 0.16,
+        "t_per_k_generalizability_s": 0.19,
     }
     row.update(overrides)
     return row
@@ -116,8 +147,11 @@ class TestRuntimeSidecar:
             "n_resamples",
             "n_jobs",
             "estimator",
-            "t_carve_s",
-            "t_carve_per_k_s",
+            "t_default_s",
+            "t_stability_s",
+            "t_generalizability_s",
+            "t_per_k_stability_s",
+            "t_per_k_generalizability_s",
         )
 
     def test_round_trips_through_parquet(self, tmp_path):
@@ -141,57 +175,75 @@ class TestRuntimeSidecar:
     def test_rejects_rows_outside_the_runtime_schema(self, tmp_path):
         rd = run_dir(tmp_path, "demo", "abc123def456")
         bad = _runtime_row()
-        del bad["t_carve_s"]
-        with pytest.raises(ValueError, match="t_carve_s"):
+        del bad["t_stability_s"]
+        with pytest.raises(ValueError, match="t_stability_s"):
             write_runtime_checkpoint(rd, "easy", 0, [bad])
 ```
 
 Append to `tests/benchmarks/test_run.py`:
 
 ```python
+def _cell(scenario, **overrides):
+    kwargs = dict(
+        axis_idx=0,
+        axis_value=0,
+        axis_label="easy",
+        seed=0,
+        run_id="r1",
+        random_state=0,
+        n_resamples=3,
+    )
+    kwargs.update(overrides)
+    return run_cell(scenario, **kwargs)
+
+
 class TestRuntimeCapture:
     def test_run_cell_returns_metric_rows_and_a_runtime_row(self, tiny_scenario):
-        rows, runtime = run_cell(
-            tiny_scenario,
-            axis_idx=0,
-            axis_value=0,
-            axis_label="easy",
-            seed=0,
-            run_id="r1",
-            random_state=0,
-            n_resamples=3,
-        )
+        rows, runtime = _cell(tiny_scenario)
         assert isinstance(rows, list)
         assert isinstance(runtime, dict)
-        assert runtime["t_carve_s"] > 0.0
+        assert runtime["t_default_s"] > 0.0
 
     def test_runtime_records_the_actual_data_shape(self, tiny_scenario):
-        _, runtime = run_cell(
-            tiny_scenario,
-            axis_idx=0,
-            axis_value=0,
-            axis_label="easy",
-            seed=0,
-            run_id="r1",
-            random_state=0,
-            n_resamples=3,
-        )
+        _, runtime = _cell(tiny_scenario)
         assert runtime["n_samples"] == 120
         assert runtime["n_features"] == 4
 
-    def test_per_k_runtime_divides_by_the_candidate_count(self, tiny_scenario):
-        _, runtime = run_cell(
-            tiny_scenario,
-            axis_idx=0,
-            axis_value=0,
-            axis_label="easy",
-            seed=0,
-            run_id="r1",
-            random_state=0,
-            n_resamples=3,
+    def test_timing_fits_are_off_by_default(self, tiny_scenario):
+        _, runtime = _cell(tiny_scenario)
+        assert np.isnan(runtime["t_stability_s"])
+        assert np.isnan(runtime["t_generalizability_s"])
+
+    def test_timing_fits_populate_both_modes_when_requested(self, tiny_scenario):
+        _, runtime = _cell(tiny_scenario, timing_fits=True)
+        assert runtime["t_stability_s"] > 0.0
+        assert runtime["t_generalizability_s"] > 0.0
+
+    def test_per_k_runtimes_divide_by_the_candidate_count(self, tiny_scenario):
+        _, runtime = _cell(tiny_scenario, timing_fits=True)
+        n_k = len(tiny_scenario.candidate_k)
+        assert runtime["t_per_k_stability_s"] == pytest.approx(
+            runtime["t_stability_s"] / n_k
         )
-        expected = runtime["t_carve_s"] / len(tiny_scenario.candidate_k)
-        assert runtime["t_carve_per_k_s"] == pytest.approx(expected)
+        assert runtime["t_per_k_generalizability_s"] == pytest.approx(
+            runtime["t_generalizability_s"] / n_k
+        )
+
+    def test_timing_fits_do_not_change_the_metric_rows(self, tiny_scenario):
+        """The timed fits are discarded; only the default fit feeds metrics."""
+        without, _ = _cell(tiny_scenario)
+        with_timing, _ = _cell(tiny_scenario, timing_fits=True)
+        assert [r["metric_value"] for r in without] == [
+            r["metric_value"] for r in with_timing
+        ]
+        assert [r["ari_at_k"] for r in without] == [
+            r["ari_at_k"] for r in with_timing
+        ]
+
+    def test_the_experimental_mode_warning_is_suppressed(self, tiny_scenario, recwarn):
+        _cell(tiny_scenario, timing_fits=True)
+        messages = [str(w.message) for w in recwarn]
+        assert not any("Non-default mode is experimental" in m for m in messages)
 
     def test_run_scenario_writes_a_runtime_row_per_cell(self, tiny_scenario, tmp_path):
         from benchmarks._artifacts import read_runtimes
@@ -199,6 +251,17 @@ class TestRuntimeCapture:
         rd = run_scenario(tiny_scenario, root=tmp_path, n_resamples=3)
         runtimes = read_runtimes(rd)
         assert len(runtimes) == len(tiny_scenario.axis) * tiny_scenario.n_seeds
+
+    def test_scaling_scenarios_are_timed_by_default(self):
+        from benchmarks._registry import SCENARIOS, TIMED_SCENARIOS
+
+        assert TIMED_SCENARIOS == {"gaussians_samples", "gaussians_dimensionality"}
+        assert TIMED_SCENARIOS <= set(SCENARIOS)
+
+    def test_difficulty_scenarios_are_not_timed_by_default(self):
+        from benchmarks._registry import TIMED_SCENARIOS
+
+        assert "gaussians" not in TIMED_SCENARIOS
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -223,8 +286,14 @@ RUNTIME_SCHEMA: tuple[str, ...] = (
     "n_resamples",
     "n_jobs",
     "estimator",
-    "t_carve_s",
-    "t_carve_per_k_s",
+    # The default-mode fit is the one that produced the metric rows. The two
+    # mode-specific timings come from extra fits whose results are discarded;
+    # they exist only to reproduce the published two-curve runtime figure.
+    "t_default_s",
+    "t_stability_s",
+    "t_generalizability_s",
+    "t_per_k_stability_s",
+    "t_per_k_generalizability_s",
 )
 ```
 
@@ -274,19 +343,68 @@ Refactor the existing `write_checkpoint` to reuse the validator, replacing its i
     return path
 ```
 
-- [ ] **Step 4: Capture timing in `_run.py`**
+- [ ] **Step 4: Register which scenarios get timing fits**
 
-Add `import time` if it is not already imported, then in `run_cell` wrap the CARVE fit:
+Add to `src/benchmarks/_registry.py`, below `SCENARIOS`:
+
+```python
+# Scenarios that additionally run two mode-specific CARVE fits purely to time
+# them. This reproduces the published two-curve runtime figure, which was
+# produced by a runner that fit each mode separately. The extra fits more than
+# double a cell's cost, so only the scaling scenarios carry them.
+TIMED_SCENARIOS: frozenset[str] = frozenset(
+    {"gaussians_samples", "gaussians_dimensionality"}
+)
+```
+
+- [ ] **Step 5: Capture timing in `_run.py`**
+
+Add `import time` and `import warnings` if they are not already imported, and add
+`timing_fits: bool = False` to `run_cell`'s keyword-only parameters. Wrap the existing fit:
 
 ```python
     t0 = time.perf_counter()
     carve.fit(X)
-    t_carve_s = time.perf_counter() - t0
+    t_default_s = time.perf_counter() - t0
 ```
 
-Build the runtime row just before `return`, and change the return statement:
+After the metric rows are built and before the `return`, add the timed fits and the runtime row:
 
 ```python
+    t_stability_s = float("nan")
+    t_generalizability_s = float("nan")
+
+    if timing_fits:
+        # Two extra fits that exist only to be timed. Their results are never
+        # read, so this cannot reintroduce the ari_at_k mode bug: every metric
+        # row above comes from the default-mode fit.
+        #
+        # carve.fit warns that non-default modes are experimental (api.py:310).
+        # Exercising that path is deliberate here, because it is what produced
+        # the published runtime figure, so the warning is suppressed rather
+        # than raised sixty times per scenario.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Non-default mode is experimental",
+                category=RuntimeWarning,
+            )
+            for mode in ("stability", "generalizability"):
+                timer = CARVE(
+                    estimator_param_grids=grids,
+                    n_resamples=n_resamples,
+                    n_jobs=1,
+                    random_state=benchmark_seed,
+                )
+                t0 = time.perf_counter()
+                timer.fit(X, mode=mode)
+                elapsed = time.perf_counter() - t0
+                if mode == "stability":
+                    t_stability_s = elapsed
+                else:
+                    t_generalizability_s = elapsed
+
+    n_k = len(candidate_k)
     runtime_row = {
         "run_id": run_id,
         "scenario": scenario.name,
@@ -299,21 +417,34 @@ Build the runtime row just before `return`, and change the return statement:
         "n_resamples": int(n_resamples),
         "n_jobs": 1,
         "estimator": scenario.estimator.name,
-        "t_carve_s": float(t_carve_s),
-        "t_carve_per_k_s": float(t_carve_s / len(candidate_k)),
+        "t_default_s": float(t_default_s),
+        "t_stability_s": float(t_stability_s),
+        "t_generalizability_s": float(t_generalizability_s),
+        "t_per_k_stability_s": float(t_stability_s / n_k),
+        "t_per_k_generalizability_s": float(t_generalizability_s / n_k),
     }
 
     return rows, runtime_row
 ```
 
+Dividing `nan` by `n_k` yields `nan`, so the per-k columns are absent exactly when the timed fits
+did not run. That is intentional: an untimed cell records no timing rather than a misleading zero.
+
 `n_jobs` is recorded as 1 because CARVE is always constructed with `n_jobs=1`; the runner's own
 parallelism is in the manifest.
 
-Update the docstring's Returns section to say it returns `(metric_rows, runtime_row)`.
+Update the docstring's Returns section to say it returns `(metric_rows, runtime_row)`, and
+document `timing_fits`.
 
-In `run_scenario`, update `_one`:
+In `run_scenario`, add `timing_fits: bool | None = None` to the signature, resolve it, and update
+`_one`:
 
 ```python
+    from ._registry import TIMED_SCENARIOS
+
+    if timing_fits is None:
+        timing_fits = scenario.name in TIMED_SCENARIOS
+
     def _one(axis_idx, axis_value, axis_label, seed):
         rows, runtime_row = run_cell(
             scenario,
@@ -324,21 +455,24 @@ In `run_scenario`, update `_one`:
             run_id=run_id,
             random_state=random_state,
             n_resamples=n_resamples,
+            timing_fits=timing_fits,
         )
         write_checkpoint(rd, axis_label, seed, rows)
         write_runtime_checkpoint(rd, axis_label, seed, [runtime_row])
 ```
 
-Add `write_runtime_checkpoint` to the `._artifacts` import block in `_run.py`.
+Add `write_runtime_checkpoint` to the `._artifacts` import block in `_run.py`, and record
+`timing_fits` in the manifest by passing it through to `build_manifest`'s `config` dict, so an
+artifact says whether its runtimes were collected.
 
-- [ ] **Step 5: Update the existing run tests for the new return type**
+- [ ] **Step 6: Update the existing run tests for the new return type**
 
 Every test in `TestRunCell` that calls `run_cell` and binds one name must now unpack two. Change
 each `rows = run_cell(...)` to `rows, _ = run_cell(...)`. There are seven such call sites in
 `TestRunCell` plus one in `test_generalizability_metrics_use_the_generalizability_matrix`, which
 discards the result entirely and needs no change.
 
-- [ ] **Step 6: Extend `promote()` to carry runtimes**
+- [ ] **Step 7: Extend `promote()` to carry runtimes**
 
 In `_artifacts.promote`, after the results CSV is written, add:
 
@@ -348,16 +482,16 @@ In `_artifacts.promote`, after the results CSV is written, add:
         runtimes.to_csv(out / "runtimes.csv", index=False)
 ```
 
-- [ ] **Step 7: Run the full compute suite**
+- [ ] **Step 8: Run the full compute suite**
 
 Run: `.venv/bin/pytest tests/benchmarks/ -v --tb=short -k "not regression"`
 Expected: all passed
 
-- [ ] **Step 8: Lint and commit**
+- [ ] **Step 9: Lint and commit**
 
 ```bash
 .venv/bin/ruff check src/ && .venv/bin/ruff format src/
-git add src/benchmarks/_artifacts.py src/benchmarks/_run.py tests/benchmarks/test_artifacts.py tests/benchmarks/test_run.py
+git add src/benchmarks/_artifacts.py src/benchmarks/_run.py src/benchmarks/_registry.py tests/benchmarks/test_artifacts.py tests/benchmarks/test_run.py
 git commit -m "feat(benchmarks): capture per-cell CARVE runtime in a sidecar artifact"
 ```
 
@@ -701,7 +835,7 @@ git commit -m "feat(benchmarks): add the single theme module"
   - `cvi_lines(ax, curves_df, best_df, *, title=None, normalize=True) -> Axes`
   - `alluvial(ax, y_true, left_labels, right_labels, *, left_cmap, right_cmap, true_cmap, left_title, right_title, true_title) -> Axes`
   - `ari_lollipop(ax, ari_df, *, title=None, annotate_k=True) -> Axes`
-  - `runtime_lines(ax, runtimes_df, *, x_col="axis_value", x_label=None, yscale="log", element_scale=1.0, show_legend=True) -> Axes`
+  - `runtime_lines(ax, runtimes_df, *, runtime_cols=("t_stability_s", "t_generalizability_s"), runtime_labels=("CARVE Stability", "CARVE Generalizability"), x_col="axis_value", x_label=None, yscale="log", dodge=0.01, element_scale=1.0, show_legend=True) -> Axes`
   - `grouped_legend(fig, axes, *, fontsize=None, y_offset=0.10) -> Legend`
   - `panel_letter(ax, letter, *, x=-0.08, y=1.1) -> None`
 
@@ -900,33 +1034,67 @@ def metric_lines(
     return style_axes(ax)
 
 
+RUNTIME_COLS: tuple[str, str] = ("t_stability_s", "t_generalizability_s")
+RUNTIME_LABELS: tuple[str, str] = ("CARVE Stability", "CARVE Generalizability")
+_RUNTIME_METRIC_FOR_COLOR = {
+    "t_stability_s": "ari_stability_1se",
+    "t_generalizability_s": "ari_generalizability_1se",
+    "t_default_s": "ari_average_1se",
+}
+
+
 def runtime_lines(
     ax: Axes,
     runtimes_df: pd.DataFrame,
     *,
+    runtime_cols: Sequence[str] = RUNTIME_COLS,
+    runtime_labels: Sequence[str] = RUNTIME_LABELS,
     x_col: str = "axis_value",
     x_label: str | None = None,
     y_label: str = "Runtime (seconds)",
     yscale: str = "log",
+    dodge: float = 0.01,
     element_scale: float = 1.0,
     show_legend: bool = True,
 ) -> Axes:
-    """Plot CARVE wall-clock against the swept axis."""
-    grouped = runtimes_df.groupby(x_col)["t_carve_s"]
-    centers = grouped.mean()
-    errors = grouped.sem()
+    """Plot CARVE wall-clock against the swept axis, one line per timed mode.
 
-    ax.errorbar(
-        centers.index,
-        centers.to_numpy(),
-        yerr=errors.to_numpy(),
-        marker="o",
-        markersize=5.0 * element_scale,
-        linewidth=1.8 * element_scale,
-        capsize=2.5 * element_scale,
-        color=metric_color("ari_stability_1se"),
-        label="CARVE",
+    Two series by default, matching the published figure: the stability-mode
+    and generalizability-mode fits are timed separately. They are dodged
+    horizontally by a fraction of the x-range so the error bars do not
+    overlap at each anchor.
+    """
+    if len(runtime_cols) != len(runtime_labels):
+        raise ValueError("runtime_cols and runtime_labels must be the same length.")
+
+    x_values = np.sort(runtimes_df[x_col].unique().astype(float))
+    span = float(x_values[-1] - x_values[0]) if len(x_values) > 1 else 1.0
+    offsets = np.linspace(
+        -dodge * span * (len(runtime_cols) - 1) / 2,
+        dodge * span * (len(runtime_cols) - 1) / 2,
+        len(runtime_cols),
     )
+
+    for column, label, offset in zip(runtime_cols, runtime_labels, offsets):
+        if column not in runtimes_df.columns:
+            continue
+        grouped = runtimes_df.groupby(x_col)[column]
+        centers = grouped.mean().dropna()
+        if centers.empty:
+            continue
+        errors = grouped.sem().reindex(centers.index)
+
+        ax.errorbar(
+            centers.index.to_numpy(dtype=float) + offset,
+            centers.to_numpy(),
+            yerr=errors.to_numpy(),
+            marker="o",
+            markersize=5.0 * element_scale,
+            linewidth=1.8 * element_scale,
+            capsize=2.5 * element_scale,
+            color=metric_color(_RUNTIME_METRIC_FOR_COLOR.get(column, column)),
+            label=label,
+        )
 
     ax.set_yscale(yscale)
     ax.set_xlabel(x_label or x_col, fontsize=FONT_SIZES["axis_label"])
@@ -1036,17 +1204,58 @@ class TestMetricLines:
         plt.close(fig)
 
 
+def _runtime_frame():
+    return pd.DataFrame(
+        {
+            "axis_value": [1000, 1000, 5500, 5500],
+            "t_default_s": [1.5, 1.7, 6.0, 6.6],
+            "t_stability_s": [1.0, 1.2, 4.0, 4.4],
+            "t_generalizability_s": [1.3, 1.4, 5.1, 5.5],
+        }
+    )
+
+
 class TestRuntimeLines:
     def test_returns_the_same_axes_and_uses_a_log_scale(self):
         fig, ax = plt.subplots()
-        df = pd.DataFrame(
-            {
-                "axis_value": [1000, 1000, 5500, 5500],
-                "t_carve_s": [1.0, 1.2, 4.0, 4.4],
-            }
-        )
-        assert runtime_lines(ax, df) is ax
+        assert runtime_lines(ax, _runtime_frame()) is ax
         assert ax.get_yscale() == "log"
+        plt.close(fig)
+
+    def test_draws_both_mode_curves_by_default(self):
+        fig, ax = plt.subplots()
+        runtime_lines(ax, _runtime_frame())
+        labels = [t.get_text() for t in ax.get_legend().get_texts()]
+        assert labels == ["CARVE Stability", "CARVE Generalizability"]
+        plt.close(fig)
+
+    def test_the_two_curves_are_dodged_apart(self):
+        fig, ax = plt.subplots()
+        runtime_lines(ax, _runtime_frame())
+        first, second = ax.lines[0].get_xdata(), ax.lines[1].get_xdata()
+        assert not np.allclose(first, second)
+        plt.close(fig)
+
+    def test_skips_a_column_that_is_all_nan(self):
+        """Untimed cells record nan, and an untimed series must not be drawn."""
+        fig, ax = plt.subplots()
+        df = _runtime_frame()
+        df["t_generalizability_s"] = np.nan
+        runtime_lines(ax, df)
+        labels = [t.get_text() for t in ax.get_legend().get_texts()]
+        assert labels == ["CARVE Stability"]
+        plt.close(fig)
+
+    def test_skips_a_column_that_is_absent(self):
+        fig, ax = plt.subplots()
+        runtime_lines(ax, _runtime_frame()[["axis_value", "t_stability_s"]])
+        assert len(ax.lines) >= 1
+        plt.close(fig)
+
+    def test_rejects_mismatched_columns_and_labels(self):
+        fig, ax = plt.subplots()
+        with pytest.raises(ValueError, match="same length"):
+            runtime_lines(ax, _runtime_frame(), runtime_cols=("t_stability_s",))
         plt.close(fig)
 ```
 
@@ -3222,8 +3431,11 @@ def _runtimes(scenario, axis_name, values):
                 "axis_value": axis_value, "axis_label": axis_label, "seed": seed,
                 "n_samples": int(axis_value), "n_features": 50, "n_resamples": 100,
                 "n_jobs": 1, "estimator": "kmeans",
-                "t_carve_s": 1.0 + axis_value / 1000.0,
-                "t_carve_per_k_s": (1.0 + axis_value / 1000.0) / 5,
+                "t_default_s": 1.5 + axis_value / 800.0,
+                "t_stability_s": 1.0 + axis_value / 1000.0,
+                "t_generalizability_s": 1.2 + axis_value / 900.0,
+                "t_per_k_stability_s": (1.0 + axis_value / 1000.0) / 5,
+                "t_per_k_generalizability_s": (1.2 + axis_value / 900.0) / 5,
             })
     return pd.DataFrame(rows)[list(RUNTIME_SCHEMA)]
 
@@ -3305,6 +3517,20 @@ class TestFigureScalingRuntime:
     def test_y_axis_is_labeled_in_seconds(self, runtimes):
         fig = figure_scaling_runtime(runtimes, save=False)
         assert any("second" in ax.get_ylabel().lower() for ax in fig.get_axes())
+        plt.close(fig)
+
+    def test_draws_two_curves_per_panel_like_the_published_figure(self, runtimes):
+        fig = figure_scaling_runtime(runtimes, save=False)
+        drawn = [ax for ax in fig.get_axes() if ax.lines]
+        for ax in drawn:
+            labelled = [ln for ln in ax.lines if not ln.get_label().startswith("_")]
+            assert len(labelled) == 2
+        plt.close(fig)
+
+    def test_legend_names_both_carve_modes(self, runtimes):
+        fig = figure_scaling_runtime(runtimes, save=False)
+        labels = {t.get_text() for t in fig.legends[0].get_texts()}
+        assert labels == {"CARVE Stability", "CARVE Generalizability"}
         plt.close(fig)
 
     def test_raises_on_an_empty_mapping(self):
@@ -3421,7 +3647,13 @@ def figure_scaling_runtime(
     save: bool = True,
     out_dir: Path | None = None,
 ) -> Figure:
-    """CARVE wall-clock against each scaling axis, on a log y axis."""
+    """CARVE wall-clock against each scaling axis, on a log y axis.
+
+    Two curves per panel, one per timed CARVE mode, matching the published
+    figure. Those timings come from the extra mode-specific fits the runner
+    performs for the scenarios listed in TIMED_SCENARIOS; a scenario without
+    them records nan and its series is skipped rather than drawn at zero.
+    """
     panels = _ordered_panels(runtimes_by_scenario)
 
     with theme_context():
