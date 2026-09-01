@@ -81,10 +81,13 @@ notebooks = [
   "cmap>=0.7.0",
   "glasbey>=0.3.0",
 ]
+benchmarks = [
+  "pyarrow>=17",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-exclude = ["carve.sim", "carve.sim.*"]
+exclude = ["carve.sim", "carve.sim.*", "benchmarks", "benchmarks.*"]
 
 [tool.ruff]
 target-version = "py312"
@@ -100,6 +103,9 @@ select = ["E4", "E7", "E9", "F", "I", "UP"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "slow: regression runs that re-execute a full benchmark scenario",
+]
 
 [tool.coverage.run]
 source = ["carve"]
