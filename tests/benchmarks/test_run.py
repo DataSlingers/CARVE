@@ -31,7 +31,7 @@ def tiny_scenario():
 
 class TestRunCell:
     def test_emits_one_row_per_metric_and_k(self, tiny_scenario):
-        rows = run_cell(
+        rows, _ = run_cell(
             tiny_scenario,
             axis_idx=0,
             axis_value=0,
@@ -44,7 +44,7 @@ class TestRunCell:
         assert len(rows) == N_METRICS * len(tiny_scenario.candidate_k)
 
     def test_rows_carry_exactly_the_schema(self, tiny_scenario):
-        rows = run_cell(
+        rows, _ = run_cell(
             tiny_scenario,
             axis_idx=0,
             axis_value=0,
@@ -57,7 +57,7 @@ class TestRunCell:
         assert set(rows[0]) == set(SCHEMA)
 
     def test_exactly_one_k_is_selected_per_metric(self, tiny_scenario):
-        rows = run_cell(
+        rows, _ = run_cell(
             tiny_scenario,
             axis_idx=0,
             axis_value=0,
@@ -72,7 +72,7 @@ class TestRunCell:
             assert len(selected) == 1, metric
 
     def test_selects_true_k_marks_k_star(self, tiny_scenario):
-        rows = run_cell(
+        rows, _ = run_cell(
             tiny_scenario,
             axis_idx=0,
             axis_value=0,
@@ -86,7 +86,7 @@ class TestRunCell:
             assert row["selects_true_k"] == (row["k"] == tiny_scenario.k_star)
 
     def test_oracle_ari_is_constant_within_a_cell(self, tiny_scenario):
-        rows = run_cell(
+        rows, _ = run_cell(
             tiny_scenario,
             axis_idx=0,
             axis_value=0,
@@ -151,8 +151,8 @@ class TestRunCell:
             random_state=0,
             n_resamples=20,
         )
-        first = run_cell(tiny_scenario, **kwargs)
-        second = run_cell(tiny_scenario, **kwargs)
+        first, _ = run_cell(tiny_scenario, **kwargs)
+        second, _ = run_cell(tiny_scenario, **kwargs)
         assert [r["metric_value"] for r in first] == [r["metric_value"] for r in second]
 
     def test_carve_receives_the_scenario_n_trees(self, tiny_scenario, monkeypatch):
@@ -188,7 +188,7 @@ class TestRunCell:
         assert seen_n_trees == [500]
 
     def test_provenance_columns_record_the_actual_estimator(self, tiny_scenario):
-        rows = run_cell(
+        rows, _ = run_cell(
             tiny_scenario,
             axis_idx=0,
             axis_value=0,
@@ -341,3 +341,92 @@ def test_compute_modules_do_not_import_matplotlib_directly():
                 assert name != "matplotlib" and not name.startswith("matplotlib."), (
                     f"{filename} imports matplotlib directly: {ast.dump(node)}"
                 )
+
+
+def _cell(scenario, **overrides):
+    kwargs = dict(
+        axis_idx=0,
+        axis_value=0,
+        axis_label="easy",
+        seed=0,
+        run_id="r1",
+        random_state=0,
+        # Below roughly 7 resamples, consensus_gini_stability and
+        # consensus_ce_stability come back all-NaN and CARVE.get_k raises
+        # ValueError: Encountered all NA values (see MIN_SAFE_N_RESAMPLES in
+        # test_ci_config.py). 10 keeps a margin above that measured boundary
+        # while staying small enough to fit quickly.
+        n_resamples=10,
+    )
+    kwargs.update(overrides)
+    return run_cell(scenario, **kwargs)
+
+
+class TestRuntimeCapture:
+    def test_run_cell_returns_metric_rows_and_a_runtime_row(self, tiny_scenario):
+        rows, runtime = _cell(tiny_scenario)
+        assert isinstance(rows, list)
+        assert isinstance(runtime, dict)
+        assert runtime["t_default_s"] > 0.0
+
+    def test_runtime_records_the_actual_data_shape(self, tiny_scenario):
+        _, runtime = _cell(tiny_scenario)
+        assert runtime["n_samples"] == 120
+        assert runtime["n_features"] == 4
+
+    def test_timing_fits_are_off_by_default(self, tiny_scenario):
+        _, runtime = _cell(tiny_scenario)
+        assert np.isnan(runtime["t_stability_s"])
+        assert np.isnan(runtime["t_generalizability_s"])
+
+    def test_timing_fits_populate_both_modes_when_requested(self, tiny_scenario):
+        _, runtime = _cell(tiny_scenario, timing_fits=True)
+        assert runtime["t_stability_s"] > 0.0
+        assert runtime["t_generalizability_s"] > 0.0
+
+    def test_per_k_runtimes_divide_by_the_candidate_count(self, tiny_scenario):
+        _, runtime = _cell(tiny_scenario, timing_fits=True)
+        n_k = len(tiny_scenario.candidate_k)
+        assert runtime["t_per_k_stability_s"] == pytest.approx(
+            runtime["t_stability_s"] / n_k
+        )
+        assert runtime["t_per_k_generalizability_s"] == pytest.approx(
+            runtime["t_generalizability_s"] / n_k
+        )
+
+    def test_timing_fits_do_not_change_the_metric_rows(self, tiny_scenario):
+        """The timed fits are discarded; only the default fit feeds metrics."""
+        without, _ = _cell(tiny_scenario)
+        with_timing, _ = _cell(tiny_scenario, timing_fits=True)
+        assert [r["metric_value"] for r in without] == [
+            r["metric_value"] for r in with_timing
+        ]
+        assert [r["ari_at_k"] for r in without] == [
+            r["ari_at_k"] for r in with_timing
+        ]
+
+    def test_the_experimental_mode_warning_is_suppressed(self, tiny_scenario, recwarn):
+        _cell(tiny_scenario, timing_fits=True)
+        messages = [str(w.message) for w in recwarn]
+        assert not any("Non-default mode is experimental" in m for m in messages)
+
+    def test_run_scenario_writes_a_runtime_row_per_cell(self, tiny_scenario, tmp_path):
+        from benchmarks._artifacts import read_runtimes
+
+        # See the comment in _cell: below roughly 7 resamples,
+        # consensus_gini_stability/consensus_ce_stability come back all-NaN
+        # and CARVE.get_k raises.
+        rd = run_scenario(tiny_scenario, root=tmp_path, n_resamples=10)
+        runtimes = read_runtimes(rd)
+        assert len(runtimes) == len(tiny_scenario.axis) * tiny_scenario.n_seeds
+
+    def test_scaling_scenarios_are_timed_by_default(self):
+        from benchmarks._registry import SCENARIOS, TIMED_SCENARIOS
+
+        assert TIMED_SCENARIOS == {"gaussians_samples", "gaussians_dimensionality"}
+        assert TIMED_SCENARIOS <= set(SCENARIOS)
+
+    def test_difficulty_scenarios_are_not_timed_by_default(self):
+        from benchmarks._registry import TIMED_SCENARIOS
+
+        assert "gaussians" not in TIMED_SCENARIOS

@@ -388,6 +388,14 @@ SCENARIOS: dict[str, Scenario] = {
     for name in _ESTIMATORS
 }
 
+# Scenarios that additionally run two mode-specific CARVE fits purely to time
+# them. This reproduces the published two-curve runtime figure, which was
+# produced by a runner that fit each mode separately. The extra fits more than
+# double a cell's cost, so only the scaling scenarios carry them.
+TIMED_SCENARIOS: frozenset[str] = frozenset(
+    {"gaussians_samples", "gaussians_dimensionality"}
+)
+
 # The seed the published benchmarks ran with. Notebook cell 3 sets
 # RANDOM_SEED = 42 and every scenario call passes it. Seeds derive as
 # benchmark_seed = seed + axis_idx * 10000 + random_state, so this value

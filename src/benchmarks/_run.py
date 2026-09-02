@@ -39,6 +39,7 @@ from ._artifacts import (
     run_dir,
     write_checkpoint,
     write_manifest,
+    write_runtime_checkpoint,
 )
 from ._cvi import calculate_cvi, select_k
 from ._estimators import build_estimator, param_grids
@@ -75,11 +76,18 @@ def run_cell(
     run_id: str,
     random_state: int,
     n_resamples: int,
-) -> list[dict[str, Any]]:
+    timing_fits: bool = False,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Run one (axis point, seed) cell and return its rows.
 
     Simulates, fits an oracle estimator at k_star, fits CARVE, then scores
     every CARVE metric and every classical index at every candidate k.
+    Returns (metric_rows, runtime_row): the per metric-and-k score rows, plus
+    one dict of this cell's fit timings.
+
+    timing_fits, when True, fits CARVE twice more -- once per mode -- purely
+    to time each mode's fit separately; those fits' results are discarded
+    and never feed metric_rows.
     """
     benchmark_seed = seed + (axis_idx * 10000) + random_state
     candidate_k = list(scenario.candidate_k)
@@ -101,7 +109,9 @@ def run_cell(
         n_jobs=1,
         random_state=benchmark_seed,
     )
+    t0 = time.perf_counter()
     carve.fit(X)
+    t_default_s = time.perf_counter() - t0
 
     context = {
         "run_id": run_id,
@@ -188,7 +198,60 @@ def run_cell(
                 }
             )
 
-    return rows
+    t_stability_s = float("nan")
+    t_generalizability_s = float("nan")
+
+    if timing_fits:
+        # Two extra fits that exist only to be timed. Their results are never
+        # read, so this cannot reintroduce the ari_at_k mode bug: every metric
+        # row above comes from the default-mode fit.
+        #
+        # carve.fit warns that non-default modes are experimental (api.py:310).
+        # Exercising that path is deliberate here, because it is what produced
+        # the published runtime figure, so the warning is suppressed rather
+        # than raised sixty times per scenario.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Non-default mode is experimental",
+                category=RuntimeWarning,
+            )
+            for mode in ("stability", "generalizability"):
+                timer = CARVE(
+                    estimator_param_grids=grids,
+                    n_resamples=n_resamples,
+                    n_jobs=1,
+                    random_state=benchmark_seed,
+                )
+                t0 = time.perf_counter()
+                timer.fit(X, mode=mode)
+                elapsed = time.perf_counter() - t0
+                if mode == "stability":
+                    t_stability_s = elapsed
+                else:
+                    t_generalizability_s = elapsed
+
+    n_k = len(candidate_k)
+    runtime_row = {
+        "run_id": run_id,
+        "scenario": scenario.name,
+        "axis_name": scenario.axis.name,
+        "axis_value": axis_value,
+        "axis_label": axis_label,
+        "seed": seed,
+        "n_samples": int(X.shape[0]),
+        "n_features": int(X.shape[1]),
+        "n_resamples": int(n_resamples),
+        "n_jobs": 1,
+        "estimator": scenario.estimator.name,
+        "t_default_s": float(t_default_s),
+        "t_stability_s": float(t_stability_s),
+        "t_generalizability_s": float(t_generalizability_s),
+        "t_per_k_stability_s": float(t_stability_s / n_k),
+        "t_per_k_generalizability_s": float(t_generalizability_s / n_k),
+    }
+
+    return rows, runtime_row
 
 
 def run_scenario(
@@ -201,6 +264,7 @@ def run_scenario(
     n_resamples: int = 100,
     resume: bool = True,
     verbose: int = 0,
+    timing_fits: bool | None = None,
 ) -> Path:
     """Run every cell of a scenario, checkpointing as it goes.
 
@@ -234,7 +298,17 @@ def run_scenario(
     write_manifest writes atomically precisely to make this case rare, but a
     read guard is still needed for manifests left over from before that
     fix, or from any other source of on-disk corruption.
+
+    timing_fits controls whether each cell additionally runs the two extra,
+    mode-specific fits that feed the runtime sidecar (see run_cell). Left at
+    its default of None, it defers to TIMED_SCENARIOS: only the scaling
+    scenarios are timed unless the caller overrides it explicitly.
     """
+    from ._registry import TIMED_SCENARIOS
+
+    if timing_fits is None:
+        timing_fits = scenario.name in TIMED_SCENARIOS
+
     n_seeds = scenario.n_seeds if n_seeds is None else int(n_seeds)
     cfg_hash = config_hash(
         scenario, n_seeds=n_seeds, n_resamples=n_resamples, random_state=random_state
@@ -270,7 +344,7 @@ def run_scenario(
     started = time.perf_counter()
 
     def _one(axis_idx, axis_value, axis_label, seed):
-        rows = run_cell(
+        rows, runtime_row = run_cell(
             scenario,
             axis_idx=axis_idx,
             axis_value=axis_value,
@@ -279,8 +353,10 @@ def run_scenario(
             run_id=run_id,
             random_state=random_state,
             n_resamples=n_resamples,
+            timing_fits=timing_fits,
         )
         write_checkpoint(rd, axis_label, seed, rows)
+        write_runtime_checkpoint(rd, axis_label, seed, [runtime_row])
 
     if pending:
         Parallel(n_jobs=n_jobs)(
@@ -303,6 +379,7 @@ def run_scenario(
             n_jobs=n_jobs,
             random_state=random_state,
             wall_clock_s=elapsed,
+            timing_fits=timing_fits,
         ),
     )
     return rd

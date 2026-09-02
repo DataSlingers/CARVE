@@ -254,3 +254,80 @@ class TestPromote:
         write_checkpoint(rd, "easy", 0, [_row()])
         with pytest.raises(FileNotFoundError, match="manifest"):
             promote(rd, tmp_path / "published")
+
+
+from benchmarks._artifacts import (
+    RUNTIME_SCHEMA,
+    read_runtimes,
+    write_runtime_checkpoint,
+)
+
+
+def _runtime_row(**overrides):
+    row = {
+        "run_id": "r1",
+        "scenario": "demo",
+        "axis_name": "difficulty_level",
+        "axis_value": 0,
+        "axis_label": "easy",
+        "seed": 0,
+        "n_samples": 120,
+        "n_features": 4,
+        "n_resamples": 3,
+        "n_jobs": 1,
+        "estimator": "kmeans",
+        "t_default_s": 1.25,
+        "t_stability_s": 0.80,
+        "t_generalizability_s": 0.95,
+        "t_per_k_stability_s": 0.16,
+        "t_per_k_generalizability_s": 0.19,
+    }
+    row.update(overrides)
+    return row
+
+
+class TestRuntimeSidecar:
+    def test_schema_is_the_documented_contract(self):
+        assert RUNTIME_SCHEMA == (
+            "run_id",
+            "scenario",
+            "axis_name",
+            "axis_value",
+            "axis_label",
+            "seed",
+            "n_samples",
+            "n_features",
+            "n_resamples",
+            "n_jobs",
+            "estimator",
+            "t_default_s",
+            "t_stability_s",
+            "t_generalizability_s",
+            "t_per_k_stability_s",
+            "t_per_k_generalizability_s",
+        )
+
+    def test_round_trips_through_parquet(self, tmp_path):
+        rd = run_dir(tmp_path, "demo", "abc123def456")
+        write_runtime_checkpoint(rd, "easy", 0, [_runtime_row()])
+        df = read_runtimes(rd)
+        assert len(df) == 1
+        assert list(df.columns) == list(RUNTIME_SCHEMA)
+
+    def test_runtime_files_do_not_pollute_the_metric_run(self, tmp_path):
+        rd = run_dir(tmp_path, "demo", "abc123def456")
+        write_checkpoint(rd, "easy", 0, [_row()])
+        write_runtime_checkpoint(rd, "easy", 0, [_runtime_row()])
+        assert len(read_run(rd)) == 1
+        assert len(read_runtimes(rd)) == 1
+
+    def test_an_empty_run_returns_an_empty_runtime_frame(self, tmp_path):
+        rd = run_dir(tmp_path, "demo", "abc123def456")
+        assert read_runtimes(rd).empty
+
+    def test_rejects_rows_outside_the_runtime_schema(self, tmp_path):
+        rd = run_dir(tmp_path, "demo", "abc123def456")
+        bad = _runtime_row()
+        del bad["t_stability_s"]
+        with pytest.raises(ValueError, match="t_stability_s"):
+            write_runtime_checkpoint(rd, "easy", 0, [bad])

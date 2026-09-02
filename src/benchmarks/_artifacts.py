@@ -41,6 +41,28 @@ SCHEMA: tuple[str, ...] = (
     "oracle_ari",
 )
 
+RUNTIME_SCHEMA: tuple[str, ...] = (
+    "run_id",
+    "scenario",
+    "axis_name",
+    "axis_value",
+    "axis_label",
+    "seed",
+    "n_samples",
+    "n_features",
+    "n_resamples",
+    "n_jobs",
+    "estimator",
+    # The default-mode fit is the one that produced the metric rows. The two
+    # mode-specific timings come from extra fits whose results are discarded;
+    # they exist only to reproduce the published two-curve runtime figure.
+    "t_default_s",
+    "t_stability_s",
+    "t_generalizability_s",
+    "t_per_k_stability_s",
+    "t_per_k_generalizability_s",
+)
+
 _TRACKED_PACKAGES = (
     "numpy",
     "pandas",
@@ -106,20 +128,23 @@ def _checkpoint_path(rd: Path, axis_label: str, seed: int) -> Path:
     return Path(rd) / f"cell__{axis_label}__{seed:04d}.parquet"
 
 
+def _validate_against(frame: pd.DataFrame, schema: tuple[str, ...]) -> pd.DataFrame:
+    """Check a frame carries exactly the schema columns, then order them."""
+    missing = [column for column in schema if column not in frame.columns]
+    if missing:
+        raise ValueError(f"Rows are missing schema columns: {missing}.")
+    extra = [column for column in frame.columns if column not in schema]
+    if extra:
+        raise ValueError(f"Rows carry columns outside the schema: {extra}.")
+    return frame[list(schema)]
+
+
 def write_checkpoint(
     rd: Path, axis_label: str, seed: int, rows: list[dict[str, Any]]
 ) -> Path:
     """Write one cell's rows, validating them against the schema first."""
-    frame = pd.DataFrame(rows)
-    missing = [column for column in SCHEMA if column not in frame.columns]
-    if missing:
-        raise ValueError(f"Rows are missing schema columns: {missing}.")
-    extra = [column for column in frame.columns if column not in SCHEMA]
-    if extra:
-        raise ValueError(f"Rows carry columns outside the schema: {extra}.")
-
     path = _checkpoint_path(rd, axis_label, seed)
-    frame[list(SCHEMA)].to_parquet(path, index=False)
+    _validate_against(pd.DataFrame(rows), SCHEMA).to_parquet(path, index=False)
     return path
 
 
@@ -144,6 +169,29 @@ def read_run(rd: Path) -> pd.DataFrame:
         return pd.DataFrame(columns=list(SCHEMA))
     frame = pd.concat([pd.read_parquet(p) for p in paths], ignore_index=True)
     return frame[list(SCHEMA)]
+
+
+def write_runtime_checkpoint(
+    rd: Path, axis_label: str, seed: int, rows: list[dict[str, Any]]
+) -> Path:
+    """Write one cell's timing row to the runtime sidecar.
+
+    Timing lives beside the metric table rather than inside it: a runtime is
+    one value per cell, while the metric table has one row per metric and k,
+    so folding them together would repeat the same number a hundred times.
+    """
+    path = Path(rd) / f"runtime__{axis_label}__{seed:04d}.parquet"
+    _validate_against(pd.DataFrame(rows), RUNTIME_SCHEMA).to_parquet(path, index=False)
+    return path
+
+
+def read_runtimes(rd: Path) -> pd.DataFrame:
+    """Concatenate every runtime checkpoint in a run directory."""
+    paths = sorted(Path(rd).glob("runtime__*.parquet"))
+    if not paths:
+        return pd.DataFrame(columns=list(RUNTIME_SCHEMA))
+    frame = pd.concat([pd.read_parquet(p) for p in paths], ignore_index=True)
+    return frame[list(RUNTIME_SCHEMA)]
 
 
 def peak_rss_bytes() -> int:
@@ -192,8 +240,22 @@ def build_manifest(
     n_jobs: int,
     random_state: int,
     wall_clock_s: float,
+    timing_fits: bool = False,
 ) -> Manifest:
-    """Assemble the provenance record for one run."""
+    """Assemble the provenance record for one run.
+
+    timing_fits is recorded in the config dict, not folded into
+    _canonical_config: it says whether this run's cells also timed the two
+    mode-specific fits, but it changes no metric a run produces, so it must
+    not affect config_hash's content address.
+    """
+    config = _canonical_config(
+        scenario,
+        n_seeds=n_seeds,
+        n_resamples=n_resamples,
+        random_state=random_state,
+    )
+    config["timing_fits"] = timing_fits
     return Manifest(
         run_id=run_id,
         scenario=scenario.name,
@@ -216,12 +278,7 @@ def build_manifest(
             "python": platform.python_version(),
             "cores": os.cpu_count(),
         },
-        config=_canonical_config(
-            scenario,
-            n_seeds=n_seeds,
-            n_resamples=n_resamples,
-            random_state=random_state,
-        ),
+        config=config,
     )
 
 
@@ -269,4 +326,9 @@ def promote(rd: Path, published_root: Path) -> Path:
 
     read_run(rd).to_csv(out / "results.csv", index=False)
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
+
+    runtimes = read_runtimes(rd)
+    if not runtimes.empty:
+        runtimes.to_csv(out / "runtimes.csv", index=False)
+
     return out
