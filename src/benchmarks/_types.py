@@ -4,7 +4,7 @@ This module is a leaf: it imports only the standard library, so every other
 module in the package may depend on it without creating a cycle.
 """
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -145,3 +145,55 @@ class Scenario:
         if self.axis.name in _simulator_parameters():
             kwargs[self.axis.name] = axis_value
         return kwargs
+
+
+@dataclass(frozen=True)
+class Study:
+    """One case study: a real dataset run through the same runner.
+
+    A Study has no axis. The runner treats it as a single cell, so the
+    artifact schema is identical with axis_name, axis_value, and axis_label
+    set to the study name, 0, and the study name respectively.
+    """
+
+    name: str
+    loader: Callable[[], tuple[Any, Any, Mapping[str, Any]]]
+    estimator: EstimatorSpec
+    candidate_k: tuple[int, ...]
+    k_star: int | None = None
+
+    def __post_init__(self) -> None:
+        if not self.candidate_k:
+            raise ValueError(f"Study {self.name!r}: candidate_k must not be empty.")
+
+
+@dataclass(frozen=True)
+class Manifest:
+    """Provenance for one run, written beside the artifact as manifest.json.
+
+    peak_rss_unit is recorded explicitly because resource.getrusage reports
+    ru_maxrss in bytes on macOS and kilobytes on Linux. A memory benchmark
+    cannot carry a silent factor-of-1024 ambiguity between the machine an
+    author ran it on and the machine CI ran it on.
+    """
+
+    run_id: str
+    scenario: str
+    config_hash: str
+    anchor_set: str
+    n_seeds: int
+    n_resamples: int
+    n_jobs: int
+    random_state: int
+    wall_clock_s: float
+    peak_rss_bytes: int
+    peak_rss_unit: str
+    git_sha: str
+    package_versions: Mapping[str, str]
+    platform: Mapping[str, Any]
+    config: Mapping[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        from dataclasses import asdict
+
+        return asdict(self)

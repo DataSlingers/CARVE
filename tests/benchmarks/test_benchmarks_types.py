@@ -125,3 +125,79 @@ class TestScenario:
             shared={"n_total": 120, "p": 4},
         )
         assert "difficulty_level" not in scenario.sim_kwargs(axis_value=0, axis_label="easy")
+
+
+import numpy as np
+
+from benchmarks._types import Manifest, Study
+
+
+class TestStudy:
+    def test_holds_a_loader_and_an_estimator(self):
+        def loader():
+            return np.zeros((4, 2)), np.array([0, 0, 1, 1]), {"source": "test"}
+
+        study = Study(
+            name="demo",
+            loader=loader,
+            estimator=EstimatorSpec(name="kmeans"),
+            candidate_k=(2, 3),
+        )
+        X, y, meta = study.loader()
+        assert X.shape == (4, 2)
+        assert meta["source"] == "test"
+        assert study.k_star is None
+
+    def test_rejects_empty_candidate_k(self):
+        with pytest.raises(ValueError, match="candidate_k"):
+            Study(
+                name="demo",
+                loader=lambda: (np.zeros((2, 2)), np.zeros(2), {}),
+                estimator=EstimatorSpec(name="kmeans"),
+                candidate_k=(),
+            )
+
+
+class TestManifest:
+    def test_to_dict_is_json_serializable(self):
+        import json
+
+        manifest = Manifest(
+            run_id="abc123",
+            scenario="demo",
+            config_hash="deadbeef0000",
+            anchor_set="ACTIVE_ANCHORS",
+            n_seeds=2,
+            n_resamples=3,
+            n_jobs=1,
+            random_state=0,
+            wall_clock_s=1.5,
+            peak_rss_bytes=1024,
+            peak_rss_unit="bytes",
+            git_sha="0" * 40,
+            package_versions={"numpy": "2.0.0"},
+            platform={"system": "Darwin", "cpu": "arm64", "cores": 10},
+            config={"k_star": 5},
+        )
+        payload = json.dumps(manifest.to_dict())
+        assert "deadbeef0000" in payload
+
+    def test_records_the_rss_unit_explicitly(self):
+        manifest = Manifest(
+            run_id="a",
+            scenario="s",
+            config_hash="h",
+            anchor_set="ACTIVE_ANCHORS",
+            n_seeds=1,
+            n_resamples=1,
+            n_jobs=1,
+            random_state=0,
+            wall_clock_s=0.0,
+            peak_rss_bytes=1,
+            peak_rss_unit="bytes",
+            git_sha="",
+            package_versions={},
+            platform={},
+            config={},
+        )
+        assert manifest.to_dict()["peak_rss_unit"] == "bytes"
