@@ -41,7 +41,7 @@ METRIC_COLORS: dict[str, str] = {
     "baseline_oracle": "#000000",
 }
 
-_FALLBACK_COLOR = "#7F7F7F"
+FALLBACK_COLOR = "#7F7F7F"
 
 CLUSTER_PALETTE: tuple[str, ...] = (
     "#009ADE",
@@ -100,7 +100,7 @@ def theme_context() -> Iterator[None]:
 
 def metric_color(metric: str) -> str:
     """Return the color for a metric, falling back to gray for unknown names."""
-    return METRIC_COLORS.get(metric, _FALLBACK_COLOR)
+    return METRIC_COLORS.get(metric, FALLBACK_COLOR)
 
 
 def cluster_colors(n: int) -> list[str]:

@@ -19,8 +19,14 @@ from matplotlib.legend import Legend
 
 from benchmarks import _panels
 from benchmarks._panels import (
+    alluvial,
+    ari_lollipop,
+    carve_lines,
     cluster_color_map,
+    cvi_lines,
+    grouped_legend,
     metric_lines,
+    panel_letter,
     runtime_lines,
     scatter_clusters,
 )
@@ -261,16 +267,6 @@ class TestRuntimeLines:
             assert actual_color == expected_color, \
                 f"Mode metric {expected_metric}: expected {expected_color}, got {actual_color}"
         plt.close(fig)
-
-
-from benchmarks._panels import (
-    alluvial,
-    ari_lollipop,
-    carve_lines,
-    cvi_lines,
-    grouped_legend,
-    panel_letter,
-)
 
 
 def _curves_and_best():
@@ -560,6 +556,67 @@ class TestAriLollipop:
         df = pd.DataFrame({"method": ["a"], "ari": [0.5], "k": [9]})
         ari_lollipop(ax, df, annotate_k=True)
         assert any("9" in t.get_text() for t in ax.texts)
+        plt.close(fig)
+
+    def test_hlines_and_markers_use_metric_colors_in_sorted_order(self):
+        # method and metric disagree on which name maps to a recognized
+        # theme color here, so matching colors correctly proves they come
+        # from "metric", not "method", when both columns are present.
+        fig, ax = plt.subplots()
+        df = pd.DataFrame(
+            {
+                "method": ["CARVE (stab)", "Silhouette", "Gap Stat"],
+                "metric": ["ari_stability_1se", "silhouette", "gap"],
+                "ari": [0.8, 0.3, 0.5],
+                "k": [10, 4, 6],
+            }
+        )
+        ari_lollipop(ax, df, annotate_k=False)
+        line_collection, marker_collection = ax.collections[:2]
+        hline_colors = line_collection.get_color()
+        marker_colors = marker_collection.get_facecolor()
+        # sorted ascending by ari: silhouette (0.3), gap (0.5), then
+        # ari_stability_1se (0.8).
+        expected = [
+            metric_color("silhouette"),
+            metric_color("gap"),
+            metric_color("ari_stability_1se"),
+        ]
+        for i, expected_color in enumerate(expected):
+            expected_rgb = mcolors.to_rgba(expected_color)[:3]
+            assert np.allclose(hline_colors[i][:3], expected_rgb)
+            assert np.allclose(marker_colors[i][:3], expected_rgb)
+        plt.close(fig)
+
+    def test_hlines_and_markers_fall_back_to_method_colors_when_metric_absent(self):
+        fig, ax = plt.subplots()
+        df = pd.DataFrame(
+            {"method": ["gap", "silhouette"], "ari": [0.5, 0.3], "k": [6, 4]}
+        )
+        ari_lollipop(ax, df, annotate_k=False)
+        line_collection, marker_collection = ax.collections[:2]
+        hline_colors = line_collection.get_color()
+        marker_colors = marker_collection.get_facecolor()
+        # sorted ascending by ari: silhouette (0.3) then gap (0.5).
+        expected = [metric_color("silhouette"), metric_color("gap")]
+        for i, expected_color in enumerate(expected):
+            expected_rgb = mcolors.to_rgba(expected_color)[:3]
+            assert np.allclose(hline_colors[i][:3], expected_rgb)
+            assert np.allclose(marker_colors[i][:3], expected_rgb)
+        plt.close(fig)
+
+    def test_a_metric_only_frame_fails_after_drawing_not_before(self):
+        # "method" is still required later for the y-tick labels, so this
+        # frame can never fully succeed -- but the KeyError must come from
+        # that line, not from eagerly evaluating ordered["method"] as the
+        # unused default for .get("metric", ...) before hlines/scatter
+        # ever run. Under the old eager-default bug this raised before
+        # either collection existed; both existing here proves the fix.
+        fig, ax = plt.subplots()
+        df = pd.DataFrame({"metric": ["silhouette", "gap"], "ari": [0.3, 0.5]})
+        with pytest.raises(KeyError, match="method"):
+            ari_lollipop(ax, df, annotate_k=False)
+        assert len(ax.collections) == 2
         plt.close(fig)
 
 

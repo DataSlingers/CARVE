@@ -15,7 +15,7 @@ from matplotlib.legend import Legend
 from matplotlib.lines import Line2D
 
 from ._registry import METRIC_DISPLAY_NAMES
-from ._theme import FONT_SIZES, cluster_colors, metric_color, style_axes
+from ._theme import FALLBACK_COLOR, FONT_SIZES, cluster_colors, metric_color, style_axes
 
 
 def _display(metric: str) -> str:
@@ -55,7 +55,7 @@ def scatter_clusters(
             alpha=alpha,
             linewidth=linewidth,
             edgecolor="none",
-            color=color_map.get(label, "#7F7F7F"),
+            color=color_map.get(label, FALLBACK_COLOR),
             label=str(label),
         )
 
@@ -357,7 +357,7 @@ def alluvial(
                     bottom,
                     bar_width,
                     top - bottom,
-                    cmap.get(category, "#7F7F7F"),
+                    cmap.get(category, FALLBACK_COLOR),
                 )
             )
         ax.text(
@@ -385,7 +385,7 @@ def alluvial(
                     np.linspace(x0 + bar_width / 2, x1 - bar_width / 2, 32),
                     np.linspace(cursor0[c0], cursor1[c1], 32),
                     np.linspace(cursor0[c0] + h0, cursor1[c1] + h1, 32),
-                    color=flow_cmap.get(c0, "#7F7F7F"),
+                    color=flow_cmap.get(c0, FALLBACK_COLOR),
                     alpha=link_alpha,
                     linewidth=0,
                 )
@@ -415,7 +415,12 @@ def ari_lollipop(
     """Horizontal lollipop of ARI against reported labels, one row per method."""
     ordered = ari_df.sort_values("ari", ascending=True).reset_index(drop=True)
     positions = np.arange(len(ordered))
-    colors = [metric_color(str(m)) for m in ordered.get("metric", ordered["method"])]
+    # ordered["method"] must not be evaluated unless "metric" is absent --
+    # ordered.get("metric", ordered["method"]) evaluates the fallback
+    # argument eagerly, which raises KeyError on a frame that carries
+    # "metric" but not "method", defeating the point of .get().
+    color_key = ordered["metric"] if "metric" in ordered.columns else ordered["method"]
+    colors = [metric_color(str(m)) for m in color_key]
 
     ax.hlines(positions, 0, ordered["ari"].to_numpy(), color=colors, linewidth=2.0)
     ax.scatter(ordered["ari"].to_numpy(), positions, color=colors, s=60, zorder=3)
