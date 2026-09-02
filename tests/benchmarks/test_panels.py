@@ -15,6 +15,7 @@ import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
 import pytest
+from matplotlib.legend import Legend
 
 from benchmarks import _panels
 from benchmarks._panels import (
@@ -29,6 +30,10 @@ from benchmarks._theme import metric_color
 AX_FIRST_FUNCTIONS = (
     "scatter_clusters",
     "metric_lines",
+    "carve_lines",
+    "cvi_lines",
+    "alluvial",
+    "ari_lollipop",
     "runtime_lines",
 )
 
@@ -255,4 +260,328 @@ class TestRuntimeLines:
             actual_color = line.get_color()
             assert actual_color == expected_color, \
                 f"Mode metric {expected_metric}: expected {expected_color}, got {actual_color}"
+        plt.close(fig)
+
+
+from benchmarks._panels import (
+    alluvial,
+    ari_lollipop,
+    carve_lines,
+    cvi_lines,
+    grouped_legend,
+    panel_letter,
+)
+
+
+def _curves_and_best():
+    curves = pd.DataFrame(
+        {
+            "metric": ["silhouette"] * 3 + ["gap"] * 3,
+            "k": [3, 4, 5] * 2,
+            "score": [0.4, 0.6, 0.5, 0.2, 0.3, 0.35],
+            "model": ["KMeans"] * 6,
+        }
+    )
+    best = pd.DataFrame(
+        {"metric": ["silhouette", "gap"], "k": [4, 5], "model": ["KMeans", "KMeans"]}
+    )
+    return curves, best
+
+
+class _StubCarve:
+    """Minimal stand-in for a fitted CARVE object.
+
+    carve_lines only reads estimator_results_ and calls get_k(), so the stub
+    exposes exactly those two members rather than fitting a real model.
+    """
+
+    def __init__(self, results: pd.DataFrame, k_by_measure: dict):
+        self.estimator_results_ = results
+        self._k_by_measure = k_by_measure
+
+    def get_k(self, *, measure, rule="1se", not_two=False):
+        return self._k_by_measure[measure]
+
+
+def _carve_obj():
+    results = pd.DataFrame(
+        {
+            "n_clusters": [3, 4, 5, 6],
+            "stability": [0.40, 0.70, 0.65, 0.55],
+            "generalizability": [0.30, 0.45, 0.60, 0.50],
+        }
+    )
+    return _StubCarve(results, {"stability": 4, "generalizability": 5})
+
+
+class TestCarveLines:
+    def test_returns_the_same_axes(self):
+        fig, ax = plt.subplots()
+        assert carve_lines(ax, _carve_obj()) is ax
+        plt.close(fig)
+
+    def test_draws_one_line_per_requested_measure(self):
+        # A non-default, single-element tuple: if the measures argument were
+        # ignored in favor of the ("stability", "generalizability") default,
+        # this would draw two lines instead of one.
+        fig, ax = plt.subplots()
+        carve_lines(ax, _carve_obj(), measures=("generalizability",))
+        data_lines = [ln for ln in ax.lines if ln.get_marker() == "o"]
+        assert len(data_lines) == 1
+        plt.close(fig)
+
+    def test_lines_use_measure_specific_colors(self):
+        # Measures are requested in the opposite order from the default
+        # tuple. A regression that fell back to the default order rather
+        # than the caller's order would draw the colors in the wrong slots.
+        fig, ax = plt.subplots()
+        carve_lines(
+            ax, _carve_obj(), measures=("generalizability", "stability")
+        )
+        data_lines = [ln for ln in ax.lines if ln.get_marker() == "o"]
+        assert len(data_lines) == 2
+        expected_colors = [
+            metric_color("ari_generalizability_1se"),
+            metric_color("ari_stability_1se"),
+        ]
+        for line, expected in zip(data_lines, expected_colors):
+            assert line.get_color() == expected
+        plt.close(fig)
+
+    def test_shows_the_selected_k_by_default(self):
+        fig, ax = plt.subplots()
+        carve_lines(ax, _carve_obj(), measures=("stability",))
+        marker_lines = [ln for ln in ax.lines if ln.get_marker() == "o"]
+        other_lines = [ln for ln in ax.lines if ln.get_marker() != "o"]
+        assert len(marker_lines) == 1
+        assert len(other_lines) == 1
+        assert other_lines[0].get_xdata()[0] == 4
+        plt.close(fig)
+
+    def test_omits_the_selected_k_marker_when_asked(self):
+        fig, ax = plt.subplots()
+        carve_lines(
+            ax, _carve_obj(), measures=("stability",), show_selected_k=False
+        )
+        assert len(ax.lines) == 1
+        plt.close(fig)
+
+
+class TestCviLines:
+    def test_returns_the_same_axes(self):
+        fig, ax = plt.subplots()
+        curves, best = _curves_and_best()
+        assert cvi_lines(ax, curves, best) is ax
+        plt.close(fig)
+
+    def test_draws_one_line_per_metric(self):
+        fig, ax = plt.subplots()
+        curves, best = _curves_and_best()
+        cvi_lines(ax, curves, best)
+        assert len([ln for ln in ax.lines if ln.get_label() != "_nolegend_"]) >= 2
+        plt.close(fig)
+
+    def test_marks_the_selected_k_for_each_metric(self):
+        fig, ax = plt.subplots()
+        curves, best = _curves_and_best()
+        cvi_lines(ax, curves, best)
+        assert len(ax.collections) >= 2
+        plt.close(fig)
+
+    def test_lines_use_metric_specific_colors(self):
+        # silhouette and gap map to different theme colors, so a bug that
+        # mixed up which curve gets which color would be caught here.
+        fig, ax = plt.subplots()
+        curves, best = _curves_and_best()
+        cvi_lines(ax, curves, best)
+        data_lines = [ln for ln in ax.lines if ln.get_marker() == "o"]
+        assert len(data_lines) == 2
+        expected_colors = [metric_color("silhouette"), metric_color("gap")]
+        for line, expected in zip(data_lines, expected_colors):
+            assert line.get_color() == expected
+        plt.close(fig)
+
+
+class TestAlluvial:
+    def test_returns_the_same_axes(self):
+        fig, ax = plt.subplots()
+        y_true = np.repeat([0, 1], 20)
+        left = np.repeat([0, 1], 20)
+        right = np.repeat([1, 0], 20)
+        result = alluvial(
+            ax,
+            y_true,
+            left,
+            right,
+            left_cmap=cluster_color_map(left),
+            right_cmap=cluster_color_map(right),
+            true_cmap=cluster_color_map(y_true),
+            left_title="CARVE",
+            right_title="CVI",
+            true_title="Reported",
+        )
+        assert result is ax
+        plt.close(fig)
+
+    def test_draws_the_three_column_titles(self):
+        fig, ax = plt.subplots()
+        y_true = np.repeat([0, 1], 20)
+        alluvial(
+            ax,
+            y_true,
+            y_true,
+            y_true,
+            left_cmap=cluster_color_map(y_true),
+            right_cmap=cluster_color_map(y_true),
+            true_cmap=cluster_color_map(y_true),
+            left_title="CARVE",
+            right_title="CVI",
+            true_title="Reported",
+        )
+        texts = [t.get_text() for t in ax.texts]
+        assert "CARVE" in texts and "CVI" in texts and "Reported" in texts
+        plt.close(fig)
+
+    def test_column_bars_use_the_supplied_colormaps(self):
+        # left and right deliberately assign different colors to the same
+        # category (0/1), so a bug that reused one column's cmap for
+        # another's bars would be caught here.
+        fig, ax = plt.subplots()
+        y_true = np.repeat([0, 1], 20)
+        left = np.repeat([0, 1], 20)
+        right = np.repeat([1, 0], 20)
+        left_cmap = cluster_color_map(left)
+        right_cmap = cluster_color_map(right)
+        true_cmap = cluster_color_map(y_true)
+        alluvial(
+            ax,
+            y_true,
+            left,
+            right,
+            left_cmap=left_cmap,
+            right_cmap=right_cmap,
+            true_cmap=true_cmap,
+            left_title="CARVE",
+            right_title="CVI",
+            true_title="Reported",
+        )
+        rectangles = list(ax.patches)
+        assert len(rectangles) == 6
+        # Column order is left, true, right; within a column, categories
+        # appear in first-occurrence order (left/true: [0, 1], right: [1, 0]).
+        expected = [
+            left_cmap[0],
+            left_cmap[1],
+            true_cmap[0],
+            true_cmap[1],
+            right_cmap[1],
+            right_cmap[0],
+        ]
+        for rect, expected_color in zip(rectangles, expected):
+            actual_rgb = mcolors.to_rgba(rect.get_facecolor())[:3]
+            expected_rgb = mcolors.to_rgba(expected_color)[:3]
+            assert np.allclose(actual_rgb, expected_rgb)
+        plt.close(fig)
+
+    def test_flow_count_and_color_match_the_transition_structure(self):
+        # left equals y_true (no left/true mixing: 2 non-zero transitions),
+        # right is the flip of y_true (2 non-zero transitions the other
+        # way). A bug that drew every category pair regardless of overlap
+        # would produce 8 ribbons instead of 4; one that used the wrong
+        # source colormap for a boundary would fail the color check.
+        fig, ax = plt.subplots()
+        y_true = np.array([0, 0, 1, 1])
+        left = np.array([0, 0, 1, 1])
+        right = np.array([1, 1, 0, 0])
+        left_cmap = {0: "#123456", 1: "#654321"}
+        true_cmap = {0: "#ABCDEF", 1: "#FEDCBA"}
+        right_cmap = {0: "#111111", 1: "#222222"}
+        alluvial(
+            ax,
+            y_true,
+            left,
+            right,
+            left_cmap=left_cmap,
+            right_cmap=right_cmap,
+            true_cmap=true_cmap,
+            left_title="CARVE",
+            right_title="CVI",
+            true_title="Reported",
+        )
+        assert len(ax.collections) == 4
+        actual = [
+            mcolors.to_rgba(coll.get_facecolor()[0])[:3] for coll in ax.collections
+        ]
+        expected = [
+            mcolors.to_rgba(left_cmap[0])[:3],
+            mcolors.to_rgba(left_cmap[1])[:3],
+            mcolors.to_rgba(true_cmap[0])[:3],
+            mcolors.to_rgba(true_cmap[1])[:3],
+        ]
+        for actual_rgb, expected_rgb in zip(actual, expected):
+            assert np.allclose(actual_rgb, expected_rgb)
+        plt.close(fig)
+
+
+class TestAriLollipop:
+    def test_returns_the_same_axes(self):
+        fig, ax = plt.subplots()
+        df = pd.DataFrame(
+            {
+                "method": ["CARVE (stab)", "Silhouette"],
+                "ari": [0.78, 0.63],
+                "k": [10, 7],
+            }
+        )
+        assert ari_lollipop(ax, df) is ax
+        plt.close(fig)
+
+    def test_draws_one_marker_per_method(self):
+        fig, ax = plt.subplots()
+        df = pd.DataFrame(
+            {"method": ["a", "b", "c"], "ari": [0.1, 0.2, 0.3], "k": [3, 4, 5]}
+        )
+        ari_lollipop(ax, df, annotate_k=False)
+        assert len(ax.collections) >= 1
+        plt.close(fig)
+
+    def test_annotates_k_when_asked(self):
+        fig, ax = plt.subplots()
+        df = pd.DataFrame({"method": ["a"], "ari": [0.5], "k": [9]})
+        ari_lollipop(ax, df, annotate_k=True)
+        assert any("9" in t.get_text() for t in ax.texts)
+        plt.close(fig)
+
+
+class TestGroupedLegend:
+    def test_returns_a_legend_attached_to_the_figure(self):
+        fig, axes = plt.subplots(1, 2, squeeze=False)
+        for ax in axes.flat:
+            ax.plot([0, 1], [0, 1], label="CARVE Stability (1SE)")
+        legend = grouped_legend(fig, axes)
+        assert isinstance(legend, Legend)
+        plt.close(fig)
+
+    def test_deduplicates_repeated_labels(self):
+        fig, axes = plt.subplots(1, 3, squeeze=False)
+        for ax in axes.flat:
+            ax.plot([0, 1], [0, 1], label="Silhouette")
+        legend = grouped_legend(fig, axes)
+        assert len(legend.get_texts()) == 1
+        plt.close(fig)
+
+
+class TestPanelLetter:
+    def test_adds_one_text_artist(self):
+        fig, ax = plt.subplots()
+        panel_letter(ax, "A")
+        assert [t.get_text() for t in ax.texts] == ["A"]
+        plt.close(fig)
+
+    def test_uses_the_theme_font_size(self):
+        from benchmarks._theme import FONT_SIZES
+
+        fig, ax = plt.subplots()
+        panel_letter(ax, "B")
+        assert ax.texts[0].get_fontsize() == FONT_SIZES["panel_letter"]
         plt.close(fig)
