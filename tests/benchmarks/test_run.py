@@ -384,6 +384,33 @@ class TestRuntimeCapture:
         assert runtime["t_stability_s"] > 0.0
         assert runtime["t_generalizability_s"] > 0.0
 
+    def test_timed_fits_receive_the_scenario_n_trees(self, tiny_scenario, monkeypatch):
+        """The mode-specific timed fits must use the scenario's forest size,
+        not CARVE's dataclass default of 100 -- otherwise t_stability_s and
+        t_generalizability_s are timed against a different-sized random
+        forest than t_default_s, silently, for any scenario with a
+        non-default n_trees (circles/moons/swiss_rolls run at 500). Mirrors
+        test_carve_receives_the_scenario_n_trees, but with timing_fits=True
+        so it actually reaches the timed-fit branch.
+        """
+        import benchmarks._run as run_module
+
+        scenario = dataclasses.replace(tiny_scenario, n_trees=500)
+
+        seen_n_trees = []
+        original = run_module.CARVE
+
+        class RecordingCarve(original):
+            def __init__(self, *args, **kwargs):
+                seen_n_trees.append(kwargs.get("n_trees"))
+                super().__init__(*args, **kwargs)
+
+        monkeypatch.setattr(run_module, "CARVE", RecordingCarve)
+        _cell(scenario, timing_fits=True)
+
+        # One CARVE for the default-mode fit, plus one per timed mode.
+        assert seen_n_trees == [500, 500, 500]
+
     def test_per_k_runtimes_divide_by_the_candidate_count(self, tiny_scenario):
         _, runtime = _cell(tiny_scenario, timing_fits=True)
         n_k = len(tiny_scenario.candidate_k)

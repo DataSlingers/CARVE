@@ -220,6 +220,7 @@ def run_cell(
                 timer = CARVE(
                     estimator_param_grids=grids,
                     n_resamples=n_resamples,
+                    n_trees=scenario.n_trees,
                     n_jobs=1,
                     random_state=benchmark_seed,
                 )
