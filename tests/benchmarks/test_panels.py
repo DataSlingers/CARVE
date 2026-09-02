@@ -11,6 +11,7 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
 import pytest
@@ -23,6 +24,7 @@ from benchmarks._panels import (
     scatter_clusters,
 )
 from benchmarks._artifacts import SCHEMA
+from benchmarks._theme import metric_color
 
 AX_FIRST_FUNCTIONS = (
     "scatter_clusters",
@@ -98,6 +100,42 @@ class TestScatterClusters:
         assert list(ax.get_xticks()) == []
         plt.close(fig)
 
+    def test_uses_cluster_color_map(self):
+        fig, ax = plt.subplots()
+        Z = np.random.default_rng(0).normal(size=(30, 2))
+        labels = np.repeat([0, 1, 2], 10)
+        expected_cmap = cluster_color_map(labels)
+        scatter_clusters(ax, Z, labels, color_map=expected_cmap)
+        # Verify each collection has the expected color (RGB only, alpha may vary)
+        unique_labels = list(dict.fromkeys(labels.tolist()))
+        for i, (label, collection) in enumerate(zip(unique_labels, ax.collections)):
+            expected_color = expected_cmap[label]
+            expected_rgb = mcolors.to_rgba(expected_color)[:3]
+            face_colors = collection.get_facecolors()
+            assert len(face_colors) > 0
+            actual_rgb = face_colors[0][:3]
+            assert np.allclose(actual_rgb, expected_rgb), \
+                f"Label {label}: expected {expected_rgb}, got {actual_rgb}"
+        plt.close(fig)
+
+    def test_uses_fallback_for_missing_color(self):
+        fig, ax = plt.subplots()
+        Z = np.random.default_rng(0).normal(size=(30, 2))
+        labels = np.repeat([0, 1, 2], 10)
+        # Provide a color map that does not include label 2
+        partial_cmap = {0: "#FF0000", 1: "#00FF00"}
+        scatter_clusters(ax, Z, labels, color_map=partial_cmap)
+        # Label 2 should use the fallback color #7F7F7F
+        expected_rgb = mcolors.to_rgba("#7F7F7F")[:3]
+        # Find the collection for label 2 (should be the third one based on order)
+        # The order is determined by dict.fromkeys(labels.tolist())
+        third_collection = ax.collections[2]
+        face_colors = third_collection.get_facecolors()
+        actual_rgb = face_colors[0][:3]
+        assert np.allclose(actual_rgb, expected_rgb), \
+            f"Expected fallback {expected_rgb}, got {actual_rgb}"
+        plt.close(fig)
+
 
 class TestClusterColorMap:
     def test_assigns_one_color_per_distinct_label(self):
@@ -130,6 +168,20 @@ class TestMetricLines:
         fig, ax = plt.subplots()
         metric_lines(ax, _results_frame(), metrics=("gap",), show_legend=False)
         assert len(ax.lines) == 0
+        plt.close(fig)
+
+    def test_lines_use_metric_colors(self):
+        fig, ax = plt.subplots()
+        metrics = ("ari_stability_1se", "silhouette")
+        metric_lines(ax, _results_frame(), metrics=metrics, show_legend=False)
+        # Get data lines (those with marker 'o')
+        data_lines = [line for line in ax.lines if line.get_marker() == 'o']
+        assert len(data_lines) == len(metrics)
+        for line, expected_metric in zip(data_lines, metrics):
+            expected_color = metric_color(expected_metric)
+            actual_color = line.get_color()
+            assert actual_color == expected_color, \
+                f"Metric {expected_metric}: expected {expected_color}, got {actual_color}"
         plt.close(fig)
 
 
@@ -188,4 +240,19 @@ class TestRuntimeLines:
         fig, ax = plt.subplots()
         with pytest.raises(ValueError, match="same length"):
             runtime_lines(ax, _runtime_frame(), runtime_cols=("t_stability_s",))
+        plt.close(fig)
+
+    def test_lines_use_correct_mode_colors(self):
+        fig, ax = plt.subplots()
+        runtime_lines(ax, _runtime_frame())
+        # Get data lines (those with marker 'o')
+        data_lines = [line for line in ax.lines if line.get_marker() == 'o']
+        assert len(data_lines) == 2
+        # The two modes should have colors from their mapped metrics
+        expected_metrics = ("ari_stability_1se", "ari_generalizability_1se")
+        for line, expected_metric in zip(data_lines, expected_metrics):
+            expected_color = metric_color(expected_metric)
+            actual_color = line.get_color()
+            assert actual_color == expected_color, \
+                f"Mode metric {expected_metric}: expected {expected_color}, got {actual_color}"
         plt.close(fig)
