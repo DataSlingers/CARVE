@@ -5,9 +5,8 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
-import pytest
 
-from benchmarks._registry import CARVE_METRICS_ALL, CVI_METRICS
+from benchmarks._registry import CARVE_METRICS_ALL, CVI_METRICS, METRIC_DISPLAY_NAMES
 from benchmarks._theme import (
     CLUSTER_PALETTE,
     FONT_SIZES,
@@ -36,6 +35,10 @@ class TestPalette:
 
     def test_carve_stability_is_the_okabe_ito_green_everywhere(self):
         assert METRIC_COLORS["ari_stability_1se"] == "#009E73"
+
+    def test_every_display_name_has_a_color(self):
+        for metric in METRIC_DISPLAY_NAMES:
+            assert metric in METRIC_COLORS
 
     def test_no_two_plotted_metrics_share_a_color(self):
         colors = [METRIC_COLORS[m] for m in PLOTTED_METRICS]
@@ -106,7 +109,7 @@ class TestStyleAxes:
     def test_grid_can_be_disabled(self):
         fig, ax = plt.subplots()
         style_axes(ax, grid=False)
-        assert not ax.xaxis._major_tick_kw.get("gridOn", False)
+        assert not ax.xaxis.get_gridlines()[0].get_visible()
         plt.close(fig)
 
 
