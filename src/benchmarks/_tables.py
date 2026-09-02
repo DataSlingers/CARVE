@@ -114,7 +114,16 @@ def summarize(
 
 
 def _tex_escape(text: str) -> str:
-    """Escape the LaTeX special characters that appear in captions."""
+    """Escape the LaTeX special characters that appear in captions.
+
+    Maps each input character through the table in a single pass over the
+    original string, rather than a sequence of ``str.replace`` calls. A
+    sequential-replace implementation would rescan its own output: escaping
+    a backslash inserts the literal braces in ``\\textbackslash{}``, and a
+    later rule for ``{``/``}`` would then re-escape those, corrupting the
+    result. Mapping character-by-character means nothing already emitted is
+    ever looked at again.
+    """
     replacements = {
         "\\": r"\textbackslash{}",
         "&": r"\&",
@@ -127,9 +136,7 @@ def _tex_escape(text: str) -> str:
         "~": r"\textasciitilde{}",
         "^": r"\textasciicircum{}",
     }
-    for old, new in replacements.items():
-        text = text.replace(old, new)
-    return text
+    return "".join(replacements.get(char, char) for char in text)
 
 
 def render_grouped_tex(

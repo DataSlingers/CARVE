@@ -6,6 +6,7 @@ import pytest
 
 from benchmarks._artifacts import SCHEMA
 from benchmarks._tables import (
+    _tex_escape,
     render_grouped_tex,
     summarize,
     summary_stats,
@@ -120,6 +121,22 @@ class TestSummarize:
     def test_raises_when_no_requested_metric_is_present(self):
         with pytest.raises(ValueError, match="none of the requested metrics"):
             summarize(_frame(), metrics=("nonexistent",))
+
+
+class TestTexEscape:
+    def test_a_lone_backslash_is_escaped_without_reescaping_its_own_braces(self):
+        # A sequential str.replace implementation would emit the braces in
+        # \textbackslash{} and then re-escape them via the later { and }
+        # rules, corrupting the output to \textbackslash\{\}.
+        assert _tex_escape("\\") == r"\textbackslash{}"
+
+    def test_a_backslash_adjacent_to_other_specials_is_escaped_once_each(self):
+        assert (
+            _tex_escape(r"\alpha_1 100%") == r"\textbackslash{}alpha\_1 100\%"
+        )
+
+    def test_percent_in_a_caption_is_still_escaped(self):
+        assert _tex_escape("100% of runs") == r"100\% of runs"
 
 
 class TestRenderGroupedTex:
