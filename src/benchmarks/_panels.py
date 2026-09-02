@@ -209,7 +209,7 @@ def carve_lines(
 
     for measure in measures:
         color = metric_color(f"ari_{measure}_1se")
-        values = results[measure].to_numpy()
+        values = results[f"ari_{measure}"].to_numpy()
         ax.plot(
             ks,
             values,
@@ -219,8 +219,8 @@ def carve_lines(
             color=color,
             label=_display(f"ari_{measure}_1se"),
         )
-        if f"{measure}_se" in results.columns:
-            se = results[f"{measure}_se"].to_numpy()
+        if f"ari_{measure}_se" in results.columns:
+            se = results[f"ari_{measure}_se"].to_numpy()
             ax.fill_between(ks, values - se, values + se, color=color, alpha=0.15)
 
         if show_selected_k:

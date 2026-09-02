@@ -304,11 +304,21 @@ class _StubCarve:
 
 
 def _carve_obj():
+    # Column names are the canonical estimator_results_ names a real fitted
+    # CARVE object uses (see carve._selection.MEASURE_MAP and
+    # carve._output, which reads record["ari_stability"] /
+    # record["ari_stability_se"]) -- "stability" and "generalizability" are
+    # only measure aliases, never column names. A stub that named its
+    # columns after the aliases would let carve_lines index the alias
+    # directly and still pass, which is exactly the bug this is guarding
+    # against.
     results = pd.DataFrame(
         {
             "n_clusters": [3, 4, 5, 6],
-            "stability": [0.40, 0.70, 0.65, 0.55],
-            "generalizability": [0.30, 0.45, 0.60, 0.50],
+            "ari_stability": [0.40, 0.70, 0.65, 0.55],
+            "ari_stability_se": [0.05, 0.04, 0.03, 0.04],
+            "ari_generalizability": [0.30, 0.45, 0.60, 0.50],
+            "ari_generalizability_se": [0.06, 0.05, 0.05, 0.04],
         }
     )
     return _StubCarve(results, {"stability": 4, "generalizability": 5})

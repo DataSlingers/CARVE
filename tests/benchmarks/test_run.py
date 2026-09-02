@@ -312,15 +312,26 @@ def test_compute_modules_do_not_import_matplotlib_directly():
 
     The module list is derived by globbing the package directory rather
     than hardcoded, so a new compute module is covered automatically
-    instead of silently falling outside the guard.
+    instead of silently falling outside the guard. Two names are
+    subtracted from that glob: _theme.py and _panels.py. Those are the
+    reporting layer -- palette/rcParams/figure-saving and the ax-in/
+    ax-out drawing primitives -- and importing matplotlib is their entire
+    job. The guard exists to keep the *compute* layer free of matplotlib,
+    not to ban matplotlib from the package outright, so a new reporting
+    module needs to be added to this exclusion set explicitly; a new
+    compute module does not, and keeps tripping the guard automatically
+    if it ever imports matplotlib.
     """
     import ast
 
     import benchmarks._run as run_module
 
     compute_dir = Path(run_module.__file__).parent
+    reporting_modules = {"_theme.py", "_panels.py"}
     module_files = sorted(
-        path.name for path in compute_dir.glob("_*.py") if path.name != "__init__.py"
+        path.name
+        for path in compute_dir.glob("_*.py")
+        if path.name != "__init__.py" and path.name not in reporting_modules
     )
     assert module_files, "glob found no compute modules -- check compute_dir/pattern"
     assert {"_run.py", "_registry.py"}.issubset(module_files), (
