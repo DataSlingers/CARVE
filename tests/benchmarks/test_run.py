@@ -309,20 +309,22 @@ def test_compute_modules_do_not_import_matplotlib_directly():
     instead of import behavior. It also avoids a plain substring search,
     which would be tripped by a mention in a comment or docstring rather
     than an actual import statement.
+
+    The module list is derived by globbing the package directory rather
+    than hardcoded, so a new compute module is covered automatically
+    instead of silently falling outside the guard.
     """
     import ast
 
     import benchmarks._run as run_module
 
     compute_dir = Path(run_module.__file__).parent
-    module_files = (
-        "_types.py",
-        "_registry.py",
-        "_estimators.py",
-        "_simulate.py",
-        "_cvi.py",
-        "_artifacts.py",
-        "_run.py",
+    module_files = sorted(
+        path.name for path in compute_dir.glob("_*.py") if path.name != "__init__.py"
+    )
+    assert module_files, "glob found no compute modules -- check compute_dir/pattern"
+    assert {"_run.py", "_registry.py"}.issubset(module_files), (
+        "glob is missing known compute modules; it should not be this narrow"
     )
 
     for filename in module_files:
