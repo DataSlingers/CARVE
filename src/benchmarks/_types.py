@@ -93,6 +93,7 @@ class Scenario:
     k_star: int = 5
     candidate_k: tuple[int, ...] = (3, 4, 5, 6, 7)
     n_seeds: int = 20
+    n_trees: int = 100
 
     def __post_init__(self) -> None:
         missing = [label for label in self.axis.labels if label not in self.anchors]
@@ -111,7 +112,7 @@ class Scenario:
                     f"simulate_clusters does not accept {unknown}."
                 )
 
-        unknown_shared = sorted(set(self.shared) - valid - {self.axis.name})
+        unknown_shared = sorted(set(self.shared) - valid)
         if unknown_shared:
             raise ValueError(
                 f"Scenario {self.name!r}, shared settings: "

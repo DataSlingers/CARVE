@@ -106,6 +106,21 @@ class TestScenario:
         with pytest.raises(ValueError, match="hard"):
             _scenario(anchors={"easy": {"cluster_scale": 1.0}, "medium": {"cluster_scale": 2.0}})
 
+    def test_rejects_a_k_star_not_in_candidate_k(self):
+        with pytest.raises(ValueError, match="k_star"):
+            _scenario(k_star=99)
+
+    def test_rejects_a_shared_key_matching_a_non_simulator_axis_name(self):
+        # difficulty_level is the axis name but not a simulate_clusters
+        # parameter; putting it in shared must not be silently accepted, or
+        # it would reach simulate_clusters as an unknown keyword at run time.
+        with pytest.raises(ValueError, match="difficulty_level"):
+            _scenario(shared={"n_total": 120, "p": 4, "difficulty_level": 1})
+
+    def test_n_trees_defaults_to_100_and_can_be_overridden(self):
+        assert _scenario().n_trees == 100
+        assert _scenario(n_trees=500).n_trees == 500
+
     def test_sim_kwargs_merges_shared_and_the_selected_anchor(self):
         kwargs = _scenario().sim_kwargs(axis_value=1, axis_label="medium")
         assert kwargs["cluster_scale"] == 2.0
