@@ -181,6 +181,31 @@ class TestManifest:
     def test_peak_rss_is_a_positive_byte_count(self):
         assert peak_rss_bytes() > 1_000_000
 
+    def test_write_leaves_no_temporary_file_and_the_manifest_parses(self, tmp_path):
+        """write_manifest writes through a temp file and os.replace. On
+        success that temp file must not survive -- a leftover .tmp file
+        would mean the atomic-rename path isn't actually being taken -- and
+        the file left at manifest.json must be the real, complete payload.
+        """
+        rd = run_dir(tmp_path, "demo", "abc123def456")
+        manifest = build_manifest(
+            SCENARIOS["gaussians"],
+            run_id="r1",
+            config_hash="abc123def456",
+            n_seeds=2,
+            n_resamples=3,
+            n_jobs=1,
+            random_state=0,
+            wall_clock_s=1.0,
+        )
+        path = write_manifest(rd, manifest)
+
+        leftovers = [p for p in rd.iterdir() if p.name != "manifest.json"]
+        assert leftovers == []
+
+        payload = json.loads(path.read_text())
+        assert payload["run_id"] == "r1"
+
 
 class TestPromote:
     def test_writes_csv_and_manifest_to_the_published_root(self, tmp_path):

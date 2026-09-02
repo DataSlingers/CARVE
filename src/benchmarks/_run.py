@@ -21,6 +21,7 @@ invariant to label permutation. The divergence was cosmetic.
 import json
 import time
 import uuid
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -223,6 +224,16 @@ def run_scenario(
     run_id and records only this invocation's wall_clock_s, even if a
     manifest from an earlier run already exists at the same path: that
     manifest describes a run this invocation has now fully superseded.
+
+    A corrupt manifest.json (for instance, truncated by a process killed
+    mid-write) is treated the same as a missing one: this invocation warns,
+    then mints a fresh run_id and records only its own wall_clock_s. The
+    cell checkpoints on disk are unaffected -- only the provenance record
+    resets -- so a run can still resume unattended after such a crash
+    rather than requiring a human to repair or delete the file.
+    write_manifest writes atomically precisely to make this case rare, but a
+    read guard is still needed for manifests left over from before that
+    fix, or from any other source of on-disk corruption.
     """
     n_seeds = scenario.n_seeds if n_seeds is None else int(n_seeds)
     cfg_hash = config_hash(
@@ -231,11 +242,16 @@ def run_scenario(
     rd = run_dir(Path(root), scenario.name, cfg_hash)
 
     manifest_path = rd / "manifest.json"
-    previous_manifest = (
-        json.loads(manifest_path.read_text())
-        if resume and manifest_path.exists()
-        else None
-    )
+    previous_manifest = None
+    if resume and manifest_path.exists():
+        try:
+            previous_manifest = json.loads(manifest_path.read_text())
+        except (json.JSONDecodeError, OSError) as exc:
+            warnings.warn(
+                f"Could not read manifest at {manifest_path} ({exc}); "
+                "continuing this run with fresh provenance.",
+                stacklevel=2,
+            )
 
     done = completed_cells(rd) if resume else set()
     pending = [

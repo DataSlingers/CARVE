@@ -258,6 +258,26 @@ class TestRunScenario:
         df = read_run(rd)
         assert set(df["run_id"].unique()) == {manifest["run_id"]}
 
+    def test_resume_with_a_corrupt_manifest_warns_and_completes(
+        self, tiny_scenario, tmp_path
+    ):
+        """A truncated or otherwise unparseable manifest.json must not be
+        fatal. Corrupts the manifest of a real, fully completed run -- so
+        the cell checkpoints are genuinely resumable and this invocation has
+        nothing left to compute -- then resumes. run_scenario must warn and
+        fall back to fresh provenance rather than raising
+        json.JSONDecodeError, so a run can still resume unattended after a
+        process was killed mid-write of the manifest.
+        """
+        rd = run_scenario(tiny_scenario, root=tmp_path, n_resamples=20)
+        (rd / "manifest.json").write_text("{not valid json")
+
+        with pytest.warns(UserWarning, match="manifest"):
+            run_scenario(tiny_scenario, root=tmp_path, n_resamples=20, resume=True)
+
+        manifest = json.loads((rd / "manifest.json").read_text())
+        assert "run_id" in manifest
+
     def test_wall_clock_accumulates_across_a_resume(self, tiny_scenario, tmp_path):
         """wall_clock_s must represent total work across resumed
         invocations, not only the most recent increment, so a resume that

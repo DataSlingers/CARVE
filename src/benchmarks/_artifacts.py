@@ -13,6 +13,7 @@ import platform
 import resource
 import subprocess
 import sys
+import tempfile
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
@@ -225,9 +226,27 @@ def build_manifest(
 
 
 def write_manifest(rd: Path, manifest: Manifest) -> Path:
-    """Write manifest.json beside the checkpoints."""
-    path = Path(rd) / "manifest.json"
-    path.write_text(json.dumps(manifest.to_dict(), indent=2, default=str))
+    """Write manifest.json beside the checkpoints, atomically.
+
+    Writes to a temporary file in the same directory, then os.replace onto
+    manifest.json. os.replace is atomic on POSIX, so a concurrent reader --
+    or a process killed mid-write -- never observes a partially written
+    file; a resumed run_scenario call would otherwise be able to read a
+    truncated manifest and fail. The temporary file lives in the same
+    directory as the target deliberately: os.replace is only atomic within
+    a single filesystem.
+    """
+    rd = Path(rd)
+    path = rd / "manifest.json"
+    fd, tmp_name = tempfile.mkstemp(dir=rd, prefix=".manifest.", suffix=".json.tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(manifest.to_dict(), indent=2, default=str))
+        os.chmod(tmp_name, 0o644)
+        os.replace(tmp_name, path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
     return path
 
 
