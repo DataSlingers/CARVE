@@ -1,0 +1,136 @@
+"""The single source of figure styling.
+
+Everything that decides how a figure looks lives here: palette, rcParams,
+spine treatment, font sizes, and saving. The code this replaces had four
+uncoordinated palettes, so CARVE stability was drawn in two different greens
+in the same paper, and a set_paper_style() that nothing ever called, so every
+published figure used stock matplotlib defaults and pdf.fonttype 42 was never
+applied.
+"""
+
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any
+
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+
+# Okabe-Ito, which is colorblind-safe and already what two of the three
+# previous definitions used for CARVE stability.
+METRIC_COLORS: dict[str, str] = {
+    "ari_stability_1se": "#009E73",
+    "ari_stability": "#009E73",
+    "ari_stability_quant": "#009E73",
+    "ari_generalizability_1se": "#56B4E9",
+    "ari_generalizability": "#56B4E9",
+    "ari_generalizability_quant": "#56B4E9",
+    "ari_average_1se": "#E69F00",
+    "ari_average": "#E69F00",
+    "ari_average_quant": "#E69F00",
+    "consensus_pac_stability": "#8C8C8C",
+    "consensus_gini_stability": "#6E6E6E",
+    "consensus_ce_stability": "#4F4F4F",
+    "accuracy_generalizability": "#7BC8F0",
+    "silhouette": "#E8588C",
+    "gap": "#0072B2",
+    "davies_bouldin": "#D55E00",
+    "calinski_harabasz": "#CC79A7",
+    "baseline_oracle": "#000000",
+}
+
+_FALLBACK_COLOR = "#7F7F7F"
+
+CLUSTER_PALETTE: tuple[str, ...] = (
+    "#009ADE",
+    "#00CD6C",
+    "#FF1F5B",
+    "#AF58BA",
+    "#F28522",
+    "#A6761D",
+    "#A0B1BA",
+    "#1B9E77",
+    "#7570B3",
+    "#66A61E",
+)
+
+FONT_SIZES: dict[str, float] = {
+    "tick": 9.0,
+    "legend": 9.0,
+    "axis_label": 10.0,
+    "title": 11.0,
+    "panel_letter": 28.0,
+}
+
+RC_PARAMS: dict[str, Any] = {
+    "figure.dpi": 120,
+    "savefig.dpi": 300,
+    "savefig.bbox": "tight",
+    "font.size": 10,
+    "axes.titlesize": FONT_SIZES["title"],
+    "axes.labelsize": FONT_SIZES["axis_label"],
+    "legend.fontsize": FONT_SIZES["legend"],
+    "xtick.labelsize": FONT_SIZES["tick"],
+    "ytick.labelsize": FONT_SIZES["tick"],
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "axes.grid": True,
+    "grid.alpha": 0.18,
+    "grid.linewidth": 0.6,
+    # Type 42 keeps text editable and selectable in the submitted PDF, which
+    # PLOS requires. The previous code set this in a function nothing called.
+    "pdf.fonttype": 42,
+    "ps.fonttype": 42,
+}
+
+
+def apply_theme() -> None:
+    """Apply the manuscript style to the global rcParams."""
+    plt.rcParams.update(RC_PARAMS)
+
+
+@contextmanager
+def theme_context() -> Iterator[None]:
+    """Apply the theme for the duration of a block, then restore."""
+    with mpl.rc_context(RC_PARAMS):
+        yield
+
+
+def metric_color(metric: str) -> str:
+    """Return the color for a metric, falling back to gray for unknown names."""
+    return METRIC_COLORS.get(metric, _FALLBACK_COLOR)
+
+
+def cluster_colors(n: int) -> list[str]:
+    """Return n cluster colors, cycling the palette when n exceeds its length."""
+    return [CLUSTER_PALETTE[i % len(CLUSTER_PALETTE)] for i in range(n)]
+
+
+def style_axes(ax: Axes, *, grid: bool = True) -> Axes:
+    """Apply the spine and grid treatment to one axes.
+
+    Replaces the spine block that was retyped in three places with three
+    different alpha values.
+    """
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_alpha(0.6)
+    if grid:
+        ax.grid(
+            True, alpha=RC_PARAMS["grid.alpha"], linewidth=RC_PARAMS["grid.linewidth"]
+        )
+    else:
+        ax.grid(False)
+    ax.set_axisbelow(True)
+    return ax
+
+
+def save_figure(fig: Figure, path: Path, *, dpi: int = 300) -> Path:
+    """Save a figure under its manuscript filename, creating parents as needed."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=dpi, bbox_inches="tight")
+    return path
