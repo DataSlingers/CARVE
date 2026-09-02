@@ -81,19 +81,51 @@ def _comparable(df: pd.DataFrame) -> pd.DataFrame:
     return df.sort_values(keys).reset_index(drop=True)
 
 
+@pytest.fixture(scope="module")
+def scenario_run(tmp_path_factory):
+    """Return a callable that runs a scenario once and hands back its run dir.
+
+    Both test functions below need a run directory for the same scenario.
+    A dict cache here, keyed by scenario name, holds only the shared root
+    passed to run_scenario -- not a precomputed run directory -- so every
+    call still goes through run_scenario itself and returns exactly what
+    run_scenario returns, never a hand-built guess at its content-addressed
+    path. run_scenario resumes by default, so the first call (from whichever
+    test runs first) does the full simulate-and-fit work, and the second
+    call, against the same root and the same configuration, finds every
+    cell already checkpointed and returns almost immediately -- one full
+    computation per scenario instead of two.
+
+    Module-scoped rather than session-scoped: the sharing only needs to span
+    this file's own tests, and module scope says so without implying the
+    cache should outlive this module.
+
+    random_state is pinned to PUBLISHED_RANDOM_STATE (42), not a literal.
+    The published benchmarks ran at 42 (notebook cell 3, RANDOM_SEED = 42,
+    passed to every scenario call). Seeds derive as
+    benchmark_seed = seed + axis_idx * 10000 + random_state, so any other
+    base seed simulates entirely different data and cannot match the
+    committed CSVs.
+    """
+    roots: dict[str, Path] = {}
+
+    def _run(scenario_name: str) -> Path:
+        if scenario_name not in roots:
+            roots[scenario_name] = tmp_path_factory.mktemp(scenario_name)
+        return run_scenario(
+            SCENARIOS[scenario_name],
+            root=roots[scenario_name],
+            n_jobs=-1,
+            random_state=PUBLISHED_RANDOM_STATE,
+        )
+
+    return _run
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize(("scenario_name", "stem"), sorted(UNAFFECTED.items()))
-def test_rebuilt_pipeline_reproduces_committed_results(scenario_name, stem, tmp_path):
-    scenario = SCENARIOS[scenario_name]
-    # The published benchmarks ran at random_state=42 (notebook cell 3,
-    # RANDOM_SEED = 42, passed to every scenario call). Seeds derive as
-    # benchmark_seed = seed + axis_idx * 10000 + random_state, so any other
-    # base seed simulates entirely different data and cannot match the
-    # committed CSVs. run_scenario defaults to PUBLISHED_RANDOM_STATE; it is
-    # passed explicitly here so the dependency is visible in the test.
-    rd = run_scenario(
-        scenario, root=tmp_path, n_jobs=-1, random_state=PUBLISHED_RANDOM_STATE
-    )
+def test_rebuilt_pipeline_reproduces_committed_results(scenario_name, stem, scenario_run):
+    rd = scenario_run(scenario_name)
 
     new = _comparable(read_run(rd))
     old = _comparable(_load_old(stem))
@@ -125,6 +157,32 @@ def test_rebuilt_pipeline_reproduces_committed_results(scenario_name, stem, tmp_
         atol=1e-8,
     )
 
+    # is_selected records which k CARVE actually picked -- the benchmark's
+    # headline output, and the one the manuscript's k_recovery tables are
+    # computed from. The 1se and quantile rules select on sweep_rank, not on
+    # the raw values just compared above, so a selection-rule regression
+    # that left every score untouched could still flip which k is flagged
+    # and pass unnoticed if this were not checked separately. Both sides are
+    # boolean, so compare directly rather than with a float tolerance.
+    #
+    # selects_true_k is not compared: it is k == k_star, a deterministic
+    # function of the merge key (k_star is a constant 5 across every
+    # scenario here), so it carries no information beyond what the merge
+    # already pins and checking it would only re-assert the merge succeeded.
+    mismatched = merged[merged["is_selected_old"] != merged["is_selected_new"]]
+    sample_columns = [
+        "axis_label",
+        "seed",
+        "metric_name",
+        "k",
+        "is_selected_old",
+        "is_selected_new",
+    ]
+    assert mismatched.empty, (
+        f"{scenario_name}: is_selected disagrees on {len(mismatched)} of "
+        f"{len(merged)} rows. Sample:\n{mismatched[sample_columns].head(10)}"
+    )
+
     # ari_at_k is expected to move only for the generalizability metrics.
     stability_only = merged[~merged["metric_name"].isin(GENERALIZABILITY_METRICS)]
     pd.testing.assert_series_equal(
@@ -138,12 +196,9 @@ def test_rebuilt_pipeline_reproduces_committed_results(scenario_name, stem, tmp_
 
 @pytest.mark.slow
 @pytest.mark.parametrize(("scenario_name", "stem"), sorted(UNAFFECTED.items()))
-def test_generalizability_ari_changed_as_the_fix_intended(scenario_name, stem, tmp_path):
+def test_generalizability_ari_changed_as_the_fix_intended(scenario_name, stem, scenario_run):
     """The ari_at_k fix must actually change something, or it did nothing."""
-    scenario = SCENARIOS[scenario_name]
-    rd = run_scenario(
-        scenario, root=tmp_path, n_jobs=-1, random_state=PUBLISHED_RANDOM_STATE
-    )
+    rd = scenario_run(scenario_name)
 
     new = _comparable(read_run(rd))
     old = _comparable(_load_old(stem))
