@@ -4,7 +4,7 @@ This module is a leaf: it imports only the standard library, so every other
 module in the package may depend on it without creating a cycle.
 """
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -62,3 +62,86 @@ class EstimatorSpec:
                 f"Unknown estimator {self.name!r}. "
                 f"Valid names are {sorted(KNOWN_ESTIMATORS)}."
             )
+
+
+def _simulator_parameters() -> frozenset[str]:
+    """Return the keyword names simulate_clusters accepts.
+
+    Imported lazily so this module has no package-level import of carve.
+    """
+    import inspect
+
+    from carve.sim import simulate_clusters
+
+    return frozenset(inspect.signature(simulate_clusters).parameters)
+
+
+@dataclass(frozen=True)
+class Scenario:
+    """One simulated experiment: an axis, its anchors, and an estimator.
+
+    anchors maps each axis label to the simulate_clusters keyword arguments
+    that define that point on the axis. shared holds the keyword arguments
+    common to every point. A key may appear in one or the other, never both.
+    """
+
+    name: str
+    axis: Axis
+    anchors: Mapping[str, Mapping[str, Any]]
+    shared: Mapping[str, Any]
+    estimator: EstimatorSpec
+    k_star: int = 5
+    candidate_k: tuple[int, ...] = (3, 4, 5, 6, 7)
+    n_seeds: int = 20
+
+    def __post_init__(self) -> None:
+        missing = [label for label in self.axis.labels if label not in self.anchors]
+        if missing:
+            raise ValueError(
+                f"Scenario {self.name!r}: no anchor for axis label(s) {missing}."
+            )
+
+        valid = _simulator_parameters()
+
+        for label, anchor in self.anchors.items():
+            unknown = sorted(set(anchor) - valid)
+            if unknown:
+                raise ValueError(
+                    f"Scenario {self.name!r}, anchor {label!r}: "
+                    f"simulate_clusters does not accept {unknown}."
+                )
+
+        unknown_shared = sorted(set(self.shared) - valid - {self.axis.name})
+        if unknown_shared:
+            raise ValueError(
+                f"Scenario {self.name!r}, shared settings: "
+                f"simulate_clusters does not accept {unknown_shared}."
+            )
+
+        for label, anchor in self.anchors.items():
+            overlap = sorted(set(anchor) & set(self.shared))
+            if overlap:
+                raise ValueError(
+                    f"Scenario {self.name!r}: {overlap} appear in both the "
+                    f"{label!r} anchor and the shared settings. Put each key in "
+                    "exactly one of them."
+                )
+
+        if self.k_star not in self.candidate_k:
+            raise ValueError(
+                f"Scenario {self.name!r}: k_star={self.k_star} is not in "
+                f"candidate_k={self.candidate_k}."
+            )
+
+    def sim_kwargs(self, axis_value: Any, axis_label: str) -> dict[str, Any]:
+        """Build the simulate_clusters keyword arguments for one axis point.
+
+        When the axis name is itself a simulator keyword (n_total, p,
+        embed_dim), the axis value overrides whatever shared provides. When it
+        is not (difficulty_level), the axis value only selects the anchor.
+        """
+        kwargs: dict[str, Any] = dict(self.shared)
+        kwargs.update(self.anchors[axis_label])
+        if self.axis.name in _simulator_parameters():
+            kwargs[self.axis.name] = axis_value
+        return kwargs
