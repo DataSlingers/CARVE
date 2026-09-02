@@ -18,6 +18,7 @@ it never enters the stability or generalizability computation, and ARI is
 invariant to label permutation. The divergence was cosmetic.
 """
 
+import json
 import time
 import uuid
 from pathlib import Path
@@ -204,12 +205,37 @@ def run_scenario(
 
     Returns the run directory, which is content-addressed on the scenario
     configuration so a changed anchor cannot read a stale result.
+
+    Provenance across resumes. When resume=True and the run directory
+    already has a manifest.json, this invocation reuses the run_id it
+    records rather than minting a new one, so every row on disk -- from
+    this invocation and every earlier one -- carries the same run_id the
+    manifest reports. wall_clock_s is cumulative across resumed
+    invocations: each call adds its own elapsed time to whatever the
+    existing manifest already recorded, rather than overwriting it, so the
+    manifest reflects the total work the run directory represents rather
+    than only the most recent increment.
+
+    resume=False recomputes every cell regardless of what is already on
+    disk -- write_checkpoint overwrites each cell's file unconditionally --
+    so the resulting run directory is a complete, self-consistent output of
+    this single invocation. Accordingly resume=False always mints a fresh
+    run_id and records only this invocation's wall_clock_s, even if a
+    manifest from an earlier run already exists at the same path: that
+    manifest describes a run this invocation has now fully superseded.
     """
     n_seeds = scenario.n_seeds if n_seeds is None else int(n_seeds)
     cfg_hash = config_hash(
         scenario, n_seeds=n_seeds, n_resamples=n_resamples, random_state=random_state
     )
     rd = run_dir(Path(root), scenario.name, cfg_hash)
+
+    manifest_path = rd / "manifest.json"
+    previous_manifest = (
+        json.loads(manifest_path.read_text())
+        if resume and manifest_path.exists()
+        else None
+    )
 
     done = completed_cells(rd) if resume else set()
     pending = [
@@ -224,7 +250,7 @@ def run_scenario(
             f"{scenario.name}: {len(pending)} cells to run, {len(done)} already done."
         )
 
-    run_id = uuid.uuid4().hex[:12]
+    run_id = previous_manifest["run_id"] if previous_manifest else uuid.uuid4().hex[:12]
     started = time.perf_counter()
 
     def _one(axis_idx, axis_value, axis_label, seed):
@@ -246,6 +272,10 @@ def run_scenario(
             for cell in tqdm(pending, desc=scenario.name, leave=False)
         )
 
+    elapsed = time.perf_counter() - started
+    if previous_manifest is not None:
+        elapsed += float(previous_manifest["wall_clock_s"])
+
     write_manifest(
         rd,
         build_manifest(
@@ -256,7 +286,7 @@ def run_scenario(
             n_resamples=n_resamples,
             n_jobs=n_jobs,
             random_state=random_state,
-            wall_clock_s=time.perf_counter() - started,
+            wall_clock_s=elapsed,
         ),
     )
     return rd
