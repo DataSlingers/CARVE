@@ -1,0 +1,313 @@
+{
+  "gaussians": {
+    "easy": {
+      "calibrated_cluster_scale": 3.0749999999999997,
+      "published_cluster_scale": [
+        4.0,
+        4.0,
+        4.0,
+        4.0,
+        4.0
+      ],
+      "achieved_ari": 0.9919804851981777,
+      "target": [
+        0.9,
+        1.0
+      ],
+      "in_band": true
+    },
+    "medium": {
+      "calibrated_cluster_scale": 4.5625,
+      "published_cluster_scale": [
+        4.5,
+        4.5,
+        4.5,
+        4.5,
+        4.5
+      ],
+      "achieved_ari": 0.8555834111830686,
+      "target": [
+        0.8,
+        0.9
+      ],
+      "in_band": true
+    },
+    "hard": {
+      "calibrated_cluster_scale": 4.5625,
+      "published_cluster_scale": [
+        4.6,
+        4.6,
+        4.6,
+        4.6,
+        4.6
+      ],
+      "achieved_ari": 0.7465439431952443,
+      "target": [
+        0.7,
+        0.8
+      ],
+      "in_band": true
+    },
+    "_seconds": 2.9
+  },
+  "t_dist": {
+    "easy": {
+      "calibrated_cluster_scale": 1.5875,
+      "published_cluster_scale": [
+        3.5,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "achieved_ari": 0.9764475606403245,
+      "target": [
+        0.9,
+        1.0
+      ],
+      "in_band": true
+    },
+    "medium": {
+      "calibrated_cluster_scale": 1.5875,
+      "published_cluster_scale": [
+        3.0,
+        1.5,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "achieved_ari": 0.8914335209137398,
+      "target": [
+        0.8,
+        0.9
+      ],
+      "in_band": true
+    },
+    "hard": {
+      "calibrated_cluster_scale": 2.33125,
+      "published_cluster_scale": [
+        4.0,
+        3.0,
+        2.0,
+        1.0,
+        1.0
+      ],
+      "achieved_ari": 0.72347970878301,
+      "target": [
+        0.7,
+        0.8
+      ],
+      "in_band": true
+    },
+    "_seconds": 4.6
+  },
+  "t_dist_noise": {
+    "easy": {
+      "calibrated_cluster_scale": 0.84375,
+      "published_cluster_scale": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "achieved_ari": 0.9939144133340696,
+      "target": [
+        0.9,
+        1.0
+      ],
+      "in_band": true
+    },
+    "medium": {
+      "calibrated_cluster_scale": 1.0296875,
+      "published_cluster_scale": [
+        1.1,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "achieved_ari": 0.8494497341362501,
+      "target": [
+        0.8,
+        0.9
+      ],
+      "in_band": true
+    },
+    "hard": {
+      "calibrated_cluster_scale": 1.0296875,
+      "published_cluster_scale": [
+        1.1,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "achieved_ari": 0.7170135678743045,
+      "target": [
+        0.7,
+        0.8
+      ],
+      "in_band": true
+    },
+    "_seconds": 97.3
+  },
+  "circles": {
+    "easy": {
+      "calibrated_cluster_scale": 0.1029052734375,
+      "published_cluster_scale": [
+        4.08,
+        4.08,
+        3.0,
+        3.0,
+        3.0
+      ],
+      "achieved_ari": 0.37283450686508424,
+      "target": [
+        0.9,
+        1.0
+      ],
+      "in_band": false
+    },
+    "medium": {
+      "calibrated_cluster_scale": 3.0749999999999997,
+      "published_cluster_scale": [
+        4.08,
+        4.08,
+        3.0,
+        3.0,
+        3.0
+      ],
+      "achieved_ari": 0.8870890411223291,
+      "target": [
+        0.8,
+        0.9
+      ],
+      "in_band": true
+    },
+    "hard": {
+      "calibrated_cluster_scale": 6.05,
+      "published_cluster_scale": [
+        4.38,
+        4.08,
+        4.08,
+        4.08,
+        4.08
+      ],
+      "achieved_ari": 0.7394574103829183,
+      "target": [
+        0.7,
+        0.8
+      ],
+      "in_band": true
+    },
+    "_seconds": 431.8
+  },
+  "moons": {
+    "easy": {
+      "calibrated_cluster_scale": 0.1029052734375,
+      "published_cluster_scale": [
+        5.5,
+        3.97,
+        3.97,
+        3.97,
+        3.97
+      ],
+      "achieved_ari": 0.37367280193379676,
+      "target": [
+        0.9,
+        1.0
+      ],
+      "in_band": false
+    },
+    "medium": {
+      "calibrated_cluster_scale": 6.05,
+      "published_cluster_scale": [
+        4.8,
+        4.06,
+        4.06,
+        4.06,
+        4.06
+      ],
+      "achieved_ari": 0.8401921309770884,
+      "target": [
+        0.8,
+        0.9
+      ],
+      "in_band": true
+    },
+    "hard": {
+      "calibrated_cluster_scale": 3.0749999999999997,
+      "published_cluster_scale": [
+        4.06,
+        2.65,
+        2.65,
+        2.65,
+        2.65
+      ],
+      "achieved_ari": 0.7901324083931011,
+      "target": [
+        0.7,
+        0.8
+      ],
+      "in_band": true
+    },
+    "_seconds": 501.6
+  },
+  "swiss_rolls": {
+    "easy": {
+      "calibrated_cluster_scale": 0.84375,
+      "published_cluster_scale": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "achieved_ari": 1.0,
+      "target": [
+        0.9,
+        1.0
+      ],
+      "in_band": true
+    },
+    "medium": {
+      "calibrated_cluster_scale": 1.215625,
+      "published_cluster_scale": [
+        2.0,
+        2.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "achieved_ari": 0.8822266864266476,
+      "target": [
+        0.8,
+        0.9
+      ],
+      "in_band": true
+    },
+    "hard": {
+      "calibrated_cluster_scale": 1.215625,
+      "published_cluster_scale": [
+        2.0,
+        2.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "achieved_ari": 0.7888290372935529,
+      "target": [
+        0.7,
+        0.8
+      ],
+      "in_band": true
+    },
+    "_seconds": 7.2
+  },
+  "_meta": {
+    "max_iter": 12,
+    "n_seeds": 20,
+    "total_seconds": 1045.5
+  }
+}
