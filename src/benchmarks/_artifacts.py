@@ -51,7 +51,7 @@ _TRACKED_PACKAGES = (
 
 
 def _canonical_config(
-    scenario: Scenario, *, n_seeds: int, n_resamples: int
+    scenario: Scenario, *, n_seeds: int, n_resamples: int, random_state: int
 ) -> dict[str, Any]:
     """The subset of a scenario that changing must invalidate a run."""
     return {
@@ -67,13 +67,27 @@ def _canonical_config(
         "n_trees": scenario.n_trees,
         "n_seeds": n_seeds,
         "n_resamples": n_resamples,
+        "random_state": random_state,
     }
 
 
-def config_hash(scenario: Scenario, *, n_seeds: int, n_resamples: int) -> str:
-    """Twelve-hex-character digest of everything that defines a run."""
+def config_hash(
+    scenario: Scenario, *, n_seeds: int, n_resamples: int, random_state: int
+) -> str:
+    """Twelve-hex-character digest of everything that defines a run.
+
+    random_state is required, not defaulted: seeds derive as
+    seed + axis_idx * 10000 + random_state, so two runs differing only in
+    the base seed produce entirely different simulated data and must not
+    content-address to the same directory.
+    """
     payload = json.dumps(
-        _canonical_config(scenario, n_seeds=n_seeds, n_resamples=n_resamples),
+        _canonical_config(
+            scenario,
+            n_seeds=n_seeds,
+            n_resamples=n_resamples,
+            random_state=random_state,
+        ),
         sort_keys=True,
         default=str,
     )
@@ -109,10 +123,15 @@ def write_checkpoint(
 
 
 def completed_cells(rd: Path) -> set[tuple[str, int]]:
-    """Return the (axis_label, seed) pairs already on disk."""
+    """Return the (axis_label, seed) pairs already on disk.
+
+    Splits only the trailing seed off the filename, so an axis label that
+    itself contains a double underscore (a Study name, for instance) still
+    round-trips instead of raising an unpacking error.
+    """
     cells: set[tuple[str, int]] = set()
     for path in Path(rd).glob("cell__*.parquet"):
-        _, axis_label, seed = path.stem.split("__")
+        axis_label, seed = path.stem.removeprefix("cell__").rsplit("__", 1)
         cells.add((axis_label, int(seed)))
     return cells
 
@@ -196,7 +215,12 @@ def build_manifest(
             "python": platform.python_version(),
             "cores": os.cpu_count(),
         },
-        config=_canonical_config(scenario, n_seeds=n_seeds, n_resamples=n_resamples),
+        config=_canonical_config(
+            scenario,
+            n_seeds=n_seeds,
+            n_resamples=n_resamples,
+            random_state=random_state,
+        ),
     )
 
 

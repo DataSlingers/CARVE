@@ -66,8 +66,8 @@ class TestSchema:
 class TestConfigHash:
     def test_is_stable_across_calls(self):
         s = SCENARIOS["gaussians"]
-        assert config_hash(s, n_seeds=20, n_resamples=100) == config_hash(
-            s, n_seeds=20, n_resamples=100
+        assert config_hash(s, n_seeds=20, n_resamples=100, random_state=42) == config_hash(
+            s, n_seeds=20, n_resamples=100, random_state=42
         )
 
     def test_changes_when_an_anchor_changes(self):
@@ -81,14 +81,14 @@ class TestConfigHash:
             shared=s.shared,
             estimator=s.estimator,
         )
-        assert config_hash(s, n_seeds=20, n_resamples=100) != config_hash(
-            changed, n_seeds=20, n_resamples=100
+        assert config_hash(s, n_seeds=20, n_resamples=100, random_state=42) != config_hash(
+            changed, n_seeds=20, n_resamples=100, random_state=42
         )
 
     def test_changes_when_n_resamples_changes(self):
         s = SCENARIOS["gaussians"]
-        assert config_hash(s, n_seeds=20, n_resamples=100) != config_hash(
-            s, n_seeds=20, n_resamples=50
+        assert config_hash(s, n_seeds=20, n_resamples=100, random_state=42) != config_hash(
+            s, n_seeds=20, n_resamples=50, random_state=42
         )
 
     def test_changes_when_n_trees_changes(self):
@@ -104,12 +104,18 @@ class TestConfigHash:
             n_seeds=s.n_seeds,
             n_trees=s.n_trees + 1,
         )
-        assert config_hash(s, n_seeds=20, n_resamples=100) != config_hash(
-            changed, n_seeds=20, n_resamples=100
+        assert config_hash(s, n_seeds=20, n_resamples=100, random_state=42) != config_hash(
+            changed, n_seeds=20, n_resamples=100, random_state=42
+        )
+
+    def test_changes_when_random_state_changes(self):
+        s = SCENARIOS["gaussians"]
+        assert config_hash(s, n_seeds=20, n_resamples=100, random_state=42) != config_hash(
+            s, n_seeds=20, n_resamples=100, random_state=0
         )
 
     def test_is_twelve_hex_characters(self):
-        h = config_hash(SCENARIOS["gaussians"], n_seeds=20, n_resamples=100)
+        h = config_hash(SCENARIOS["gaussians"], n_seeds=20, n_resamples=100, random_state=42)
         assert len(h) == 12
         assert set(h) <= set("0123456789abcdef")
 
@@ -144,6 +150,12 @@ class TestCheckpoints:
         del bad["oracle_ari"]
         with pytest.raises(ValueError, match="oracle_ari"):
             write_checkpoint(rd, "easy", 0, [bad])
+
+    def test_an_axis_label_with_a_double_underscore_round_trips(self, tmp_path):
+        rd = run_dir(tmp_path, "demo", "abc123def456")
+        label = "study__pbmc3k"
+        write_checkpoint(rd, label, 7, [_row(axis_label=label, seed=7)])
+        assert completed_cells(rd) == {(label, 7)}
 
 
 class TestManifest:
