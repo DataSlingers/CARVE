@@ -55,8 +55,8 @@ class TestLoadFromCache:
         _write_cache(tmp_path, X, y, ["m1", "m2", "m3", "m4"])
 
         loaded_X, loaded_y, meta = load_levine32(cache_dir=tmp_path)
-        assert loaded_X.shape == (200, 4)
-        assert len(loaded_y) == 200
+        np.testing.assert_array_equal(loaded_X, X)
+        np.testing.assert_array_equal(np.asarray(loaded_y), y)
         assert meta["from_cache"] is True
 
     def test_subsampling_is_honored_and_deterministic(self, tmp_path):
