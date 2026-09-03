@@ -1,0 +1,210 @@
+"""The composite layout shared by Fig 5 and Fig 6.
+
+The two notebook cells this replaces were 178 lines each and differed in four
+things: marker size, the embedding, the axis labels, and panel F. Those are
+parameters here; the remaining 174 lines are shared.
+"""
+
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+
+from .._panels import (
+    carve_lines,
+    cluster_color_map,
+    cvi_lines,
+    panel_letter,
+    scatter_clusters,
+)
+from .._theme import FONT_SIZES, save_figure, theme_context
+from ._paths import CASE_STUDY_DIR, figure_path
+
+
+@dataclass(frozen=True)
+class CompositeInputs:
+    """Everything the composite draws, already computed.
+
+    Assembling this is compute; drawing it is reporting. Keeping them apart is
+    what lets the figure be tested without fitting anything.
+    """
+
+    X: np.ndarray
+    y: np.ndarray
+    Z: np.ndarray
+    carve: Any
+    carve_labels: np.ndarray
+    comparison_labels: np.ndarray
+    comparison_name: str
+    comparison_k: int
+    curves_df: pd.DataFrame
+    best_df: pd.DataFrame
+
+
+def prepare_composite(
+    X: np.ndarray,
+    y: np.ndarray,
+    carve: Any,
+    *,
+    curves_df: pd.DataFrame,
+    best_df: pd.DataFrame,
+    comparison_metric: str = "silhouette",
+    embedding: np.ndarray | None = None,
+    measure: str = "stability",
+    rule: str = "1se",
+    not_two: bool = False,
+    random_state: int = 42,
+) -> CompositeInputs:
+    """Assemble the composite's inputs, computing a PCA embedding if needed."""
+    from sklearn.decomposition import PCA
+
+    from .._estimators import build_estimator
+    from .._types import EstimatorSpec
+
+    X = np.asarray(X)
+    y = np.asarray(y)
+
+    Z = (
+        np.asarray(embedding)
+        if embedding is not None
+        else PCA(n_components=2, random_state=random_state).fit_transform(X)
+    )
+
+    carve_labels = np.asarray(
+        carve.get_labels(measure=measure, rule=rule, not_two=not_two)
+    )
+
+    best_row = best_df.loc[best_df["metric"] == comparison_metric]
+    if best_row.empty:
+        raise ValueError(
+            f"No row for {comparison_metric!r} in best_df; "
+            f"available metrics are {sorted(best_df['metric'].unique())}."
+        )
+    comparison_k = int(best_row["k"].iloc[0])
+    estimator = build_estimator(
+        EstimatorSpec(name="kmeans"),
+        n_clusters=comparison_k,
+        random_state=random_state,
+    )
+    comparison_labels = np.asarray(estimator.fit_predict(X))
+
+    return CompositeInputs(
+        X=X,
+        y=y,
+        Z=Z,
+        carve=carve,
+        carve_labels=carve_labels,
+        comparison_labels=comparison_labels,
+        comparison_name=comparison_metric.title(),
+        comparison_k=comparison_k,
+        curves_df=curves_df,
+        best_df=best_df,
+    )
+
+
+def composite_figure(
+    inputs: CompositeInputs,
+    *,
+    bottom_panel: Callable[[Axes, CompositeInputs], Axes],
+    marker_size: float,
+    axis_labels: Sequence[str],
+    save_name: str,
+    save: bool = True,
+    out_dir: Path | None = None,
+) -> Figure:
+    """Draw the six-panel case-study composite.
+
+    Panels A, B and C are scatters of the reported labels, the CARVE
+    clustering, and the CVI clustering; D and E are the CARVE and CVI curves
+    over k; F is supplied by the caller.
+    """
+    true_cmap = cluster_color_map(inputs.y)
+    carve_cmap = cluster_color_map(inputs.carve_labels)
+    comparison_cmap = cluster_color_map(inputs.comparison_labels)
+
+    with theme_context():
+        fig = plt.figure(figsize=(16, 16), constrained_layout=False)
+        gs = fig.add_gridspec(
+            4, 6, height_ratios=[1.0, 1.0, 0.3, 1.0], hspace=0.2, wspace=0.8
+        )
+        ax_a = fig.add_subplot(gs[0, 0:2])
+        ax_b = fig.add_subplot(gs[0, 2:4])
+        ax_c = fig.add_subplot(gs[0, 4:6])
+        ax_d = fig.add_subplot(gs[1, 0:3])
+        ax_e = fig.add_subplot(gs[1, 3:6])
+        ax_f = fig.add_subplot(gs[3, 1:5])
+
+        legend_ax_d = fig.add_subplot(gs[2, 0:3])
+        legend_ax_d.set_axis_off()
+        legend_ax_e = fig.add_subplot(gs[2, 3:6])
+        legend_ax_e.set_axis_off()
+
+        scatter_clusters(
+            ax_a,
+            inputs.Z,
+            inputs.y,
+            color_map=true_cmap,
+            s=marker_size,
+            title="Reported Labels",
+            axis_labels=axis_labels,
+        )
+        scatter_clusters(
+            ax_b,
+            inputs.Z,
+            inputs.carve_labels,
+            color_map=carve_cmap,
+            s=marker_size,
+            title="CARVE clustering",
+            axis_labels=axis_labels,
+        )
+        scatter_clusters(
+            ax_c,
+            inputs.Z,
+            inputs.comparison_labels,
+            color_map=comparison_cmap,
+            s=marker_size,
+            title=f"CVI ({inputs.comparison_name}, k={inputs.comparison_k})",
+            axis_labels=axis_labels,
+        )
+
+        carve_lines(ax_d, inputs.carve, title="CARVE ARI over k")
+        cvi_lines(ax_e, inputs.curves_df, inputs.best_df, title="CVIs over k")
+
+        bottom_panel(ax_f, inputs)
+
+        # Move the two panel legends into their own strip. Building each one
+        # exactly once; the cell this replaces assigned leg_D twice and threw
+        # the first away.
+        for source_ax, target_ax, title in (
+            (ax_d, legend_ax_d, "CARVE"),
+            (ax_e, legend_ax_e, "CVIs"),
+        ):
+            handles, labels = source_ax.get_legend_handles_labels()
+            existing = source_ax.get_legend()
+            if existing is not None:
+                existing.remove()
+            target_ax.legend(
+                handles,
+                labels,
+                title=title,
+                loc="center",
+                ncol=1,
+                frameon=False,
+                fontsize=FONT_SIZES["legend"],
+            )
+
+        for letter, ax in zip("ABCDEF", (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f)):
+            panel_letter(ax, letter)
+
+        if save:
+            save_figure(
+                fig,
+                figure_path(save_name, subdir=CASE_STUDY_DIR, out_dir=out_dir),
+            )
+    return fig

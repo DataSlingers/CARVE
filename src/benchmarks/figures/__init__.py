@@ -7,16 +7,24 @@ savefig at all and were right-click-saved out of Jupyter output.
 
 from ._benchmarking_examples import figure_benchmarking_examples
 from ._benchmarking_results import figure_benchmarking_results
+from ._case_study import CompositeInputs, composite_figure, prepare_composite
+from ._klein_results import figure_klein_results
+from ._levine_results import figure_levine_results
 from ._paths import BENCHMARKING_DIR, CASE_STUDY_DIR, VIS_ROOT, figure_path
 from ._scaling import figure_scaling_ari, figure_scaling_runtime
 
 __all__ = [
     "BENCHMARKING_DIR",
     "CASE_STUDY_DIR",
+    "CompositeInputs",
     "VIS_ROOT",
+    "composite_figure",
     "figure_benchmarking_examples",
     "figure_benchmarking_results",
+    "figure_klein_results",
+    "figure_levine_results",
     "figure_path",
     "figure_scaling_ari",
     "figure_scaling_runtime",
+    "prepare_composite",
 ]
