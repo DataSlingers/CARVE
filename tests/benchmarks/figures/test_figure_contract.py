@@ -27,8 +27,6 @@ EXPECTED = (
 # test_all_eight_manuscript_figures_are_exported becomes the full eight.
 NOT_YET_IMPLEMENTED = frozenset(
     {
-        "figure_scaling_ari",
-        "figure_scaling_runtime",
         "figure_klein_results",
         "figure_levine_results",
         "figure_carve_output_klein",
