@@ -16,6 +16,7 @@ from typing import Any
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
+from matplotlib.colors import ListedColormap
 from matplotlib.figure import Figure
 
 # Okabe-Ito, which is colorblind-safe and already what two of the three
@@ -55,6 +56,30 @@ CLUSTER_PALETTE: tuple[str, ...] = (
     "#7570B3",
     "#66A61E",
 )
+
+# CARVE's own plotting functions take a Matplotlib colormap *name* --
+# ``palette: str = "Accent"``, consumed as ``plt.get_cmap(palette, n)`` -- so
+# CLUSTER_PALETTE (a tuple of hex strings) cannot be passed to them as-is.
+#
+# ``plt.get_cmap`` accepts an already-built Colormap instance and returns it
+# unchanged, but then ignores the requested ``n`` entirely (verified against
+# the installed Matplotlib, not assumed from the ``str`` type hint). That
+# breaks cross-panel color agreement: call sites that index the colormap by
+# plain integer (plot_cluster_violin, plot_cluster_scatter) walk the palette
+# in order, but plot_consensus_matrix's top color band goes through imshow,
+# which normalizes the cluster index to a float in [0, 1] first -- and
+# against an unresampled 10-color instance that lands on different, scattered
+# palette entries than the direct-index panels for any cluster count under
+# 10, so the same cluster gets two different colors across the figure.
+#
+# Registering the palette under a name and passing that name instead avoids
+# this: ``plt.get_cmap(name, n)`` resamples to exactly n colors, so both
+# indexing styles agree. Guarded so importing this module twice (e.g. a test
+# re-import) does not raise on re-registration.
+CLUSTER_CMAP_NAME: str = "carve_cluster"
+_cluster_cmap = ListedColormap(list(CLUSTER_PALETTE), name=CLUSTER_CMAP_NAME)
+if CLUSTER_CMAP_NAME not in mpl.colormaps:
+    mpl.colormaps.register(_cluster_cmap)
 
 FONT_SIZES: dict[str, float] = {
     "tick": 9.0,

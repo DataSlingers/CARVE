@@ -1,55 +1,34 @@
 """Fig 3 and S4 Fig: CARVE's own diagnostic output on a case study.
 
-Panel A is the validation curves over k, B the consensus matrix at the
-selected k, C the per-sample stability distribution. Both figures were
-previously right-click-saved out of Jupyter with no savefig anywhere.
+Six panels, and every one of them is a plot CARVE already ships as a method
+on the fitted object: (A) stability ARI over k, (B) the consensus matrix for
+the selected configuration, (C) generalizability ARI over k, (D) per-cluster
+stability as a violin plot, (E) the embedding colored by consensus labels
+with dubious samples emphasized, and (F) the same embedding with marker
+shape per cluster and score-encoded color. This module only arranges the six
+axes into one gridspec, calls each method with ``ax=`` set, and saves the
+result once; it does not resolve config_id, recompute a selection, or
+reimplement any encoding CARVE's own plotting functions already provide.
 """
 
 from collections.abc import Sequence
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import numpy as np
 from matplotlib.figure import Figure
 
-from .._panels import carve_lines, cluster_color_map, panel_letter, scatter_clusters
-from .._theme import FONT_SIZES, save_figure, theme_context
+from .._panels import panel_letter
+from .._theme import CLUSTER_CMAP_NAME, save_figure, theme_context
 from ._case_study import CompositeInputs
 from ._paths import CASE_STUDY_DIR, figure_path
 
-
-def _config_id_at_k(carve: object, k: int) -> int:
-    """Look up the config_id for one k.
-
-    config_id is a join key linking estimator_results_ rows to the consensus
-    matrices, never a positional index. Selecting a row and using its pandas
-    label to index the matrices positionally is the mistake this guards
-    against.
-
-    This assumes a k-based sweep with exactly one row per n_clusters value,
-    which holds for both figures built on top of this (Klein and Levine both
-    sweep n_clusters directly). It does not hold for a resolution-based
-    sweep (Leiden/Louvain), where two different resolutions can land on the
-    same observed cluster count; that case needs the canonical, sweep_rank-
-    based selection in carve/_selection.py, not an n_clusters match, so an
-    ambiguous match raises here rather than silently returning one of the
-    tied rows.
-    """
-    results = carve.estimator_results_
-    match = results.loc[results["n_clusters"] == k, "config_id"]
-    if match.empty:
-        raise ValueError(
-            f"No configuration at k={k}; available: "
-            f"{sorted(results['n_clusters'].unique())}."
-        )
-    if len(match) > 1:
-        raise ValueError(
-            f"{len(match)} configurations share k={k}; this figure assumes "
-            "a k-based sweep with exactly one row per n_clusters value. A "
-            "resolution-based sweep needs selection by sweep_rank (see "
-            "carve/_selection.py), not this n_clusters match."
-        )
-    return int(match.iloc[0])
+# Stability with the 1-SE rule drives panels A, B, D, E and F -- the
+# manuscript's own recommended default (see "Visual exploration" in the
+# main text). Panel C is the one panel that deliberately looks at the other
+# axis: generalizability, with its own independent 1-SE selection.
+_MEASURE_STABILITY = "stability"
+_MEASURE_GENERALIZABILITY = "generalizability"
+_RULE = "1se"
 
 
 def carve_output_figure(
@@ -61,41 +40,96 @@ def carve_output_figure(
     save: bool = True,
     out_dir: Path | None = None,
 ) -> Figure:
-    """Draw the three-panel CARVE diagnostic figure."""
+    """Draw the six-panel CARVE diagnostic figure (Fig 3 / S4 Fig).
+
+    ``marker_size`` scales panel F's fixed marker size directly (that
+    parameter's name on ``plot_diagnostic_scatter`` matches this one
+    exactly) and panel E's ``size_range`` proportionally, so the two
+    datasets' scatters differ only in dot size, not in the score encoding
+    itself.
+    """
     carve = inputs.carve
-    selected_k = int(carve.get_k(measure="stability", rule="1se"))
-    config_id = _config_id_at_k(carve, selected_k)
+    selected_k = int(carve.get_k(measure=_MEASURE_STABILITY, rule=_RULE))
+    scatter_size_range = (marker_size * 0.75, marker_size * 3.0)
 
     with theme_context():
-        fig, axes = plt.subplots(1, 3, figsize=(16.0, 4.6))
-        ax_a, ax_b, ax_c = axes
+        # No explicit hspace/wspace here: passing them marks the gridspec as
+        # manually customized, which makes every one of CARVE's own plotting
+        # calls -- each ends with its own fig.tight_layout() -- warn that the
+        # figure is "not compatible with tight_layout" on every subsequent
+        # call. Leaving spacing to the default lets those internal calls lay
+        # the panels out cleanly instead.
+        fig = plt.figure(figsize=(18.0, 11.0))
+        gs = fig.add_gridspec(2, 3)
+        ax_a = fig.add_subplot(gs[0, 0])
+        ax_b = fig.add_subplot(gs[0, 1])
+        ax_c = fig.add_subplot(gs[0, 2])
+        ax_d = fig.add_subplot(gs[1, 0])
+        ax_e = fig.add_subplot(gs[1, 1])
+        ax_f = fig.add_subplot(gs[1, 2])
 
-        carve_lines(ax_a, carve, title="Validation over $k$")
-
-        matrix = np.asarray(carve.consensus_matrices_[config_id], dtype=float)
-        image = ax_b.imshow(matrix, cmap="viridis", vmin=0.0, vmax=1.0, aspect="equal")
-        ax_b.set_title(
-            f"Consensus matrix ($k={selected_k}$)", fontsize=FONT_SIZES["title"]
+        carve.plot_metric_over_n_clusters(
+            measure=_MEASURE_STABILITY,
+            rule=_RULE,
+            ax=ax_a,
+            palette=CLUSTER_CMAP_NAME,
+            title="Stability ARI over $k$",
+            show=False,
         )
-        ax_b.set_xticks([])
-        ax_b.set_yticks([])
-        fig.colorbar(image, ax=ax_b, fraction=0.046, pad=0.04)
-
-        gini = np.asarray(carve.stability_gini_scores_[config_id], dtype=float)
-        scatter_clusters(
-            ax_c,
-            inputs.Z,
-            inputs.carve_labels,
-            color_map=cluster_color_map(inputs.carve_labels),
-            s=marker_size,
-            title="Sample-level stability",
-            axis_labels=axis_labels,
+        carve.plot_consensus_matrix(
+            measure=_MEASURE_STABILITY,
+            rule=_RULE,
+            ax=ax_b,
+            palette=CLUSTER_CMAP_NAME,
+            title=f"Consensus matrix ($k={selected_k}$)",
+            show=False,
         )
-        ax_c.set_xlabel(
-            f"median Gini = {np.median(gini):.3f}", fontsize=FONT_SIZES["axis_label"]
+        carve.plot_metric_over_n_clusters(
+            measure=_MEASURE_GENERALIZABILITY,
+            rule=_RULE,
+            ax=ax_c,
+            palette=CLUSTER_CMAP_NAME,
+            title="Generalizability ARI over $k$",
+            show=False,
+        )
+        carve.plot_cluster_violin(
+            source="gini",
+            measure=_MEASURE_STABILITY,
+            rule=_RULE,
+            ax=ax_d,
+            palette=CLUSTER_CMAP_NAME,
+            title="Per-cluster stability",
+            show=False,
+        )
+        carve.plot_cluster_scatter(
+            source="gini",
+            measure=_MEASURE_STABILITY,
+            rule=_RULE,
+            X=inputs.X,
+            embedding=inputs.Z,
+            ax=ax_e,
+            palette=CLUSTER_CMAP_NAME,
+            size_range=scatter_size_range,
+            title="Consensus labels",
+            xlabel=axis_labels[0],
+            ylabel=axis_labels[1],
+            show=False,
+        )
+        carve.plot_diagnostic_scatter(
+            source="gini",
+            measure=_MEASURE_STABILITY,
+            rule=_RULE,
+            X=inputs.X,
+            embedding=inputs.Z,
+            ax=ax_f,
+            marker_size=marker_size,
+            title="Consensus assignment (diagnostic)",
+            xlabel=axis_labels[0],
+            ylabel=axis_labels[1],
+            show=False,
         )
 
-        for letter, ax in zip("ABC", (ax_a, ax_b, ax_c)):
+        for letter, ax in zip("ABCDEF", (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f)):
             panel_letter(ax, letter)
 
         fig.tight_layout()
@@ -111,7 +145,7 @@ def carve_output_figure(
 def figure_carve_output_klein(
     inputs: CompositeInputs, *, save: bool = True, out_dir: Path | None = None
 ) -> Figure:
-    """Build Fig 3."""
+    """Build Fig 3: CARVE output on the Klein droplet scRNA-seq case study."""
     return carve_output_figure(
         inputs,
         marker_size=20.0,
@@ -125,7 +159,7 @@ def figure_carve_output_klein(
 def figure_carve_output_levine(
     inputs: CompositeInputs, *, save: bool = True, out_dir: Path | None = None
 ) -> Figure:
-    """Build S4 Fig."""
+    """Build S4 Fig: CARVE output on the Levine mass cytometry case study."""
     return carve_output_figure(
         inputs,
         marker_size=8.0,
