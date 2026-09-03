@@ -5,9 +5,12 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+import pytest
+from matplotlib.colors import to_hex
 
 from benchmarks._registry import CARVE_METRICS_ALL, CVI_METRICS, METRIC_DISPLAY_NAMES
 from benchmarks._theme import (
+    CLUSTER_CMAP_NAME,
     CLUSTER_PALETTE,
     FONT_SIZES,
     METRIC_COLORS,
@@ -51,12 +54,30 @@ class TestPalette:
         for metric in CARVE_METRICS_ALL:
             assert metric_color(metric).startswith("#")
 
-    def test_cluster_colors_cycle_beyond_the_palette(self):
+    def test_cluster_colors_extends_beyond_the_palette_length(self):
+        # Not "cycling" the 10-color sequence from the start -- see
+        # cluster_colors' docstring -- just checking it still returns n
+        # colors past the palette's own length.
         assert len(cluster_colors(3)) == 3
         assert len(cluster_colors(len(CLUSTER_PALETTE) + 5)) == len(CLUSTER_PALETTE) + 5
 
     def test_cluster_colors_are_stable(self):
         assert cluster_colors(4) == cluster_colors(4)
+
+    @pytest.mark.parametrize("n", [1, 3, 10, 11, 15])
+    def test_cluster_colors_matches_the_registered_colormap(self, n):
+        """The whole point of Task 12b's palette fix: cluster_colors() (used
+        by cluster_color_map() for every non-CARVE-object figure) and
+        plt.get_cmap(CLUSTER_CMAP_NAME, n) (used directly by
+        _carve_output.py's calls into CARVE's own plotting methods) must
+        agree, or the same cluster gets two different colors across the
+        paper -- exactly the defect this plan exists to eliminate. Pinned
+        for n below, at, and above len(CLUSTER_PALETTE) so this cannot
+        silently drift back to a plain slice of CLUSTER_PALETTE.
+        """
+        cmap = plt.get_cmap(CLUSTER_CMAP_NAME, n)
+        expected = [to_hex(cmap(i)) for i in range(n)]
+        assert cluster_colors(n) == expected
 
 
 class TestRcParams:

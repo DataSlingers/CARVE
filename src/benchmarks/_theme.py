@@ -16,7 +16,7 @@ from typing import Any
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
-from matplotlib.colors import ListedColormap
+from matplotlib.colors import ListedColormap, to_hex
 from matplotlib.figure import Figure
 
 # Okabe-Ito, which is colorblind-safe and already what two of the three
@@ -129,8 +129,27 @@ def metric_color(metric: str) -> str:
 
 
 def cluster_colors(n: int) -> list[str]:
-    """Return n cluster colors, cycling the palette when n exceeds its length."""
-    return [CLUSTER_PALETTE[i % len(CLUSTER_PALETTE)] for i in range(n)]
+    """Return n cluster colors sampled from the registered cluster colormap.
+
+    Matches ``plt.get_cmap(CLUSTER_CMAP_NAME, n)`` exactly -- the same
+    colormap CARVE's own plotting methods resample when a caller passes them
+    CLUSTER_CMAP_NAME as ``palette``. Two figures coloring the same clusters
+    must agree, and slicing CLUSTER_PALETTE directly (the previous
+    implementation) did not agree with that resampling: for n below the
+    palette's length, matplotlib spreads n samples evenly across the full
+    10-color palette rather than taking its first n entries in order (n=3
+    lands on palette indices 0, 5 and 9, not 0, 1 and 2). Verified against
+    the installed Matplotlib, not assumed.
+
+    For n greater than len(CLUSTER_PALETTE), this does not cycle the
+    10-color sequence from the start the way the previous implementation
+    did. Matplotlib's resampling instead stretches the existing 10 colors to
+    fill the extra slots, so some colors repeat (typically each color twice,
+    for n up to 20) while the original left-to-right order is preserved --
+    also verified against the installed Matplotlib rather than assumed.
+    """
+    cmap = plt.get_cmap(CLUSTER_CMAP_NAME, max(n, 1))
+    return [to_hex(cmap(i)) for i in range(n)]
 
 
 def style_axes(ax: Axes, *, grid: bool = True) -> Axes:
