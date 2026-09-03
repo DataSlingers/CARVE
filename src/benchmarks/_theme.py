@@ -129,27 +129,40 @@ def metric_color(metric: str) -> str:
 
 
 def cluster_colors(n: int) -> list[str]:
-    """Return n cluster colors sampled from the registered cluster colormap.
+    """Return n cluster colors, agreeing with CARVE's own panels up to ten.
 
-    Matches ``plt.get_cmap(CLUSTER_CMAP_NAME, n)`` exactly -- the same
-    colormap CARVE's own plotting methods resample when a caller passes them
-    CLUSTER_CMAP_NAME as ``palette``. Two figures coloring the same clusters
-    must agree, and slicing CLUSTER_PALETTE directly (the previous
-    implementation) did not agree with that resampling: for n below the
-    palette's length, matplotlib spreads n samples evenly across the full
-    10-color palette rather than taking its first n entries in order (n=3
-    lands on palette indices 0, 5 and 9, not 0, 1 and 2). Verified against
-    the installed Matplotlib, not assumed.
+    For n <= len(CLUSTER_PALETTE), this matches ``plt.get_cmap(
+    CLUSTER_CMAP_NAME, n)`` exactly -- the same colormap CARVE's own
+    plotting methods resample when a caller passes them CLUSTER_CMAP_NAME as
+    ``palette``. Two figures coloring the same (<=10) clusters must agree,
+    and slicing CLUSTER_PALETTE directly (an earlier implementation) did
+    not: matplotlib spreads n samples evenly across the full 10-color
+    palette rather than taking its first n entries in order (n=3 lands on
+    palette indices 0, 5 and 9, not 0, 1 and 2). Verified against the
+    installed Matplotlib, not assumed.
 
-    For n greater than len(CLUSTER_PALETTE), this does not cycle the
-    10-color sequence from the start the way the previous implementation
-    did. Matplotlib's resampling instead stretches the existing 10 colors to
-    fill the extra slots, so some colors repeat (typically each color twice,
-    for n up to 20) while the original left-to-right order is preserved --
-    also verified against the installed Matplotlib rather than assumed.
+    For n > len(CLUSTER_PALETTE), this cycles CLUSTER_PALETTE from the
+    start (``CLUSTER_PALETTE[i % len(CLUSTER_PALETTE)]``) instead of
+    continuing to resample the registered colormap. Resampling a 10-color
+    map past 10 entries duplicates colors by construction -- there is no n
+    above 10 where cluster identity can be fully distinguished by color --
+    but a first attempt at this function that resampled unconditionally
+    made those duplicates land on *adjacent* cluster indices (verified: at
+    n=17, 7 of 16 adjacent pairs shared a color), which is worse than
+    duplicates ten indices apart. Cycling instead means every repeat is
+    exactly len(CLUSTER_PALETTE) apart, so two adjacent clusters are never
+    the same color even though the palette is exhausted. This is a
+    deliberate trade: a CARVE-drawn panel (which resamples internally via
+    its own ``palette=CLUSTER_CMAP_NAME`` and cannot follow this cycling)
+    and a benchmarks-drawn panel can disagree on colors above n=10, but
+    both are already degenerate there, and legibility within one panel
+    matters more than cross-panel agreement neither panel can fully honor
+    anyway.
     """
-    cmap = plt.get_cmap(CLUSTER_CMAP_NAME, max(n, 1))
-    return [to_hex(cmap(i)) for i in range(n)]
+    if n <= len(CLUSTER_PALETTE):
+        cmap = plt.get_cmap(CLUSTER_CMAP_NAME, max(n, 1))
+        return [to_hex(cmap(i)) for i in range(n)]
+    return [to_hex(CLUSTER_PALETTE[i % len(CLUSTER_PALETTE)]) for i in range(n)]
 
 
 def style_axes(ax: Axes, *, grid: bool = True) -> Axes:

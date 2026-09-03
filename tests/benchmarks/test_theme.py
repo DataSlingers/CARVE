@@ -55,29 +55,57 @@ class TestPalette:
             assert metric_color(metric).startswith("#")
 
     def test_cluster_colors_extends_beyond_the_palette_length(self):
-        # Not "cycling" the 10-color sequence from the start -- see
+        # Cycles CLUSTER_PALETTE from the start past its own length -- see
         # cluster_colors' docstring -- just checking it still returns n
-        # colors past the palette's own length.
+        # colors past the palette's own length here; the cycling pattern
+        # itself is pinned by the adjacent-duplicate tests below.
         assert len(cluster_colors(3)) == 3
         assert len(cluster_colors(len(CLUSTER_PALETTE) + 5)) == len(CLUSTER_PALETTE) + 5
 
     def test_cluster_colors_are_stable(self):
         assert cluster_colors(4) == cluster_colors(4)
 
-    @pytest.mark.parametrize("n", [1, 3, 10, 11, 15])
-    def test_cluster_colors_matches_the_registered_colormap(self, n):
-        """The whole point of Task 12b's palette fix: cluster_colors() (used
-        by cluster_color_map() for every non-CARVE-object figure) and
+    @pytest.mark.parametrize("n", [1, 3, 10])
+    def test_cluster_colors_matches_the_registered_colormap_up_to_ten(self, n):
+        """Task 12b's palette fix: cluster_colors() (used by
+        cluster_color_map() for every non-CARVE-object figure) and
         plt.get_cmap(CLUSTER_CMAP_NAME, n) (used directly by
         _carve_output.py's calls into CARVE's own plotting methods) must
-        agree, or the same cluster gets two different colors across the
-        paper -- exactly the defect this plan exists to eliminate. Pinned
-        for n below, at, and above len(CLUSTER_PALETTE) so this cannot
+        agree for n up to len(CLUSTER_PALETTE), or the same <=10-cluster
+        solution gets two different colors across the paper -- exactly the
+        defect this plan exists to eliminate. Pinned so this cannot
         silently drift back to a plain slice of CLUSTER_PALETTE.
+
+        This agreement is deliberately *not* asserted above n=10 --
+        see test_cluster_colors_no_adjacent_duplicates_above_the_palette_length
+        and cluster_colors' docstring for why perfect agreement there was
+        traded away.
         """
         cmap = plt.get_cmap(CLUSTER_CMAP_NAME, n)
         expected = [to_hex(cmap(i)) for i in range(n)]
         assert cluster_colors(n) == expected
+
+    @pytest.mark.parametrize("n", [11, 14, 17])
+    def test_cluster_colors_no_adjacent_duplicates_above_the_palette_length(self, n):
+        """Above ten clusters, agreement with the registered colormap is
+        not achievable (it duplicates by construction), so cluster_colors
+        instead guarantees legibility within one panel: cycling
+        CLUSTER_PALETTE from the start means every repeat falls exactly
+        len(CLUSTER_PALETTE) indices apart, so two *adjacent* cluster
+        indices are never the same color. An earlier version of this
+        function resampled the registered colormap unconditionally, which
+        put duplicates on adjacent indices instead (measured: 7 of 16
+        adjacent pairs identical at n=17) -- exactly the failure mode this
+        pins against.
+
+        n=14 and n=17 are not arbitrary: Levine's reported labels run to
+        roughly 14 populations and its swept k reaches 17, and
+        cluster_color_map colors the alluvial and ARI-lollipop panels'
+        true-label column with this function, so both counts are real,
+        not hypothetical.
+        """
+        colors = cluster_colors(n)
+        assert all(a != b for a, b in zip(colors, colors[1:]))
 
 
 class TestRcParams:
