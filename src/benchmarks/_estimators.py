@@ -30,21 +30,29 @@ ESTIMATOR_DEFAULTS: dict[str, dict[str, Any]] = {
 }
 
 
-def build_estimator(
-    spec: EstimatorSpec, n_clusters: int, random_state: int
-) -> ClusterMixin:
-    """Instantiate the estimator for one scenario at one k.
+def apply_random_state(
+    estimator_cls: type[ClusterMixin], params: dict[str, Any], random_state: int
+) -> dict[str, Any]:
+    """Set random_state on params, but only when the estimator accepts it.
 
     random_state is passed only when the estimator's signature accepts it,
     probed rather than hardcoded so a swapped estimator class does not raise.
+    Mutates params in place and returns it for convenience at the call site.
     """
-    estimator_cls = ESTIMATOR_CLASSES[spec.name]
-    params: dict[str, Any] = dict(ESTIMATOR_DEFAULTS[spec.name])
-    params["n_clusters"] = int(n_clusters)
-
     signature = inspect.signature(estimator_cls.__init__)
     if "random_state" in signature.parameters:
         params["random_state"] = int(random_state)
+    return params
+
+
+def build_estimator(
+    spec: EstimatorSpec, n_clusters: int, random_state: int
+) -> ClusterMixin:
+    """Instantiate the estimator for one scenario at one k."""
+    estimator_cls = ESTIMATOR_CLASSES[spec.name]
+    params: dict[str, Any] = dict(ESTIMATOR_DEFAULTS[spec.name])
+    params["n_clusters"] = int(n_clusters)
+    apply_random_state(estimator_cls, params, random_state)
 
     return estimator_cls(**params)
 

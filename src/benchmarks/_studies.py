@@ -18,7 +18,7 @@ from sklearn.metrics import adjusted_rand_score
 from carve import CARVE
 
 from ._cvi import calculate_cvi, select_k
-from ._estimators import param_grids
+from ._estimators import apply_random_state, param_grids
 from ._types import EstimatorSpec, Study
 
 CVI_SWEEP_METRICS: tuple[str, ...] = (
@@ -58,10 +58,7 @@ def _sweep_cell(
     """Fit one estimator at one k and score every classical index."""
     params = dict(fixed_params)
     params["n_clusters"] = int(k)
-    import inspect
-
-    if "random_state" in inspect.signature(estimator_cls.__init__).parameters:
-        params["random_state"] = int(random_state)
+    apply_random_state(estimator_cls, params, random_state)
 
     labels = np.asarray(estimator_cls(**params).fit_predict(X), dtype=np.int32)
     ari = float(adjusted_rand_score(y, labels)) if y is not None else float("nan")
