@@ -35,7 +35,13 @@ class _StubCarve:
 
     get_labels is only needed by prepare_composite's tests -- the figure
     tests build CompositeInputs directly and never call it, so it stays
-    unset (None) unless a test supplies labels explicitly.
+    unset (None) unless a test supplies labels explicitly. Each call to
+    get_labels records the keyword arguments it received on
+    self.get_labels_calls, so a test can assert prepare_composite forwarded
+    measure/rule/not_two under their own names rather than, say, transposed.
+    get_k is not similarly instrumented: prepare_composite never calls it,
+    and carve_lines (which does call it) uses its own hardcoded measures and
+    rule, unrelated to what a caller passes to prepare_composite.
     """
 
     def __init__(self, ks, labels=None):
@@ -50,11 +56,15 @@ class _StubCarve:
         )
         self._ks = list(ks)
         self._labels = labels
+        self.get_labels_calls = []
 
     def get_k(self, *, measure="stability", rule="1se", not_two=False):
         return self._ks[len(self._ks) // 2]
 
     def get_labels(self, *, measure="stability", rule="1se", not_two=False):
+        self.get_labels_calls.append(
+            {"measure": measure, "rule": rule, "not_two": not_two}
+        )
         if self._labels is None:
             raise AssertionError(
                 "get_labels called on a _StubCarve built without labels"
@@ -277,3 +287,45 @@ class TestPrepareComposite:
         assert result.comparison_k == 3
         assert result.comparison_labels.shape == (n,)
         assert len(set(result.comparison_labels.tolist())) == 3
+
+    def test_forwards_measure_rule_and_not_two_to_get_labels_by_name(self):
+        rng = np.random.default_rng(3)
+        n = 20
+        X = rng.normal(size=(n, 5))
+        y = rng.choice(["a", "b"], size=n)
+        carve = _StubCarve([2, 3], labels=rng.integers(0, 2, size=n))
+        curves = pd.DataFrame(
+            {
+                "metric": ["silhouette"],
+                "model": ["KMeans"],
+                "k": [3],
+                "score": [0.5],
+                "ari": [0.5],
+            }
+        )
+        best = pd.DataFrame(
+            {
+                "metric": ["silhouette"],
+                "model": ["KMeans"],
+                "k": [3],
+                "score": [0.5],
+                "ari": [0.5],
+            }
+        )
+        # Distinguishable from each other and from the defaults ("stability",
+        # "1se", False), so a transposed or dropped forward is detectable --
+        # measure and rule cannot be confused for one another here.
+        prepare_composite(
+            X,
+            y,
+            carve,
+            curves_df=curves,
+            best_df=best,
+            measure="generalizability",
+            rule="quantile",
+            not_two=True,
+        )
+
+        assert carve.get_labels_calls == [
+            {"measure": "generalizability", "rule": "quantile", "not_two": True}
+        ]
