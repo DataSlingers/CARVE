@@ -1,8 +1,10 @@
 """Tests for manuscript table generation."""
 
 import pandas as pd
+import pytest
 
 from benchmarks._artifacts import SCHEMA
+from benchmarks.run import main
 from benchmarks.tables import (
     EXCLUDED_METRICS,
     TABLE_CAPTIONS,
@@ -28,6 +30,19 @@ def _frame(scenario):
                         "selects_true_k": k == 5, "ari_at_k": 0.9, "oracle_ari": 0.95,
                     })
     return pd.DataFrame(rows)[list(SCHEMA)]
+
+
+def _write_run_dir(root, scenario, cfg_hash, frame):
+    """Write the one artifact read_run needs: a cell__*.parquet checkpoint.
+
+    read_run globs cell__*.parquet and concatenates them -- it does not
+    require a manifest.json (only promote does) -- so this is enough to
+    drive the --tables CLI path end to end without running a real scenario.
+    """
+    rd = root / scenario / cfg_hash
+    rd.mkdir(parents=True, exist_ok=True)
+    frame.to_parquet(rd / "cell__easy__0000.parquet", index=False)
+    return rd
 
 
 class TestTableNames:
@@ -83,3 +98,40 @@ class TestExcludedMetrics:
             "consensus_pac_stability",
             "consensus_ce_stability",
         })
+
+
+class TestTablesCli:
+    """--tables is the only path a user takes to these tables, so it needs
+    its own coverage rather than relying on write_all_tables being called
+    correctly by main -- that wiring, and the run-directory discovery it
+    does via read_run, is untested by TestWriteAllTables above.
+    """
+
+    def test_writes_fragments_from_a_run_directory(self, tmp_path):
+        root = tmp_path / "runs"
+        out = tmp_path / "tables"
+        _write_run_dir(root, "gaussians", "aaaaaaaa", _frame("gaussians"))
+
+        code = main(["--tables", str(out), "--root", str(root)])
+
+        assert code == 0
+        fragment = out / f"{TABLE_NAMES['gaussians']}.tex"
+        assert fragment.exists()
+        assert "\\begin{tabular}" in fragment.read_text()
+
+    def test_warns_when_a_scenario_has_multiple_run_directories(self, tmp_path):
+        root = tmp_path / "runs"
+        _write_run_dir(root, "gaussians", "aaaaaaaa", _frame("gaussians"))
+        _write_run_dir(root, "gaussians", "bbbbbbbb", _frame("gaussians"))
+
+        with pytest.warns(UserWarning, match="gaussians.*2 run directories"):
+            main(["--tables", str(tmp_path / "tables"), "--root", str(root)])
+
+    def test_does_not_warn_with_a_single_run_directory(self, tmp_path, recwarn):
+        root = tmp_path / "runs"
+        _write_run_dir(root, "gaussians", "aaaaaaaa", _frame("gaussians"))
+
+        main(["--tables", str(tmp_path / "tables"), "--root", str(root)])
+
+        messages = [str(w.message) for w in recwarn.list]
+        assert not any("run directories found" in m for m in messages)
