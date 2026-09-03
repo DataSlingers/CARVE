@@ -7,5 +7,6 @@ preprocessing that previously appeared in two notebooks each.
 """
 
 from ._klein import DATA_ROOT, load_klein, resolve_data_dir
+from ._levine import load_levine32
 
-__all__ = ["DATA_ROOT", "load_klein", "resolve_data_dir"]
+__all__ = ["DATA_ROOT", "load_klein", "load_levine32", "resolve_data_dir"]
