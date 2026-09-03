@@ -22,19 +22,16 @@ EXPECTED = (
     "figure_carve_output_levine",
 )
 
-# Figures not yet implemented. Tasks 9 through 12 each remove their own
-# figures from this set as they land; when it is empty, the assertion in
-# test_all_eight_manuscript_figures_are_exported becomes the full eight.
-NOT_YET_IMPLEMENTED = frozenset(
-    {
-        "figure_carve_output_klein",
-        "figure_carve_output_levine",
-    }
-)
+# Figures not yet implemented. Tasks 9 through 12 each removed their own
+# figures from this set as they landed; it is now empty, since all eight
+# manuscript figures exist. It is a one-way ratchet from here: re-adding a
+# name would silence that figure's contract checks below, so doing so must
+# be a deliberate, visible act, never an incidental append to a list.
+NOT_YET_IMPLEMENTED = frozenset()
 
 
-def test_not_yet_implemented_is_a_subset_of_expected():
-    assert NOT_YET_IMPLEMENTED <= set(EXPECTED)
+def test_not_yet_implemented_is_empty():
+    assert NOT_YET_IMPLEMENTED == frozenset()
 
 
 def test_all_eight_manuscript_figures_are_exported():
