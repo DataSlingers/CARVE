@@ -12,7 +12,7 @@ from matplotlib.figure import Figure
 from sklearn.decomposition import PCA
 
 from .._panels import cluster_color_map, scatter_clusters
-from .._registry import SCENARIOS
+from .._registry import PUBLISHED_RANDOM_STATE, SCENARIOS
 from .._simulate import simulate
 from .._theme import FONT_SIZES, save_figure, theme_context
 from ._paths import BENCHMARKING_DIR, figure_path
@@ -40,6 +40,7 @@ def figure_benchmarking_examples(
     *,
     scenarios: tuple[str, ...] = DEFAULT_SCENARIOS,
     seed: int = 0,
+    random_state: int = PUBLISHED_RANDOM_STATE,
     save: bool = True,
     out_dir: Path | None = None,
 ) -> Figure:
@@ -50,8 +51,12 @@ def figure_benchmarking_examples(
     scenarios : tuple of str
         Registry keys, one row each.
     seed : int
-        Seed index passed through the standard derivation, so the panels show
-        the same data the benchmark scored.
+        Seed-loop index. Combined with axis_idx and random_state exactly as
+        _run.py's run_cell does (seed + axis_idx * 10000 + random_state), so
+        the panels show the same data the benchmark scored.
+    random_state : int
+        The run's random_state term in that derivation. Defaults to
+        PUBLISHED_RANDOM_STATE, the value the published benchmark used.
     save : bool
         Write the file. False returns the figure without touching disk.
     out_dir : Path or None
@@ -65,7 +70,7 @@ def figure_benchmarking_examples(
             scenario = SCENARIOS[scenario_name]
             for axis_idx, axis_value, axis_label in scenario.axis:
                 ax = axes[row, axis_idx]
-                benchmark_seed = seed + (axis_idx * 10000)
+                benchmark_seed = seed + (axis_idx * 10000) + random_state
                 X, y = simulate(
                     scenario,
                     axis_value=axis_value,
