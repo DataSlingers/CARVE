@@ -25,6 +25,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--all", action="store_true", help="Run every scenario.")
     parser.add_argument("--list", action="store_true", help="List scenario names.")
     parser.add_argument("--promote", help="Publish the run directory at this path.")
+    parser.add_argument(
+        "--tables",
+        help="Write manuscript .tex table fragments to this directory.",
+    )
     parser.add_argument("--root", default=str(DEFAULT_ROOT), help="Working run root.")
     parser.add_argument(
         "--published-root",
@@ -55,6 +59,19 @@ def main(argv: list[str] | None = None) -> int:
             print(str(exc), file=sys.stderr)
             return 1
         print(f"Promoted to {out}")
+        return 0
+
+    if args.tables:
+        from ._artifacts import read_run
+        from .tables import write_all_tables
+
+        frames = {}
+        for name in sorted(SCENARIOS):
+            for candidate in sorted(Path(args.root).glob(f"{name}/*/")):
+                frames[name] = read_run(candidate)
+        paths = write_all_tables(frames, Path(args.tables))
+        for path in paths:
+            print(path)
         return 0
 
     if args.scenario:
