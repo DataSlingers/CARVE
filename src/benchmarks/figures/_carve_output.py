@@ -25,6 +25,15 @@ def _config_id_at_k(carve: object, k: int) -> int:
     matrices, never a positional index. Selecting a row and using its pandas
     label to index the matrices positionally is the mistake this guards
     against.
+
+    This assumes a k-based sweep with exactly one row per n_clusters value,
+    which holds for both figures built on top of this (Klein and Levine both
+    sweep n_clusters directly). It does not hold for a resolution-based
+    sweep (Leiden/Louvain), where two different resolutions can land on the
+    same observed cluster count; that case needs the canonical, sweep_rank-
+    based selection in carve/_selection.py, not an n_clusters match, so an
+    ambiguous match raises here rather than silently returning one of the
+    tied rows.
     """
     results = carve.estimator_results_
     match = results.loc[results["n_clusters"] == k, "config_id"]
@@ -32,6 +41,13 @@ def _config_id_at_k(carve: object, k: int) -> int:
         raise ValueError(
             f"No configuration at k={k}; available: "
             f"{sorted(results['n_clusters'].unique())}."
+        )
+    if len(match) > 1:
+        raise ValueError(
+            f"{len(match)} configurations share k={k}; this figure assumes "
+            "a k-based sweep with exactly one row per n_clusters value. A "
+            "resolution-based sweep needs selection by sweep_rank (see "
+            "carve/_selection.py), not this n_clusters match."
         )
     return int(match.iloc[0])
 

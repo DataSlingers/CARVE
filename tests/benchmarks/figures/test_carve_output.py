@@ -11,6 +11,7 @@ import pytest
 from matplotlib.collections import PathCollection
 
 from benchmarks.figures import figure_carve_output_klein, figure_carve_output_levine
+from benchmarks.figures._carve_output import _config_id_at_k
 from benchmarks.figures._case_study import CompositeInputs
 
 
@@ -256,3 +257,46 @@ class TestCarveOutputFigures:
         assert marker_size(levine) < marker_size(klein)
         plt.close(klein)
         plt.close(levine)
+
+
+class _ResultsOnlyCarve:
+    """Bare enough for _config_id_at_k: it only reads estimator_results_."""
+
+    def __init__(self, estimator_results):
+        self.estimator_results_ = estimator_results
+
+
+class TestConfigIdAtK:
+    """_config_id_at_k's two failure paths: no match, and an ambiguous one.
+
+    Both raise rather than guess. The no-match path already existed but was
+    untested; the ambiguous-match path is new. Neither Klein nor Levine can
+    trigger the ambiguous path today -- both sweep n_clusters directly, so
+    n_clusters is unique per row -- but nothing enforced that assumption
+    before this guard, and a resolution-based sweep (Leiden/Louvain) can
+    observe the same empirical cluster count at two different resolutions.
+    Silently returning match.iloc[0] in that case would be exactly the
+    wrong-config-without-an-exception failure this whole module exists to
+    prevent, just one step further upstream of the config_id join-key tests
+    above.
+    """
+
+    def test_raises_when_no_row_matches_k(self):
+        results = pd.DataFrame(
+            {"config_id": [100, 101], "n_clusters": [3, 5]}
+        )
+        carve = _ResultsOnlyCarve(results)
+        with pytest.raises(ValueError, match="No configuration at k=4"):
+            _config_id_at_k(carve, 4)
+
+    def test_raises_when_more_than_one_row_matches_k(self):
+        # Two config_ids both observed k=4 -- as a resolution-based sweep
+        # could produce for two different resolutions. There is no correct
+        # single answer here without the canonical sweep_rank selection, so
+        # this must raise rather than pick match.iloc[0] arbitrarily.
+        results = pd.DataFrame(
+            {"config_id": [100, 101, 102], "n_clusters": [3, 4, 4]}
+        )
+        carve = _ResultsOnlyCarve(results)
+        with pytest.raises(ValueError, match="2 configurations share k=4"):
+            _config_id_at_k(carve, 4)
