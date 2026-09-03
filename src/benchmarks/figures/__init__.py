@@ -6,6 +6,7 @@ savefig at all and were right-click-saved out of Jupyter output.
 """
 
 from ._benchmarking_examples import figure_benchmarking_examples
+from ._benchmarking_results import figure_benchmarking_results
 from ._paths import BENCHMARKING_DIR, CASE_STUDY_DIR, VIS_ROOT, figure_path
 
 __all__ = [
@@ -13,5 +14,6 @@ __all__ = [
     "CASE_STUDY_DIR",
     "VIS_ROOT",
     "figure_benchmarking_examples",
+    "figure_benchmarking_results",
     "figure_path",
 ]
