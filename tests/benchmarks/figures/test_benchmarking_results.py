@@ -66,6 +66,13 @@ class TestFigureBenchmarkingResults:
         assert (tmp_path / "benchmarking_results.png").exists()
         plt.close(fig)
 
+    def test_save_false_writes_nothing(self, results, tmp_path):
+        fig = figure_benchmarking_results(
+            results, metrics=METRICS, save=False, out_dir=tmp_path
+        )
+        assert not (tmp_path / "benchmarking_results.png").exists()
+        plt.close(fig)
+
     def test_carries_one_deduplicated_figure_legend(self, results):
         fig = figure_benchmarking_results(results, metrics=METRICS, save=False)
         assert len(fig.legends) == 1
