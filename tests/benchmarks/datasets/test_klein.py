@@ -6,6 +6,7 @@ they are absent, so the suite still runs on a machine without the data.
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from benchmarks.datasets import load_klein, resolve_data_dir
@@ -49,8 +50,6 @@ class TestLoadKlein:
         assert X.shape[0] == 200
 
     def test_subsampling_is_deterministic(self):
-        import numpy as np
-
         first, _, _ = load_klein(subsample=200, random_state=42)
         second, _, _ = load_klein(subsample=200, random_state=42)
         np.testing.assert_array_equal(first, second)
