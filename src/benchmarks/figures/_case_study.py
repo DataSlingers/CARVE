@@ -61,7 +61,14 @@ def prepare_composite(
     not_two: bool = False,
     random_state: int = 42,
 ) -> CompositeInputs:
-    """Assemble the composite's inputs, computing a PCA embedding if needed."""
+    """Assemble the composite's inputs, computing a PCA embedding if needed.
+
+    Fits a PCA when no embedding is supplied, and always fits the comparison
+    estimator (KMeans at the best CVI's k). This is compute, not reporting --
+    call it once per study and reuse the returned CompositeInputs across both
+    of that study's figures, rather than calling it again inside a render
+    loop.
+    """
     from sklearn.decomposition import PCA
 
     from .._estimators import build_estimator

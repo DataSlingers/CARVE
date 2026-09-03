@@ -10,10 +10,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.decomposition import PCA
 
 from benchmarks.figures import (
     figure_klein_results,
     figure_levine_results,
+    prepare_composite,
 )
 from benchmarks.figures import (
     _klein_results,
@@ -30,9 +32,13 @@ class _StubCarve:
     reads exactly those names. An earlier alias ("stability" without the
     "ari_" prefix) was tried elsewhere in this plan and was a latent
     KeyError.
+
+    get_labels is only needed by prepare_composite's tests -- the figure
+    tests build CompositeInputs directly and never call it, so it stays
+    unset (None) unless a test supplies labels explicitly.
     """
 
-    def __init__(self, ks):
+    def __init__(self, ks, labels=None):
         self.estimator_results_ = pd.DataFrame(
             {
                 "n_clusters": list(ks),
@@ -43,9 +49,17 @@ class _StubCarve:
             }
         )
         self._ks = list(ks)
+        self._labels = labels
 
     def get_k(self, *, measure="stability", rule="1se", not_two=False):
         return self._ks[len(self._ks) // 2]
+
+    def get_labels(self, *, measure="stability", rule="1se", not_two=False):
+        if self._labels is None:
+            raise AssertionError(
+                "get_labels called on a _StubCarve built without labels"
+            )
+        return self._labels
 
 
 @pytest.fixture
@@ -156,3 +170,110 @@ class TestSharedComposite:
     def test_neither_module_lays_out_its_own_gridspec(self):
         for module in (_klein_results, _levine_results):
             assert "add_gridspec" not in inspect.getsource(module)
+
+
+class TestPrepareComposite:
+    def test_raises_when_best_df_has_no_row_for_the_comparison_metric(self):
+        rng = np.random.default_rng(0)
+        n = 40
+        X = rng.normal(size=(n, 5))
+        y = rng.choice(["a", "b"], size=n)
+        carve = _StubCarve([2, 3], labels=rng.integers(0, 2, size=n))
+        curves = pd.DataFrame(
+            {
+                "metric": ["gap"],
+                "model": ["KMeans"],
+                "k": [3],
+                "score": [0.5],
+                "ari": [0.5],
+            }
+        )
+        best = pd.DataFrame(
+            {
+                "metric": ["gap"],
+                "model": ["KMeans"],
+                "k": [3],
+                "score": [0.5],
+                "ari": [0.5],
+            }
+        )
+        with pytest.raises(ValueError, match="No row for 'silhouette'"):
+            prepare_composite(
+                X,
+                y,
+                carve,
+                curves_df=curves,
+                best_df=best,
+                comparison_metric="silhouette",
+            )
+
+    def test_uses_the_supplied_embedding_instead_of_fitting_pca(self):
+        rng = np.random.default_rng(1)
+        n = 30
+        X = rng.normal(size=(n, 5))
+        y = rng.choice(["a", "b"], size=n)
+        carve = _StubCarve([2, 3], labels=rng.integers(0, 2, size=n))
+        curves = pd.DataFrame(
+            {
+                "metric": ["silhouette"],
+                "model": ["KMeans"],
+                "k": [3],
+                "score": [0.5],
+                "ari": [0.5],
+            }
+        )
+        best = pd.DataFrame(
+            {
+                "metric": ["silhouette"],
+                "model": ["KMeans"],
+                "k": [3],
+                "score": [0.5],
+                "ari": [0.5],
+            }
+        )
+        # Distinctive values a PCA of X would essentially never reproduce, so
+        # equality here can only hold if the override was actually used.
+        embedding = np.arange(n * 2, dtype=float).reshape(n, 2)
+
+        result = prepare_composite(
+            X, y, carve, curves_df=curves, best_df=best, embedding=embedding
+        )
+
+        np.testing.assert_array_equal(result.Z, embedding)
+
+    def test_fits_pca_and_the_comparison_estimator_when_no_embedding_is_supplied(
+        self,
+    ):
+        rng = np.random.default_rng(2)
+        n = 50
+        X = rng.normal(size=(n, 5))
+        y = rng.choice(["a", "b", "c"], size=n)
+        carve = _StubCarve([2, 3, 4], labels=rng.integers(0, 3, size=n))
+        curves = pd.DataFrame(
+            {
+                "metric": ["silhouette"],
+                "model": ["KMeans"],
+                "k": [3],
+                "score": [0.5],
+                "ari": [0.5],
+            }
+        )
+        best = pd.DataFrame(
+            {
+                "metric": ["silhouette"],
+                "model": ["KMeans"],
+                "k": [3],
+                "score": [0.5],
+                "ari": [0.5],
+            }
+        )
+
+        result = prepare_composite(
+            X, y, carve, curves_df=curves, best_df=best, random_state=7
+        )
+
+        expected_Z = PCA(n_components=2, random_state=7).fit_transform(X)
+        np.testing.assert_allclose(result.Z, expected_Z)
+        assert result.comparison_k == 3
+        assert result.comparison_labels.shape == (n,)
+        assert len(set(result.comparison_labels.tolist())) == 3
