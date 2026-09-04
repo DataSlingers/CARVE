@@ -5,11 +5,24 @@ moved into the package is no longer duplicated in notebook cells.
 """
 
 import json
+import re
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# Modules the pre-rebuild notebooks pulled code from, either as
+# `import benchmarking_runners` or `from benchmarking_runners import ...`.
+# Checking for one fixed spelling of the import missed whichever spelling a
+# given notebook actually used, so this checks for the module name itself,
+# under either import form.
+FORBIDDEN_MODULES = (
+    "benchmarking_code",
+    "case_study_plotting",
+    "benchmarking_plotting",
+    "benchmarking_runners",
+)
 NOTEBOOKS = {
     "benchmarking": REPO_ROOT / "notebooks" / "Benchmarking.ipynb",
     "klein": REPO_ROOT / "notebooks" / "case_studies" / "Klein.ipynb",
@@ -25,6 +38,12 @@ def _code(path: Path) -> str:
     )
 
 
+def _imports_module(source: str, module: str) -> bool:
+    """True if `source` imports `module`, as `import X` or `from X import ...`."""
+    pattern = rf"(?m)^\s*(?:import\s+{module}\b|from\s+{module}\s+import\b)"
+    return re.search(pattern, source) is not None
+
+
 @pytest.mark.parametrize("name", sorted(NOTEBOOKS))
 def test_no_sys_path_manipulation(name):
     source = _code(NOTEBOOKS[name])
@@ -32,12 +51,11 @@ def test_no_sys_path_manipulation(name):
     assert "sys.path.append" not in source
 
 
+@pytest.mark.parametrize("module", FORBIDDEN_MODULES)
 @pytest.mark.parametrize("name", sorted(NOTEBOOKS))
-def test_imports_come_from_the_installed_package(name):
+def test_imports_come_from_the_installed_package(name, module):
     source = _code(NOTEBOOKS[name])
-    assert "import benchmarking_code" not in source
-    assert "import case_study_plotting" not in source
-    assert "import benchmarking_plotting" not in source
+    assert not _imports_module(source, module)
 
 
 @pytest.mark.parametrize("name", sorted(NOTEBOOKS))
