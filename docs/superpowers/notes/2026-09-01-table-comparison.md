@@ -32,6 +32,17 @@ Fragment-to-scenario-to-table mapping is `TABLE_NAMES` in
 
 All eight map one to one; there is no ambiguity in the mapping.
 
+Note on the Klein estimator fix (commits 3b5f793, 137dc8c): the eight
+fragments below come from the simulated benchmark scenarios (gaussians
+through gaussians_dimensionality, registered in `src/benchmarks/_registry.py`
+— a separate registry from `STUDIES` in `_studies.py`, which holds only the
+klein and levine case studies), so that fix does not touch them. Checked
+directly rather than assumed: neither this note nor `S2_table.tex`-
+`S9_table.tex` mentions "klein", "levine", "agglomerative", or "kmeans"
+anywhere, and neither `src/benchmarks/tables.py` nor
+`src/benchmarks/_tables.py` references Klein, Levine, or `_studies.py` at
+all. No rows in this note change.
+
 ## A structural pattern common to all eight fragments
 
 Rather than repeat this eight times below, it is stated once here and

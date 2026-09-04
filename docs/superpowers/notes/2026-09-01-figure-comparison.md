@@ -34,6 +34,16 @@ fits an oracle estimator) and the registry carries a display name and theme
 color for it (`src/benchmarks/_registry.py:63`, `_theme.py:42`). This is
 independent of run scale; it would reproduce at full scale too.
 
+The two Klein case-study figures below are a different kind of artifact from
+the rest of this comparison and are held to a different standard. They are
+not read from the reduced-scale benchmark run described above; the Klein
+CARVE cache is fit directly against the real Klein dataset through the same
+code path used for the manuscript. Where the estimator, subsample, measure,
+and rule now match the manuscript's methods, a matching number below is
+reported as genuine reproduction, not as structural agreement — unlike every
+other numeric value in this note, which is expected to differ and is not
+evaluated.
+
 ## Figures verified
 
 ### benchmarking_examples.png (S1 Fig, `fig:benchmarking_examples`)
@@ -98,51 +108,121 @@ published one starts at the data minimum. Not a structural issue.
 
 ### CARVE_output_klein.png (`fig:carve_output_klein`)
 
-Differs structurally, and not for a reduced-scale reason. Panel layout,
-letters, and per-panel content type all match the caption (A: stability ARI
-over k, B: consensus matrix, C: generalizability ARI over k, D: per-cluster
-stability violin, E: consensus-label scatter, F: diagnostic scatter). The
-finding is an estimator mismatch: the regenerated legend reads "KMeans,
-n_init=10" and "SpectralClustering, affinity=self_tuning"; the published
-legend reads "AgglomerativeClustering, linkage=ward" and
-"SpectralClusteringCARVE, affinity=self_tuning". The manuscript's methods
-text is explicit that the Klein case study ran "Ward agglomerative and
-spectral clustering with self-tuning affinity" (`CARVE_manuscript.tex:623`).
-The source of the mismatch is in code, not data volume:
-`src/benchmarks/_studies.py:206-211` registers `STUDIES["klein"]` with
-`estimator=EstimatorSpec(name="kmeans")`, and `study_model_grids()`
-(`_studies.py:221-231`) sweeps `EstimatorSpec(name="kmeans")` and
-`EstimatorSpec(name="spectral")` — KMeans stands in for Ward agglomerative
-clustering everywhere in this case study. Downstream consequences follow
-directly from that: the regenerated run selects k=2 for both stability and
-generalizability (panel A/C dashed selection lines), against k=3 (stability)
-and k=4 (generalizability) in the published figure, and panel B's consensus
-matrix shows 2 blocks instead of 4. This would not resolve by increasing
-`n_resamples`/`n_seeds`; the estimator being swept is different.
+Status update: the estimator-mismatch finding this note previously reported
+here is fixed. The finding was that the regenerated legend read "KMeans,
+n_init=10" where the manuscript specifies Ward agglomerative clustering
+(`CARVE_manuscript.tex:623`), traced to `src/benchmarks/_studies.py`
+hardcoding KMeans in `study_model_grids()` regardless of `study.estimator`.
+Commits 3b5f793 and 137dc8c fix it: `study_model_grids` now sweeps
+`study.estimator` plus spectral, `STUDIES["klein"].estimator` is
+`EstimatorSpec(name="agglomerative")`, and both the loader and the notebook's
+own `load_klein` call were corrected to the manuscript's `subsample=0.5`. The
+Klein CARVE cache was refit under this corrected configuration and the
+notebook re-executed; the loader now produces exactly 1,358 cells across
+2,000 genes, the count the manuscript reports at line 606.
+
+Panel layout, letters, and per-panel content type still match the caption
+(A: stability ARI over k, B: consensus matrix, C: generalizability ARI over
+k, D: per-cluster stability violin, E: consensus-label scatter, F:
+diagnostic scatter). Panel A and C legends now read "AgglomerativeClustering,
+linkage=ward" and "SpectralClustering, affinity=self_tuning", matching the
+published legend's estimator identities (the published legend names the
+spectral series "SpectralClusteringCARVE", a cosmetic wrapper-name
+difference that predates this fix and is not new).
+
+Panel C is a genuine reproduction of the manuscript's headline result, not a
+structural echo of it: `carve.get_k(measure="generalizability", rule="1se",
+not_two=True)` returns 4, and the top generalizability row is
+`AgglomerativeClustering` at `n_clusters=4` with `ari_generalizability =
+0.936`. This matches the manuscript's own statement at line 624 ("The
+generalizability ARI with the 1-SE rule selected Ward agglomerative
+clustering at k=4") and tracks the published panel's peak closely (~0.945 at
+k=4, same estimator, same k). Because this case study is fit directly on the
+real dataset rather than read from the reduced-scale benchmark run described
+above, this match is a real result, not a coincidence of comparable run
+scale.
+
+Two differences remain, both distinct from the fixed estimator bug (confirmed
+distinct because the estimator identities are now correct throughout both
+figures):
+
+- Panel A's own stability selection differs: the regenerated 1-SE rule picks
+  k=2 (SpectralClustering, ARI 0.98 at k=2, the single highest stability
+  score in the whole grid); the published panel picks k=3. This is
+  consistent with the manuscript's own caveat at line 624 ("While the
+  stability ARI did not indicate a clear preference...") — stability alone
+  is not expected to cleanly separate k here, in either run.
+- Panels B, D, E, and F are all keyed to the stability selection rather than
+  the generalizability one (`src/benchmarks/figures/_carve_output.py:52`,
+  `carve.get_k(measure="stability", rule="1se")`, documented in that file as
+  the manuscript's recommended default view). Because stability now picks
+  k=2, those four panels show a 2-cluster consensus matrix, violin, and
+  scatter (SpectralClustering) instead of the published figure's 4-cluster
+  Ward view. This is not the estimator bug re-appearing — the panel D/E/F
+  captions correctly name "SpectralClustering, affinity=self_tuning" — it is
+  a downstream consequence of the differing stability selection above, on a
+  panel set the code has always driven by stability rather than by the
+  manuscript's manually preferred k=4 solution.
+
+Net effect: the defect this note originally reported here — the wrong
+estimator swept entirely — is fixed, and the one panel that carries the
+manuscript's headline claim (C) now reproduces it. The stability-driven
+detail panels (B, D, E, F) still diverge from the published figure, for
+reasons unrelated to that defect.
 
 ### klein_results.png (`fig:klein_results`)
 
-Differs structurally, same root cause as the figure above. Panel lettering
-and titles match (A: Reported Labels, B: CARVE clustering, C: CVI
+Same root fix as the figure above (same corrected `study_model_grids` and
+`STUDIES["klein"].estimator`); this figure's estimator identification is
+also threaded explicitly from the notebook
+(`prepare_composite(..., measure="generalizability", rule="1se",
+not_two=True, ...)` in `notebooks/case_studies/Klein.ipynb`). Panel lettering
+and titles still match (A: Reported Labels, B: CARVE clustering, C: CVI
 (Silhouette, k=2), D: CARVE ARI over k, E: CVIs over k, F: alluvial/Sankey).
-Panel C, which uses only Silhouette-selected k=2 in both cases, matches well
-in shape. Panels D, E, and F show the same estimator-identity gap as
-`CARVE_output_klein.png`: the regenerated panel D legend has no estimator
-name attached to "CARVE Stability (1SE)" / "CARVE Generalizability (1SE)",
-where the published legend ties each rule explicitly to an estimator
-("Stability (1se) — SpectralClusteringCARVE" / "Generalizability (1se) —
-AgglomerativeClustering, linkage=ward"); the regenerated panel D shows what
-look like four overlapping curves rather than the published two, consistent
-with both KMeans and Spectral results being drawn together instead of one
-result per rule. Panel E's CVI curves are jagged/non-monotonic in the
-regenerated version and smooth in the published one, again consistent with
-interleaving two different estimators' scores per k instead of one
-(Ward agglomerative only, as the published legend states). Panel F's Sankey
-also differs in block count (3 CARVE-column blocks regenerated vs. 4
-published, tracking the k=2-vs-k=4 selection gap) and the published diagram
-carries percentage annotations on every block and day labels (d0/d2/d4/d7)
-on the "Reported Label" column that the regenerated diagram does not render
-at all.
+Re-checked panel by panel against the published figure:
+
+- Panel A and B: both now show 4 groups in the regenerated figure, matching
+  the published figure's 4 groups, with panel B tracking panel A's reported
+  time-point groups the same way in both — consistent with the manuscript's
+  claim that the k=4 solution recovers the reported differentiation stages.
+- Panel C, which uses only Silhouette-selected k=2 in both cases, is
+  unaffected by any of this and continues to match well in shape.
+- Panel D: both figures now show two dashed selection lines, one per rule.
+  The generalizability line lands at k=4 in both (regenerated ARI ≈0.936,
+  published ≈0.945 — the same headline result as `CARVE_output_klein.png`
+  panel C). The stability line lands at k=2 in the regenerated figure versus
+  k=3 in the published one — the same difference as, and for the same
+  reason as, panel A of `CARVE_output_klein.png` (the manuscript's own text
+  that stability did not give a clear preference here). The regenerated
+  legend also still does not attach an estimator name to either curve
+  ("CARVE Generalizability (1SE)" / "CARVE Stability (1SE)"), where the
+  published legend does ("Generalizability (1se) —
+  AgglomerativeClustering, linkage=ward" / "Stability (1se) —
+  SpectralClusteringCARVE, affinity=self_tuning"); a cosmetic completeness
+  gap, not an identity error — the curve colors and selected k's already
+  correctly track which estimator wins each measure.
+- Panel E's CVI curves are still jagged and non-monotonic in the regenerated
+  version, smooth in the published one. The previous version of this note
+  attributed that to "interleaving two different estimators' scores per k
+  instead of one," as a consequence of the KMeans/Ward mismatch — with the
+  estimator bug now fixed, the curves are still jagged, so that explanation
+  needs correcting rather than just retiring: `cvi_lines`
+  (`src/benchmarks/_panels.py:260`) groups `curves_df` by metric only and
+  plots every `(model, k)` row on one line, so with both
+  `AgglomerativeClustering` and `SpectralClustering` now correctly in the
+  swept grid, each metric's line still zig-zags between the two models'
+  scores at every k. The published figure's CVI lines are each labeled "—
+  Agglomerative (linkage=ward)" and show only Ward's scores. This is a real,
+  separate, still-open gap in the plotting function itself — it was never
+  restricted to a single estimator per line — and fixing the estimator
+  identity bug did not fix it.
+- Panel F's Sankey: the CARVE-column block count now matches (4 regenerated,
+  4 published), where it previously differed (3 vs 4) tracking the old
+  k=2-vs-k=4 selection gap — that specific discrepancy is resolved. The
+  published diagram still carries percentage annotations on every block and
+  day labels (d0/d2/d4/d7) on the "Reported Label" column that the
+  regenerated diagram does not render at all; that rendering-completeness
+  gap is unrelated to the estimator fix and persists.
 
 ### CARVE_output_levine.png — not verified
 
@@ -155,6 +235,7 @@ exists at `vis/case_studies/CARVE_output_levine.png` to compare.
 Not regenerated this session, for the same reason (Levine dataset absent,
 Levine notebook could not run). A file exists at
 `vis/case_studies/levine_results.png`, but it predates this session (mtime
-2026-05-09, versus the same-session 2026-09-04 07:07 timestamps on the two
-Klein outputs) and is leftover from an earlier run, not an artifact this
-comparison can vouch for. It was not opened or compared.
+2026-05-09, versus the 2026-09-04 09:35 mtimes on the two Klein outputs,
+current as of the Klein re-run under the corrected configuration) and is
+leftover from an earlier run, not an artifact this comparison can vouch for.
+It was not opened or compared.
