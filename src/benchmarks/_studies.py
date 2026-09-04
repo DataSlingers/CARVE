@@ -193,20 +193,23 @@ def fit_or_load_carve(
 def _klein_loader():
     from .datasets import load_klein
 
-    return load_klein(subsample=None, random_state=42)
+    # The manuscript's 1,358 cells is a 0.5 subsample of the 2,717-cell
+    # preprocessed set (Klein sample size, manuscript line 606).
+    return load_klein(subsample=0.5, random_state=42)
 
 
 def _levine_loader():
     from .datasets import load_levine32
 
-    return load_levine32(subsample=None, random_state=42)
+    # Manuscript line 627: a stratified subsample of 5,000 cells.
+    return load_levine32(subsample=5000, random_state=42)
 
 
 STUDIES: dict[str, Study] = {
     "klein": Study(
         name="klein",
         loader=_klein_loader,
-        estimator=EstimatorSpec(name="kmeans"),
+        estimator=EstimatorSpec(name="agglomerative"),
         candidate_k=tuple(range(2, 11)),
     ),
     "levine32": Study(
@@ -221,11 +224,14 @@ STUDIES: dict[str, Study] = {
 def study_model_grids(
     study: Study,
 ) -> list[tuple[type[ClusterMixin], dict[str, list[Any]]]]:
-    """Both estimators the case studies sweep: KMeans and spectral.
+    """The study's own estimator plus spectral clustering.
 
-    The manuscript reports running both for the case studies, unlike the
-    simulated benchmarks, which fix one estimator per scenario.
+    The manuscript reports running two estimators per case study, but the
+    pair differs by study: Klein sweeps Ward agglomerative clustering and
+    spectral clustering with self-tuning affinity; Levine sweeps KMeans and
+    spectral. This mirrors the simulated benchmarks fixing one estimator per
+    scenario, except a case study adds spectral as a second one.
     """
-    return param_grids(EstimatorSpec(name="kmeans"), study.candidate_k) + param_grids(
+    return param_grids(study.estimator, study.candidate_k) + param_grids(
         EstimatorSpec(name="spectral"), study.candidate_k
     )

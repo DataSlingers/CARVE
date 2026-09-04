@@ -3,15 +3,21 @@
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.cluster import AgglomerativeClustering, KMeans
+
+from carve.cluster import SpectralClustering
 
 from benchmarks._estimators import param_grids
 from benchmarks._studies import (
     CVI_SWEEP_METRICS,
     STUDIES,
+    _klein_loader,
+    _levine_loader,
     cvi_sweep,
     fit_or_load_carve,
+    study_model_grids,
 )
-from benchmarks._types import EstimatorSpec
+from benchmarks._types import EstimatorSpec, Study
 
 
 @pytest.fixture
@@ -132,3 +138,91 @@ class TestStudies:
 
     def test_levine_sweeps_k_seven_through_seventeen(self):
         assert STUDIES["levine32"].candidate_k == tuple(range(7, 18))
+
+
+class TestStudyModelGrids:
+    """Pins the case-study estimators to the manuscript.
+
+    Manuscript line 624/1501: Klein sweeps Ward agglomerative clustering and
+    spectral clustering with self-tuning affinity. Manuscript line 1523:
+    Levine sweeps KMeans and spectral.
+    """
+
+    def test_klein_grid_is_ward_agglomerative_and_spectral_not_kmeans(self):
+        grid = study_model_grids(STUDIES["klein"])
+        classes = {estimator_cls for estimator_cls, _ in grid}
+        assert classes == {AgglomerativeClustering, SpectralClustering}
+        assert KMeans not in classes
+
+        agglo_params = dict(
+            next(params for cls, params in grid if cls is AgglomerativeClustering)
+        )
+        assert agglo_params["linkage"] == ["ward"]
+
+    def test_levine_grid_is_kmeans_and_spectral_not_agglomerative(self):
+        grid = study_model_grids(STUDIES["levine32"])
+        classes = {estimator_cls for estimator_cls, _ in grid}
+        assert classes == {KMeans, SpectralClustering}
+        assert AgglomerativeClustering not in classes
+
+    def test_grid_varies_with_study_estimator_not_study_name(self):
+        """Two Study objects differing only in estimator must produce
+        different grids. This is stronger than checking the two live STUDIES
+        entries, which would still pass if someone re-hardcoded a branch on
+        study.name instead of reading study.estimator.
+        """
+
+        def _unused_loader():
+            raise AssertionError("the loader must not run for this test")
+
+        ward_study = Study(
+            name="probe",
+            loader=_unused_loader,
+            estimator=EstimatorSpec(name="agglomerative"),
+            candidate_k=(2, 3),
+        )
+        kmeans_study = Study(
+            name="probe",
+            loader=_unused_loader,
+            estimator=EstimatorSpec(name="kmeans"),
+            candidate_k=(2, 3),
+        )
+
+        ward_classes = {cls for cls, _ in study_model_grids(ward_study)}
+        kmeans_classes = {cls for cls, _ in study_model_grids(kmeans_study)}
+
+        assert ward_classes == {AgglomerativeClustering, SpectralClustering}
+        assert kmeans_classes == {KMeans, SpectralClustering}
+        assert ward_classes != kmeans_classes
+
+
+class TestLoaderSubsampling:
+    """Pins the loader calls to the manuscript's reported sample sizes.
+
+    Klein (manuscript line 606): 1,358 cells, a 0.5 subsample of the
+    2,717-cell preprocessed set. Levine (manuscript line 627): a stratified
+    subsample of 5,000 cells. Real data is never loaded here; the dataset
+    loader is patched out and the call arguments are inspected instead.
+    """
+
+    def test_klein_loader_requests_a_half_subsample(self, monkeypatch):
+        calls = {}
+
+        def fake_load_klein(**kwargs):
+            calls.update(kwargs)
+            return np.zeros((1, 1)), pd.Series(["a"]), {}
+
+        monkeypatch.setattr("benchmarks.datasets.load_klein", fake_load_klein)
+        _klein_loader()
+        assert calls["subsample"] == 0.5
+
+    def test_levine_loader_requests_five_thousand_cells(self, monkeypatch):
+        calls = {}
+
+        def fake_load_levine32(**kwargs):
+            calls.update(kwargs)
+            return np.zeros((1, 1)), pd.Series(["a"]), {}
+
+        monkeypatch.setattr("benchmarks.datasets.load_levine32", fake_load_levine32)
+        _levine_loader()
+        assert calls["subsample"] == 5000
