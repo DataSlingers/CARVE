@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from matplotlib.collections import PathCollection, PolyCollection
-from sklearn.cluster import KMeans
+from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
 
 from benchmarks._theme import CLUSTER_CMAP_NAME
@@ -71,7 +71,20 @@ def _line_matching(ax, y_values, x_values):
 
 @pytest.fixture(scope="module")
 def fitted_carve():
-    """A tiny, real, already-fitted CARVE (module-scoped so it fits once)."""
+    """A tiny, real, already-fitted CARVE (module-scoped so it fits once).
+
+    Sweeps two estimators (KMeans and Ward agglomerative clustering), the
+    shape a real case study uses -- Klein sweeps Ward agglomerative
+    clustering and spectral clustering. At this fixture's seed, KMeans
+    (method_id "m0") remains the winning configuration for both stability
+    and generalizability with Agglomerative added, so the k=3/k=4
+    divergence the rest of this module's tests and docstring rely on is
+    unchanged; verified against carve._select_row directly while writing
+    this fixture. estimator_results_ having two method_ids is what
+    exercises CARVE's own plot_metric_over_n_clusters grouping by
+    method_id, rather than a fixture shape where "one line" and "every
+    row" happen to be the same thing.
+    """
     rng = np.random.RandomState(2)
     n_per = 15
     X = np.vstack(
@@ -85,7 +98,10 @@ def fitted_carve():
         n_clusters=np.array([2, 3, 4]),
         n_resamples=4,
         subsample_ratio=0.8,
-        estimator_param_grids=[(KMeans, {"n_clusters": [2, 3, 4]})],
+        estimator_param_grids=[
+            (KMeans, {"n_clusters": [2, 3, 4]}),
+            (AgglomerativeClustering, {"n_clusters": [2, 3, 4], "linkage": ["ward"]}),
+        ],
         normalization_options=[],
         dim_reduction_options=[],
         n_jobs=1,
@@ -171,7 +187,14 @@ class TestCarveOutputFigures:
         """
         fig = figure_carve_output_klein(inputs, save=False)
         panels = _panel_by_letter(fig)
-        results = inputs.carve.estimator_results_.sort_values("n_clusters")
+        # The fixture now sweeps two estimators (method_id "m0"/KMeans and
+        # "m1"/Agglomerative); restrict to "m0", the one both measures
+        # select at this seed, so the expected curve is one estimator's own
+        # three-point sweep and not the two concatenated.
+        all_results = inputs.carve.estimator_results_
+        results = all_results.loc[all_results["method_id"] == "m0"].sort_values(
+            "n_clusters"
+        )
         x = results["n_clusters"].to_numpy(dtype=float)
         stability_y = results["ari_stability"].to_numpy(dtype=float)
         generalizability_y = results["ari_generalizability"].to_numpy(dtype=float)
@@ -184,6 +207,27 @@ class TestCarveOutputFigures:
         assert not _line_matching(panels["A"], generalizability_y, x)
         assert _line_matching(panels["C"], generalizability_y, x)
         assert not _line_matching(panels["C"], stability_y, x)
+        plt.close(fig)
+
+    def test_panel_a_draws_a_separate_line_per_estimator_not_one_combined_line(
+        self, inputs
+    ):
+        """The fixture sweeps two estimators (KMeans and Agglomerative
+        ward), the shape a real case study uses. CARVE's own
+        plot_metric_over_n_clusters groups by method_id already; this pins
+        that panel A shows two three-point lines, one per estimator, rather
+        than one six-point line formed by concatenating both estimators'
+        rows -- the interleaving defect fixed elsewhere in this plan for
+        the benchmarks package's own carve_lines primitive.
+        """
+        fig = figure_carve_output_klein(inputs, save=False)
+        panel_a = _panel_by_letter(fig)["A"]
+        curve_lines = [ln for ln in panel_a.get_lines() if ln.get_marker() == "o"]
+        assert len(curve_lines) == 2
+        for line in curve_lines:
+            x = np.sort(line.get_xdata())
+            assert len(x) == 3
+            assert np.all(np.diff(x) > 0)
         plt.close(fig)
 
     def test_panel_b_consensus_matrix_is_stabilitys_selected_configuration(

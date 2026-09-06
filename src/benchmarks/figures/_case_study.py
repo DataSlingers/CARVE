@@ -24,6 +24,7 @@ from .._panels import (
     scatter_clusters,
 )
 from .._theme import FONT_SIZES, save_figure, theme_context
+from .._types import EstimatorSpec
 from ._paths import CASE_STUDY_DIR, figure_path
 
 
@@ -33,6 +34,14 @@ class CompositeInputs:
 
     Assembling this is compute; drawing it is reporting. Keeping them apart is
     what lets the figure be tested without fitting anything.
+
+    measure, rule and not_two are the caller's own selection -- whatever was
+    passed to prepare_composite, defaulting to the same ("stability", "1se",
+    False) that prepare_composite itself defaults to. carve_output_figure
+    reads them to decide which measure drives its detail panels (B, D, E, F)
+    and which not_two setting its fixed-measure overview panels (A and C)
+    honor; composite_figure reads not_two to place carve_lines' selected-k
+    markers consistently with the same call.
     """
 
     X: np.ndarray
@@ -45,6 +54,31 @@ class CompositeInputs:
     comparison_k: int
     curves_df: pd.DataFrame
     best_df: pd.DataFrame
+    measure: str = "stability"
+    rule: str = "1se"
+    not_two: bool = False
+
+
+def _estimator_spec_from_model_label(model: str) -> EstimatorSpec:
+    """Map a cvi_sweep ``model`` label back to the estimator it names.
+
+    ``curves_df``/``best_df`` carry the estimator only as the human-readable
+    string ``_studies._model_label`` renders (``"KMeans"``, or
+    ``"AgglomerativeClustering (linkage=ward)"`` once a fixed parameter is
+    present) -- there is no separate machine-usable column, and the sweep
+    never varies a parameter beyond one estimator's ``ESTIMATOR_DEFAULTS``,
+    so matching the label's leading class name back to the registered
+    estimator is exact, not a guess.
+    """
+    from .._estimators import ESTIMATOR_CLASSES
+
+    for name, cls in ESTIMATOR_CLASSES.items():
+        if model == cls.__name__ or model.startswith(f"{cls.__name__} ("):
+            return EstimatorSpec(name=name)
+    raise ValueError(
+        f"Cannot map model label {model!r} to a known estimator; expected "
+        f"one of {sorted(cls.__name__ for cls in ESTIMATOR_CLASSES.values())}."
+    )
 
 
 def prepare_composite(
@@ -64,15 +98,14 @@ def prepare_composite(
     """Assemble the composite's inputs, computing a PCA embedding if needed.
 
     Fits a PCA when no embedding is supplied, and always fits the comparison
-    estimator (KMeans at the best CVI's k). This is compute, not reporting --
-    call it once per study and reuse the returned CompositeInputs across both
-    of that study's figures, rather than calling it again inside a render
-    loop.
+    estimator named by best_df's winning row for comparison_metric (not a
+    fixed choice) at that row's k. This is compute, not reporting -- call it
+    once per study and reuse the returned CompositeInputs across both of that
+    study's figures, rather than calling it again inside a render loop.
     """
     from sklearn.decomposition import PCA
 
     from .._estimators import build_estimator
-    from .._types import EstimatorSpec
 
     X = np.asarray(X)
     y = np.asarray(y)
@@ -94,8 +127,9 @@ def prepare_composite(
             f"available metrics are {sorted(best_df['metric'].unique())}."
         )
     comparison_k = int(best_row["k"].iloc[0])
+    comparison_spec = _estimator_spec_from_model_label(str(best_row["model"].iloc[0]))
     estimator = build_estimator(
-        EstimatorSpec(name="kmeans"),
+        comparison_spec,
         n_clusters=comparison_k,
         random_state=random_state,
     )
@@ -112,6 +146,9 @@ def prepare_composite(
         comparison_k=comparison_k,
         curves_df=curves_df,
         best_df=best_df,
+        measure=measure,
+        rule=rule,
+        not_two=not_two,
     )
 
 
@@ -180,7 +217,9 @@ def composite_figure(
             axis_labels=axis_labels,
         )
 
-        carve_lines(ax_d, inputs.carve, title="CARVE ARI over k")
+        carve_lines(
+            ax_d, inputs.carve, not_two=inputs.not_two, title="CARVE ARI over k"
+        )
         cvi_lines(ax_e, inputs.curves_df, inputs.best_df, title="CVIs over k")
 
         bottom_panel(ax_f, inputs)

@@ -22,13 +22,20 @@ from .._theme import CLUSTER_CMAP_NAME, save_figure, theme_context
 from ._case_study import CompositeInputs
 from ._paths import CASE_STUDY_DIR, figure_path
 
-# Stability with the 1-SE rule drives panels A, B, D, E and F -- the
-# manuscript's own recommended default (see "Visual exploration" in the
-# main text). Panel C is the one panel that deliberately looks at the other
-# axis: generalizability, with its own independent 1-SE selection.
+# Panel A is always the stability overview and panel C always the
+# generalizability overview -- their titles say so, and swapping either
+# would misname the curve it draws -- but both honor the caller's rule and
+# not_two rather than a hardcoded "1se"/False. Panels B, D, E and F show
+# whatever CompositeInputs.measure names as the caller's primary selection:
+# for Klein that is generalizability (prepare_composite is called with
+# measure="generalizability", matching the manuscript's headline k=4
+# result); for Levine it is stability, matching that study's own
+# prepare_composite call. A caller that leaves measure at its default
+# ("stability") gets the same panels A and B/D/E/F showing the same
+# selection, as the previous, unparameterized version of this figure always
+# did.
 _MEASURE_STABILITY = "stability"
 _MEASURE_GENERALIZABILITY = "generalizability"
-_RULE = "1se"
 
 
 def carve_output_figure(
@@ -49,7 +56,10 @@ def carve_output_figure(
     itself.
     """
     carve = inputs.carve
-    selected_k = int(carve.get_k(measure=_MEASURE_STABILITY, rule=_RULE))
+    measure = inputs.measure
+    rule = inputs.rule
+    not_two = inputs.not_two
+    selected_k = int(carve.get_k(measure=measure, rule=rule, not_two=not_two))
     scatter_size_range = (marker_size * 0.75, marker_size * 3.0)
 
     with theme_context():
@@ -70,15 +80,17 @@ def carve_output_figure(
 
         carve.plot_metric_over_n_clusters(
             measure=_MEASURE_STABILITY,
-            rule=_RULE,
+            rule=rule,
+            not_two=not_two,
             ax=ax_a,
             palette=CLUSTER_CMAP_NAME,
             title="Stability ARI over $k$",
             show=False,
         )
         carve.plot_consensus_matrix(
-            measure=_MEASURE_STABILITY,
-            rule=_RULE,
+            measure=measure,
+            rule=rule,
+            not_two=not_two,
             ax=ax_b,
             palette=CLUSTER_CMAP_NAME,
             title=f"Consensus matrix ($k={selected_k}$)",
@@ -86,7 +98,8 @@ def carve_output_figure(
         )
         carve.plot_metric_over_n_clusters(
             measure=_MEASURE_GENERALIZABILITY,
-            rule=_RULE,
+            rule=rule,
+            not_two=not_two,
             ax=ax_c,
             palette=CLUSTER_CMAP_NAME,
             title="Generalizability ARI over $k$",
@@ -94,8 +107,9 @@ def carve_output_figure(
         )
         carve.plot_cluster_violin(
             source="gini",
-            measure=_MEASURE_STABILITY,
-            rule=_RULE,
+            measure=measure,
+            rule=rule,
+            not_two=not_two,
             ax=ax_d,
             palette=CLUSTER_CMAP_NAME,
             title="Per-cluster stability",
@@ -103,8 +117,9 @@ def carve_output_figure(
         )
         carve.plot_cluster_scatter(
             source="gini",
-            measure=_MEASURE_STABILITY,
-            rule=_RULE,
+            measure=measure,
+            rule=rule,
+            not_two=not_two,
             X=inputs.X,
             embedding=inputs.Z,
             ax=ax_e,
@@ -117,8 +132,9 @@ def carve_output_figure(
         )
         carve.plot_diagnostic_scatter(
             source="gini",
-            measure=_MEASURE_STABILITY,
-            rule=_RULE,
+            measure=measure,
+            rule=rule,
+            not_two=not_two,
             X=inputs.X,
             embedding=inputs.Z,
             ax=ax_f,
