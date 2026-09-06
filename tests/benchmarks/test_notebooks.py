@@ -78,3 +78,34 @@ def test_loader_code_is_not_duplicated_in_case_study_notebooks(name):
 @pytest.mark.parametrize("name", sorted(NOTEBOOKS))
 def test_no_get_n_jobs_boilerplate(name):
     assert "def get_n_jobs" not in _code(NOTEBOOKS[name])
+
+
+# Rulings 41 and 53 had to fix these call-site values by hand -- and the
+# Levine/Motivation pair drifted from the manuscript again (Fix 3) after
+# that -- so they get their own pinned assertions rather than relying on a
+# human to notice a re-hardcoded default the next time a case-study
+# notebook is edited. Every value here traces to a manuscript line or a
+# sibling committed configuration (STUDIES["klein"] in _studies.py):
+#   - Klein subsample=0.5: manuscript line 606 (1,358 of 2,717 cells).
+#   - Levine/Motivation subsample=5000: manuscript line 627 (a stratified
+#     subsample of 5,000 cells).
+#   - Klein's prepare_composite selection (generalizability, 1se,
+#     not_two=True): the manuscript's headline Ward-agglomerative-at-k=4
+#     result (line 624), threaded through CompositeInputs by Fix 4.
+def test_klein_loader_uses_the_manuscript_subsample():
+    assert "subsample=0.5" in _code(NOTEBOOKS["klein"])
+
+
+def test_levine_loader_uses_the_manuscript_subsample():
+    assert "subsample=5000" in _code(NOTEBOOKS["levine"])
+
+
+def test_motivation_levine_loader_uses_the_manuscript_subsample():
+    assert "subsample=5000" in _code(NOTEBOOKS["motivation"])
+
+
+def test_klein_prepare_composite_uses_the_generalizability_selection():
+    source = _code(NOTEBOOKS["klein"])
+    assert 'measure="generalizability"' in source
+    assert 'rule="1se"' in source
+    assert "not_two=True" in source

@@ -53,15 +53,49 @@ class TestCviSweep:
         assert len(best) == len(CVI_SWEEP_METRICS)
         assert set(best["metric"]) == set(CVI_SWEEP_METRICS)
 
-    def test_gap_uses_tibshirani_not_argmax(self, blobs):
-        """The selected k must come from select_k, not from the score column."""
+    def test_gap_uses_tibshirani_not_argmax(self, blobs, monkeypatch):
+        """The selected k must come from select_k's Tibshirani rule, not a
+        plain argmax of the score column.
+
+        select_k's own unit tests (test_cvi.py::TestSelectK) already
+        fabricate a gap curve where Tibshirani and argmax disagree; this
+        test is about cvi_sweep's integration with select_k rather than the
+        rule itself, so the real gap-statistic computation is monkeypatched
+        here with exactly that same fabricated curve rather than hoping the
+        geometry of the ``blobs`` fixture happens to produce a divergence --
+        an assertion like ``selected_k <= argmax_k`` is satisfied by a
+        plain-argmax implementation too (equality is not "less than"), so it
+        can never fail even when cvi_sweep silently drops the Tibshirani
+        rule.
+        """
         X, y = blobs
-        grids = param_grids(EstimatorSpec(name="kmeans"), (2, 3, 4))
-        curves, best = cvi_sweep(X, y, model_grids=grids, candidate_k=(2, 3, 4))
+        grids = param_grids(EstimatorSpec(name="kmeans"), (3, 4, 5, 6))
+
+        # Gap rises to k=5 but k=4 is already within s_5 of Gap(5), so
+        # Tibshirani's rule stops at k=4 where a plain argmax would say 5 --
+        # the same fixture test_cvi.py::TestSelectK uses to pin select_k
+        # itself.
+        gap_by_k = {3: (0.10, 0.02), 4: (0.50, 0.02), 5: (0.55, 0.10), 6: (0.30, 0.02)}
+
+        from benchmarks import _studies
+
+        real_calculate_cvi = _studies.calculate_cvi
+
+        def fake_calculate_cvi(X, labels, metric, *, spec, random_state):
+            if metric == "gap":
+                return gap_by_k[int(np.unique(labels).size)]
+            return real_calculate_cvi(X, labels, metric, spec=spec, random_state=random_state)
+
+        monkeypatch.setattr(_studies, "calculate_cvi", fake_calculate_cvi)
+
+        curves, best = cvi_sweep(X, y, model_grids=grids, candidate_k=(3, 4, 5, 6))
         gap_curve = curves[curves["metric"] == "gap"].sort_values("k")
         argmax_k = int(gap_curve.loc[gap_curve["score"].idxmax(), "k"])
         selected_k = int(best.loc[best["metric"] == "gap", "k"].iloc[0])
-        assert selected_k <= argmax_k
+
+        assert argmax_k == 5
+        assert selected_k == 4
+        assert selected_k != argmax_k
 
     def test_ari_is_recorded_against_the_true_labels(self, blobs):
         X, y = blobs
