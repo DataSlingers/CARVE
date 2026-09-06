@@ -45,6 +45,43 @@ def _frame():
     return pd.DataFrame(rows)[list(SCHEMA)]
 
 
+def _scaling_frame():
+    """Three axis points whose labels sort differently than their values.
+
+    "end" < "middle" < "start" alphabetically, but the intended reading
+    order -- the order SCALING_AXES declares, matching increasing
+    axis_value -- is start (1000), middle (5500), end (10000). Rows are
+    built in the same order read_run would hand back from a lexically
+    sorted glob of cell__<label>__<seed>.parquet checkpoints (end, middle,
+    start), so a summarizer that orders columns by first-appearance-in-that-
+    row-order reproduces the bug: end, middle, start.
+    """
+    rows = []
+    for axis_value, axis_label in ((10000, "end"), (5500, "middle"), (1000, "start")):
+        for seed in range(2):
+            for k in (4, 5):
+                rows.append(
+                    {
+                        "run_id": "r1",
+                        "scenario": "demo",
+                        "axis_name": "n_total",
+                        "axis_value": axis_value,
+                        "axis_label": axis_label,
+                        "seed": seed,
+                        "k_star": 5,
+                        "estimator": "kmeans",
+                        "metric_name": "ari_stability_1se",
+                        "k": k,
+                        "metric_value": 0.1 * k,
+                        "is_selected": k == 5,
+                        "selects_true_k": k == 5,
+                        "ari_at_k": 0.8,
+                        "oracle_ari": 0.9,
+                    }
+                )
+    return pd.DataFrame(rows)[list(SCHEMA)]
+
+
 class TestWilsonCi:
     def test_brackets_the_point_estimate(self):
         low, high = wilson_ci(7, 10)
@@ -98,9 +135,9 @@ class TestSummarize:
 
     def test_delta_to_oracle_is_oracle_minus_selected_ari(self):
         out = summarize(_frame())
-        row = out[
-            (out["axis_label"] == "easy") & (out["metric"] == "silhouette")
-        ].iloc[0]
+        row = out[(out["axis_label"] == "easy") & (out["metric"] == "silhouette")].iloc[
+            0
+        ]
         # selected k is 4, ari_at_k 0.9, oracle 0.9
         assert row["delta_mean"] == pytest.approx(0.0)
 
@@ -112,7 +149,9 @@ class TestSummarize:
     def test_over_and_under_rates_sum_with_recovery_to_one(self):
         out = summarize(_frame())
         for _, row in out.iterrows():
-            assert row["p_under"] + row["p_over"] + row["k_recovery"] == pytest.approx(1.0)
+            assert row["p_under"] + row["p_over"] + row["k_recovery"] == pytest.approx(
+                1.0
+            )
 
     def test_restricting_metrics_filters_the_output(self):
         out = summarize(_frame(), metrics=("silhouette",))
@@ -121,6 +160,11 @@ class TestSummarize:
     def test_raises_when_no_requested_metric_is_present(self):
         with pytest.raises(ValueError, match="none of the requested metrics"):
             summarize(_frame(), metrics=("nonexistent",))
+
+    def test_axis_labels_are_ordered_by_axis_value_not_row_order(self):
+        out = summarize(_scaling_frame())
+        label_order = list(dict.fromkeys(out["axis_label"]))
+        assert label_order == ["start", "middle", "end"]
 
 
 class TestTexEscape:
@@ -131,9 +175,7 @@ class TestTexEscape:
         assert _tex_escape("\\") == r"\textbackslash{}"
 
     def test_a_backslash_adjacent_to_other_specials_is_escaped_once_each(self):
-        assert (
-            _tex_escape(r"\alpha_1 100%") == r"\textbackslash{}alpha\_1 100\%"
-        )
+        assert _tex_escape(r"\alpha_1 100%") == r"\textbackslash{}alpha\_1 100\%"
 
     def test_percent_in_a_caption_is_still_escaped(self):
         assert _tex_escape("100% of runs") == r"100\% of runs"
@@ -156,6 +198,12 @@ class TestRenderGroupedTex:
             summarize(_frame()), caption="100% of runs", label="tab:demo"
         )
         assert "100\\%" in tex
+
+    def test_axis_columns_follow_axis_value_order_not_row_order(self):
+        tex = render_grouped_tex(
+            summarize(_scaling_frame()), caption="Demo", label="tab:demo"
+        )
+        assert tex.index("start") < tex.index("middle") < tex.index("end")
 
 
 class TestWriteTables:

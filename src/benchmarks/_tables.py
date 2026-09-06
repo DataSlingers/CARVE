@@ -49,6 +49,26 @@ def summary_stats(values: pd.Series) -> dict[str, float]:
     }
 
 
+def _axis_label_order(df: pd.DataFrame) -> list[str]:
+    """Axis labels in the order their axis was declared, not lexical order.
+
+    Rows are checkpointed one file per (axis_label, seed) and read back by a
+    lexical glob (``_artifacts.read_run``), so a table built straight off
+    row order groups columns alphabetically -- "easy, hard, medium" instead
+    of "easy, medium, hard". Each row already carries the numeric
+    ``axis_value`` a Scenario's Axis assigns that label, and every Axis in
+    the registry declares its values in the intended reading order, so
+    sorting on that numeric column (never on the label string) reproduces
+    the intended column order.
+    """
+    return (
+        df[["axis_value", "axis_label"]]
+        .drop_duplicates()
+        .sort_values("axis_value")["axis_label"]
+        .tolist()
+    )
+
+
 def summarize(
     df: pd.DataFrame,
     *,
@@ -67,7 +87,8 @@ def summarize(
         )
 
     rows = []
-    for axis_label, by_label in selected.groupby("axis_label", sort=False):
+    for axis_label in _axis_label_order(selected):
+        by_label = selected.loc[selected["axis_label"] == axis_label]
         for metric in present:
             sub = by_label.loc[by_label["metric_name"] == metric]
             n = int(len(sub))
