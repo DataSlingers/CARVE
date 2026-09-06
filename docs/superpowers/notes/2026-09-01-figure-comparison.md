@@ -142,33 +142,42 @@ real dataset rather than read from the reduced-scale benchmark run described
 above, this match is a real result, not a coincidence of comparable run
 scale.
 
-Two differences remain, both distinct from the fixed estimator bug (confirmed
-distinct because the estimator identities are now correct throughout both
-figures):
+Two further differences were reported here previously; both traced to one
+cause, misdiagnosed at the time, and are now fixed:
 
-- Panel A's own stability selection differs: the regenerated 1-SE rule picks
-  k=2 (SpectralClustering, ARI 0.98 at k=2, the single highest stability
-  score in the whole grid); the published panel picks k=3. This is
-  consistent with the manuscript's own caveat at line 624 ("While the
-  stability ARI did not indicate a clear preference...") — stability alone
-  is not expected to cleanly separate k here, in either run.
-- Panels B, D, E, and F are all keyed to the stability selection rather than
-  the generalizability one (`src/benchmarks/figures/_carve_output.py:52`,
-  `carve.get_k(measure="stability", rule="1se")`, documented in that file as
-  the manuscript's recommended default view). Because stability now picks
-  k=2, those four panels show a 2-cluster consensus matrix, violin, and
-  scatter (SpectralClustering) instead of the published figure's 4-cluster
-  Ward view. This is not the estimator bug re-appearing — the panel D/E/F
-  captions correctly name "SpectralClustering, affinity=self_tuning" — it is
-  a downstream consequence of the differing stability selection above, on a
-  panel set the code has always driven by stability rather than by the
-  manuscript's manually preferred k=4 solution.
+- Panel A's own stability selection differed: the regenerated 1-SE rule
+  picked k=2 (SpectralClustering, ARI 0.98 at k=2, the single highest
+  stability score in the whole grid) where the published panel picks k=3.
+  This note previously attributed that to the manuscript's own caveat at
+  line 624 ("While the stability ARI did not indicate a clear
+  preference..."). That attribution was wrong: the real cause was
+  `carve_output_figure` (`src/benchmarks/figures/_carve_output.py`)
+  hardcoding `not_two=False` for panel A's `carve.get_k(measure=
+  "stability", rule="1se")` call, while the Klein notebook's own
+  `prepare_composite(..., not_two=True, ...)` call requests `not_two=True`.
+  At this seed, stability's 1-SE rule genuinely picks k=2 with k=2
+  eligible and k=3 with it excluded -- a dropped `not_two`, not an inherent
+  ambiguity in the stability curve. Fixed by threading `not_two` from the
+  caller through `CompositeInputs` (final fix wave, Fix 4): panel A now
+  reads `CompositeInputs.not_two` instead of a hardcoded `False` and
+  correctly lands at k=3.
+- Panels B, D, E, and F were keyed to the stability selection regardless of
+  what the caller passed to `prepare_composite` (`carve.get_k(measure=
+  "stability", rule="1se")` hardcoded in every one of those calls), rather
+  than the generalizability selection the Klein notebook actually requests
+  (`prepare_composite(..., measure="generalizability", ...)`). Fixed by the
+  same change: those four panels now read `CompositeInputs.measure` and
+  show the caller's own selection -- Ward agglomerative clustering at k=4
+  for Klein, matching the published 4-cluster view.
 
 Net effect: the defect this note originally reported here — the wrong
-estimator swept entirely — is fixed, and the one panel that carries the
-manuscript's headline claim (C) now reproduces it. The stability-driven
-detail panels (B, D, E, F) still diverge from the published figure, for
-reasons unrelated to that defect.
+estimator swept entirely — was fixed first (commits 3b5f793, 137dc8c), and
+the k=2-versus-k=3 and 2-cluster-versus-4-cluster differences reported
+above are also now fixed (final fix wave, Fix 4), by threading
+measure/rule/not_two from the caller's own `prepare_composite` call through
+`CompositeInputs` rather than each panel resolving its own hardcoded
+measure and `not_two` independently of what the notebook actually
+requests.
 
 ### klein_results.png (`fig:klein_results`)
 
