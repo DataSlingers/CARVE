@@ -9,6 +9,7 @@ from benchmarks.tables import (
     EXCLUDED_METRICS,
     TABLE_CAPTIONS,
     TABLE_NAMES,
+    table_metrics,
     write_all_tables,
 )
 
@@ -87,6 +88,20 @@ class TestWriteAllTables:
         empty = pd.DataFrame(columns=list(SCHEMA))
         paths = write_all_tables({"gaussians": empty}, tmp_path)
         assert paths == []
+
+    def test_baseline_oracle_appears_in_the_generated_fragment(self, tmp_path):
+        paths = write_all_tables({"gaussians": _frame("gaussians")}, tmp_path)
+        assert "Baseline (Oracle)" in paths[0].read_text()
+
+    def test_baseline_oracle_is_the_first_data_row(self, tmp_path):
+        paths = write_all_tables({"gaussians": _frame("gaussians")}, tmp_path)
+        text = paths[0].read_text()
+        assert text.index("Baseline (Oracle)") < text.index("CARVE Stability (1SE)")
+
+
+class TestTableMetrics:
+    def test_baseline_oracle_leads_the_tuple(self):
+        assert table_metrics()[0] == "baseline_oracle"
 
 
 class TestExcludedMetrics:

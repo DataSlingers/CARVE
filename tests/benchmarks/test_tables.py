@@ -167,6 +167,44 @@ class TestSummarize:
         assert label_order == ["start", "middle", "end"]
 
 
+class TestSummarizeBaseline:
+    """The Baseline (Oracle) row every published S2-S9 table starts with."""
+
+    def test_included_only_when_requested(self):
+        out = summarize(_frame(), metrics=("silhouette",))
+        assert "baseline_oracle" not in set(out["metric"])
+
+    def test_baseline_oracle_row_is_included_when_requested(self):
+        out = summarize(_frame(), metrics=("baseline_oracle", "silhouette"))
+        assert "baseline_oracle" in set(out["metric"])
+
+    def test_is_the_first_metric_for_every_axis_label(self):
+        out = summarize(
+            _frame(), metrics=("silhouette", "ari_stability_1se", "baseline_oracle")
+        )
+        first_per_label = out.groupby("axis_label", sort=False)["metric"].first()
+        assert (first_per_label == "baseline_oracle").all()
+
+    def test_ari_comes_from_oracle_ari_not_ari_at_k(self):
+        # _frame's oracle_ari is a constant 0.9; ari_at_k is not, so a
+        # baseline row that accidentally summarized ari_at_k would not
+        # come out at exactly 0.9.
+        out = summarize(_frame(), metrics=("baseline_oracle",))
+        assert all(v == pytest.approx(0.9) for v in out["ari_mean"])
+
+    def test_k_recovery_is_undefined_not_zero_or_one(self):
+        out = summarize(_frame(), metrics=("baseline_oracle",))
+        assert out["k_recovery"].isna().all()
+
+    def test_deduplicated_by_seed_not_counted_once_per_metric_and_k(self):
+        # _frame carries two metrics x three k's per (axis_label, seed) --
+        # six rows -- over two distinct seeds. A baseline computed without
+        # deduplicating by seed would count all six as separate datasets
+        # instead of two.
+        out = summarize(_frame(), metrics=("baseline_oracle",))
+        assert (out["n_datasets"] == 2).all()
+
+
 class TestTexEscape:
     def test_a_lone_backslash_is_escaped_without_reescaping_its_own_braces(self):
         # A sequential str.replace implementation would emit the braces in
@@ -204,6 +242,18 @@ class TestRenderGroupedTex:
             summarize(_scaling_frame()), caption="Demo", label="tab:demo"
         )
         assert tex.index("start") < tex.index("middle") < tex.index("end")
+
+    def test_baseline_row_renders_a_blank_k_recovery_cell_not_nan(self):
+        tex = render_grouped_tex(
+            summarize(_frame(), metrics=("baseline_oracle",)),
+            caption="Demo",
+            label="tab:demo",
+        )
+        assert "nan" not in tex.lower()
+        baseline_line = next(
+            line for line in tex.splitlines() if line.startswith("Baseline")
+        )
+        assert baseline_line.rstrip().endswith(r"&  \\")
 
 
 class TestWriteTables:

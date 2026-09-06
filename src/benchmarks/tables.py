@@ -56,9 +56,14 @@ TABLE_CAPTIONS: dict[str, str] = {
 
 
 def table_metrics() -> tuple[str, ...]:
-    """Metrics that appear in the manuscript tables, in a stable order."""
-    return tuple(
-        m for m in (*CARVE_METRICS_ALL, *CVI_METRICS) if m not in EXCLUDED_METRICS
+    """Metrics that appear in the manuscript tables, in a stable order.
+
+    "baseline_oracle" leads the tuple so it renders as the tables' first
+    data row, matching every published S2-S9 table.
+    """
+    return (
+        "baseline_oracle",
+        *(m for m in (*CARVE_METRICS_ALL, *CVI_METRICS) if m not in EXCLUDED_METRICS),
     )
 
 
@@ -92,7 +97,15 @@ def write_all_tables(
     for name, frame in results_by_scenario.items():
         if frame.empty:
             continue
-        present = [m for m in metrics if (frame["metric_name"] == m).any()]
+        # "baseline_oracle" names the oracle_ari schema column, not a value
+        # of metric_name, so it is always considered present rather than
+        # filtered out by the metric_name membership check every other name
+        # goes through.
+        present = [
+            m
+            for m in metrics
+            if m == "baseline_oracle" or (frame["metric_name"] == m).any()
+        ]
         if not present:
             continue
 

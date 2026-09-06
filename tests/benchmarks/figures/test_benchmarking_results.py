@@ -98,3 +98,14 @@ class TestFigureBenchmarkingResults:
     def test_raises_on_an_empty_mapping(self):
         with pytest.raises(ValueError, match="at least one scenario"):
             figure_benchmarking_results({}, save=False)
+
+    def test_default_metrics_draw_the_oracle_baseline(self, results):
+        # Fig 4's caption: "The grey line shows the oracle ARI(k*=5)". Every
+        # frame here carries oracle_ari, so the default metrics (used when
+        # no explicit metrics= is passed) must include the baseline series.
+        from benchmarks._theme import METRIC_COLORS
+
+        fig = figure_benchmarking_results(results, save=False)
+        colors = {ln.get_color() for ax in fig.get_axes() for ln in ax.lines}
+        assert METRIC_COLORS["baseline_oracle"] in colors
+        plt.close(fig)

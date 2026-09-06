@@ -26,6 +26,7 @@ SCALING_PANELS: tuple[tuple[str, str], ...] = (
 )
 
 DEFAULT_METRICS: tuple[str, ...] = (
+    "baseline_oracle",
     "ari_stability_1se",
     "ari_generalizability_1se",
 )

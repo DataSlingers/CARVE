@@ -91,10 +91,39 @@ def metric_lines(
     Consumes the unified artifact schema directly, so there is no axis-column
     sniffing. The function this replaces inferred its x column by inspecting
     which of two possible schemas it had been handed.
+
+    ``"baseline_oracle"`` is accepted in ``metrics`` alongside the ordinary
+    metric names. It is not a row in ``metric_name`` -- the oracle ARI is a
+    per-cell constant carried on every row's ``oracle_ari`` column, one value
+    per (axis point, seed) rather than one per (metric, k) -- so it is drawn
+    from the deduplicated ``oracle_ari`` column instead of the
+    ``is_selected``-filtered rows the other metrics use.
     """
     selected = df.loc[df["is_selected"]]
 
     for metric in metrics:
+        if metric == "baseline_oracle":
+            oracle = df[[x_col, "seed", "oracle_ari"]].drop_duplicates(
+                subset=[x_col, "seed"]
+            )
+            if oracle.empty:
+                continue
+            grouped = oracle.groupby(x_col)["oracle_ari"]
+            centers = grouped.mean()
+            errors = grouped.sem()
+            ax.errorbar(
+                centers.index,
+                centers.to_numpy(),
+                yerr=errors.to_numpy(),
+                marker="none",
+                linewidth=1.8 * element_scale,
+                linestyle="--",
+                capsize=2.5 * element_scale,
+                color=metric_color(metric),
+                label=_display(metric),
+            )
+            continue
+
         sub = selected.loc[selected["metric_name"] == metric]
         if sub.empty:
             continue

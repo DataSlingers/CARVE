@@ -19,6 +19,7 @@ from ._benchmarking_examples import SCENARIO_TITLES
 from ._paths import BENCHMARKING_DIR, figure_path
 
 DEFAULT_METRICS: tuple[str, ...] = (
+    "baseline_oracle",
     "ari_stability_1se",
     "ari_generalizability_1se",
     "silhouette",

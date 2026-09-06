@@ -11,6 +11,7 @@ from what the code produces.
 
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -49,6 +50,9 @@ def summary_stats(values: pd.Series) -> dict[str, float]:
     }
 
 
+BASELINE_METRIC: str = "baseline_oracle"
+
+
 def _axis_label_order(df: pd.DataFrame) -> list[str]:
     """Axis labels in the order their axis was declared, not lexical order.
 
@@ -69,19 +73,65 @@ def _axis_label_order(df: pd.DataFrame) -> list[str]:
     )
 
 
+def _baseline_row(df: pd.DataFrame, axis_label: str) -> dict[str, Any]:
+    """The Baseline (Oracle) row for one axis label.
+
+    oracle_ari is a per-(axis_label, seed) constant -- the oracle estimator
+    is fit once per cell, not once per metric -- so it is deduplicated by
+    seed here rather than read off the is_selected-filtered rows the other
+    metrics use. The oracle has no notion of a selected k, so k-recovery and
+    the k-bias columns are left NaN rather than a misleading 0 or 1.
+    """
+    oracle = df.loc[df["axis_label"] == axis_label, ["seed", "oracle_ari"]]
+    oracle = oracle.drop_duplicates(subset=["seed"])["oracle_ari"]
+    stats = summary_stats(oracle)
+    return {
+        "axis_label": axis_label,
+        "metric": BASELINE_METRIC,
+        "display_name": METRIC_DISPLAY_NAMES.get(BASELINE_METRIC, BASELINE_METRIC),
+        "n_datasets": int(oracle.shape[0]),
+        "ari_mean": stats["mean"],
+        "ari_sd": stats["sd"],
+        "ari_median": stats["median"],
+        "ari_q25": stats["q25"],
+        "ari_q75": stats["q75"],
+        "delta_mean": float("nan"),
+        "delta_median": float("nan"),
+        "k_recovery": float("nan"),
+        "k_rec_lo95": float("nan"),
+        "k_rec_hi95": float("nan"),
+        "k_bias_median": float("nan"),
+        "p_under": float("nan"),
+        "p_over": float("nan"),
+    }
+
+
 def summarize(
     df: pd.DataFrame,
     *,
     metrics: Sequence[str] | None = None,
     decimals: int = 3,
 ) -> pd.DataFrame:
-    """One row per (axis_label, metric), computed from the selected k only."""
+    """One row per (axis_label, metric), computed from the selected k only.
+
+    ``"baseline_oracle"`` in ``metrics`` is handled separately from every
+    other name: it names a schema column (``oracle_ari``), not a value of
+    ``metric_name``, so it is never a member of ``present`` and is emitted
+    first for each axis label regardless of where it sorts among the
+    others -- matching the published tables, whose first data row is always
+    Baseline (Oracle).
+    """
     selected = df.loc[df["is_selected"]].copy()
 
     if metrics is None:
         metrics = tuple(sorted(selected["metric_name"].unique()))
-    present = [m for m in metrics if (selected["metric_name"] == m).any()]
-    if not present:
+    include_baseline = BASELINE_METRIC in metrics
+    present = [
+        m
+        for m in metrics
+        if m != BASELINE_METRIC and (selected["metric_name"] == m).any()
+    ]
+    if not present and not include_baseline:
         raise ValueError(
             "none of the requested metrics were found after filtering to selected rows"
         )
@@ -89,6 +139,10 @@ def summarize(
     rows = []
     for axis_label in _axis_label_order(selected):
         by_label = selected.loc[selected["axis_label"] == axis_label]
+
+        if include_baseline:
+            rows.append(_baseline_row(df, axis_label))
+
         for metric in present:
             sub = by_label.loc[by_label["metric_name"] == metric]
             n = int(len(sub))
@@ -205,7 +259,12 @@ def render_grouped_tex(
             cells.append(
                 f"{row['ari_mean']:.{decimals}f} ({row['ari_sd']:.{decimals}f})"
             )
-            cells.append(f"{row['k_recovery']:.2f}")
+            # Baseline (Oracle) has no selected k, so k_recovery is NaN --
+            # rendered as a blank cell rather than the literal text "nan",
+            # matching the published tables' blank Baseline k-recovery cell.
+            cells.append(
+                "" if pd.isna(row["k_recovery"]) else f"{row['k_recovery']:.2f}"
+            )
         lines.append(" & ".join(cells) + r" \\")
 
     lines.extend([r"\hline", r"\end{tabular}", r"\end{table}"])

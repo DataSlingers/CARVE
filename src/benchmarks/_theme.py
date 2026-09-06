@@ -39,7 +39,10 @@ METRIC_COLORS: dict[str, str] = {
     "gap": "#0072B2",
     "davies_bouldin": "#D55E00",
     "calinski_harabasz": "#CC79A7",
-    "baseline_oracle": "#000000",
+    # Grey, not black: the published figures (Fig 4, S2 Fig) draw the oracle
+    # reference as a grey dashed line, distinct from the black axis text and
+    # spines it would otherwise be confused with.
+    "baseline_oracle": "#595959",
 }
 
 FALLBACK_COLOR = "#7F7F7F"

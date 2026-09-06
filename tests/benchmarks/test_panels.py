@@ -82,7 +82,12 @@ def _results_frame():
                             "is_selected": k == 5,
                             "selects_true_k": k == 5,
                             "ari_at_k": 0.9 - 0.1 * axis_value,
-                            "oracle_ari": 0.95,
+                            # Varies by seed (not by axis_value or metric) so
+                            # a baseline computation that fails to
+                            # deduplicate by seed before averaging can be
+                            # told apart from one that does: the mean is the
+                            # same either way, but the standard error is not.
+                            "oracle_ari": 0.95 + 0.01 * seed,
                         }
                     )
     return pd.DataFrame(rows)[list(SCHEMA)]
@@ -196,6 +201,54 @@ class TestMetricLines:
             assert actual_color == expected_color, (
                 f"Metric {expected_metric}: expected {expected_color}, got {actual_color}"
             )
+        plt.close(fig)
+
+    def test_draws_the_oracle_baseline_from_oracle_ari_not_ari_at_k(self):
+        fig, ax = plt.subplots()
+        metric_lines(
+            ax, _results_frame(), metrics=("baseline_oracle",), show_legend=False
+        )
+        baseline_lines = [ln for ln in ax.lines if ln.get_marker() == "none"]
+        assert len(baseline_lines) == 1
+        # _results_frame's oracle_ari averages to 0.96 across seeds
+        # (0.95, 0.96, 0.97) at every axis value, unlike ari_at_k (which
+        # varies with axis_value) -- if the baseline branch mistakenly read
+        # ari_at_k this would come out as [0.9, 0.8, 0.7] instead.
+        np.testing.assert_allclose(baseline_lines[0].get_ydata(), 0.96)
+        plt.close(fig)
+
+    def test_oracle_baseline_uses_the_theme_color_and_is_dashed(self):
+        fig, ax = plt.subplots()
+        metric_lines(
+            ax, _results_frame(), metrics=("baseline_oracle",), show_legend=False
+        )
+        line = ax.lines[0]
+        assert line.get_color() == metric_color("baseline_oracle")
+        assert line.get_linestyle() == "--"
+        plt.close(fig)
+
+    def test_oracle_baseline_error_bars_reflect_seed_level_spread(self):
+        # oracle_ari repeats each seed's value across every (metric, k) row
+        # within a cell (four rows per seed here). A baseline branch that
+        # grouped those raw rows instead of deduplicating by (axis_value,
+        # seed) first would compute its standard error over an artificially
+        # inflated sample -- the mean would still come out right, but the
+        # error bar would be too tight.
+        fig, ax = plt.subplots()
+        df = _results_frame()
+        metric_lines(ax, df, metrics=("baseline_oracle",), show_legend=False)
+
+        container = ax.containers[0]
+        y_error_segments = container.lines[2][0].get_segments()
+        drawn_yerr = float(y_error_segments[0][1][1] - y_error_segments[0][0][1]) / 2.0
+
+        seed_level_sem = (
+            df[["axis_value", "seed", "oracle_ari"]]
+            .drop_duplicates()
+            .groupby("axis_value")["oracle_ari"]
+            .sem()
+        )
+        assert drawn_yerr == pytest.approx(float(seed_level_sem.iloc[0]), rel=1e-6)
         plt.close(fig)
 
 

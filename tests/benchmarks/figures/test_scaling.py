@@ -111,6 +111,15 @@ class TestFigureScalingAri:
         source = inspect.getsource(_scaling)
         assert "0.47" not in source
 
+    def test_default_metrics_draw_the_oracle_baseline(self, results):
+        # S2 Fig's caption: curves are shown "against the oracle-k* baseline".
+        from benchmarks._theme import METRIC_COLORS
+
+        fig = figure_scaling_ari(results, save=False)
+        colors = {ln.get_color() for ax in fig.get_axes() for ln in ax.lines}
+        assert METRIC_COLORS["baseline_oracle"] in colors
+        plt.close(fig)
+
 
 class TestFigureScalingRuntime:
     def test_returns_a_figure_with_a_log_y_axis(self, runtimes):
