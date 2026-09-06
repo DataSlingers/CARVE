@@ -125,8 +125,9 @@ class TestScatterClusters:
             face_colors = collection.get_facecolors()
             assert len(face_colors) > 0
             actual_rgb = face_colors[0][:3]
-            assert np.allclose(actual_rgb, expected_rgb), \
+            assert np.allclose(actual_rgb, expected_rgb), (
                 f"Label {label}: expected {expected_rgb}, got {actual_rgb}"
+            )
         plt.close(fig)
 
     def test_uses_fallback_for_missing_color(self):
@@ -143,8 +144,9 @@ class TestScatterClusters:
         third_collection = ax.collections[2]
         face_colors = third_collection.get_facecolors()
         actual_rgb = face_colors[0][:3]
-        assert np.allclose(actual_rgb, expected_rgb), \
+        assert np.allclose(actual_rgb, expected_rgb), (
             f"Expected fallback {expected_rgb}, got {actual_rgb}"
+        )
         plt.close(fig)
 
 
@@ -186,13 +188,14 @@ class TestMetricLines:
         metrics = ("ari_stability_1se", "silhouette")
         metric_lines(ax, _results_frame(), metrics=metrics, show_legend=False)
         # Get data lines (those with marker 'o')
-        data_lines = [line for line in ax.lines if line.get_marker() == 'o']
+        data_lines = [line for line in ax.lines if line.get_marker() == "o"]
         assert len(data_lines) == len(metrics)
         for line, expected_metric in zip(data_lines, metrics):
             expected_color = metric_color(expected_metric)
             actual_color = line.get_color()
-            assert actual_color == expected_color, \
+            assert actual_color == expected_color, (
                 f"Metric {expected_metric}: expected {expected_color}, got {actual_color}"
+            )
         plt.close(fig)
 
 
@@ -225,7 +228,7 @@ class TestRuntimeLines:
         fig, ax = plt.subplots()
         runtime_lines(ax, _runtime_frame())
         # errorbar creates multiple lines per call; find the main data lines (with markers)
-        data_lines = [line for line in ax.lines if line.get_marker() == 'o']
+        data_lines = [line for line in ax.lines if line.get_marker() == "o"]
         assert len(data_lines) >= 2
         first, second = data_lines[0].get_xdata(), data_lines[1].get_xdata()
         assert not np.allclose(first, second)
@@ -257,29 +260,56 @@ class TestRuntimeLines:
         fig, ax = plt.subplots()
         runtime_lines(ax, _runtime_frame())
         # Get data lines (those with marker 'o')
-        data_lines = [line for line in ax.lines if line.get_marker() == 'o']
+        data_lines = [line for line in ax.lines if line.get_marker() == "o"]
         assert len(data_lines) == 2
         # The two modes should have colors from their mapped metrics
         expected_metrics = ("ari_stability_1se", "ari_generalizability_1se")
         for line, expected_metric in zip(data_lines, expected_metrics):
             expected_color = metric_color(expected_metric)
             actual_color = line.get_color()
-            assert actual_color == expected_color, \
+            assert actual_color == expected_color, (
                 f"Mode metric {expected_metric}: expected {expected_color}, got {actual_color}"
+            )
         plt.close(fig)
 
 
 def _curves_and_best():
+    # Two estimator configurations (Agglomerative and KMeans), each swept
+    # over the same three k values -- the shape a case study that sweeps
+    # more than one estimator actually produces, and the shape that exposed
+    # cvi_lines' original interleaving bug: grouping by metric alone drew
+    # both models' rows as one zig-zagging line per metric.
     curves = pd.DataFrame(
         {
-            "metric": ["silhouette"] * 3 + ["gap"] * 3,
-            "k": [3, 4, 5] * 2,
-            "score": [0.4, 0.6, 0.5, 0.2, 0.3, 0.35],
-            "model": ["KMeans"] * 6,
+            "metric": ["silhouette"] * 6 + ["gap"] * 6,
+            "model": (["Agglomerative"] * 3 + ["KMeans"] * 3) * 2,
+            "k": [3, 4, 5] * 4,
+            "score": [
+                0.55,
+                0.65,
+                0.60,  # silhouette, Agglomerative
+                0.40,
+                0.60,
+                0.50,  # silhouette, KMeans
+                0.20,
+                0.30,
+                0.25,  # gap, Agglomerative
+                0.28,
+                0.32,
+                0.35,  # gap, KMeans
+            ],
         }
     )
+    # The two metrics deliberately pick different winning models, so a line
+    # restricted to the wrong model would draw the wrong curve entirely, not
+    # just the right curve with a wrong point count.
     best = pd.DataFrame(
-        {"metric": ["silhouette", "gap"], "k": [4, 5], "model": ["KMeans", "KMeans"]}
+        {
+            "metric": ["silhouette", "gap"],
+            "model": ["Agglomerative", "KMeans"],
+            "k": [4, 5],
+            "score": [0.65, 0.35],
+        }
     )
     return curves, best
 
@@ -287,37 +317,60 @@ def _curves_and_best():
 class _StubCarve:
     """Minimal stand-in for a fitted CARVE object.
 
-    carve_lines only reads estimator_results_ and calls get_k(), so the stub
-    exposes exactly those two members rather than fitting a real model.
+    carve_lines calls _select_row() (to resolve which estimator
+    configuration a measure selects) and get_k() (to place the selected-k
+    marker), so the stub implements exactly those two members instead of
+    fitting a real model. estimator_results_ carries two method_ids, each
+    swept over the same four k values -- mirroring a real case study that
+    sweeps two estimators, the shape that exposed the original interleaving
+    bug (see _curves_and_best's docstring for the cvi_lines analogue).
+
+    Column names are the canonical estimator_results_ names a real fitted
+    CARVE object uses (see carve._selection.MEASURE_MAP and carve._output,
+    which reads record["ari_stability"] / record["ari_stability_se"]) --
+    "stability" and "generalizability" are only measure aliases, never
+    column names. A stub that named its columns after the aliases would let
+    carve_lines index the alias directly and still pass, which is exactly
+    the bug this is guarding against.
     """
 
-    def __init__(self, results: pd.DataFrame, k_by_measure: dict):
+    def __init__(self, results: pd.DataFrame, selection: dict):
         self.estimator_results_ = results
-        self._k_by_measure = k_by_measure
+        self._selection = selection  # measure -> {"method_id", "n_clusters"}
+
+    def _select_row(self, *, measure, rule="1se", not_two=False):
+        choice = self._selection[measure]
+        results = self.estimator_results_
+        row = results.loc[
+            (results["method_id"] == choice["method_id"])
+            & (results["n_clusters"] == choice["n_clusters"])
+        ].iloc[0]
+        return row, 0, choice["n_clusters"], False
 
     def get_k(self, *, measure, rule="1se", not_two=False):
-        return self._k_by_measure[measure]
+        return self._selection[measure]["n_clusters"]
 
 
 def _carve_obj():
-    # Column names are the canonical estimator_results_ names a real fitted
-    # CARVE object uses (see carve._selection.MEASURE_MAP and
-    # carve._output, which reads record["ari_stability"] /
-    # record["ari_stability_se"]) -- "stability" and "generalizability" are
-    # only measure aliases, never column names. A stub that named its
-    # columns after the aliases would let carve_lines index the alias
-    # directly and still pass, which is exactly the bug this is guarding
-    # against.
     results = pd.DataFrame(
         {
-            "n_clusters": [3, 4, 5, 6],
-            "ari_stability": [0.40, 0.70, 0.65, 0.55],
-            "ari_stability_se": [0.05, 0.04, 0.03, 0.04],
-            "ari_generalizability": [0.30, 0.45, 0.60, 0.50],
-            "ari_generalizability_se": [0.06, 0.05, 0.05, 0.04],
+            "n_clusters": [3, 4, 5, 6, 3, 4, 5, 6],
+            "method_id": ["m0"] * 4 + ["m1"] * 4,
+            "method_label": ["KMeans"] * 4
+            + ["AgglomerativeClustering, linkage=ward"] * 4,
+            "ari_stability": [0.40, 0.70, 0.65, 0.55, 0.35, 0.50, 0.80, 0.60],
+            "ari_stability_se": [0.05, 0.04, 0.03, 0.04, 0.05, 0.04, 0.03, 0.04],
+            "ari_generalizability": [0.30, 0.45, 0.60, 0.50, 0.25, 0.55, 0.62, 0.58],
+            "ari_generalizability_se": [0.06, 0.05, 0.05, 0.04, 0.06, 0.05, 0.05, 0.04],
         }
     )
-    return _StubCarve(results, {"stability": 4, "generalizability": 5})
+    return _StubCarve(
+        results,
+        {
+            "stability": {"method_id": "m0", "n_clusters": 4},
+            "generalizability": {"method_id": "m1", "n_clusters": 5},
+        },
+    )
 
 
 class TestCarveLines:
@@ -341,9 +394,7 @@ class TestCarveLines:
         # tuple. A regression that fell back to the default order rather
         # than the caller's order would draw the colors in the wrong slots.
         fig, ax = plt.subplots()
-        carve_lines(
-            ax, _carve_obj(), measures=("generalizability", "stability")
-        )
+        carve_lines(ax, _carve_obj(), measures=("generalizability", "stability"))
         data_lines = [ln for ln in ax.lines if ln.get_marker() == "o"]
         assert len(data_lines) == 2
         expected_colors = [
@@ -366,10 +417,38 @@ class TestCarveLines:
 
     def test_omits_the_selected_k_marker_when_asked(self):
         fig, ax = plt.subplots()
-        carve_lines(
-            ax, _carve_obj(), measures=("stability",), show_selected_k=False
-        )
+        carve_lines(ax, _carve_obj(), measures=("stability",), show_selected_k=False)
         assert len(ax.lines) == 1
+        plt.close(fig)
+
+    def test_line_length_matches_one_configurations_k_values_not_every_row(self):
+        # _carve_obj's estimator_results_ carries eight rows -- two method
+        # ids swept over four k values each. A line that read every row
+        # instead of filtering to the selected method_id would be eight
+        # points long, not four.
+        fig, ax = plt.subplots()
+        carve_lines(ax, _carve_obj(), measures=("stability",), show_selected_k=False)
+        line = ax.lines[0]
+        assert len(line.get_xdata()) == 4
+        plt.close(fig)
+
+    def test_line_x_values_are_monotonic(self):
+        # Concatenating both method_ids' k ranges end to end (the
+        # interleaving bug) draws k = 3, 4, 5, 6, 3, 4, 5, 6 -- a line that
+        # runs up and then jumps back down. A single configuration's own
+        # sweep is strictly increasing.
+        fig, ax = plt.subplots()
+        carve_lines(
+            ax,
+            _carve_obj(),
+            measures=("stability", "generalizability"),
+            show_selected_k=False,
+        )
+        data_lines = [ln for ln in ax.lines if ln.get_marker() == "o"]
+        assert len(data_lines) == 2
+        for line in data_lines:
+            x = line.get_xdata()
+            assert np.all(np.diff(x) > 0)
         plt.close(fig)
 
 
@@ -405,6 +484,65 @@ class TestCviLines:
         expected_colors = [metric_color("silhouette"), metric_color("gap")]
         for line, expected in zip(data_lines, expected_colors):
             assert line.get_color() == expected
+        plt.close(fig)
+
+    def test_line_names_the_winning_model_in_its_label(self):
+        # silhouette's winner is Agglomerative, gap's is KMeans (see
+        # _curves_and_best) -- the legend must say which, not just the
+        # metric name.
+        fig, ax = plt.subplots()
+        curves, best = _curves_and_best()
+        cvi_lines(ax, curves, best)
+        labels = [ln.get_label() for ln in ax.lines if ln.get_marker() == "o"]
+        assert any("Agglomerative" in label for label in labels)
+        assert any("KMeans" in label for label in labels)
+        plt.close(fig)
+
+    def test_line_length_matches_one_models_k_values_not_every_row(self):
+        # Each metric has six rows in curves_df (two models x three k's). A
+        # line drawn from every row for that metric, instead of only the
+        # winning model's three, would be six points long.
+        fig, ax = plt.subplots()
+        curves, best = _curves_and_best()
+        cvi_lines(ax, curves, best)
+        data_lines = [ln for ln in ax.lines if ln.get_marker() == "o"]
+        assert len(data_lines) == 2
+        for line in data_lines:
+            assert len(line.get_xdata()) == 3
+        plt.close(fig)
+
+    def test_line_x_values_are_monotonic(self):
+        # Grouping by metric alone and sorting by k (the interleaving bug)
+        # produces k = 3, 3, 4, 4, 5, 5 -- ties, not a strictly increasing
+        # sweep. One model's own k values are strictly increasing.
+        fig, ax = plt.subplots()
+        curves, best = _curves_and_best()
+        cvi_lines(ax, curves, best)
+        data_lines = [ln for ln in ax.lines if ln.get_marker() == "o"]
+        assert len(data_lines) == 2
+        for line in data_lines:
+            x = line.get_xdata()
+            assert np.all(np.diff(x) > 0)
+        plt.close(fig)
+
+    def test_selected_k_marker_uses_the_winning_models_own_score(self):
+        # best_df's gap winner is KMeans at k=5, the top of KMeans' own
+        # curve (normalized value 1.0). curves_df lists Agglomerative's rows
+        # before KMeans', so sorting the metric's *combined* rows by k puts
+        # Agglomerative's k=5 row ahead of KMeans': a best-k lookup that
+        # matched the first row at k=5 regardless of model -- the defect
+        # this guards against -- would mark Agglomerative's score (a
+        # combined-normalization value of about 0.33) instead of KMeans'.
+        fig, ax = plt.subplots()
+        curves, best = _curves_and_best()
+        cvi_lines(ax, curves, best)
+        gap_marker = next(
+            c
+            for c in ax.collections
+            if c.get_offsets().shape[0] == 1 and float(c.get_offsets()[0, 0]) == 5.0
+        )
+        marked_y = float(gap_marker.get_offsets()[0, 1])
+        assert marked_y == pytest.approx(1.0)
         plt.close(fig)
 
 

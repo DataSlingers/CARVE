@@ -203,13 +203,34 @@ def carve_lines(
     annotate: bool = False,
     show_selected_k: bool = True,
 ) -> Axes:
-    """Plot CARVE validation curves over k, one line per measure."""
+    """Plot CARVE validation curves over k, one line per measure.
+
+    ``estimator_results_`` has one row per (configuration, k): a case study
+    that sweeps more than one estimator (Klein sweeps Ward agglomerative
+    clustering and spectral clustering, for instance) carries every swept
+    estimator's rows in that one table. Plotting every row for a measure
+    would draw one polyline per estimator end to end, jumping back to the
+    first estimator's k range after the last -- so each line here is
+    restricted to the single configuration CARVE's own 1-SE selection
+    returns for that measure, identified by its ``method_id`` (the join key
+    ``estimator_results_`` uses for "one line" -- see
+    ``carve._sweep.MethodIds``), and the winning estimator's identity is
+    named in the legend rather than left implicit.
+    """
     results = carve_obj.estimator_results_
-    ks = results["n_clusters"].to_numpy()
 
     for measure in measures:
+        selected_row, _, _, _ = carve_obj._select_row(
+            measure=measure, rule="1se", not_two=not_two
+        )
+        method_id = selected_row["method_id"]
+        method_label = selected_row["method_label"]
+        curve = results.loc[results["method_id"] == method_id].sort_values("n_clusters")
+
         color = metric_color(f"ari_{measure}_1se")
-        values = results[f"ari_{measure}"].to_numpy()
+        ks = curve["n_clusters"].to_numpy()
+        values = curve[f"ari_{measure}"].to_numpy()
+        label = f"{_display(f'ari_{measure}_1se')} — {method_label}"
         ax.plot(
             ks,
             values,
@@ -217,10 +238,10 @@ def carve_lines(
             markersize=5.0,
             linewidth=1.8,
             color=color,
-            label=_display(f"ari_{measure}_1se"),
+            label=label,
         )
-        if f"ari_{measure}_se" in results.columns:
-            se = results[f"ari_{measure}_se"].to_numpy()
+        if f"ari_{measure}_se" in curve.columns:
+            se = curve[f"ari_{measure}_se"].to_numpy()
             ax.fill_between(ks, values - se, values + se, color=color, alpha=0.15)
 
         if show_selected_k:
@@ -254,11 +275,28 @@ def cvi_lines(
 ) -> Axes:
     """Plot classical index curves over k, marking each index's selected k.
 
+    ``curves_df`` has one row per (metric, model, k): a case study that
+    sweeps more than one estimator carries every swept model's scores for
+    every index. Grouping only by metric would draw one line per index that
+    zig-zags between models at every k, so each line here is restricted to
+    ``best_df``'s winning model for that metric, and the model is named in
+    the legend. The selected-k marker is read directly from that row's own
+    ``k`` rather than re-located by matching scores, so it always marks the
+    winning model's selection and not an arbitrary other model's row that
+    happens to share a k.
+
     Indices live on incompatible scales, so they are min-max normalized to a
     common axis by default; the selected k is unaffected by that rescaling.
     """
-    for metric, sub in curves_df.groupby("metric", sort=False):
-        sub = sub.sort_values("k")
+    for _, best in best_df.iterrows():
+        metric = best["metric"]
+        model = best["model"]
+        sub = curves_df.loc[
+            (curves_df["metric"] == metric) & (curves_df["model"] == model)
+        ].sort_values("k")
+        if sub.empty:
+            continue
+
         values = sub["score"].to_numpy(dtype=float)
         if normalize:
             span = np.nanmax(values) - np.nanmin(values)
@@ -272,23 +310,21 @@ def cvi_lines(
             markersize=4.5,
             linewidth=1.6,
             color=color,
-            label=_display(str(metric)),
+            label=f"{_display(str(metric))} — {model}",
         )
 
-        best = best_df.loc[best_df["metric"] == metric]
-        if not best.empty:
-            best_k = int(best["k"].iloc[0])
-            match = np.where(sub["k"].to_numpy() == best_k)[0]
-            if match.size:
-                ax.scatter(
-                    [best_k],
-                    [values[match[0]]],
-                    s=90,
-                    facecolor="none",
-                    edgecolor=color,
-                    linewidth=1.8,
-                    zorder=5,
-                )
+        best_k = int(best["k"])
+        match = np.where(sub["k"].to_numpy() == best_k)[0]
+        if match.size:
+            ax.scatter(
+                [best_k],
+                [values[match[0]]],
+                s=90,
+                facecolor="none",
+                edgecolor=color,
+                linewidth=1.8,
+                zorder=5,
+            )
 
     ax.set_xlabel("Number of clusters $k$", fontsize=FONT_SIZES["axis_label"])
     ax.set_ylabel(
