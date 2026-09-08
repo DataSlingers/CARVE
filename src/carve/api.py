@@ -9,9 +9,8 @@ import joblib
 import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
-from sklearn.base import BaseEstimator, ClassifierMixin, ClusterMixin, clone
+from sklearn.base import BaseEstimator, ClassifierMixin, ClusterMixin
 from sklearn.cluster import AgglomerativeClustering
-from sklearn.ensemble import RandomForestClassifier
 
 from . import _anndata
 from ._grids import (
@@ -56,6 +55,7 @@ from ._sweep import (
 from ._types import GridSpec, NoisePolicy, PreprocOption, RunMode, resolve_mode
 from ._utils import (
     align_cluster_labels,
+    default_generalizability_classifier,
     ensure_2d_array,
     resolve_anchors,
     summarize_preprocessing_records,
@@ -234,6 +234,11 @@ class CARVE(BaseEstimator):
     verbose: int = 0
 
     # --- Fitted attributes (set by fit()) ---
+    # The seed fit() actually ran with, after the per-call random_state=
+    # override and the "0 if None" fallback the runner and the anchor draw
+    # both apply. Stored so post-fit work reproduces the run's seeding instead
+    # of re-reading self.random_state, which a per-call override never writes.
+    _random_state_: int = field(init=False, default=0)
     estimator_results_: pd.DataFrame | None = field(init=False, default=None)
     estimator_param_grids_: list[GridSpec] | None = field(init=False, default=None)
     preprocessing_results_: pd.DataFrame | None = field(init=False, default=None)
@@ -354,11 +359,12 @@ class CARVE(BaseEstimator):
         self.X_ = X
 
         seed = self.random_state if random_state is None else random_state
+        self._random_state_ = 0 if seed is None else int(seed)
         self.consensus_anchors_ = resolve_anchors(
             X.shape[0],
             consensus_anchors=self.consensus_anchors,
             anchor_threshold=self.anchor_threshold,
-            random_state=seed,
+            random_state=self._random_state_,
         )
         if self.consensus_anchors_ is not None:
             warnings.warn(
@@ -447,7 +453,7 @@ class CARVE(BaseEstimator):
             estimator_grids=self.estimator_param_grids_,
             n_jobs=self.n_jobs,
             randomize_preprocessing=randomize_preprocessing,
-            random_state=self.random_state if random_state is None else random_state,
+            random_state=self._random_state_,
             verbose=self.verbose,
         )
 
@@ -470,7 +476,7 @@ class CARVE(BaseEstimator):
             n_trees=self.n_trees,
             randomize_preprocessing=randomize_preprocessing,
             n_jobs=self.n_jobs,
-            random_state=self.random_state if random_state is None else random_state,
+            random_state=self._random_state_,
             sweep=sweep_spec,
             noise_policy=self.noise_policy,
             show_progress=show_progress,
@@ -807,22 +813,14 @@ class CARVE(BaseEstimator):
             labels[rest] = anchor_labels[0]
             return labels
 
-        # Mirrors the default/clone construction in _runner.py's
-        # _compute_generalizability_ari (the generalizability path run on
-        # every resample); the two must stay in step.
-        if self.classifier is None:
-            n_features = self.X_.shape[1]
-            classifier = RandomForestClassifier(
-                n_estimators=self.n_trees,
-                max_depth=n_features,
-                max_features=int(np.sqrt(n_features)),
-                random_state=self.random_state,
-                n_jobs=-1,
-            )
-        else:
-            classifier = clone(self.classifier)
-            if "random_state" in classifier.get_params():
-                classifier.set_params(random_state=self.random_state)
+        # Same factory _runner.py's generalizability path calls, so the
+        # extension and the per-resample prediction cannot drift apart.
+        classifier = default_generalizability_classifier(
+            classifier=self.classifier,
+            n_features=self.X_.shape[1],
+            n_trees=self.n_trees,
+            random_state=self._random_state_,
+        )
 
         classifier.fit(self.X_[anchors], anchor_labels)
         labels[rest] = classifier.predict(self.X_[rest])

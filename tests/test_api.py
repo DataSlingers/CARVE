@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.dummy import DummyClassifier
 from sklearn.metrics import adjusted_rand_score
@@ -1137,6 +1138,34 @@ def _grids():
     return [(KMeans, {"n_clusters": [2, 3], "n_init": [10]})]
 
 
+def _overlapping_blobs(n, seed=0, p=4, sep=1.2):
+    """Two Gaussians close enough that borderline points are genuinely ambiguous.
+
+    The well separated ``_blobs`` fixture is classified identically by any
+    random forest, seeded or not, so it cannot detect an unseeded extension.
+    """
+    rng = np.random.default_rng(seed)
+    half = n // 2
+    return np.vstack([rng.normal(0, 1, (half, p)), rng.normal(sep, 1, (n - half, p))])
+
+
+class _SeedSpy(BaseEstimator, ClassifierMixin):
+    """Records the ``random_state`` CARVE injects, then predicts a constant."""
+
+    seen: list = []
+
+    def __init__(self, random_state=None):
+        self.random_state = random_state
+
+    def fit(self, X, y):
+        type(self).seen.append(self.random_state)
+        self.classes_ = np.unique(y)
+        return self
+
+    def predict(self, X):
+        return np.full(X.shape[0], self.classes_[0])
+
+
 class TestAnchoredConsensus:
     def test_below_threshold_stores_no_anchors_and_full_matrices(self):
         X = _blobs(60)
@@ -1284,6 +1313,48 @@ class TestAnchoredLabels:
         X, c = self._fitted()
         labels = c.get_labels(k=2, mode="generalizability")
         assert labels.shape == (X.shape[0],)
+
+    def test_default_random_state_still_gives_deterministic_labels(self):
+        # Below the threshold get_labels is an agglomerative cut on a fixed
+        # matrix, so it is exactly deterministic. Anchoring must not weaken
+        # that: with random_state left at its default of None the extension
+        # classifier still has to be seeded.
+        X = _overlapping_blobs(120)
+        c = CARVE(
+            estimator_param_grids=_grids(),
+            n_resamples=6,
+            anchor_threshold=40,
+        )
+        with pytest.warns(RuntimeWarning):
+            c.fit(X)
+        assert c.consensus_anchors_ is not None
+
+        first = c.get_labels(k=2)
+        second = c.get_labels(k=2)
+        assert np.array_equal(first, second)
+
+    def test_fit_time_random_state_is_honored_by_the_extension(self):
+        # fit(X, random_state=7) is honored by the anchor draw and by
+        # run_validation; the extension must read the same resolved seed
+        # rather than self.random_state, which fit() never writes.
+        X = _blobs(60)
+        c = CARVE(
+            estimator_param_grids=_grids(),
+            n_resamples=6,
+            anchor_threshold=30,
+        )
+        with pytest.warns(RuntimeWarning):
+            c.fit(X, random_state=7)
+
+        c.classifier = _SeedSpy()
+        _SeedSpy.seen.clear()
+        try:
+            c._extend_anchor_labels(np.arange(c.consensus_anchors_.size) % 2)
+        finally:
+            recorded = list(_SeedSpy.seen)
+            _SeedSpy.seen.clear()
+
+        assert recorded == [7]
 
     def test_exact_path_labels_are_unaffected(self):
         X = _blobs(60)
