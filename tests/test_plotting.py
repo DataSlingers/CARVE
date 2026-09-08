@@ -9,7 +9,9 @@ import matplotlib
 matplotlib.use("Agg")  # non-interactive backend for tests
 import matplotlib.pyplot as plt
 from matplotlib.legend import Legend
+from sklearn.cluster import KMeans
 
+from carve import CARVE
 from carve._plotting import (
     _build_estimator_label,
     _prepare_cluster_score_groups,
@@ -577,3 +579,21 @@ class TestPlotClusterScatter:
         scores = np.full(5, np.nan)
         with pytest.raises(ValueError, match="No finite scores"):
             plot_cluster_scatter(X, labels, scores)
+
+
+def test_plot_consensus_matrix_under_anchoring():
+    rng = np.random.default_rng(0)
+    X = np.vstack([rng.normal(0, 1, (30, 4)), rng.normal(6, 1, (30, 4))])
+    c = CARVE(
+        estimator_param_grids=[(KMeans, {"n_clusters": [2, 3], "n_init": [10]})],
+        n_resamples=6,
+        random_state=0,
+        anchor_threshold=30,
+    )
+    with pytest.warns(RuntimeWarning):
+        c.fit(X)
+
+    ax = c.plot_consensus_matrix(k=2)
+    assert ax is not None
+    # The rendered image is the anchor block, not the full matrix.
+    assert c.consensus_matrices_[0].shape == (30, 30)

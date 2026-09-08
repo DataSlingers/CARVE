@@ -1125,6 +1125,13 @@ class CARVE(BaseEstimator):
         -------
         ax : matplotlib.axes.Axes or None
             Heatmap axis, or None if ``save`` is provided.
+
+        Notes
+        -----
+        When anchored consensus is active the rendered matrix is the anchor
+        block rather than the full sample-by-sample matrix, and the axis
+        therefore shows ``consensus_anchors_.size`` rows. A full matrix is not
+        renderable at the sample counts anchoring exists to support.
         """
         if self.estimator_results_ is None:
             raise RuntimeError("Call fit() first.")
@@ -1168,6 +1175,11 @@ class CARVE(BaseEstimator):
             consensus_k=selected_k,
             mode=labels_mode,
         )
+
+        if self.consensus_anchors_ is not None:
+            # The stored matrix is the anchor block, so the labels drawn
+            # alongside it must be the anchors' labels.
+            labels = labels[self.consensus_anchors_]
 
         return _plot_consensus_matrix(
             matrix,
