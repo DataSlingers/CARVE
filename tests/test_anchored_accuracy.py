@@ -31,9 +31,17 @@ def _data(seed=0):
 
 
 def _fit(X, *, anchors):
-    kwargs = {"anchor_threshold": 10_000}
-    if anchors is not None:
-        kwargs["consensus_anchors"] = anchors
+    # The anchored fits raise anchor_threshold above N so the anchored path
+    # runs at all at this n. The exact fit does not need that and does not
+    # get it: it runs under the default threshold, which is exactly N, so it
+    # is a genuine boundary fit and covers the configuration the published
+    # Levine case study sits on. resolve_anchors returns None for either
+    # threshold at this n, so the numbers below are unaffected.
+    kwargs = (
+        {}
+        if anchors is None
+        else {"anchor_threshold": 10_000, "consensus_anchors": anchors}
+    )
     carve = CARVE(
         estimator_param_grids=GRIDS, n_resamples=25, random_state=0, **kwargs
     )
@@ -49,6 +57,17 @@ def _fit(X, *, anchors):
 def exact():
     X, y = _data()
     return X, y, _fit(X, anchors=None)
+
+
+@pytest.mark.slow
+def test_exact_fixture_sits_on_the_default_threshold_boundary(exact):
+    # N is exactly the default anchor_threshold, so the exact fixture is a
+    # real fit at the boundary rather than one held open by a raised
+    # threshold. Everything the table below reports is measured against it.
+    _, _, exact_carve = exact
+    assert exact_carve.anchor_threshold == N
+    assert exact_carve.consensus_anchors_ is None
+    assert exact_carve.consensus_matrices_[0].shape == (N, N)
 
 
 @pytest.mark.slow

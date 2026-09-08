@@ -1392,7 +1392,11 @@ class TestExactPathUnchanged:
 
     def test_results_are_identical_with_and_without_the_feature_present(self):
         # Two fits differing only in an anchor_threshold that cannot bind.
-        X, a = self._fit(80)
+        # The first sits exactly on the inclusive boundary (n == threshold),
+        # so a mutation making the comparison exclusive anchors that fit and
+        # every assertion below fires. A threshold that is merely far away
+        # would leave this comparing two identical exact-path fits.
+        X, a = self._fit(80, anchor_threshold=80)
         _, b = self._fit(80, anchor_threshold=10_000)
 
         assert a.consensus_anchors_ is None and b.consensus_anchors_ is None
