@@ -430,3 +430,67 @@ def ensure_2d_array(
             "Input must be a NumPy array, SciPy sparse matrix, Pandas "
             "DataFrame, or a list."
         )
+
+
+def resolve_anchors(
+    n_samples: int,
+    *,
+    consensus_anchors: int | float | None,
+    anchor_threshold: int,
+    random_state: int | None,
+) -> np.ndarray | None:
+    """Resolve the consensus anchor index for a run.
+
+    Returns None when the exact path applies, meaning the consensus matrix is
+    built over every sample as it always has been. Otherwise returns a sorted
+    array of anchor indices.
+
+    The default resolves to ``min(n_samples, anchor_threshold)``. A flat
+    default would make the effective anchor count fall discontinuously as
+    n crosses the threshold -- 5,000 anchors at n=5,000 and 2,000 at
+    n=5,001 -- which is an artificial jump in estimator variance at exactly
+    the boundary users cross.
+
+    Parameters
+    ----------
+    n_samples : int
+        Number of samples in the run.
+    consensus_anchors : int, float, or None
+        Anchor count as an integer, a fraction of ``n_samples`` as a float in
+        (0, 1], or None for the default.
+    anchor_threshold : int
+        Runs with ``n_samples <= anchor_threshold`` take the exact path. The
+        comparison is inclusive so a dataset sized exactly at the threshold
+        keeps the exact path.
+    random_state : int or None
+        Seed for the anchor draw. Drawn from a local Generator, so no global
+        RNG state is touched and joblib workers stay reproducible.
+
+    Returns
+    -------
+    anchors : ndarray of shape (m,) or None
+    """
+    n_samples = int(n_samples)
+
+    if consensus_anchors is None:
+        m = min(n_samples, int(anchor_threshold))
+    elif isinstance(consensus_anchors, float):
+        if not 0.0 < consensus_anchors <= 1.0:
+            raise ValueError(
+                "consensus_anchors given as a fraction must be in (0, 1], got "
+                f"{consensus_anchors}."
+            )
+        m = int(round(consensus_anchors * n_samples))
+    else:
+        m = int(consensus_anchors)
+
+    if m < 2:
+        raise ValueError(
+            f"consensus_anchors must resolve to at least 2 anchors, got {m}."
+        )
+
+    if m >= n_samples:
+        return None
+
+    rng = np.random.default_rng(0 if random_state is None else int(random_state))
+    return np.sort(rng.choice(n_samples, size=m, replace=False)).astype(np.int64)

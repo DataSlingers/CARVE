@@ -15,6 +15,7 @@ from carve._utils import (
     cluster_labels,
     count_clusters,
     ensure_2d_array,
+    resolve_anchors,
     summarize_preprocessing_records,
 )
 
@@ -416,3 +417,80 @@ class TestSummarizePreprocessingRecords:
         assert "resolution" in out.columns
         assert "n_clusters" not in out.columns
         assert set(out["resolution"]) == {0.5, 1.0}
+
+
+# -----------------------------------------------------------------------
+# resolve_anchors
+# -----------------------------------------------------------------------
+
+
+class TestResolveAnchors:
+    def test_below_threshold_is_exact(self):
+        assert resolve_anchors(
+            4000, consensus_anchors=None, anchor_threshold=5000, random_state=0
+        ) is None
+
+    def test_threshold_is_inclusive(self):
+        # Levine is exactly 5000 cells; its published numbers must not move.
+        assert resolve_anchors(
+            5000, consensus_anchors=None, anchor_threshold=5000, random_state=0
+        ) is None
+
+    def test_above_threshold_uses_threshold_many_anchors(self):
+        idx = resolve_anchors(
+            6000, consensus_anchors=None, anchor_threshold=5000, random_state=0
+        )
+        assert idx is not None
+        assert idx.shape == (5000,)
+        assert idx.dtype == np.int64
+        assert np.all(np.diff(idx) > 0)
+        assert idx.min() >= 0 and idx.max() < 6000
+
+    def test_no_discontinuity_across_the_threshold(self):
+        # 4000 -> 4000 effective anchors (exact); 6000 -> 5000. The count must
+        # not fall as n grows, which a flat default would cause.
+        below = resolve_anchors(
+            4000, consensus_anchors=None, anchor_threshold=5000, random_state=0
+        )
+        above = resolve_anchors(
+            6000, consensus_anchors=None, anchor_threshold=5000, random_state=0
+        )
+        below_count = 4000 if below is None else below.size
+        assert above.size >= below_count
+
+    def test_explicit_int_opts_in_below_threshold(self):
+        idx = resolve_anchors(
+            5000, consensus_anchors=2000, anchor_threshold=5000, random_state=0
+        )
+        assert idx is not None and idx.size == 2000
+
+    def test_float_is_a_fraction(self):
+        idx = resolve_anchors(
+            10_000, consensus_anchors=0.1, anchor_threshold=5000, random_state=0
+        )
+        assert idx.size == 1000
+
+    def test_fraction_of_one_is_exact(self):
+        assert resolve_anchors(
+            10_000, consensus_anchors=1.0, anchor_threshold=5000, random_state=0
+        ) is None
+
+    def test_deterministic_in_random_state(self):
+        a = resolve_anchors(
+            9000, consensus_anchors=100, anchor_threshold=5000, random_state=7
+        )
+        b = resolve_anchors(
+            9000, consensus_anchors=100, anchor_threshold=5000, random_state=7
+        )
+        c = resolve_anchors(
+            9000, consensus_anchors=100, anchor_threshold=5000, random_state=8
+        )
+        assert np.array_equal(a, b)
+        assert not np.array_equal(a, c)
+
+    @pytest.mark.parametrize("bad", [0, 1, -5, 0.0, -0.2, 1.5])
+    def test_rejects_degenerate_counts(self, bad):
+        with pytest.raises(ValueError):
+            resolve_anchors(
+                9000, consensus_anchors=bad, anchor_threshold=5000, random_state=0
+            )
