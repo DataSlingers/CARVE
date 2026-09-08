@@ -36,6 +36,8 @@ def carve(
     # --- resampling ---
     n_resamples: int = 100,
     subsample_ratio: float = 0.618,
+    anchor_threshold: int = 5000,
+    consensus_anchors: int | float | None = None,
     noise_policy: NoisePolicy = "drop",
     # --- estimators and preprocessing ---
     estimator_param_grids: list[GridSpec] | Literal["light", "full"] = "light",
@@ -107,6 +109,18 @@ def carve(
         Number of resampling iterations per configuration.
     subsample_ratio : float, default=0.618
         Fraction of cells drawn without replacement per resample.
+    anchor_threshold : int, default=5000
+        Runs with ``n_samples <= anchor_threshold`` build full consensus
+        matrices exactly as before. Above it, consensus quantities are
+        computed over a fixed anchor subset, because a dense n-by-n matrix
+        per configuration is not feasible at large n. The comparison is
+        inclusive.
+    consensus_anchors : int, float, or None, default=None
+        Number of anchors, or a fraction of ``n_samples`` as a float in
+        (0, 1]. None resolves to ``min(n_samples, anchor_threshold)``, which
+        keeps the effective anchor count continuous across the threshold.
+        Lower it to reduce the memory the retained blocks occupy: each block
+        is 4 * m**2 bytes and there are two per configuration.
     noise_policy : {"drop", "as_cluster", "singleton"}, default="drop"
         How to treat the ``-1`` labels emitted by density-based methods.
     estimator_param_grids : list of tuple or {"light", "full"}, default="light"
@@ -224,6 +238,8 @@ def carve(
         "noise_policy": noise_policy,
         "n_resamples": n_resamples,
         "subsample_ratio": subsample_ratio,
+        "anchor_threshold": anchor_threshold,
+        "consensus_anchors": consensus_anchors,
         "estimator_param_grids": estimator_param_grids,
         "normalization_options": normalization_options,
         "dim_reduction_options": dim_reduction_options,
@@ -496,6 +512,11 @@ def _build_params(
         "sweep_param": sweep_param,
         "n_resamples": int(model.n_resamples),
         "subsample_ratio": float(model.subsample_ratio),
+        "n_consensus_anchors": (
+            int(model.consensus_anchors_.size)
+            if model.consensus_anchors_ is not None
+            else None
+        ),
         "noise_policy": str(model.noise_policy),
         "mode": str(mode),
         "random_state": model.random_state,
