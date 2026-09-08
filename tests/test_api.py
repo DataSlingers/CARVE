@@ -13,10 +13,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 import warnings
+import warnings as _w
 
 import carve._runner as carve_runner
 import carve.api as carve_api
 from carve import CARVE, LeidenClustering, LouvainClustering
+from carve._utils import resolve_anchors
 
 from conftest import requires_graph
 
@@ -1293,3 +1295,51 @@ class TestAnchoredLabels:
         ).fit(X)
         assert c.consensus_anchors_ is None
         assert c.get_labels(k=2).shape == (60,)
+
+
+class TestExactPathUnchanged:
+    def _fit(self, n, **kwargs):
+        X = _blobs(n, seed=3)
+        return X, CARVE(
+            estimator_param_grids=_grids(),
+            n_resamples=8,
+            random_state=11,
+            **kwargs,
+        ).fit(X)
+
+    def test_default_threshold_keeps_five_thousand_exact(self):
+        # Not a fit at n=5000, which is slow; assert the resolution rule that
+        # governs it, which is what the promise actually rests on.
+        assert resolve_anchors(
+            5000, consensus_anchors=None, anchor_threshold=5000, random_state=42
+        ) is None
+
+    def test_defaults_do_not_engage_anchoring_at_small_n(self):
+        _, c = self._fit(80)
+        assert c.consensus_anchors_ is None
+        assert c.consensus_matrices_[0].shape == (80, 80)
+
+    def test_results_are_identical_with_and_without_the_feature_present(self):
+        # Two fits differing only in an anchor_threshold that cannot bind.
+        X, a = self._fit(80)
+        _, b = self._fit(80, anchor_threshold=10_000)
+
+        assert a.consensus_anchors_ is None and b.consensus_anchors_ is None
+        assert np.array_equal(a.get_labels(k=2), b.get_labels(k=2))
+        assert np.allclose(a.consensus_matrices_[0], b.consensus_matrices_[0],
+                           equal_nan=True)
+        assert np.allclose(a.stability_gini_scores_, b.stability_gini_scores_)
+        assert np.allclose(
+            a.estimator_results_["ari_stability"].to_numpy(),
+            b.estimator_results_["ari_stability"].to_numpy(),
+        )
+
+    def test_no_warning_on_the_exact_path(self):
+        X = _blobs(80, seed=3)
+        with _w.catch_warnings():
+            _w.simplefilter("error", RuntimeWarning)
+            CARVE(
+                estimator_param_grids=_grids(),
+                n_resamples=8,
+                random_state=11,
+            ).fit(X)
