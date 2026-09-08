@@ -7,6 +7,7 @@ from carve._consensus import (
     compute_consensus_matrix,
     compute_consensus_metrics,
     compute_consensus_pac,
+    consensus_anchor_block,
     reorder_consensus_matrix,
     stability_from_consensus,
 )
@@ -258,3 +259,72 @@ class TestComputeConsensusMetrics:
         for c in ce_list:
             assert c.shape == (8,)
         assert len(pac_list) == 3
+
+
+# -----------------------------------------------------------------------
+# consensus_anchor_block
+# -----------------------------------------------------------------------
+
+
+def _make_runs(n=200, n_runs=12, k=4, seed=0):
+    rng = np.random.default_rng(seed)
+    runs = []
+    for _ in range(n_runs):
+        idx = np.sort(rng.choice(n, size=int(0.618 * n), replace=False))
+        runs.append((idx, rng.integers(0, k, idx.size)))
+    return runs
+
+
+class TestConsensusAnchorBlock:
+    def test_block_equals_the_exact_submatrix(self):
+        n = 200
+        runs = _make_runs(n)
+        anchors = np.sort(np.random.default_rng(1).choice(n, 40, replace=False))
+
+        exact = compute_consensus_matrix(n, runs)[np.ix_(anchors, anchors)]
+        block = consensus_anchor_block(n, runs, anchors)
+
+        # Both carry NaN for never-co-sampled pairs, so compare with equal_nan.
+        assert np.allclose(block, exact, equal_nan=True)
+
+    def test_shape_and_dtype(self):
+        n = 200
+        runs = _make_runs(n)
+        anchors = np.arange(0, n, 5)
+        block = consensus_anchor_block(n, runs, anchors)
+        assert block.shape == (anchors.size, anchors.size)
+        assert block.dtype == np.float32
+
+    def test_all_anchors_reproduces_the_full_matrix(self):
+        n = 120
+        runs = _make_runs(n, n_runs=8, k=3, seed=2)
+        anchors = np.arange(n)
+        assert np.allclose(
+            consensus_anchor_block(n, runs, anchors),
+            compute_consensus_matrix(n, runs),
+            equal_nan=True,
+        )
+
+    def test_values_are_not_all_identical(self):
+        # A block of constant values would satisfy a shape-only assertion,
+        # so pin that the fixture actually varies.
+        n = 200
+        runs = _make_runs(n)
+        anchors = np.arange(0, n, 5)
+        block = consensus_anchor_block(n, runs, anchors)
+        off = block[~np.eye(anchors.size, dtype=bool)]
+        assert np.nanstd(off) > 0.01
+
+    def test_never_cosampled_pairs_are_nan(self):
+        n = 50
+        # Two disjoint halves are never co-sampled, so every cross pair is NaN.
+        left = np.arange(0, 25)
+        right = np.arange(25, 50)
+        runs = [
+            (left, np.zeros(left.size, dtype=int)),
+            (right, np.zeros(right.size, dtype=int)),
+        ]
+        anchors = np.array([0, 1, 30, 31])
+        block = consensus_anchor_block(n, runs, anchors)
+        assert np.isnan(block[0, 2])
+        assert not np.isnan(block[0, 1])

@@ -211,3 +211,77 @@ def compute_consensus_pac(
     ambiguous = ((values > tau) & (values < (1 - tau))).sum()
     pac = ambiguous / values.size
     return 1.0 - pac
+
+
+def _anchor_factors(
+    n_samples: int,
+    runs: list[SampledLabels],
+    anchors: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, list[tuple[int, np.ndarray]], np.ndarray]:
+    """Build the anchor-side factors of the consensus decomposition.
+
+    compute_consensus_matrix forms S of shape (n, n_runs) and B of shape
+    (n, n_clusters_total), then takes S @ S.T and B @ B.T. Only the anchor
+    rows of those factors are needed to form an anchor block or an anchor
+    slab, and the full B is 2.46 GB at atlas scale, so it is never built.
+
+    Returns
+    -------
+    Sa : ndarray of shape (m, n_runs)
+    Ba : ndarray of shape (m, n_clusters_total)
+    columns : list of (column_index, sorted member indices)
+        One entry per cluster across all runs, reused by the slab pass.
+    pos : ndarray of shape (n_samples,)
+        Position of each sample in the anchor array, or -1 if not an anchor.
+    """
+    anchors = np.asarray(anchors, dtype=np.int64)
+    m = anchors.size
+
+    pos = np.full(n_samples, -1, dtype=np.int64)
+    pos[anchors] = np.arange(m, dtype=np.int64)
+
+    n_runs = len(runs)
+    n_cols = sum(len(np.unique(labels)) for _, labels in runs)
+
+    Sa = np.zeros((m, n_runs), dtype=np.float32)
+    Ba = np.zeros((m, n_cols), dtype=np.float32)
+    columns: list[tuple[int, np.ndarray]] = []
+
+    col = 0
+    for r, (sample_idx, labels) in enumerate(runs):
+        sample_idx = np.asarray(sample_idx)
+        labels = np.asarray(labels)
+
+        p = pos[sample_idx]
+        Sa[p[p >= 0], r] = 1.0
+
+        for label in np.unique(labels):
+            members = np.sort(sample_idx[labels == label])
+            pm = pos[members]
+            Ba[pm[pm >= 0], col] = 1.0
+            columns.append((col, members))
+            col += 1
+
+    return Sa, Ba, columns, pos
+
+
+def consensus_anchor_block(
+    n_samples: int,
+    runs: list[SampledLabels],
+    anchors: np.ndarray,
+) -> np.ndarray:
+    """Consensus matrix restricted to anchor-by-anchor pairs.
+
+    Equals ``compute_consensus_matrix(n_samples, runs)[np.ix_(anchors,
+    anchors)]`` exactly. Anchoring restricts which pairs are computed; it
+    does not change any pair's value.
+    """
+    Sa, Ba, _, _ = _anchor_factors(n_samples, runs, anchors)
+
+    co_sample_counts = Sa @ Sa.T
+    co_cluster_counts = Ba @ Ba.T
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        block = co_cluster_counts / co_sample_counts
+    block[co_sample_counts == 0] = np.nan
+    return block
