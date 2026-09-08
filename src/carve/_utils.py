@@ -12,7 +12,8 @@ import pandas as pd
 from numpy.typing import ArrayLike
 from scipy import sparse
 from scipy.optimize import linear_sum_assignment
-from sklearn.base import ClusterMixin
+from sklearn.base import ClassifierMixin, ClusterMixin, clone
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics.cluster import contingency_matrix
 
 from ._types import NoisePolicy
@@ -430,6 +431,56 @@ def ensure_2d_array(
             "Input must be a NumPy array, SciPy sparse matrix, Pandas "
             "DataFrame, or a list."
         )
+
+
+def default_generalizability_classifier(
+    *,
+    classifier: ClassifierMixin | None,
+    n_features: int,
+    n_trees: int,
+    random_state: int | None,
+) -> ClassifierMixin:
+    """Build the classifier CARVE uses to predict labels for unseen samples.
+
+    Single source for that construction. It is used twice: once per resample
+    on the generalizability path, and once by ``CARVE.get_labels`` to extend
+    an anchored cut from the anchors to every sample. The two must build the
+    same classifier, and a comment saying so is not enforceable, so they call
+    this instead.
+
+    Parameters
+    ----------
+    classifier : sklearn classifier instance or None
+        User-supplied classifier. None selects the default random forest.
+    n_features : int
+        Number of columns in the data the classifier will be fitted on. Caps
+        the default forest's depth.
+    n_trees : int
+        Number of trees in the default forest. Ignored when ``classifier``
+        is given.
+    random_state : int or None
+        Seed. Applied to a user-supplied classifier only when it accepts a
+        ``random_state`` parameter.
+
+    Returns
+    -------
+    classifier : sklearn classifier instance
+        A fresh, unfitted classifier. A user-supplied one is cloned, so no
+        state leaks between calls.
+    """
+    if classifier is None:
+        return RandomForestClassifier(
+            n_estimators=n_trees,
+            max_depth=n_features,
+            max_features=int(np.sqrt(n_features)),
+            random_state=random_state,
+            n_jobs=-1,
+        )
+
+    clf = clone(classifier)
+    if "random_state" in clf.get_params():
+        clf.set_params(random_state=random_state)
+    return clf
 
 
 def resolve_anchors(

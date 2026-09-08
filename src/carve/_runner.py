@@ -10,8 +10,7 @@ from typing import Any, NamedTuple
 
 import numpy as np
 from joblib import Parallel, delayed
-from sklearn.base import ClassifierMixin, clone
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.base import ClassifierMixin
 from sklearn.metrics import adjusted_rand_score
 from sklearn.model_selection import ParameterGrid
 from tqdm.auto import tqdm
@@ -43,6 +42,7 @@ from ._utils import (
     apply_noise_policy,
     cluster_labels,
     count_clusters,
+    default_generalizability_classifier,
     split_subsample_indices,
 )
 
@@ -738,18 +738,12 @@ def _compute_generalizability_ari(
         )
         return None, np.nan
 
-    if classifier is None:
-        clf = RandomForestClassifier(
-            n_estimators=n_trees,
-            max_depth=X_1.shape[1],
-            max_features=int(np.sqrt(X_1.shape[1])),
-            random_state=seed,
-            n_jobs=-1,
-        )
-    else:
-        clf = clone(classifier)
-        if "random_state" in clf.get_params():
-            clf.set_params(random_state=seed)
+    clf = default_generalizability_classifier(
+        classifier=classifier,
+        n_features=X_1.shape[1],
+        n_trees=n_trees,
+        random_state=seed,
+    )
 
     clf.fit(X_1, labels_1)
 

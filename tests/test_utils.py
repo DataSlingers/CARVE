@@ -4,6 +4,9 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.cluster import KMeans, AgglomerativeClustering
+from sklearn.dummy import DummyClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.neighbors import KNeighborsClassifier
 
 from carve._runner import ResampleResult
 from carve._utils import (
@@ -14,6 +17,7 @@ from carve._utils import (
     apply_noise_policy,
     cluster_labels,
     count_clusters,
+    default_generalizability_classifier,
     ensure_2d_array,
     resolve_anchors,
     summarize_preprocessing_records,
@@ -494,3 +498,86 @@ class TestResolveAnchors:
             resolve_anchors(
                 9000, consensus_anchors=bad, anchor_threshold=5000, random_state=0
             )
+
+
+# -----------------------------------------------------------------------
+# default_generalizability_classifier
+# -----------------------------------------------------------------------
+
+
+class TestDefaultGeneralizabilityClassifier:
+    """Pin the construction both call sites share.
+
+    _runner's generalizability path and CARVE.get_labels' anchored label
+    extension must build the same classifier. They diverged once, on
+    max_depth, while a comment was the only thing asking them not to. These
+    assertions replace the comment.
+    """
+
+    def test_default_is_a_random_forest_with_the_documented_parameters(self):
+        clf = default_generalizability_classifier(
+            classifier=None, n_features=16, n_trees=37, random_state=5
+        )
+        assert isinstance(clf, RandomForestClassifier)
+        assert clf.n_estimators == 37
+        assert clf.max_depth == 16
+        assert clf.max_features == 4  # int(sqrt(16))
+        assert clf.random_state == 5
+        assert clf.n_jobs == -1
+
+    def test_max_features_is_the_integer_square_root(self):
+        clf = default_generalizability_classifier(
+            classifier=None, n_features=10, n_trees=5, random_state=0
+        )
+        assert clf.max_depth == 10
+        assert clf.max_features == 3  # int(sqrt(10)) == 3, not 3.16
+
+    def test_none_random_state_is_passed_through_unchanged(self):
+        # The "0 if None" fallback belongs to the callers, not here.
+        clf = default_generalizability_classifier(
+            classifier=None, n_features=4, n_trees=5, random_state=None
+        )
+        assert clf.random_state is None
+
+    def test_supplied_classifier_is_cloned_and_seeded(self):
+        supplied = KNeighborsClassifier(n_neighbors=3)
+        clf = default_generalizability_classifier(
+            classifier=supplied, n_features=4, n_trees=100, random_state=9
+        )
+        assert clf is not supplied
+        assert isinstance(clf, KNeighborsClassifier)
+        assert clf.n_neighbors == 3
+        # KNeighborsClassifier has no random_state, so none is injected.
+        assert "random_state" not in clf.get_params()
+
+    def test_supplied_classifier_with_random_state_receives_the_seed(self):
+        supplied = DummyClassifier(strategy="stratified", random_state=None)
+        clf = default_generalizability_classifier(
+            classifier=supplied, n_features=4, n_trees=100, random_state=13
+        )
+        assert clf is not supplied
+        assert clf.random_state == 13
+        assert supplied.random_state is None  # the original is untouched
+
+    def test_supplied_classifier_ignores_n_trees(self):
+        supplied = RandomForestClassifier(n_estimators=7)
+        clf = default_generalizability_classifier(
+            classifier=supplied, n_features=4, n_trees=500, random_state=0
+        )
+        assert clf.n_estimators == 7
+
+    def test_matches_the_runner_construction_it_replaced(self):
+        # The literal parameters the generalizability path built before the
+        # extraction, spelled out so a change here has to be deliberate.
+        n_features, n_trees, seed = 12, 100, 3
+        clf = default_generalizability_classifier(
+            classifier=None, n_features=n_features, n_trees=n_trees, random_state=seed
+        )
+        expected = RandomForestClassifier(
+            n_estimators=n_trees,
+            max_depth=n_features,
+            max_features=int(np.sqrt(n_features)),
+            random_state=seed,
+            n_jobs=-1,
+        )
+        assert clf.get_params() == expected.get_params()
