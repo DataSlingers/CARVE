@@ -8,6 +8,7 @@ import pytest
 from sklearn.base import BaseEstimator, ClusterMixin
 from sklearn.cluster import HDBSCAN, AgglomerativeClustering, KMeans
 
+from carve._consensus import compute_consensus_metrics
 from carve._runner import (
     ResampleResult,
     _compute_generalizability_ari,
@@ -582,14 +583,17 @@ class TestRunValidationRecords:
 
 class TestRunValidationAnchors:
     def _grids(self):
-        from sklearn.cluster import KMeans
-
         return [(KMeans, {"n_clusters": [2, 3], "n_init": [10]})]
 
     def test_summaries_are_full_length_under_anchoring(self):
         rng = np.random.default_rng(0)
         n = 60
-        X = np.vstack([rng.normal(0, 1, (n // 2, 4)), rng.normal(6, 1, (n // 2, 4))])
+        # A mild gap, not the well-separated blobs used elsewhere: with a
+        # clean 6-sigma split, k=2 recovers the identical partition on every
+        # resample and the per-sample scores are trivially constant at 1,
+        # which would defeat the "not constant" check below. This overlap
+        # keeps some samples near the boundary so scores genuinely vary.
+        X = np.vstack([rng.normal(0, 1, (n // 2, 4)), rng.normal(2, 1, (n // 2, 4))])
         anchors = np.sort(rng.choice(n, 20, replace=False))
 
         out = run_validation(
@@ -614,6 +618,15 @@ class TestRunValidationAnchors:
             assert summary.ce.shape == (n,)
             assert matrix.shape == (anchors.size, anchors.size)
 
+            # Scores are real stability values, not placeholders: bounded,
+            # finite, and not degenerately constant across samples.
+            assert np.isfinite(summary.pac)
+            assert 0.0 <= summary.pac <= 1.0
+            for scores in (summary.gini, summary.ce):
+                assert np.all(np.isfinite(scores))
+                assert np.all(scores >= 0.0) and np.all(scores <= 1.0)
+                assert np.std(scores) > 0.0
+
     def test_exact_path_is_unchanged_when_anchors_is_none(self):
         rng = np.random.default_rng(1)
         n = 60
@@ -629,7 +642,18 @@ class TestRunValidationAnchors:
             random_state=0,
             anchors=None,
         )
-        for matrix in out[2]:
+        matrices = out[2]
+        summaries = out[5]
+
+        for matrix in matrices:
             assert matrix.shape == (n, n)
-        for summary in out[5]:
+        for summary in summaries:
             assert summary.gini.shape == (n,)
+
+        # The claim under test: the runner's exact-path summaries equal what
+        # the old api.fit code path computed post-hoc from the same matrices.
+        gini_list, ce_list, pac_list = compute_consensus_metrics(matrices)
+        for summary, gini, ce, pac in zip(summaries, gini_list, ce_list, pac_list):
+            assert np.allclose(summary.gini, gini)
+            assert np.allclose(summary.ce, ce)
+            assert np.isclose(summary.pac, pac)

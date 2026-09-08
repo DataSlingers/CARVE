@@ -315,6 +315,8 @@ def run_validation(
                     )
 
                 # --- Per-sample stability scores, always full length ---
+                # (pac is not: it comes straight from M, which under
+                # anchoring is the m-by-m anchor block, not n-by-n.)
                 if not policy.run_stability:
                     summary = None
                 else:

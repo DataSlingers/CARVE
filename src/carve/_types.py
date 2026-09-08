@@ -143,6 +143,10 @@ class ConsensusSummary:
     under anchoring the stored consensus matrix is an m-by-m block while
     these score vectors are full length, and the runner is the only place
     that still holds the per-resample runs they are derived from.
+
+    gini and ce are always full sample length; pac is not, since it is
+    computed directly from the consensus matrix, which under anchoring is
+    the m-by-m anchor block rather than the full n-by-n matrix.
     """
 
     gini: np.ndarray
