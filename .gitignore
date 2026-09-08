@@ -37,3 +37,6 @@ build/
 # docs build output
 docs/_build/
 docs/api/generated/
+
+# agent scratch (subagent-driven-development workspaces)
+.superpowers/
