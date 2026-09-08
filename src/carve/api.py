@@ -807,15 +807,23 @@ class CARVE(BaseEstimator):
             labels[rest] = anchor_labels[0]
             return labels
 
-        classifier = (
-            clone(self.classifier)
-            if self.classifier is not None
-            else RandomForestClassifier(
+        # Mirrors the default/clone construction in _runner.py's
+        # _compute_generalizability_ari (the generalizability path run on
+        # every resample); the two must stay in step.
+        if self.classifier is None:
+            n_features = self.X_.shape[1]
+            classifier = RandomForestClassifier(
                 n_estimators=self.n_trees,
-                n_jobs=-1,
+                max_depth=n_features,
+                max_features=int(np.sqrt(n_features)),
                 random_state=self.random_state,
+                n_jobs=-1,
             )
-        )
+        else:
+            classifier = clone(self.classifier)
+            if "random_state" in classifier.get_params():
+                classifier.set_params(random_state=self.random_state)
+
         classifier.fit(self.X_[anchors], anchor_labels)
         labels[rest] = classifier.predict(self.X_[rest])
         return labels

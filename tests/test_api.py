@@ -1275,6 +1275,14 @@ class TestAnchoredLabels:
         X, c = self._fitted()
         assert np.unique(c.get_labels(k=3)).size == 3
 
+    def test_generalizability_mode_also_covers_every_sample(self):
+        # get_labels serves both mode="default" (stability) and
+        # mode="generalizability"; both matrix lists are anchor blocks
+        # under anchoring, so the single guarded call must cover both.
+        X, c = self._fitted()
+        labels = c.get_labels(k=2, mode="generalizability")
+        assert labels.shape == (X.shape[0],)
+
     def test_exact_path_labels_are_unaffected(self):
         X = _blobs(60)
         c = CARVE(
