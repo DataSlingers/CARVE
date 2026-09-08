@@ -17,12 +17,19 @@ from sklearn.model_selection import ParameterGrid
 from tqdm.auto import tqdm
 
 from ._accuracy import compute_generalizability_scores
-from ._consensus import compute_consensus_matrix
+from ._consensus import (
+    compute_consensus_matrix,
+    compute_consensus_pac,
+    consensus_anchor_block,
+    stability_from_consensus,
+    stability_from_runs_anchored,
+)
 from ._output import _log_config_progress
 from ._pipeline import build_preprocessing_pipeline
 from ._sweep import MethodIds, SweepSpec
 from ._sweep import resolve_sweep as _resolve_sweep
 from ._types import (
+    ConsensusSummary,
     EstimatorRecord,
     GridSpec,
     NoisePolicy,
@@ -46,6 +53,7 @@ ValidationReturn = tuple[
     list[np.ndarray],
     list[np.ndarray],
     list[np.ndarray],
+    list[ConsensusSummary] | None,
 ]
 
 
@@ -129,6 +137,7 @@ def run_validation(
     show_progress: bool = False,
     mode: RunMode = "default",
     verbose: int = 0,
+    anchors: np.ndarray | None = None,
 ) -> ValidationReturn:
     """Run CARVE validation over estimator grids and resamples.
 
@@ -170,6 +179,11 @@ def run_validation(
     verbose : int, default=0
         Verbosity for logging. ``0`` suppresses all output, ``1`` prints
         per-configuration progress, ``2`` includes header and footer.
+    anchors : ndarray or None, default=None
+        Indices of anchor samples. When given, consensus matrices are
+        restricted to anchor-by-anchor blocks instead of full n-by-n
+        matrices, and per-sample stability scores are computed against
+        the anchor set rather than the full sample.
 
     Returns
     -------
@@ -183,6 +197,9 @@ def run_validation(
         Generalizability consensus matrices for each configuration.
     generalizability_scores : list of ndarray
         Per-sample generalizability arrays for each configuration.
+    consensus_summaries : list of ConsensusSummary or None
+        Full-length per-configuration stability quantities, or None when
+        stability is not run.
     """
     policy = resolve_mode(mode)
 
@@ -203,6 +220,7 @@ def run_validation(
     consensus_generalizability_matrices: list[np.ndarray] = []
 
     generalizability_scores: list[np.ndarray] = []
+    consensus_summaries: list[ConsensusSummary | None] = []
 
     total_configs = sum(len(list(ParameterGrid(g))) for _, g in estimator_grids)
     config_idx = 0
@@ -268,23 +286,48 @@ def run_validation(
                 ]
 
                 # --- Build consensus matrices ---
-                M = (
-                    compute_consensus_matrix(
+                if not policy.run_stability:
+                    M = None
+                elif anchors is None:
+                    M = compute_consensus_matrix(
                         n_samples=n,
                         runs=[(r.train_indices, r.labels_train) for r in stab_runs],
                     )
-                    if policy.run_stability
-                    else None
-                )
+                else:
+                    M = consensus_anchor_block(
+                        n_samples=n,
+                        runs=[(r.train_indices, r.labels_train) for r in stab_runs],
+                        anchors=anchors,
+                    )
 
-                M_g = (
-                    compute_consensus_matrix(
+                if not policy.run_generalizability:
+                    M_g = None
+                elif anchors is None:
+                    M_g = compute_consensus_matrix(
                         n_samples=n,
                         runs=[(r.test_indices, r.labels_predicted) for r in gen_runs],
                     )
-                    if policy.run_generalizability
-                    else None
-                )
+                else:
+                    M_g = consensus_anchor_block(
+                        n_samples=n,
+                        runs=[(r.test_indices, r.labels_predicted) for r in gen_runs],
+                        anchors=anchors,
+                    )
+
+                # --- Per-sample stability scores, always full length ---
+                if not policy.run_stability:
+                    summary = None
+                else:
+                    stab_pairs = [(r.train_indices, r.labels_train) for r in stab_runs]
+                    if anchors is None:
+                        gini, ce = stability_from_consensus(M)
+                    else:
+                        gini, ce = stability_from_runs_anchored(
+                            n_samples=n, runs=stab_pairs, anchors=anchors
+                        )
+                    summary = ConsensusSummary(
+                        gini=gini, ce=ce, pac=compute_consensus_pac(M)
+                    )
 
                 # --- Compute generalizability scores ---
                 E = (
@@ -302,6 +345,7 @@ def run_validation(
                 consensus_matrices.append(M)
                 consensus_generalizability_matrices.append(M_g)
                 generalizability_scores.append(E)
+                consensus_summaries.append(summary)
 
                 # --- Summarize ARI statistics ---
                 stab_mean, stab_se, stab_q95, stab_q05 = _summarize_ari_scores(
@@ -389,6 +433,7 @@ def run_validation(
         consensus_matrices,
         consensus_generalizability_matrices,
         generalizability_scores,
+        consensus_summaries if policy.run_stability else None,
     )
 
 

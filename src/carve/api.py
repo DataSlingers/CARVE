@@ -13,7 +13,6 @@ from sklearn.base import BaseEstimator, ClassifierMixin, ClusterMixin
 from sklearn.cluster import AgglomerativeClustering
 
 from . import _anndata
-from ._consensus import compute_consensus_metrics
 from ._grids import (
     default_dim_reduction_options,
     default_estimator_grids,
@@ -422,6 +421,7 @@ class CARVE(BaseEstimator):
             self.consensus_matrices_,
             self.consensus_generalizability_matrices_,
             self.generalizability_scores_,
+            consensus_summaries,
         ) = run_validation(
             X=X,
             estimator_grids=estimator_param_grids,
@@ -463,24 +463,21 @@ class CARVE(BaseEstimator):
             )
 
         # --- Stability-derived metrics ---
-        if (
-            policy.run_stability and self.consensus_matrices_ is not None
-        ):  # Default route
-            gini_list, ce_list, pac_list = compute_consensus_metrics(
-                self.consensus_matrices_
+        if policy.run_stability and consensus_summaries is not None:
+            self.stability_gini_scores_ = np.vstack(
+                [s.gini for s in consensus_summaries]
             )
+            self.stability_ce_scores_ = np.vstack([s.ce for s in consensus_summaries])
 
-            self.stability_gini_scores_ = np.vstack(gini_list)
-            self.stability_ce_scores_ = np.vstack(ce_list)
-
-            self.estimator_results_["consensus_pac_stability"] = pac_list
+            self.estimator_results_["consensus_pac_stability"] = [
+                s.pac for s in consensus_summaries
+            ]
             self.estimator_results_["consensus_gini_stability"] = (
                 self.stability_gini_scores_.mean(axis=1)
             )
             self.estimator_results_["consensus_ce_stability"] = (
                 self.stability_ce_scores_.mean(axis=1)
             )
-
         else:  # If not running stability, set these attributes to None/NaN
             self.stability_gini_scores_ = None
             self.stability_ce_scores_ = None

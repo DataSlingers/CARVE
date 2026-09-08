@@ -1,8 +1,11 @@
 """Tests for carve._types module."""
 
+import dataclasses
+
+import numpy as np
 import pytest
 
-from carve._types import ModePolicy, resolve_mode
+from carve._types import ConsensusSummary, ModePolicy, resolve_mode
 
 
 class TestModePolicy:
@@ -58,3 +61,10 @@ class TestResolveMode:
     def test_invalid_mode_type(self):
         with pytest.raises(ValueError, match="Unknown mode"):
             resolve_mode("foo")
+
+
+def test_consensus_summary_is_frozen():
+    s = ConsensusSummary(gini=np.zeros(3), ce=np.zeros(3), pac=0.5)
+    assert s.pac == 0.5
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        s.pac = 0.9

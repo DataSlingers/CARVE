@@ -16,7 +16,7 @@ from carve._runner import (
     validation_iter,
 )
 from carve._sweep import resolve_sweep
-from carve._types import ModePolicy
+from carve._types import ConsensusSummary, ModePolicy
 
 
 class _LabelStub(BaseEstimator, ClusterMixin):
@@ -278,7 +278,7 @@ class TestValidationIter:
 
 class TestRunValidation:
     def test_basic(self, X_two_clusters):
-        records, pipeline_records, cons, cons_gen, gen_scores = run_validation(
+        records, pipeline_records, cons, cons_gen, gen_scores, _ = run_validation(
             X=X_two_clusters,
             estimator_grids=[(KMeans, {"n_clusters": [2]})],
             n_resamples=3,
@@ -314,7 +314,7 @@ class TestRunValidation:
         assert records[1]["n_clusters"] == 3
 
     def test_stability_mode(self, X_two_clusters):
-        records, _, cons, cons_gen, gen_scores = run_validation(
+        records, _, cons, cons_gen, gen_scores, _ = run_validation(
             X=X_two_clusters,
             estimator_grids=[(KMeans, {"n_clusters": [2]})],
             n_resamples=3,
@@ -331,7 +331,7 @@ class TestRunValidation:
         assert gen_scores[0] is None
 
     def test_generalizability_mode(self, X_two_clusters):
-        records, _, cons, cons_gen, gen_scores = run_validation(
+        records, _, cons, cons_gen, gen_scores, _ = run_validation(
             X=X_two_clusters,
             estimator_grids=[(KMeans, {"n_clusters": [2]})],
             n_resamples=3,
@@ -578,3 +578,58 @@ class TestRunValidationRecords:
         )
         assert [r["sweep_value"] for r in records] == [3, 5, 8]
         assert [r["sweep_rank"] for r in records] == [2, 1, 0]
+
+
+class TestRunValidationAnchors:
+    def _grids(self):
+        from sklearn.cluster import KMeans
+
+        return [(KMeans, {"n_clusters": [2, 3], "n_init": [10]})]
+
+    def test_summaries_are_full_length_under_anchoring(self):
+        rng = np.random.default_rng(0)
+        n = 60
+        X = np.vstack([rng.normal(0, 1, (n // 2, 4)), rng.normal(6, 1, (n // 2, 4))])
+        anchors = np.sort(rng.choice(n, 20, replace=False))
+
+        out = run_validation(
+            X=X,
+            estimator_grids=self._grids(),
+            n_resamples=6,
+            subsample_ratio=0.8,
+            normalization_options=[],
+            dim_reduction_options=[],
+            random_state=0,
+            anchors=anchors,
+        )
+        summaries = out[5]
+        matrices = out[2]
+
+        assert summaries is not None
+        assert len(summaries) == len(matrices)
+        for summary, matrix in zip(summaries, matrices):
+            assert isinstance(summary, ConsensusSummary)
+            # Scores cover every sample even though the block is anchor sized.
+            assert summary.gini.shape == (n,)
+            assert summary.ce.shape == (n,)
+            assert matrix.shape == (anchors.size, anchors.size)
+
+    def test_exact_path_is_unchanged_when_anchors_is_none(self):
+        rng = np.random.default_rng(1)
+        n = 60
+        X = np.vstack([rng.normal(0, 1, (n // 2, 4)), rng.normal(6, 1, (n // 2, 4))])
+
+        out = run_validation(
+            X=X,
+            estimator_grids=self._grids(),
+            n_resamples=6,
+            subsample_ratio=0.8,
+            normalization_options=[],
+            dim_reduction_options=[],
+            random_state=0,
+            anchors=None,
+        )
+        for matrix in out[2]:
+            assert matrix.shape == (n, n)
+        for summary in out[5]:
+            assert summary.gini.shape == (n,)

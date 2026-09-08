@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
+import numpy as np
 from sklearn.base import ClusterMixin, TransformerMixin
 
 # (EstimatorClass, param_grid) pair for grid search
@@ -132,3 +133,18 @@ def resolve_mode(mode: RunMode) -> ModePolicy:
         f"Unknown mode: {mode!r}. Expected one of "
         "'default', 'stability', 'generalizability'."
     )
+
+
+@dataclass(frozen=True)
+class ConsensusSummary:
+    """Per-configuration stability quantities derived from the consensus.
+
+    Carried out of the runner rather than recomputed in api.fit, because
+    under anchoring the stored consensus matrix is an m-by-m block while
+    these score vectors are full length, and the runner is the only place
+    that still holds the per-resample runs they are derived from.
+    """
+
+    gini: np.ndarray
+    ce: np.ndarray
+    pac: float
