@@ -10,22 +10,81 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
+from matplotlib.colors import to_rgba
 from matplotlib.figure import Figure
 from matplotlib.legend import Legend
 from matplotlib.lines import Line2D
+from matplotlib.patches import PathPatch, Rectangle
+from matplotlib.path import Path
 
-from ._registry import METRIC_DISPLAY_NAMES
-from ._theme import FALLBACK_COLOR, FONT_SIZES, cluster_colors, metric_color, style_axes
+from ._registry import (
+    BASELINE_METRIC,
+    CARVE_METRICS_ALL,
+    CVI_METRICS,
+    METRIC_DISPLAY_NAMES,
+    METRIC_LEGEND_NAMES,
+)
+from ._theme import (
+    FALLBACK_COLOR,
+    FONT_SIZES,
+    FOREGROUND_COLOR,
+    cluster_colors,
+    metric_color,
+    metric_linestyle,
+    metric_linewidth,
+    style_axes,
+)
 
 
 def _display(metric: str) -> str:
-    return METRIC_DISPLAY_NAMES.get(metric, metric)
+    """The name a figure legend gives a metric.
+
+    Prefers METRIC_LEGEND_NAMES, which carries the handful of names that read
+    differently in a legend than in a table row.
+    """
+    return METRIC_LEGEND_NAMES.get(metric, METRIC_DISPLAY_NAMES.get(metric, metric))
 
 
 def cluster_color_map(labels: np.ndarray) -> dict[Any, str]:
     """Map each distinct label to a stable color."""
     unique = list(dict.fromkeys(np.asarray(labels).tolist()))
     return dict(zip(unique, cluster_colors(len(unique))))
+
+
+def aligned_color_maps(
+    y_true: np.ndarray, *clusterings: np.ndarray
+) -> tuple[dict[Any, str], ...]:
+    """One palette shared by the reported labels and every clustering.
+
+    Returns ``(true_cmap, *clustering_cmaps)``. The reported labels take the
+    palette in sorted category order; each clustering's integer id indexes
+    the same palette directly, so a cluster that ``align_cluster_labels``
+    matched to reported label *i* is drawn in reported label *i*'s color.
+
+    This is what makes the composite's scatter panels comparable. Calling
+    cluster_color_map once per panel -- which is what this replaces -- keys
+    each panel's map on that panel's own first-occurrence order, so the same
+    cluster came out a different color in each of the three panels and the
+    reader could not read one panel against the next.
+
+    The palette is sized to cover both the reported labels and the highest
+    cluster id present, so a clustering with more clusters than there are
+    reported labels still gets a color for every one of them.
+    """
+    categories = sorted(set(np.asarray(y_true).tolist()))
+    highest_id = 0
+    for labels in clusterings:
+        values = np.asarray(labels)
+        if values.size:
+            highest_id = max(highest_id, int(np.max(values)) + 1)
+
+    palette = cluster_colors(max(len(categories), highest_id))
+    true_cmap = {category: palette[i] for i, category in enumerate(categories)}
+    cluster_cmaps = [
+        {int(c): palette[int(c)] for c in np.unique(np.asarray(labels))}
+        for labels in clusterings
+    ]
+    return (true_cmap, *cluster_cmaps)
 
 
 def scatter_clusters(
@@ -37,11 +96,19 @@ def scatter_clusters(
     s: float = 20.0,
     alpha: float = 0.85,
     linewidth: float = 0.3,
+    edgecolor: str = FOREGROUND_COLOR,
     title: str | None = None,
     hide_axes: bool = True,
     axis_labels: Sequence[str] | None = None,
 ) -> Axes:
-    """Scatter a two-dimensional embedding, colored by label."""
+    """Scatter a two-dimensional embedding, colored by label.
+
+    Markers carry a thin ``edgecolor`` outline, which is what separates
+    overlapping points where two clusters meet -- the case-study scatters
+    are dense enough that unoutlined markers merge into a single mass at
+    every cluster boundary. Pass ``edgecolor="none"`` for a scatter dense
+    enough that the outlines themselves would dominate.
+    """
     Z = np.asarray(Z)
     labels = np.asarray(labels)
     color_map = color_map or cluster_color_map(labels)
@@ -54,7 +121,7 @@ def scatter_clusters(
             s=s,
             alpha=alpha,
             linewidth=linewidth,
-            edgecolor="none",
+            edgecolor=edgecolor,
             color=color_map.get(label, FALLBACK_COLOR),
             label=str(label),
         )
@@ -72,6 +139,57 @@ def scatter_clusters(
         ax.grid(False)
     else:
         style_axes(ax)
+    return ax
+
+
+def axis_arrows(
+    ax: Axes,
+    labels: Sequence[str] = ("PC1", "PC2"),
+    *,
+    origin: tuple[float, float] = (0.03, 0.06),
+    length: tuple[float, float] = (0.10, 0.14),
+    pad: float = 0.02,
+) -> Axes:
+    """Draw a short arrow pair in the lower-left corner naming the axes.
+
+    A hidden-spine scatter still has to say what its two directions are. An
+    xlabel/ylabel pair does that, but it also reserves a full margin on two
+    sides of every panel it is applied to; a corner marker says the same
+    thing inside the data area, which is why the published composites carry
+    it on their first panel only and leave the rest unlabeled.
+
+    ``origin``, ``length`` and ``pad`` are axes fractions, so the marker
+    keeps its size and position whatever the panel's data limits are.
+    """
+    x0, y0 = origin
+    dx, dy = length
+
+    for end in ((x0 + dx, y0), (x0, y0 + dy)):
+        ax.annotate(
+            "",
+            xy=end,
+            xytext=(x0, y0),
+            xycoords="axes fraction",
+            textcoords="axes fraction",
+            arrowprops={"arrowstyle": "-|>", "color": FOREGROUND_COLOR, "lw": 1.2},
+        )
+
+    ax.annotate(
+        labels[0],
+        xy=(x0 + dx + pad / 2, y0),
+        xycoords="axes fraction",
+        ha="left",
+        va="center",
+        fontsize=FONT_SIZES["axis_label"],
+    )
+    ax.annotate(
+        labels[1],
+        xy=(x0, y0 + dy + pad),
+        xycoords="axes fraction",
+        ha="center",
+        va="bottom",
+        fontsize=FONT_SIZES["axis_label"],
+    )
     return ax
 
 
@@ -116,8 +234,8 @@ def metric_lines(
                 centers.to_numpy(),
                 yerr=errors.to_numpy(),
                 marker="none",
-                linewidth=1.8 * element_scale,
-                linestyle="--",
+                linewidth=metric_linewidth(metric) * element_scale,
+                linestyle=metric_linestyle(metric),
                 capsize=2.5 * element_scale,
                 color=metric_color(metric),
                 label=_display(metric),
@@ -136,7 +254,8 @@ def metric_lines(
             yerr=errors.to_numpy(),
             marker="o",
             markersize=5.0 * element_scale,
-            linewidth=1.8 * element_scale,
+            linewidth=metric_linewidth(metric) * element_scale,
+            linestyle=metric_linestyle(metric),
             capsize=2.5 * element_scale,
             color=metric_color(metric),
             label=_display(metric),
@@ -287,7 +406,11 @@ def carve_lines(
                 )
 
     ax.set_xlabel("Number of clusters $k$", fontsize=FONT_SIZES["axis_label"])
-    ax.set_ylabel("Validation score", fontsize=FONT_SIZES["axis_label"])
+    # Both measures this draws are adjusted Rand indices against the
+    # resampled reference, so "ARI" names the quantity; "Validation score",
+    # which this replaces, named the role instead and matched neither the
+    # published axis nor the panel title.
+    ax.set_ylabel("ARI", fontsize=FONT_SIZES["axis_label"])
     if title:
         ax.set_title(title, fontsize=FONT_SIZES["title"])
     ax.legend(fontsize=FONT_SIZES["legend"], frameon=False)
@@ -342,22 +465,17 @@ def cvi_lines(
             label=f"{_display(str(metric))} — {model}",
         )
 
-        best_k = int(best["k"])
-        match = np.where(sub["k"].to_numpy() == best_k)[0]
-        if match.size:
-            ax.scatter(
-                [best_k],
-                [values[match[0]]],
-                s=90,
-                facecolor="none",
-                edgecolor=color,
-                linewidth=1.8,
-                zorder=5,
-            )
+        # A vertical rule at the selected k, matching how carve_lines marks
+        # its own selections in the panel beside this one. The ring this
+        # replaces sat on the curve, so it read as a data point rather than
+        # as a selection and was lost wherever two indices crossed.
+        ax.axvline(
+            int(best["k"]), color=color, linestyle="--", linewidth=1.0, alpha=0.6
+        )
 
     ax.set_xlabel("Number of clusters $k$", fontsize=FONT_SIZES["axis_label"])
     ax.set_ylabel(
-        "Normalized index" if normalize else "Index value",
+        "Score (normalized)" if normalize else "Score",
         fontsize=FONT_SIZES["axis_label"],
     )
     if title:
@@ -369,19 +487,183 @@ def cvi_lines(
 def _stack_segments(
     sizes: Sequence[int], gap_frac: float = 0.015
 ) -> list[tuple[float, float]]:
-    """Return (bottom, top) spans for a stacked bar with proportional gaps."""
+    """Return (bottom, top) spans for a stacked bar with proportional gaps.
+
+    Stacks downward from y=1, so the first entry sits at the top of the
+    column and reading order matches the order the caller passed.
+    """
     total = float(sum(sizes))
     if total <= 0:
         return []
-    gap = gap_frac
-    usable = 1.0 - gap * max(len(sizes) - 1, 0)
+    usable = 1.0 - gap_frac * max(len(sizes) - 1, 0)
     spans = []
-    cursor = 0.0
+    cursor = 1.0
     for size in sizes:
         height = usable * (size / total)
-        spans.append((cursor, cursor + height))
-        cursor += height + gap
+        spans.append((cursor - height, cursor))
+        cursor -= height + gap_frac
     return spans
+
+
+def _luminance(color: str) -> float:
+    """Relative luminance, for choosing readable text over a filled bar."""
+    red, green, blue = to_rgba(color)[:3]
+    return 0.299 * red + 0.587 * green + 0.114 * blue
+
+
+def _order_by_reference(
+    labels: np.ndarray, reference: np.ndarray, order: Sequence[Any]
+):
+    """Order a clustering's ids by where its mass sits in the reference column.
+
+    A cluster is placed at the weighted mean position of the reference
+    categories its samples carry, so a cluster made mostly of the reference
+    column's third category is drawn third. Stacking each column by its own
+    id order instead -- which is what this replaces -- left the ribbons to
+    cross the full height of the panel to reach their anchor.
+    """
+    keys = sorted(np.unique(labels).tolist())
+    counts = pd.crosstab(pd.Series(labels), pd.Series(reference)).reindex(
+        index=keys, columns=list(order), fill_value=0
+    )
+    totals = np.maximum(counts.sum(axis=1).to_numpy(), 1)
+    positions = (counts.to_numpy() * np.arange(len(order))).sum(axis=1) / totals
+    return [key for _, key in sorted(zip(positions, keys))]
+
+
+def _purity(labels: np.ndarray, reference: np.ndarray, order: Sequence[Any]):
+    """Fraction of each cluster that falls in its single largest reference class."""
+    counts = pd.crosstab(pd.Series(labels), pd.Series(reference)).reindex(
+        index=list(order), fill_value=0
+    )
+    totals = np.maximum(counts.sum(axis=1).to_numpy(), 1)
+    return counts.max(axis=1).to_numpy() / totals
+
+
+def _cluster_name(key: Any) -> str:
+    """Name a cluster ``C1``, ``C2``, ... from its zero-based id."""
+    try:
+        return f"C{int(key) + 1}"
+    except (TypeError, ValueError):
+        return str(key)
+
+
+def _flow_ribbon(
+    ax: Axes,
+    x0: float,
+    y0: tuple[float, float],
+    x1: float,
+    y1: tuple[float, float],
+    color: str,
+    alpha: float,
+) -> None:
+    """Add one Bezier ribbon spanning two stacked columns.
+
+    Both edges are cubic Beziers with their control points on the vertical
+    midline between the columns, which is what gives the band its flat
+    departure and arrival and an S-curve in between. Straight-line bands --
+    what this replaces -- read as a bar chart of connections rather than as
+    flow, and cross each other at hard angles.
+    """
+    midpoint = (x0 + x1) / 2
+    top0, bottom0 = y0
+    top1, bottom1 = y1
+
+    vertices = [
+        (x0, top0),
+        (midpoint, top0),
+        (midpoint, top1),
+        (x1, top1),
+        (x1, bottom1),
+        (midpoint, bottom1),
+        (midpoint, bottom0),
+        (x0, bottom0),
+        (x0, top0),
+    ]
+    codes = [
+        Path.MOVETO,
+        Path.CURVE4,
+        Path.CURVE4,
+        Path.CURVE4,
+        Path.LINETO,
+        Path.CURVE4,
+        Path.CURVE4,
+        Path.CURVE4,
+        Path.CLOSEPOLY,
+    ]
+    ax.add_patch(
+        PathPatch(
+            Path(vertices, codes),
+            facecolor=color,
+            edgecolor="none",
+            alpha=alpha,
+            linewidth=0,
+            zorder=1,
+        )
+    )
+
+
+def _column_flows(
+    ax: Axes,
+    source: np.ndarray,
+    target: np.ndarray,
+    *,
+    source_order: Sequence[Any],
+    target_order: Sequence[Any],
+    source_spans: Sequence[tuple[float, float]],
+    target_spans: Sequence[tuple[float, float]],
+    x_source: float,
+    x_target: float,
+    cmap: Mapping[Any, str],
+    color_by: str,
+    alpha: float,
+) -> None:
+    """Draw every non-empty ribbon between two adjacent columns.
+
+    Each side's bands are packed top-down in the other column's order, so a
+    node's outgoing bands leave in the same vertical order they arrive in
+    and the ribbons nest instead of braiding.
+    """
+    counts = pd.crosstab(pd.Series(source), pd.Series(target)).reindex(
+        index=list(source_order), columns=list(target_order), fill_value=0
+    )
+    source_totals = {key: max(int(counts.loc[key].sum()), 1) for key in source_order}
+    target_totals = {key: max(int(counts[key].sum()), 1) for key in target_order}
+    source_used = dict.fromkeys(source_order, 0)
+    target_used = dict.fromkeys(target_order, 0)
+
+    for i, source_key in enumerate(source_order):
+        s_bottom, s_top = source_spans[i]
+        s_height = s_top - s_bottom
+        for j, target_key in enumerate(target_order):
+            overlap = int(counts.loc[source_key, target_key])
+            if overlap == 0:
+                continue
+            t_bottom, t_top = target_spans[j]
+            t_height = t_top - t_bottom
+
+            s_upper = (
+                s_top - s_height * source_used[source_key] / source_totals[source_key]
+            )
+            s_lower = s_upper - s_height * overlap / source_totals[source_key]
+            source_used[source_key] += overlap
+
+            t_upper = (
+                t_top - t_height * target_used[target_key] / target_totals[target_key]
+            )
+            t_lower = t_upper - t_height * overlap / target_totals[target_key]
+            target_used[target_key] += overlap
+
+            key = source_key if color_by == "source" else target_key
+            _flow_ribbon(
+                ax,
+                x_source,
+                (s_upper, s_lower),
+                x_target,
+                (t_upper, t_lower),
+                cmap.get(key, FALLBACK_COLOR),
+                alpha,
+            )
 
 
 def alluvial(
@@ -396,78 +678,166 @@ def alluvial(
     left_title: str,
     right_title: str,
     true_title: str,
-    link_alpha: float = 0.35,
-    bar_width: float = 0.08,
+    link_alpha: float = 0.4,
+    bar_width: float = 0.045,
+    gap_frac: float = 0.015,
+    true_gap_frac: float = 0.045,
 ) -> Axes:
-    """Draw a three-column alluvial: left clustering, truth, right clustering."""
+    """Draw a three-column alluvial: left clustering, truth, right clustering.
+
+    The reported labels anchor the diagram. They stack in first-occurrence
+    order, and both clusterings are ordered against that column by
+    _order_by_reference, so the panel reads as "how does each clustering
+    partition the reported labels" rather than as two unrelated stacks.
+
+    Every ribbon takes its reported label's color on both sides, which is
+    what lets one reported class be followed across the whole panel; the
+    cluster bars keep their own column's color. The middle column carries
+    more generous gaps (``true_gap_frac``) than the two cluster columns, so
+    the anchor reads as a separate register rather than as a third stack of
+    the same kind.
+
+    Cluster bars are named ``C1``, ``C2``, ... with their purity -- the
+    fraction of the cluster falling in its single largest reported class --
+    beside them; the reported-label bars carry their own name inside.
+    """
     y_true = np.asarray(y_true)
     left_labels = np.asarray(left_labels)
     right_labels = np.asarray(right_labels)
 
-    columns = [
-        (0.0, left_labels, left_cmap, left_title),
-        (0.5, y_true, true_cmap, true_title),
-        (1.0, right_labels, right_cmap, right_title),
-    ]
+    true_order = list(dict.fromkeys(y_true.tolist()))
+    left_order = _order_by_reference(left_labels, y_true, true_order)
+    right_order = _order_by_reference(right_labels, y_true, true_order)
 
-    spans_by_column = []
-    for x, labels, cmap, title in columns:
-        categories = list(dict.fromkeys(labels.tolist()))
-        sizes = [int((labels == c).sum()) for c in categories]
-        spans = _stack_segments(sizes)
-        for category, (bottom, top) in zip(categories, spans):
+    left_spans = _stack_segments(
+        [int((left_labels == key).sum()) for key in left_order], gap_frac
+    )
+    true_spans = _stack_segments(
+        [int((y_true == label).sum()) for label in true_order], true_gap_frac
+    )
+    right_spans = _stack_segments(
+        [int((right_labels == key).sum()) for key in right_order], gap_frac
+    )
+
+    x_left, x_true, x_right = 0.0, 0.5, 1.0
+    half = bar_width / 2
+
+    def _draw_bars(order, spans, x, cmap):
+        for key, (bottom, top) in zip(order, spans):
             ax.add_patch(
                 plt_rectangle(
-                    x - bar_width / 2,
+                    x - half,
                     bottom,
                     bar_width,
                     top - bottom,
-                    cmap.get(category, FALLBACK_COLOR),
+                    cmap.get(key, FALLBACK_COLOR),
                 )
             )
-        ax.text(
-            x, 1.04, title, ha="center", va="bottom", fontsize=FONT_SIZES["axis_label"]
-        )
-        spans_by_column.append((x, categories, dict(zip(categories, spans))))
 
-    for (x0, cats0, spans0), (x1, cats1, spans1), left_arr, right_arr, flow_cmap in (
-        (*spans_by_column[0:2], left_labels, y_true, left_cmap),
-        (*spans_by_column[1:3], y_true, right_labels, true_cmap),
+    _draw_bars(left_order, left_spans, x_left, left_cmap)
+    _draw_bars(true_order, true_spans, x_true, true_cmap)
+    _draw_bars(right_order, right_spans, x_right, right_cmap)
+
+    for order, spans, purities, x, side in (
+        (
+            left_order,
+            left_spans,
+            _purity(left_labels, y_true, left_order),
+            x_left,
+            "right",
+        ),
+        (
+            right_order,
+            right_spans,
+            _purity(right_labels, y_true, right_order),
+            x_right,
+            "left",
+        ),
     ):
-        cursor0 = {c: spans0[c][0] for c in cats0}
-        cursor1 = {c: spans1[c][0] for c in cats1}
-        for c0 in cats0:
-            total0 = max(int((left_arr == c0).sum()), 1)
-            height0 = spans0[c0][1] - spans0[c0][0]
-            for c1 in cats1:
-                overlap = int(((left_arr == c0) & (right_arr == c1)).sum())
-                if overlap == 0:
-                    continue
-                h0 = height0 * overlap / total0
-                total1 = max(int((right_arr == c1).sum()), 1)
-                h1 = (spans1[c1][1] - spans1[c1][0]) * overlap / total1
-                ax.fill_between(
-                    np.linspace(x0 + bar_width / 2, x1 - bar_width / 2, 32),
-                    np.linspace(cursor0[c0], cursor1[c1], 32),
-                    np.linspace(cursor0[c0] + h0, cursor1[c1] + h1, 32),
-                    color=flow_cmap.get(c0, FALLBACK_COLOR),
-                    alpha=link_alpha,
-                    linewidth=0,
-                )
-                cursor0[c0] += h0
-                cursor1[c1] += h1
+        offset = -half - 0.012 if side == "right" else half + 0.012
+        for key, (bottom, top), purity in zip(order, spans, purities):
+            ax.text(
+                x + offset,
+                (bottom + top) / 2,
+                f"{_cluster_name(key)}  {purity * 100:.0f}%",
+                ha=side,
+                va="center",
+                fontsize=FONT_SIZES["legend"],
+            )
 
-    ax.set_xlim(-0.15, 1.15)
+    for label, (bottom, top) in zip(true_order, true_spans):
+        color = true_cmap.get(label, FALLBACK_COLOR)
+        ax.text(
+            x_true,
+            (bottom + top) / 2,
+            str(label),
+            ha="center",
+            va="center",
+            fontsize=FONT_SIZES["legend"],
+            color="white" if _luminance(color) < 0.45 else FOREGROUND_COLOR,
+            zorder=3,
+        )
+
+    _column_flows(
+        ax,
+        left_labels,
+        y_true,
+        source_order=left_order,
+        target_order=true_order,
+        source_spans=left_spans,
+        target_spans=true_spans,
+        x_source=x_left + half,
+        x_target=x_true - half,
+        cmap=true_cmap,
+        color_by="target",
+        alpha=link_alpha,
+    )
+    _column_flows(
+        ax,
+        y_true,
+        right_labels,
+        source_order=true_order,
+        target_order=right_order,
+        source_spans=true_spans,
+        target_spans=right_spans,
+        x_source=x_true + half,
+        x_target=x_right - half,
+        cmap=true_cmap,
+        color_by="source",
+        alpha=link_alpha,
+    )
+
+    for x, title in (
+        (x_left, left_title),
+        (x_true, true_title),
+        (x_right, right_title),
+    ):
+        ax.text(
+            x,
+            1.06,
+            title,
+            ha="center",
+            va="bottom",
+            fontsize=FONT_SIZES["title"],
+        )
+
+    ax.set_xlim(-0.18, 1.18)
     ax.set_ylim(-0.02, 1.12)
     ax.set_axis_off()
     return ax
 
 
 def plt_rectangle(x: float, y: float, width: float, height: float, color: str):
-    """Build a filled rectangle patch. Split out so alluvial stays readable."""
-    from matplotlib.patches import Rectangle
-
-    return Rectangle((x, y), width, height, facecolor=color, edgecolor="none")
+    """Build a filled bar patch. Split out so alluvial stays readable."""
+    return Rectangle(
+        (x, y),
+        width,
+        height,
+        facecolor=color,
+        edgecolor="white",
+        linewidth=0.5,
+        zorder=2,
+    )
 
 
 def ari_lollipop(
@@ -538,6 +908,130 @@ def grouped_legend(
         ncol=ncol or min(len(labels), 4),
         frameon=False,
         fontsize=fontsize or FONT_SIZES["legend"],
+    )
+
+
+def _legend_groups(metrics: Sequence[str]) -> list[list[list[str]]]:
+    """Split metrics into families, and each family into its own columns.
+
+    Returns one entry per family, each holding that family's columns. Left to
+    right: the oracle baseline alone, then CARVE's own measures in one
+    column, then the classical indices across two. Grouping is decided from
+    the metric names, not from the label strings a previous implementation of
+    this pattern matched on ("carve" in the label), which silently
+    reclassified any metric whose display name did not happen to contain the
+    word.
+
+    Order within a family is the caller's order, so the two classical columns
+    are set by how ``metrics`` is written rather than by a rule here that a
+    caller cannot see.
+
+    The classical family takes a second column only when it holds more than
+    two indices. Splitting two of them in half would produce two columns one
+    entry tall standing beside a two-entry CARVE column, which reads as a
+    layout accident rather than as a grouping.
+    """
+    baseline = [m for m in metrics if m == BASELINE_METRIC]
+    carve = [m for m in metrics if m in CARVE_METRICS_ALL]
+    classical = [m for m in metrics if m in CVI_METRICS]
+    leftover = [
+        m
+        for m in metrics
+        if m not in baseline and m not in carve and m not in classical
+    ]
+
+    groups: list[list[list[str]]] = []
+    if baseline:
+        groups.append([baseline])
+    if carve:
+        groups.append([carve])
+    if classical:
+        per_column = len(classical) if len(classical) <= 2 else -(-len(classical) // 2)
+        groups.append(
+            [
+                classical[start : start + per_column]
+                for start in range(0, len(classical), per_column)
+            ]
+        )
+    if leftover:
+        groups.append([leftover])
+    return groups
+
+
+def metric_legend(
+    fig: Figure,
+    axes: np.ndarray,
+    metrics: Sequence[str],
+    *,
+    fontsize: float | None = None,
+    y_offset: float = 0.06,
+    columnspacing: float = 0.6,
+) -> Legend:
+    """One legend below a grid, with the metric families in their own columns.
+
+    Matplotlib fills a multi-column legend top to bottom, so a column shorter
+    than the tallest one is padded with a blank entry rather than letting the
+    next family start halfway up a column. That padding is what lets the
+    single-entry baseline column sit beside two-entry columns, which is the
+    arrangement the published figure uses; it is one Legend, not three
+    overlaid ones positioned by hand.
+
+    A Legend has a single gutter width, so separating the families by
+    widening ``columnspacing`` would widen the gap inside the classical pair
+    too. Instead the gutter is narrow and an empty column stands between
+    families: the classical pair sits at the narrow gutter, and each family
+    boundary gets that gutter twice over plus the empty column's width.
+    """
+    available: dict[str, Line2D] = {}
+    for ax in np.asarray(axes).flat:
+        for handle, label in zip(*ax.get_legend_handles_labels()):
+            available.setdefault(label, handle)
+
+    groups = [
+        [
+            drawn
+            for drawn in (
+                [m for m in column if _display(m) in available] for column in group
+            )
+            if drawn
+        ]
+        for group in _legend_groups(metrics)
+    ]
+    groups = [group for group in groups if group]
+    if not groups:
+        raise ValueError("None of the requested metrics were drawn on these axes.")
+
+    rows = max(len(column) for group in groups for column in group)
+
+    handles: list[Line2D] = []
+    labels: list[str] = []
+
+    def pad(count: int) -> None:
+        for _ in range(count):
+            handles.append(Line2D([], [], linestyle="none", marker="none"))
+            labels.append("")
+
+    n_columns = 0
+    for index, group in enumerate(groups):
+        if index:
+            pad(rows)
+            n_columns += 1
+        for column in group:
+            for metric in column:
+                handles.append(available[_display(metric)])
+                labels.append(_display(metric))
+            pad(rows - len(column))
+            n_columns += 1
+
+    return fig.legend(
+        handles,
+        labels,
+        loc="lower center",
+        bbox_to_anchor=(0.5, -y_offset),
+        ncol=n_columns,
+        frameon=False,
+        fontsize=fontsize or FONT_SIZES["legend"],
+        columnspacing=columnspacing,
     )
 
 

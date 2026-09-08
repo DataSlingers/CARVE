@@ -80,6 +80,26 @@ METRIC_DISPLAY_NAMES: dict[str, str] = {
     "calinski_harabasz": "Calinski-Harabasz",
 }
 
+# The oracle reference. Not a value of metric_name -- it names the schema's
+# oracle_ari column, one value per (axis point, seed) -- but it is requested
+# alongside real metric names wherever a figure or table draws it, so it
+# lives in the vocabulary with them.
+BASELINE_METRIC: str = "baseline_oracle"
+
+# Figure legends name the oracle with the k it is an oracle for, matching the
+# published Fig 4. The supplementary tables' row label stays "Baseline
+# (Oracle)", which is what the manuscript prints (S2-S9). One string cannot
+# serve both, so the legend override lives here and _tables keeps reading
+# METRIC_DISPLAY_NAMES directly.
+#
+# A literal asterisk, not mathtext. "$k^\star$" renders the superscript as a
+# filled five-pointed star at roughly six points in a nine-point legend,
+# which is a smudge rather than a symbol. The published figure used this
+# plain string for the same reason.
+METRIC_LEGEND_NAMES: dict[str, str] = {
+    "baseline_oracle": "Baseline (Oracle k*)",
+}
+
 N_REFERENCE_DATASETS: int = 10
 
 

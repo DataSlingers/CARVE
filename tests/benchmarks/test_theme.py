@@ -16,8 +16,11 @@ from benchmarks._theme import (
     METRIC_COLORS,
     RC_PARAMS,
     apply_theme,
+    cluster_cmap,
     cluster_colors,
     metric_color,
+    metric_linestyle,
+    metric_linewidth,
     save_figure,
     style_axes,
     theme_context,
@@ -29,6 +32,45 @@ PLOTTED_METRICS = (
     "ari_average_1se",
     *CVI_METRICS,
 )
+
+
+class TestLineStyle:
+    def test_carve_measures_are_solid(self):
+        for metric in (
+            "ari_stability_1se",
+            "ari_generalizability_1se",
+            "ari_average_1se",
+        ):
+            assert metric_linestyle(metric) == "-"
+
+    def test_the_oracle_and_every_index_are_dashed(self):
+        for metric in ("baseline_oracle", *CVI_METRICS):
+            assert metric_linestyle(metric) == "--"
+
+    def test_an_unknown_metric_is_dashed_rather_than_raising(self):
+        assert metric_linestyle("not_a_metric") == "--"
+
+    def test_reference_series_are_drawn_thinner_than_carve(self):
+        for metric in ("baseline_oracle", *CVI_METRICS):
+            assert metric_linewidth(metric) < metric_linewidth("ari_stability_1se")
+
+    def test_the_two_weights_are_the_chosen_values(self):
+        """Pinned so a later edit cannot drift the emphasis silently."""
+        assert metric_linewidth("ari_stability_1se") == 1.8
+        assert metric_linewidth("silhouette") == 1.2
+
+    def test_an_unknown_metric_gets_the_reference_weight(self):
+        assert metric_linewidth("not_a_metric") == metric_linewidth("silhouette")
+
+    def test_no_carve_measure_is_dashed(self):
+        """The prefix rule has to cover the whole CARVE vocabulary.
+
+        A consensus_* measure is a CARVE quantity but not an ARI curve, so
+        it is deliberately not solid; only the ari_* selection curves are.
+        """
+        for metric in CARVE_METRICS_ALL:
+            expected = "-" if metric.startswith("ari_") else "--"
+            assert metric_linestyle(metric) == expected
 
 
 class TestPalette:
@@ -46,6 +88,18 @@ class TestPalette:
     def test_no_two_plotted_metrics_share_a_color(self):
         colors = [METRIC_COLORS[m] for m in PLOTTED_METRICS]
         assert len(set(colors)) == len(colors)
+
+    def test_the_four_indices_carry_the_published_figure_hues(self):
+        """Fig 4's own values: Silhouette pink, DB purple, CH red, Gap orange.
+
+        Pinned because the pre-rebuild code assigned these four positionally
+        from the caller's metric order, which is why the published Fig 4 and
+        the published Klein panel disagree about which index is which color.
+        """
+        assert METRIC_COLORS["silhouette"] == "#E0457B"
+        assert METRIC_COLORS["davies_bouldin"] == "#A8389E"
+        assert METRIC_COLORS["calinski_harabasz"] == "#D6292E"
+        assert METRIC_COLORS["gap"] == "#F28522"
 
     def test_metric_color_falls_back_without_raising(self):
         assert metric_color("not_a_metric").startswith("#")
@@ -66,24 +120,38 @@ class TestPalette:
         assert cluster_colors(4) == cluster_colors(4)
 
     @pytest.mark.parametrize("n", [1, 3, 10])
-    def test_cluster_colors_matches_the_registered_colormap_up_to_ten(self, n):
-        """Task 12b's palette fix: cluster_colors() (used by
-        cluster_color_map() for every non-CARVE-object figure) and
-        plt.get_cmap(CLUSTER_CMAP_NAME, n) (used directly by
-        _carve_output.py's calls into CARVE's own plotting methods) must
-        agree for n up to len(CLUSTER_PALETTE), or the same <=10-cluster
-        solution gets two different colors across the paper -- exactly the
-        defect this plan exists to eliminate. Pinned so this cannot
-        silently drift back to a plain slice of CLUSTER_PALETTE.
+    def test_cluster_colors_is_the_palette_in_order(self, n):
+        """Cluster i is palette entry i, not a resampled spread over the map.
 
-        This agreement is deliberately *not* asserted above n=10 --
-        see test_cluster_colors_no_adjacent_duplicates_above_the_palette_length
-        and cluster_colors' docstring for why perfect agreement there was
-        traded away.
+        This is what puts four clusters on tab10's first four hues, which is
+        what the published composites draw and what a C1..C4 legend reads as.
+        An earlier version returned plt.get_cmap(CLUSTER_CMAP_NAME, n)'s
+        entries, which spread n samples across the whole ten-color palette --
+        four clusters landed on entries 0, 3, 6 and 9. Pinned so it cannot
+        drift back.
         """
-        cmap = plt.get_cmap(CLUSTER_CMAP_NAME, n)
-        expected = [to_hex(cmap(i)) for i in range(n)]
-        assert cluster_colors(n) == expected
+        assert cluster_colors(n) == [to_hex(c) for c in CLUSTER_PALETTE[:n]]
+
+    @pytest.mark.parametrize("n", [1, 3, 4, 10])
+    def test_cluster_cmap_agrees_under_both_indexing_styles(self, n):
+        """The cross-panel agreement cluster_cmap exists to buy.
+
+        CARVE's own panels resolve a cluster's color two different ways:
+        plot_cluster_violin and plot_cluster_scatter index the colormap by
+        plain integer, while plot_consensus_matrix's cluster band goes
+        through imshow, which normalizes the index to [0, 1] first. Handing
+        them a map of exactly n colors makes both land on the same entry --
+        and on the same entry cluster_colors gives every other figure.
+
+        Against the unsliced ten-color map the two styles disagree for any
+        n < 10, which is the defect that put one cluster in two colors
+        inside a single figure.
+        """
+        cmap = cluster_cmap(n)
+        by_index = [to_hex(cmap(i)) for i in range(n)]
+        by_imshow = [to_hex(cmap(i / (n - 1) if n > 1 else 0.0)) for i in range(n)]
+        assert by_index == cluster_colors(n)
+        assert by_imshow == cluster_colors(n)
 
     @pytest.mark.parametrize("n", [11, 14, 17])
     def test_cluster_colors_no_adjacent_duplicates_above_the_palette_length(self, n):

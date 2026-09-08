@@ -24,6 +24,7 @@ from benchmarks.figures import (
 from benchmarks.figures._case_study import (
     CompositeInputs,
     _estimator_spec_from_model_label,
+    composite_color_maps,
 )
 
 
@@ -173,9 +174,7 @@ class TestKleinFigure:
         plt.close(fig)
 
     def _panel_d(self, fig):
-        return next(
-            ax for ax in fig.get_axes() if ax.get_ylabel() == "Validation score"
-        )
+        return next(ax for ax in fig.get_axes() if ax.get_ylabel() == "ARI")
 
     def test_panel_d_lines_use_one_configurations_k_values_not_both(self, inputs):
         # inputs.carve (a _StubCarve) carries two method_ids swept over the
@@ -308,6 +307,50 @@ class TestPrepareComposite:
                 best_df=best,
                 comparison_metric="silhouette",
             )
+
+    def test_labels_come_back_aligned_to_the_reported_labels(self):
+        """Cluster i must mean "the cluster matching reported label i".
+
+        Two things have to line up, and the data here separates them. The
+        stub's clustering is a perfect but *permuted* copy of the reported
+        labels, so alignment has to happen at all; and the reported labels
+        appear in the order "b" then "a", so their first-occurrence order is
+        the reverse of their sorted order. Only sorted order is right --
+        aligned_color_maps hands out the palette in sorted category order --
+        so aligning against first occurrence would give every cluster the
+        wrong label's colour while still looking "aligned".
+        """
+        n = 40
+        y = np.array(["b"] * (n // 2) + ["a"] * (n // 2))
+        permuted = np.array([0] * (n // 2) + [1] * (n // 2))
+        rng = np.random.default_rng(3)
+        X = rng.normal(size=(n, 5)) + permuted[:, None]
+        carve = _StubCarve([2, 3], labels=permuted)
+        frame = pd.DataFrame(
+            {
+                "metric": ["silhouette"],
+                "model": ["KMeans"],
+                "k": [2],
+                "score": [0.5],
+                "ari": [0.5],
+            }
+        )
+
+        inputs = prepare_composite(
+            X, y, carve, curves_df=frame, best_df=frame, comparison_metric="silhouette"
+        )
+
+        categorical = pd.Categorical(y)
+        assert np.array_equal(inputs.carve_labels, categorical.codes)
+        # Unaligned, the labels would be the permutation the stub returned.
+        assert not np.array_equal(inputs.carve_labels, permuted)
+
+        # The invariant the scatter panels rest on, end to end: the colour
+        # panel B gives a cluster is the colour panel A gives the reported
+        # label that cluster was matched to.
+        true_cmap, carve_cmap, _ = composite_color_maps(inputs)
+        for code, category in enumerate(categorical.categories):
+            assert carve_cmap[code] == true_cmap[category]
 
     def test_uses_the_supplied_embedding_instead_of_fitting_pca(self):
         rng = np.random.default_rng(1)

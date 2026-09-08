@@ -16,7 +16,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from ._registry import METRIC_DISPLAY_NAMES
+from ._registry import BASELINE_METRIC, METRIC_DISPLAY_NAMES
 
 _QUANTILES = (0.05, 0.25, 0.50, 0.75, 0.95)
 
@@ -48,9 +48,6 @@ def summary_stats(values: pd.Series) -> dict[str, float]:
         "q75": float(quantiles.loc[0.75]),
         "q95": float(quantiles.loc[0.95]),
     }
-
-
-BASELINE_METRIC: str = "baseline_oracle"
 
 
 def _axis_label_order(df: pd.DataFrame) -> list[str]:

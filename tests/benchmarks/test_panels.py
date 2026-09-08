@@ -16,25 +16,34 @@ import numpy as np
 import pandas as pd
 import pytest
 from matplotlib.legend import Legend
+from matplotlib.patches import PathPatch, Rectangle
+from matplotlib.path import Path
 
 from benchmarks import _panels
 from benchmarks._panels import (
+    _display,
+    _legend_groups,
+    _stack_segments,
+    aligned_color_maps,
     alluvial,
     ari_lollipop,
     carve_lines,
+    axis_arrows,
     cluster_color_map,
     cvi_lines,
     grouped_legend,
+    metric_legend,
     metric_lines,
     panel_letter,
     runtime_lines,
     scatter_clusters,
 )
 from benchmarks._artifacts import SCHEMA
-from benchmarks._theme import metric_color
+from benchmarks._theme import FOREGROUND_COLOR, cluster_colors, metric_color
 
 AX_FIRST_FUNCTIONS = (
     "scatter_clusters",
+    "axis_arrows",
     "metric_lines",
     "carve_lines",
     "cvi_lines",
@@ -133,6 +142,25 @@ class TestScatterClusters:
             assert np.allclose(actual_rgb, expected_rgb), (
                 f"Label {label}: expected {expected_rgb}, got {actual_rgb}"
             )
+        plt.close(fig)
+
+    def test_markers_carry_a_thin_outline(self):
+        # The outline is what keeps overlapping points readable where two
+        # clusters meet; without it a dense scatter merges into one mass.
+        fig, ax = plt.subplots()
+        Z = np.random.default_rng(0).normal(size=(10, 2))
+        scatter_clusters(ax, Z, np.zeros(10, dtype=int))
+        edges = ax.collections[0].get_edgecolor()
+        assert len(edges) == 1
+        assert np.allclose(edges[0][:3], mcolors.to_rgba(FOREGROUND_COLOR)[:3])
+        assert ax.collections[0].get_linewidth()[0] > 0
+        plt.close(fig)
+
+    def test_outline_can_be_turned_off(self):
+        fig, ax = plt.subplots()
+        Z = np.random.default_rng(0).normal(size=(10, 2))
+        scatter_clusters(ax, Z, np.zeros(10, dtype=int), edgecolor="none")
+        assert len(ax.collections[0].get_edgecolor()) == 0
         plt.close(fig)
 
     def test_uses_fallback_for_missing_color(self):
@@ -520,10 +548,39 @@ class TestCviLines:
         plt.close(fig)
 
     def test_marks_the_selected_k_for_each_metric(self):
+        """One dashed rule per metric, standing at its own selected k.
+
+        The ring these replace sat on the curve at (k, score), so it read as
+        another data point and disappeared wherever two indices crossed.
+        """
         fig, ax = plt.subplots()
         curves, best = _curves_and_best()
         cvi_lines(ax, curves, best)
-        assert len(ax.collections) >= 2
+        rules = [ln for ln in ax.lines if ln.get_linestyle() == "--"]
+        assert len(rules) == len(best)
+        assert {float(ln.get_xdata()[0]) for ln in rules} == set(
+            best["k"].astype(float)
+        )
+        plt.close(fig)
+
+    def test_selection_rules_take_their_own_metric_color(self):
+        # silhouette selects k=4 and gap k=5 (see _curves_and_best), so a
+        # rule drawn in the other metric's color would be caught here.
+        fig, ax = plt.subplots()
+        curves, best = _curves_and_best()
+        cvi_lines(ax, curves, best)
+        rules = [ln for ln in ax.lines if ln.get_linestyle() == "--"]
+        color_at_k = {float(ln.get_xdata()[0]): ln.get_color() for ln in rules}
+        for _, row in best.iterrows():
+            assert color_at_k[float(row["k"])] == metric_color(str(row["metric"]))
+        plt.close(fig)
+
+    def test_no_ring_markers_are_drawn_on_the_curves(self):
+        # The rings were scatter collections; nothing should draw them now.
+        fig, ax = plt.subplots()
+        curves, best = _curves_and_best()
+        cvi_lines(ax, curves, best)
+        assert list(ax.collections) == []
         plt.close(fig)
 
     def test_lines_use_metric_specific_colors(self):
@@ -577,27 +634,6 @@ class TestCviLines:
             x = line.get_xdata()
             assert np.all(np.diff(x) > 0)
         plt.close(fig)
-
-    def test_selected_k_marker_uses_the_winning_models_own_score(self):
-        # best_df's gap winner is KMeans at k=5, the top of KMeans' own
-        # curve (normalized value 1.0). curves_df lists Agglomerative's rows
-        # before KMeans', so sorting the metric's *combined* rows by k puts
-        # Agglomerative's k=5 row ahead of KMeans': a best-k lookup that
-        # matched the first row at k=5 regardless of model -- the defect
-        # this guards against -- would mark Agglomerative's score (a
-        # combined-normalization value of about 0.33) instead of KMeans'.
-        fig, ax = plt.subplots()
-        curves, best = _curves_and_best()
-        cvi_lines(ax, curves, best)
-        gap_marker = next(
-            c
-            for c in ax.collections
-            if c.get_offsets().shape[0] == 1 and float(c.get_offsets()[0, 0]) == 5.0
-        )
-        marked_y = float(gap_marker.get_offsets()[0, 1])
-        assert marked_y == pytest.approx(1.0)
-        plt.close(fig)
-
 
 class TestAlluvial:
     def test_returns_the_same_axes(self):
@@ -662,10 +698,12 @@ class TestAlluvial:
             right_title="CVI",
             true_title="Reported",
         )
-        rectangles = list(ax.patches)
+        rectangles = [p for p in ax.patches if isinstance(p, Rectangle)]
         assert len(rectangles) == 6
-        # Column order is left, true, right; within a column, categories
-        # appear in first-occurrence order (left/true: [0, 1], right: [1, 0]).
+        # Column order is left, true, right. The truth column stacks in
+        # first-occurrence order ([0, 1]); each cluster column is then
+        # ordered against it by _order_by_reference, which puts left at
+        # [0, 1] and right -- the flip of y_true -- at [1, 0].
         expected = [
             left_cmap[0],
             left_cmap[1],
@@ -684,11 +722,18 @@ class TestAlluvial:
         # left equals y_true (no left/true mixing: 2 non-zero transitions),
         # right is the flip of y_true (2 non-zero transitions the other
         # way). A bug that drew every category pair regardless of overlap
-        # would produce 8 ribbons instead of 4; one that used the wrong
-        # source colormap for a boundary would fail the color check.
+        # would produce 8 ribbons instead of 4.
+        #
+        # Every ribbon takes its *reported label's* color on both sides of
+        # the truth column -- that is what lets one reported class be
+        # followed across the whole panel -- so neither left_cmap nor
+        # right_cmap may appear among the ribbons, only true_cmap.
         fig, ax = plt.subplots()
         y_true = np.array([0, 0, 1, 1])
-        left = np.array([0, 0, 1, 1])
+        # left is the *flip* of y_true, not a copy: with a copy, colouring a
+        # ribbon by its source cluster and by its target label give the same
+        # answer, and this test cannot tell the two apart.
+        left = np.array([1, 1, 0, 0])
         right = np.array([1, 1, 0, 0])
         left_cmap = {0: "#123456", 1: "#654321"}
         true_cmap = {0: "#ABCDEF", 1: "#FEDCBA"}
@@ -705,18 +750,227 @@ class TestAlluvial:
             right_title="CVI",
             true_title="Reported",
         )
-        assert len(ax.collections) == 4
-        actual = [
-            mcolors.to_rgba(coll.get_facecolor()[0])[:3] for coll in ax.collections
+        ribbons = [p for p in ax.patches if isinstance(p, PathPatch)]
+        assert len(ribbons) == 4
+        drawn = [
+            tuple(np.round(mcolors.to_rgba(r.get_facecolor())[:3], 3)) for r in ribbons
         ]
         expected = [
-            mcolors.to_rgba(left_cmap[0])[:3],
-            mcolors.to_rgba(left_cmap[1])[:3],
-            mcolors.to_rgba(true_cmap[0])[:3],
-            mcolors.to_rgba(true_cmap[1])[:3],
+            tuple(np.round(mcolors.to_rgba(true_cmap[c])[:3], 3)) for c in (0, 1, 0, 1)
         ]
-        for actual_rgb, expected_rgb in zip(actual, expected):
-            assert np.allclose(actual_rgb, expected_rgb)
+        assert drawn == expected
+        plt.close(fig)
+
+    def test_ribbons_are_curved_not_straight(self):
+        """Panel F reads as flow, which is the Bezier control points.
+
+        A straight-edged band -- what this replaces -- is a four-vertex
+        polygon; each ribbon here is a nine-vertex path whose edges are
+        cubic curves. Asserting the curve codes rather than the vertex
+        count alone means a path that merely gained vertices would not pass.
+        """
+        fig, ax = plt.subplots()
+        y_true = np.repeat([0, 1], 10)
+        alluvial(
+            ax,
+            y_true,
+            y_true,
+            y_true,
+            left_cmap=cluster_color_map(y_true),
+            right_cmap=cluster_color_map(y_true),
+            true_cmap=cluster_color_map(y_true),
+            left_title="CARVE",
+            right_title="CVI",
+            true_title="Reported",
+        )
+        ribbons = [p for p in ax.patches if isinstance(p, PathPatch)]
+        assert ribbons
+        for ribbon in ribbons:
+            assert (ribbon.get_path().codes == Path.CURVE4).sum() == 6
+        plt.close(fig)
+
+    def test_cluster_bars_are_named_and_carry_purity(self):
+        # left cluster 0 is pure (all y_true 0); cluster 1 splits 3/1, so
+        # its purity is 75%. Names are one-based, so id 0 reads "C1".
+        fig, ax = plt.subplots()
+        y_true = np.array([0, 0, 0, 0, 1, 1, 1, 0])
+        left = np.array([0, 0, 0, 0, 1, 1, 1, 1])
+        alluvial(
+            ax,
+            y_true,
+            left,
+            left,
+            left_cmap=cluster_color_map(left),
+            right_cmap=cluster_color_map(left),
+            true_cmap=cluster_color_map(y_true),
+            left_title="CARVE",
+            right_title="CVI",
+            true_title="Reported",
+        )
+        texts = [t.get_text() for t in ax.texts]
+        assert "C1  100%" in texts
+        assert "C2  75%" in texts
+        plt.close(fig)
+
+    def test_reported_labels_are_named_inside_their_own_bars(self):
+        fig, ax = plt.subplots()
+        y_true = np.array(["d0"] * 10 + ["d7"] * 10)
+        left = np.repeat([0, 1], 10)
+        alluvial(
+            ax,
+            y_true,
+            left,
+            left,
+            left_cmap=cluster_color_map(left),
+            right_cmap=cluster_color_map(left),
+            true_cmap=cluster_color_map(y_true),
+            left_title="CARVE",
+            right_title="CVI",
+            true_title="Reported",
+        )
+        centered = [t.get_text() for t in ax.texts if t.get_ha() == "center"]
+        assert "d0" in centered and "d7" in centered
+        plt.close(fig)
+
+    def test_truth_column_is_stacked_more_loosely_than_the_cluster_columns(self):
+        """The middle column is the anchor and is set apart by its gaps.
+
+        Equal sizes everywhere, so any difference in bar height comes from
+        the gap fraction alone: the truth column gives up more of its
+        height to gaps, so each of its bars is shorter.
+        """
+        fig, ax = plt.subplots()
+        y_true = np.repeat([0, 1, 2], 10)
+        alluvial(
+            ax,
+            y_true,
+            y_true,
+            y_true,
+            left_cmap=cluster_color_map(y_true),
+            right_cmap=cluster_color_map(y_true),
+            true_cmap=cluster_color_map(y_true),
+            left_title="CARVE",
+            right_title="CVI",
+            true_title="Reported",
+        )
+        bars = [p for p in ax.patches if isinstance(p, Rectangle)]
+        left_heights = [b.get_height() for b in bars[:3]]
+        true_heights = [b.get_height() for b in bars[3:6]]
+        assert max(true_heights) < min(left_heights)
+        plt.close(fig)
+
+    def test_clusters_are_ordered_against_the_reported_column(self):
+        """A cluster is stacked where its mass sits in the truth column.
+
+        Cluster ids here run opposite to the truth column's order, so
+        stacking by id -- what this replaces -- would send every ribbon
+        across the full height of the panel. The bars must come out in
+        reverse id order instead.
+        """
+        fig, ax = plt.subplots()
+        y_true = np.repeat([0, 1], 10)
+        left = np.repeat([1, 0], 10)
+        left_cmap = {0: "#111111", 1: "#222222"}
+        alluvial(
+            ax,
+            y_true,
+            left,
+            left,
+            left_cmap=left_cmap,
+            right_cmap=left_cmap,
+            true_cmap=cluster_color_map(y_true),
+            left_title="CARVE",
+            right_title="CVI",
+            true_title="Reported",
+        )
+        bars = [p for p in ax.patches if isinstance(p, Rectangle)]
+        top_left_bar = max(bars[:2], key=lambda b: b.get_y())
+        assert np.allclose(
+            mcolors.to_rgba(top_left_bar.get_facecolor())[:3],
+            mcolors.to_rgba(left_cmap[1])[:3],
+        )
+        plt.close(fig)
+
+
+class TestStackSegments:
+    def test_stacks_downward_from_the_top(self):
+        # First entry at the top is what makes a column's reading order
+        # match the order the caller passed it.
+        spans = _stack_segments([1, 1, 1])
+        assert spans[0][1] == pytest.approx(1.0)
+        assert spans[0][0] > spans[1][0] > spans[2][0]
+
+    def test_gaps_come_out_of_the_available_height(self):
+        gapless = _stack_segments([1, 1], gap_frac=0.0)
+        gapped = _stack_segments([1, 1], gap_frac=0.2)
+        assert sum(t - b for b, t in gapless) == pytest.approx(1.0)
+        assert sum(t - b for b, t in gapped) == pytest.approx(0.8)
+
+    def test_empty_input_returns_no_spans(self):
+        assert _stack_segments([]) == []
+        assert _stack_segments([0, 0]) == []
+
+
+class TestAlignedColorMaps:
+    def test_reported_labels_take_the_palette_in_sorted_order(self):
+        (true_cmap,) = aligned_color_maps(np.array(["d7", "d0", "d2"]))
+        assert list(true_cmap) == ["d0", "d2", "d7"]
+        assert list(true_cmap.values()) == cluster_colors(3)
+
+    def test_a_cluster_shares_its_reported_label_color(self):
+        # The invariant the composite's three scatter panels rest on: an
+        # aligned cluster id and the reported label it was matched to are
+        # the same color, in every panel.
+        y_true = np.array(["a", "a", "b", "b", "c", "c"])
+        labels = np.array([0, 0, 1, 1, 2, 2])
+        true_cmap, cluster_cmap_ = aligned_color_maps(y_true, labels)
+        assert cluster_cmap_[0] == true_cmap["a"]
+        assert cluster_cmap_[1] == true_cmap["b"]
+        assert cluster_cmap_[2] == true_cmap["c"]
+
+    def test_palette_covers_more_clusters_than_reported_labels(self):
+        # A clustering may overshoot the reported label count; every id it
+        # uses still has to resolve to a color.
+        y_true = np.array(["a", "a", "b", "b"])
+        labels = np.array([0, 1, 2, 3])
+        _, cluster_cmap_ = aligned_color_maps(y_true, labels)
+        assert set(cluster_cmap_) == {0, 1, 2, 3}
+        assert len(set(cluster_cmap_.values())) == 4
+
+    def test_returns_one_map_per_clustering_plus_the_reported_one(self):
+        y_true = np.array([0, 0, 1, 1])
+        maps = aligned_color_maps(y_true, y_true, y_true, y_true)
+        assert len(maps) == 4
+
+
+class TestAxisArrows:
+    def test_returns_the_same_axes(self):
+        fig, ax = plt.subplots()
+        assert axis_arrows(ax) is ax
+        plt.close(fig)
+
+    def test_labels_the_two_directions(self):
+        fig, ax = plt.subplots()
+        axis_arrows(ax, ("t-SNE 1", "t-SNE 2"))
+        texts = [t.get_text() for t in ax.texts]
+        assert "t-SNE 1" in texts and "t-SNE 2" in texts
+        plt.close(fig)
+
+    def test_draws_two_arrows(self):
+        fig, ax = plt.subplots()
+        axis_arrows(ax)
+        arrows = [t for t in ax.texts if t.arrow_patch is not None]
+        assert len(arrows) == 2
+        plt.close(fig)
+
+    def test_position_is_in_axes_fractions_not_data_units(self):
+        # The marker has to stay put whatever the data limits are, which is
+        # what xycoords="axes fraction" buys.
+        fig, ax = plt.subplots()
+        axis_arrows(ax)
+        assert all(
+            t.xycoords == "axes fraction" for t in ax.texts if t.arrow_patch is not None
+        )
         plt.close(fig)
 
 
@@ -826,6 +1080,172 @@ class TestGroupedLegend:
             ax.plot([0, 1], [0, 1], label="Silhouette")
         legend = grouped_legend(fig, axes)
         assert len(legend.get_texts()) == 1
+        plt.close(fig)
+
+
+class TestLegendGroups:
+    """The grouping rule behind the paper figure's legend."""
+
+    def test_splits_into_oracle_carve_and_a_two_column_index_family(self):
+        groups = _legend_groups(
+            (
+                "baseline_oracle",
+                "ari_stability_1se",
+                "ari_generalizability_1se",
+                "silhouette",
+                "davies_bouldin",
+                "calinski_harabasz",
+                "gap",
+            )
+        )
+        assert groups == [
+            [["baseline_oracle"]],
+            [["ari_stability_1se", "ari_generalizability_1se"]],
+            [
+                ["silhouette", "davies_bouldin"],
+                ["calinski_harabasz", "gap"],
+            ],
+        ]
+
+    def test_classical_column_order_follows_the_callers_order(self):
+        """The two index columns are set by how metrics is written.
+
+        Passing the same four indices in a different order must move them
+        between columns, or the caller has no way to control the layout and
+        the docstring's promise is false.
+        """
+        groups = _legend_groups(
+            ("silhouette", "gap", "davies_bouldin", "calinski_harabasz")
+        )
+        assert groups == [
+            [["silhouette", "gap"], ["davies_bouldin", "calinski_harabasz"]]
+        ]
+
+    def test_groups_are_decided_by_metric_name_not_label_text(self):
+        """ari_stability's display name is "ARI (stab, max)" -- no "CARVE".
+
+        A label-matching rule would file it with the classical indices.
+        """
+        groups = _legend_groups(("ari_stability", "silhouette"))
+        assert groups == [[["ari_stability"]], [["silhouette"]]]
+
+    def test_absent_families_do_not_leave_empty_groups(self):
+        assert _legend_groups(("ari_stability_1se",)) == [[["ari_stability_1se"]]]
+
+    def test_two_indices_stay_in_one_column(self):
+        """Splitting two in half gives one-entry columns beside a two-entry one."""
+        groups = _legend_groups(
+            ("ari_stability_1se", "ari_generalizability_1se", "silhouette", "gap")
+        )
+        assert groups == [
+            [["ari_stability_1se", "ari_generalizability_1se"]],
+            [["silhouette", "gap"]],
+        ]
+
+    def test_an_odd_number_of_indices_fills_the_first_column_first(self):
+        groups = _legend_groups(("silhouette", "gap", "davies_bouldin"))
+        assert groups == [[["silhouette", "gap"], ["davies_bouldin"]]]
+
+
+class TestLegendLabels:
+    def test_the_oracle_label_is_not_mathtext(self):
+        """A "$k^\\star$" superscript is a smudge at legend size.
+
+        The figure legend names the oracle with a literal asterisk, as the
+        published figure does, while the table row label keeps the plain
+        "Baseline (Oracle)" the manuscript prints.
+        """
+        label = _display("baseline_oracle")
+        assert "$" not in label
+        assert label == "Baseline (Oracle k*)"
+
+    def test_the_table_display_name_is_left_alone(self):
+        from benchmarks._registry import METRIC_DISPLAY_NAMES
+
+        assert METRIC_DISPLAY_NAMES["baseline_oracle"] == "Baseline (Oracle)"
+
+    def test_a_metric_without_an_override_falls_back_to_its_display_name(self):
+        assert _display("silhouette") == "Silhouette"
+
+
+class TestMetricLegend:
+    def _figure(self, metrics):
+        fig, axes = plt.subplots(1, 2, squeeze=False)
+        for metric in metrics:
+            axes[0, 0].plot([0, 1], [0, 1], label=_display(metric))
+        return fig, axes
+
+    def test_an_empty_column_stands_between_families_but_not_inside_one(self):
+        """The gap inside the classical pair must stay the narrow gutter.
+
+        A Legend has one gutter width, so the family separation is an empty
+        column rather than a wider columnspacing -- which would push the two
+        classical columns apart too. Reading the labels column by column,
+        the blank columns must fall only on family boundaries.
+        """
+        metrics = (
+            "baseline_oracle",
+            "ari_stability_1se",
+            "ari_generalizability_1se",
+            "silhouette",
+            "davies_bouldin",
+            "calinski_harabasz",
+            "gap",
+        )
+        fig, axes = self._figure(metrics)
+        legend = metric_legend(fig, axes, metrics)
+        labels = [t.get_text() for t in legend.get_texts()]
+        rows = len(labels) // legend._ncols
+        columns = [labels[i * rows : (i + 1) * rows] for i in range(legend._ncols)]
+        blank = [index for index, c in enumerate(columns) if not any(c)]
+        assert legend._ncols == 6
+        assert blank == [1, 3]
+        assert columns[4] == ["Silhouette", "Davies-Bouldin"]
+        assert columns[5] == ["Calinski-Harabasz", "Gap Statistic"]
+        plt.close(fig)
+
+    def test_the_gutter_stays_narrow_so_the_empty_column_does_the_separating(self):
+        metrics = ("ari_stability_1se", "silhouette", "gap")
+        fig, axes = self._figure(metrics)
+        legend = metric_legend(fig, axes, metrics)
+        assert legend.columnspacing < 2.0
+        plt.close(fig)
+
+    def test_pads_short_columns_so_each_family_starts_its_own(self):
+        metrics = (
+            "baseline_oracle",
+            "ari_stability_1se",
+            "ari_generalizability_1se",
+            "silhouette",
+            "davies_bouldin",
+        )
+        fig, axes = self._figure(metrics)
+        legend = metric_legend(fig, axes, metrics)
+        labels = [t.get_text() for t in legend.get_texts()]
+        # three families, so two separating columns
+        assert legend._ncols == 5
+        assert labels[0] == _display("baseline_oracle")
+        assert labels[1] == ""
+        plt.close(fig)
+
+    def test_skips_metrics_that_were_never_drawn(self):
+        """A frame missing a metric must not put a dead entry in the legend."""
+        fig, axes = self._figure(("ari_stability_1se",))
+        legend = metric_legend(fig, axes, ("ari_stability_1se", "silhouette"))
+        labelled = [t.get_text() for t in legend.get_texts() if t.get_text()]
+        assert labelled == [_display("ari_stability_1se")]
+        plt.close(fig)
+
+    def test_a_family_with_nothing_drawn_leaves_no_stray_empty_column(self):
+        fig, axes = self._figure(("ari_stability_1se",))
+        legend = metric_legend(fig, axes, ("ari_stability_1se", "silhouette"))
+        assert legend._ncols == 1
+        plt.close(fig)
+
+    def test_raises_when_nothing_requested_was_drawn(self):
+        fig, axes = plt.subplots(1, 1, squeeze=False)
+        with pytest.raises(ValueError, match="None of the requested metrics"):
+            metric_legend(fig, axes, ("silhouette",))
         plt.close(fig)
 
 

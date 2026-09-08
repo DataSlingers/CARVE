@@ -3,6 +3,10 @@
 Every function returns a Figure and, unless save=False, writes it under its
 exact manuscript filename at 300 dpi. Four of these figures previously had no
 savefig at all and were right-click-saved out of Jupyter output.
+
+_scenario_overview is the one module here that is not a manuscript figure. It
+draws the per-family view the notebook's sections carry, built from the same
+primitives the manuscript figures use, and so defaults to save=False.
 """
 
 from ._benchmarking_examples import figure_benchmarking_examples
@@ -13,6 +17,7 @@ from ._klein_results import figure_klein_results
 from ._levine_results import figure_levine_results
 from ._paths import BENCHMARKING_DIR, CASE_STUDY_DIR, VIS_ROOT, figure_path
 from ._scaling import figure_scaling_ari, figure_scaling_runtime
+from ._scenario_overview import figure_scenario_overview
 
 __all__ = [
     "BENCHMARKING_DIR",
@@ -29,5 +34,6 @@ __all__ = [
     "figure_path",
     "figure_scaling_ari",
     "figure_scaling_runtime",
+    "figure_scenario_overview",
     "prepare_composite",
 ]

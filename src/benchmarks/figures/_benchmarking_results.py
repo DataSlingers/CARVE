@@ -5,7 +5,6 @@ data inside the plotting call, which meant a figure could disagree with the
 table beside it, and it took 19 parameters across 408 lines.
 """
 
-import string
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -13,29 +12,39 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.figure import Figure
 
-from .._panels import grouped_legend, metric_lines, panel_letter
+from .._panels import metric_legend, metric_lines
 from .._theme import FONT_SIZES, save_figure, theme_context
-from ._benchmarking_examples import SCENARIO_TITLES
+from ._benchmarking_examples import DEFAULT_SCENARIOS, SCENARIO_TITLES
 from ._paths import BENCHMARKING_DIR, figure_path
 
+# Legend order, which metric_legend reads directly: the oracle first in its
+# own column, then CARVE's two measures in one column, then the four
+# classical indices down two more. The classical four are ordered so those
+# two columns read Silhouette / Davies-Bouldin and Calinski-Harabasz / Gap,
+# as the published figure does.
 DEFAULT_METRICS: tuple[str, ...] = (
     "baseline_oracle",
     "ari_stability_1se",
     "ari_generalizability_1se",
     "silhouette",
-    "gap",
     "davies_bouldin",
     "calinski_harabasz",
+    "gap",
 )
 
-_DIFFICULTY_TICKS = ("easy", "medium", "hard")
+# The difficulty axis is a signal-to-noise sweep; the paper names it that.
+X_LABEL = "SNR"
+Y_LABEL = r"ARI (selected $\hat{k}$ vs. true labels)"
+
+# Capitalized, as the published figure prints them and as the per-family
+# section overviews draw them.
+_DIFFICULTY_TICKS = ("Easy", "Medium", "Hard")
 
 
 def figure_benchmarking_results(
     results_by_scenario: Mapping[str, pd.DataFrame],
     *,
     metrics: Sequence[str] = DEFAULT_METRICS,
-    k_star: int = 5,
     ncols: int = 3,
     save: bool = True,
     out_dir: Path | None = None,
@@ -48,8 +57,6 @@ def figure_benchmarking_results(
         Frames follow the unified schema, so no axis-column sniffing is needed.
     metrics : sequence of str
         Metric names to draw, in legend order.
-    k_star : int
-        True cluster count, used only for the panel subtitle.
     ncols : int
         Panels per row.
     save, out_dir
@@ -58,7 +65,28 @@ def figure_benchmarking_results(
     if not results_by_scenario:
         raise ValueError("Need at least one scenario to draw.")
 
-    names = list(results_by_scenario)
+    # The x ticks below are relabeled easy/medium/hard unconditionally, so a
+    # scaling frame handed to this function would not merely look odd -- its
+    # axis would read as difficulty while showing n or p. Rejecting it is the
+    # difference between a wrong figure and a traceback.
+    off_axis = {
+        name: str(frame["axis_name"].iloc[0])
+        for name, frame in results_by_scenario.items()
+        if not frame.empty and frame["axis_name"].iloc[0] != "difficulty_level"
+    }
+    if off_axis:
+        raise ValueError(
+            "Fig 4 labels its x axis easy/medium/hard, so every frame must "
+            f"sweep difficulty_level. Got {off_axis}. Use figure_scaling_ari "
+            "for scaling sweeps, or figure_scenario_overview for one family."
+        )
+
+    # Panel order comes from the registry-side reading order, not from how
+    # the caller built its mapping -- the notebook builds it by iterating
+    # SCENARIOS, whose order exists for the runner rather than for this
+    # figure. Anything not in that list keeps caller order, after the rest.
+    ranked = {name: index for index, name in enumerate(DEFAULT_SCENARIOS)}
+    names = sorted(results_by_scenario, key=lambda name: ranked.get(name, len(ranked)))
     n_rows = -(-len(names) // ncols)
 
     with theme_context():
@@ -78,22 +106,22 @@ def figure_benchmarking_results(
                 frame,
                 metrics=metrics,
                 x_col="axis_value",
-                x_label="Difficulty",
+                x_label=X_LABEL,
                 show_legend=False,
             )
             ax.set_xticks(sorted(frame["axis_value"].unique()))
             ax.set_xticklabels(_DIFFICULTY_TICKS[: frame["axis_value"].nunique()])
             ax.set_title(SCENARIO_TITLES.get(name, name), fontsize=FONT_SIZES["title"])
-            if index % ncols != 0:
-                ax.set_ylabel("")
-            panel_letter(ax, string.ascii_uppercase[index])
+            # One y label for the whole grid, set below as a figure label, so
+            # every panel clears its own.
+            ax.set_ylabel("")
 
         for index in range(len(names), n_rows * ncols):
             axes[index // ncols, index % ncols].set_visible(False)
 
-        fig.suptitle(f"$k^\\star = {k_star}$", fontsize=FONT_SIZES["title"], y=1.0)
+        fig.supylabel(Y_LABEL, fontsize=FONT_SIZES["axis_label"])
         fig.tight_layout()
-        grouped_legend(fig, axes, y_offset=0.06)
+        metric_legend(fig, axes, metrics, y_offset=0.06)
 
         if save:
             save_figure(

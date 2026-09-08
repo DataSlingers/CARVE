@@ -31,9 +31,16 @@ from matplotlib.collections import PathCollection, PolyCollection
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
 
-from benchmarks._theme import CLUSTER_CMAP_NAME
+import matplotlib.colors as mcolors
+
+from benchmarks._theme import cluster_colors
 from benchmarks.figures import figure_carve_output_klein, figure_carve_output_levine
-from benchmarks.figures._case_study import CompositeInputs
+from benchmarks.figures._case_study import (
+    CompositeInputs,
+    _align_to_reference,
+    carve_labels_aligned,
+    reference_codes,
+)
 from carve import CARVE
 
 
@@ -258,17 +265,25 @@ class TestCarveOutputFigures:
         assert stability_k != generalizability_k
         assert ax_b.get_title() == f"Consensus matrix ($k={stability_k}$)"
 
-        reference_fig, reference_ax = plt.subplots()
-        carve.plot_consensus_matrix(measure="stability", rule="1se", ax=reference_ax)
-        stability_matrix = np.asarray(reference_ax.images[0].get_array())
-        plt.close(reference_fig)
+        # The references are drawn under the same label alignment the
+        # figure draws under (see carve_labels_aligned): the matrix is
+        # ordered by cluster, so an unaligned reference differs from the
+        # drawn panel by a permutation of samples and nothing here would be
+        # comparable.
+        with carve_labels_aligned(carve, inputs.y):
+            reference_fig, reference_ax = plt.subplots()
+            carve.plot_consensus_matrix(
+                measure="stability", rule="1se", ax=reference_ax
+            )
+            stability_matrix = np.asarray(reference_ax.images[0].get_array())
+            plt.close(reference_fig)
 
-        other_fig, other_ax = plt.subplots()
-        carve.plot_consensus_matrix(
-            measure="generalizability", rule="1se", ax=other_ax
-        )
-        generalizability_matrix = np.asarray(other_ax.images[0].get_array())
-        plt.close(other_fig)
+            other_fig, other_ax = plt.subplots()
+            carve.plot_consensus_matrix(
+                measure="generalizability", rule="1se", ax=other_ax
+            )
+            generalizability_matrix = np.asarray(other_ax.images[0].get_array())
+            plt.close(other_fig)
 
         assert not np.array_equal(stability_matrix, generalizability_matrix)
         np.testing.assert_array_equal(drawn, stability_matrix)
@@ -309,19 +324,22 @@ class TestCarveOutputFigures:
             ]
 
         carve = inputs.carve
-        gini_fig, gini_ax = plt.subplots()
-        carve.plot_cluster_violin(
-            source="gini", measure="stability", rule="1se", ax=gini_ax
-        )
-        gini_extents = body_extents(gini_ax)
-        plt.close(gini_fig)
+        # Drawn under the figure's own label alignment, so the violins come
+        # out in the same cluster order the panel uses.
+        with carve_labels_aligned(carve, inputs.y):
+            gini_fig, gini_ax = plt.subplots()
+            carve.plot_cluster_violin(
+                source="gini", measure="stability", rule="1se", ax=gini_ax
+            )
+            gini_extents = body_extents(gini_ax)
+            plt.close(gini_fig)
 
-        accuracy_fig, accuracy_ax = plt.subplots()
-        carve.plot_cluster_violin(
-            source="accuracy", measure="stability", rule="1se", ax=accuracy_ax
-        )
-        accuracy_extents = body_extents(accuracy_ax)
-        plt.close(accuracy_fig)
+            accuracy_fig, accuracy_ax = plt.subplots()
+            carve.plot_cluster_violin(
+                source="accuracy", measure="stability", rule="1se", ax=accuracy_ax
+            )
+            accuracy_extents = body_extents(accuracy_ax)
+            plt.close(accuracy_fig)
 
         assert gini_extents != accuracy_extents
         assert body_extents(ax_d) == gini_extents
@@ -376,22 +394,19 @@ class TestCarveOutputFigures:
         """
         fig = figure_carve_output_klein(inputs, save=False)
         panels = _panel_by_letter(fig)
-        xlabels = {ax.get_xlabel() for ax in fig.get_axes() if ax not in panels.values()}
+        xlabels = {
+            ax.get_xlabel() for ax in fig.get_axes() if ax not in panels.values()
+        }
         assert "Gini Stability" in xlabels
         plt.close(fig)
 
     def test_palette_colors_come_from_the_theme_not_accent(self, inputs):
         """The point of the palette work: assert it, not just assume it.
 
-        The expected colors are computed the same way the module resolves
-        them -- ``plt.get_cmap(CLUSTER_CMAP_NAME, n)`` -- rather than as a
-        plain slice of CLUSTER_PALETTE: registering the palette under a
-        name makes matplotlib resample it to exactly n colors spread across
-        the full 10-color palette, which is *not* the same as its first n
-        entries in order (verified empirically while settling the palette
-        question; see _theme.py's comment on CLUSTER_CMAP_NAME). What
-        matters here is that the drawn colors are the theme's and not
-        "Accent"'s, not that they equal a naive slice of the tuple.
+        The expected colors are cluster_colors(n) -- the palette's first n
+        entries -- which is exactly what cluster_cmap(n) hands CARVE's own
+        plotting methods here, so a violin's color, the consensus band's,
+        and the composite figure's are one list rather than three.
         """
         fig = figure_carve_output_klein(inputs, save=False)
         ax_d = _panel_by_letter(fig)["D"]
@@ -399,9 +414,9 @@ class TestCarveOutputFigures:
         n_clusters = len(bodies)
 
         drawn = {tuple(np.round(b.get_facecolor()[0][:3], 3)) for b in bodies}
-        theme_cmap = plt.get_cmap(CLUSTER_CMAP_NAME, n_clusters)
         theme_colors = {
-            tuple(np.round(theme_cmap(i)[:3], 3)) for i in range(n_clusters)
+            tuple(np.round(mcolors.to_rgba(c)[:3], 3))
+            for c in cluster_colors(n_clusters)
         }
         accent_colors = {
             tuple(np.round(plt.get_cmap("Accent", n_clusters)(i)[:3], 3))
@@ -432,7 +447,11 @@ class TestCarveOutputFigures:
         levine_f = _panel_by_letter(levine_fig)["F"]
 
         klein_sizes = np.concatenate(
-            [c.get_sizes() for c in klein_f.collections if isinstance(c, PathCollection)]
+            [
+                c.get_sizes()
+                for c in klein_f.collections
+                if isinstance(c, PathCollection)
+            ]
         )
         levine_sizes = np.concatenate(
             [
@@ -445,3 +464,58 @@ class TestCarveOutputFigures:
         np.testing.assert_allclose(levine_sizes, 8.0)
         plt.close(klein_fig)
         plt.close(levine_fig)
+
+
+class TestClusterIdsAgreeWithTheComposite:
+    """Fig 3 and Fig 5 must call the same cluster "cluster 1".
+
+    CARVE's plot_* methods take no labels argument -- each resolves its own
+    through get_labels -- so the only hook is get_labels' own relabeling
+    onto reference_labels. These pin that it is actually used, and that the
+    fitted object is handed back unchanged.
+    """
+
+    def test_the_figure_draws_while_labels_are_aligned(self, inputs, monkeypatch):
+        carve = inputs.carve
+        seen = []
+        original = carve.plot_cluster_violin
+
+        def spy(*args, **kwargs):
+            seen.append(np.asarray(carve.reference_labels).copy())
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(carve, "plot_cluster_violin", spy)
+        fig = figure_carve_output_klein(inputs, save=False)
+        plt.close(fig)
+
+        assert seen, "the figure never called plot_cluster_violin"
+        assert np.array_equal(seen[0], reference_codes(inputs.y))
+
+    def test_aligned_labels_match_what_the_composite_computed(self, inputs):
+        # Inside the context, the labels CARVE's own methods resolve are the
+        # ones _align_to_reference gives the composite -- same relabeling,
+        # so the two figures agree on both color and cluster number.
+        carve = inputs.carve
+        saved = carve.reference_labels
+        selection = {
+            "measure": inputs.measure,
+            "rule": inputs.rule,
+            "not_two": inputs.not_two,
+        }
+        try:
+            raw = np.asarray(carve.get_labels(**selection))
+            with carve_labels_aligned(carve, inputs.y):
+                drawn = np.asarray(carve.get_labels(**selection))
+        finally:
+            carve.reference_labels = saved
+
+        assert np.array_equal(drawn, _align_to_reference(raw, inputs.y))
+
+    def test_the_fitted_object_is_left_as_it_was_found(self, inputs):
+        # The carve object is shared with the composite figure and is often
+        # a loaded cache the caller draws from more than once.
+        carve = inputs.carve
+        before = carve.reference_labels
+        fig = figure_carve_output_klein(inputs, save=False)
+        plt.close(fig)
+        assert carve.reference_labels is before

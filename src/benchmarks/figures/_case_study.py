@@ -5,7 +5,8 @@ things: marker size, the embedding, the axis labels, and panel F. Those are
 parameters here; the remaining 174 lines are shared.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -17,8 +18,9 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
 from .._panels import (
+    aligned_color_maps,
+    axis_arrows,
     carve_lines,
-    cluster_color_map,
     cvi_lines,
     panel_letter,
     scatter_clusters,
@@ -81,6 +83,78 @@ def _estimator_spec_from_model_label(model: str) -> EstimatorSpec:
     )
 
 
+def reference_codes(y: np.ndarray) -> np.ndarray:
+    """The reported labels as integer codes, in sorted category order.
+
+    One definition, used both by _align_to_reference and by
+    carve_labels_aligned, so the ids the composite draws and the ids CARVE's
+    own figure draws are relabeled against the same thing.
+    """
+    return np.asarray(pd.Categorical(y).codes, dtype=np.int64)
+
+
+@contextmanager
+def carve_labels_aligned(carve: Any, y: np.ndarray) -> Iterator[None]:
+    """Make CARVE's own plotting draw the ids the composite draws.
+
+    CARVE's plot_* methods take no ``labels`` argument -- each resolves its
+    own through ``get_labels``, which relabels onto ``self.reference_labels``
+    whenever the two carry the same number of classes. Pointing that at
+    reference_codes(y) for the duration of a figure is therefore the only
+    hook available, and it is enough: the labels those methods draw come out
+    identical to CompositeInputs.carve_labels, so a cluster keeps both its
+    color and its number across the two figures.
+
+    When the clustering and the reported labels disagree on class count
+    there is nothing to align and CARVE falls back to its own ids. It then
+    anchors every later call to the first one's labels, so the figure stays
+    self-consistent; it just cannot agree with the composite.
+
+    The attribute is restored on exit. The fitted object is shared with the
+    composite figure and is usually a loaded cache the caller draws from
+    more than once.
+    """
+    previous = getattr(carve, "reference_labels", None)
+    carve.reference_labels = reference_codes(y)
+    try:
+        yield
+    finally:
+        carve.reference_labels = previous
+
+
+def _align_to_reference(labels: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Relabel a clustering onto the reported labels' own codes.
+
+    Cluster ids are arbitrary: the same partition can come back as 0,1,2,3 or
+    3,0,2,1 from one estimator to the next. Every panel that colors by
+    cluster id, and the alluvial's C1..Ck names, only mean something once
+    those ids are matched to the reported labels they correspond to.
+
+    align_cluster_labels is the Hungarian matcher CARVE.get_labels already
+    uses internally. It is reused here rather than reimplemented so the two
+    cannot drift apart, even though it sits in carve._utils rather than on
+    the public surface. Codes come from pandas' sorted category order, which
+    is the same order aligned_color_maps assigns the palette in.
+    """
+    from carve._utils import align_cluster_labels
+
+    return np.asarray(align_cluster_labels(reference_codes(y), np.asarray(labels)))
+
+
+def composite_color_maps(
+    inputs: CompositeInputs,
+) -> tuple[dict[Any, str], dict[Any, str], dict[Any, str]]:
+    """The (reported, CARVE, comparison) color maps the composite draws with.
+
+    One call, one shared palette, so the scatter panels and the alluvial in
+    the same figure cannot disagree about which color a cluster is.
+    """
+    true_cmap, carve_cmap, comparison_cmap = aligned_color_maps(
+        inputs.y, inputs.carve_labels, inputs.comparison_labels
+    )
+    return true_cmap, carve_cmap, comparison_cmap
+
+
 def prepare_composite(
     X: np.ndarray,
     y: np.ndarray,
@@ -102,6 +176,10 @@ def prepare_composite(
     fixed choice) at that row's k. This is compute, not reporting -- call it
     once per study and reuse the returned CompositeInputs across both of that
     study's figures, rather than calling it again inside a render loop.
+
+    Both clusterings come back relabeled onto the reported labels' own codes,
+    so cluster *i* means "the cluster best matching reported label *i*" in
+    every panel that draws them. See _align_to_reference.
     """
     from sklearn.decomposition import PCA
 
@@ -135,6 +213,9 @@ def prepare_composite(
     )
     comparison_labels = np.asarray(estimator.fit_predict(X))
 
+    carve_labels = _align_to_reference(carve_labels, y)
+    comparison_labels = _align_to_reference(comparison_labels, y)
+
     return CompositeInputs(
         X=X,
         y=y,
@@ -167,10 +248,13 @@ def composite_figure(
     Panels A, B and C are scatters of the reported labels, the CARVE
     clustering, and the CVI clustering; D and E are the CARVE and CVI curves
     over k; F is supplied by the caller.
+
+    ``axis_labels`` names the embedding's two directions. Only panel A shows
+    them, as a corner arrow pair rather than as xlabel/ylabel: all three
+    scatters share one embedding, so repeating the names under B and C says
+    nothing the reader does not already have from A.
     """
-    true_cmap = cluster_color_map(inputs.y)
-    carve_cmap = cluster_color_map(inputs.carve_labels)
-    comparison_cmap = cluster_color_map(inputs.comparison_labels)
+    true_cmap, carve_cmap, comparison_cmap = composite_color_maps(inputs)
 
     with theme_context():
         fig = plt.figure(figsize=(16, 16), constrained_layout=False)
@@ -196,8 +280,8 @@ def composite_figure(
             color_map=true_cmap,
             s=marker_size,
             title="Reported Labels",
-            axis_labels=axis_labels,
         )
+        axis_arrows(ax_a, axis_labels)
         scatter_clusters(
             ax_b,
             inputs.Z,
@@ -205,7 +289,6 @@ def composite_figure(
             color_map=carve_cmap,
             s=marker_size,
             title="CARVE clustering",
-            axis_labels=axis_labels,
         )
         scatter_clusters(
             ax_c,
@@ -214,7 +297,6 @@ def composite_figure(
             color_map=comparison_cmap,
             s=marker_size,
             title=f"CVI ({inputs.comparison_name}, k={inputs.comparison_k})",
-            axis_labels=axis_labels,
         )
 
         carve_lines(

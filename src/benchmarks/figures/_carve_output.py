@@ -18,8 +18,8 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
 from .._panels import panel_letter
-from .._theme import CLUSTER_CMAP_NAME, save_figure, theme_context
-from ._case_study import CompositeInputs
+from .._theme import CLUSTER_CMAP_NAME, cluster_cmap, save_figure, theme_context
+from ._case_study import CompositeInputs, carve_labels_aligned
 from ._paths import CASE_STUDY_DIR, figure_path
 
 # Panel A is always the stability overview and panel C always the
@@ -60,9 +60,15 @@ def carve_output_figure(
     rule = inputs.rule
     not_two = inputs.not_two
     selected_k = int(carve.get_k(measure=measure, rule=rule, not_two=not_two))
+    # Exactly selected_k colors, so CARVE's direct-index panels (D, E) and
+    # its imshow-normalized one (B's cluster band) resolve the same cluster
+    # to the same color, and all three agree with the composite figure.
+    # Panels A and C color one line per estimator, not per cluster, so they
+    # keep the full ten-color map.
+    cluster_panel_cmap = cluster_cmap(selected_k)
     scatter_size_range = (marker_size * 0.75, marker_size * 3.0)
 
-    with theme_context():
+    with theme_context(), carve_labels_aligned(carve, inputs.y):
         # No explicit hspace/wspace here: passing them marks the gridspec as
         # manually customized, which makes every one of CARVE's own plotting
         # calls -- each ends with its own fig.tight_layout() -- warn that the
@@ -92,7 +98,7 @@ def carve_output_figure(
             rule=rule,
             not_two=not_two,
             ax=ax_b,
-            palette=CLUSTER_CMAP_NAME,
+            palette=cluster_panel_cmap,
             title=f"Consensus matrix ($k={selected_k}$)",
             show=False,
         )
@@ -111,7 +117,7 @@ def carve_output_figure(
             rule=rule,
             not_two=not_two,
             ax=ax_d,
-            palette=CLUSTER_CMAP_NAME,
+            palette=cluster_panel_cmap,
             title="Per-cluster stability",
             show=False,
         )
@@ -123,7 +129,7 @@ def carve_output_figure(
             X=inputs.X,
             embedding=inputs.Z,
             ax=ax_e,
-            palette=CLUSTER_CMAP_NAME,
+            palette=cluster_panel_cmap,
             size_range=scatter_size_range,
             title="Consensus labels",
             xlabel=axis_labels[0],
