@@ -56,6 +56,7 @@ from ._types import GridSpec, NoisePolicy, PreprocOption, RunMode, resolve_mode
 from ._utils import (
     align_cluster_labels,
     ensure_2d_array,
+    resolve_anchors,
     summarize_preprocessing_records,
 )
 
@@ -104,6 +105,18 @@ class CARVE(BaseEstimator):
     subsample_ratio : float, default=0.618
         Fraction of samples drawn without replacement per resample.
         Must be in (0, 1).
+    anchor_threshold : int, default=5000
+        Runs with ``n_samples <= anchor_threshold`` build full consensus
+        matrices exactly as before. Above it, consensus quantities are
+        computed over a fixed anchor subset, because a dense n-by-n matrix
+        per configuration is not feasible at large n. The comparison is
+        inclusive.
+    consensus_anchors : int, float, or None, default=None
+        Number of anchors, or a fraction of ``n_samples`` as a float in
+        (0, 1]. None resolves to ``min(n_samples, anchor_threshold)``, which
+        keeps the effective anchor count continuous across the threshold.
+        Lower it to reduce the memory the retained blocks occupy: each block
+        is 4 * m**2 bytes and there are two per configuration.
     estimator_param_grids : list of (Estimator, param_grid) tuples, or {"light", "full"}, default="light"
         Clustering estimators and their parameter grids. ``"light"`` uses
         KMeans, Ward-linkage agglomerative, and self-tuning spectral
@@ -161,6 +174,8 @@ class CARVE(BaseEstimator):
         Per-sample generalizability scores for each configuration.
     X_ : ndarray or None
         Input data stored after fitting.
+    consensus_anchors_ : ndarray or None
+        Anchor indices used for this fit, or None when the exact path ran.
 
     Notes
     -----
@@ -199,6 +214,8 @@ class CARVE(BaseEstimator):
     noise_policy: NoisePolicy = "drop"
     n_resamples: int = 100
     subsample_ratio: float = 0.618
+    anchor_threshold: int = 5000
+    consensus_anchors: int | float | None = None
 
     estimator_param_grids: list[GridSpec] | Literal["light", "full"] = "light"
     normalization_options: list[PreprocOption] | None = None
@@ -208,6 +225,7 @@ class CARVE(BaseEstimator):
     n_trees: int = 100
 
     X_: np.ndarray | None = field(init=False, default=None)
+    consensus_anchors_: np.ndarray | None = field(init=False, default=None)
     reference_labels: np.ndarray | None = None
 
     n_jobs: int = 1
@@ -334,6 +352,24 @@ class CARVE(BaseEstimator):
         X = ensure_2d_array(X)
         self.X_ = X
 
+        seed = self.random_state if random_state is None else random_state
+        self.consensus_anchors_ = resolve_anchors(
+            X.shape[0],
+            consensus_anchors=self.consensus_anchors,
+            anchor_threshold=self.anchor_threshold,
+            random_state=seed,
+        )
+        if self.consensus_anchors_ is not None:
+            warnings.warn(
+                f"n={X.shape[0]} exceeds anchor_threshold="
+                f"{self.anchor_threshold}, so CARVE is using anchored "
+                f"consensus over {self.consensus_anchors_.size} anchors. "
+                "Per-sample scores and labels still cover every sample; "
+                "consensus matrices and PAC are computed over the anchors.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+
         if reference_labels is not None:
             ref_arr = np.asarray(reference_labels)
 
@@ -439,6 +475,7 @@ class CARVE(BaseEstimator):
             show_progress=show_progress,
             mode=policy.mode,
             verbose=self.verbose,
+            anchors=self.consensus_anchors_,
         )
 
         self.estimator_results_ = pd.DataFrame.from_records(estimator_records)

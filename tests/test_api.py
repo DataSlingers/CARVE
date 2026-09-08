@@ -1121,3 +1121,106 @@ class TestRowIdentity:
         finally:
             carve_runner.run_validation = original
             carve_api.run_validation = original
+
+
+def _blobs(n, seed=0, p=4):
+    rng = np.random.default_rng(seed)
+    half = n // 2
+    return np.vstack([rng.normal(0, 1, (half, p)), rng.normal(6, 1, (n - half, p))])
+
+
+def _grids():
+    return [(KMeans, {"n_clusters": [2, 3], "n_init": [10]})]
+
+
+class TestAnchoredConsensus:
+    def test_below_threshold_stores_no_anchors_and_full_matrices(self):
+        X = _blobs(60)
+        c = CARVE(
+            estimator_param_grids=_grids(),
+            n_resamples=6,
+            random_state=0,
+            anchor_threshold=100,
+        ).fit(X)
+        assert c.consensus_anchors_ is None
+        assert c.consensus_matrices_[0].shape == (60, 60)
+
+    def test_above_threshold_stores_anchors_and_block_matrices(self):
+        X = _blobs(60)
+        c = CARVE(
+            estimator_param_grids=_grids(),
+            n_resamples=6,
+            random_state=0,
+            anchor_threshold=30,
+        )
+        with pytest.warns(RuntimeWarning, match="anchored consensus"):
+            c.fit(X)
+        assert c.consensus_anchors_ is not None
+        assert c.consensus_anchors_.size == 30
+        assert c.consensus_matrices_[0].shape == (30, 30)
+
+    def test_per_sample_scores_stay_full_length_under_anchoring(self):
+        X = _blobs(60)
+        c = CARVE(
+            estimator_param_grids=_grids(),
+            n_resamples=6,
+            random_state=0,
+            anchor_threshold=30,
+        )
+        with pytest.warns(RuntimeWarning):
+            c.fit(X)
+        assert c.stability_gini_scores_.shape[1] == 60
+        assert c.stability_ce_scores_.shape[1] == 60
+        assert c.generalizability_scores_[0].shape == (60,)
+
+    def test_explicit_anchor_count_opts_in_below_threshold(self):
+        X = _blobs(60)
+        c = CARVE(
+            estimator_param_grids=_grids(),
+            n_resamples=6,
+            random_state=0,
+            anchor_threshold=1000,
+            consensus_anchors=25,
+        )
+        with pytest.warns(RuntimeWarning):
+            c.fit(X)
+        assert c.consensus_anchors_.size == 25
+
+    def test_config_id_alignment_holds_under_anchoring(self):
+        X = _blobs(60)
+        c = CARVE(
+            estimator_param_grids=_grids(),
+            n_resamples=6,
+            random_state=0,
+            anchor_threshold=30,
+        )
+        with pytest.warns(RuntimeWarning):
+            c.fit(X)
+        n_rows = c.estimator_results_.shape[0]
+        assert np.array_equal(
+            c.estimator_results_["config_id"].to_numpy(), np.arange(n_rows)
+        )
+        assert len(c.consensus_matrices_) == n_rows
+        assert c.stability_gini_scores_.shape[0] == n_rows
+
+    def test_every_configuration_indexes_the_same_anchors(self):
+        # Configurations must be comparable across k, so one draw is reused.
+        # If each config drew its own anchors, blocks at different k would
+        # index different samples and cross-k comparison would be meaningless.
+        # Two configs are fitted here, so identical off-diagonal NaN masks are
+        # evidence they were built over the same co-sampled pairs.
+        X = _blobs(60)
+        c = CARVE(
+            estimator_param_grids=_grids(),
+            n_resamples=6,
+            random_state=0,
+            anchor_threshold=30,
+        )
+        with pytest.warns(RuntimeWarning):
+            c.fit(X)
+        assert c.consensus_anchors_.ndim == 1
+        assert np.all(np.diff(c.consensus_anchors_) > 0)
+        assert len(c.consensus_matrices_) >= 2
+        first, second = c.consensus_matrices_[0], c.consensus_matrices_[1]
+        assert first.shape == second.shape == (30, 30)
+        assert np.array_equal(np.isnan(first), np.isnan(second))
