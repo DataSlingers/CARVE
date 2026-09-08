@@ -270,6 +270,31 @@ table for the manuscript. The fixtures must be chosen so that a wrong answer dif
 from a right one: anchor indices that differ from their positions, and score vectors that are
 not constant.
 
+Measured in `tests/test_anchored_accuracy.py`. Data: n = 5,000 points drawn from three
+Gaussian blobs (centers at (0, 0), (8, 0), (4, 7), sigma 1.2), a KMeans grid over k in
+{2, 3, 4}, n_resamples = 25, random_state = 0. The anchored fits use anchor_threshold =
+10,000 so the anchored path runs at this n, and are compared against an exact fit on the
+same data. The selected k (measure stability, rule 1se) agreed between the anchored and
+exact fit at every m tested (k = 3 in every case).
+
+| m | Gini correlation (vs. exact) | CE correlation (vs. exact) | Label ARI (vs. exact) | Label ARI (vs. planted truth) | PAC (exact) | PAC (anchored) | PAC abs diff |
+|---|---|---|---|---|---|---|---|
+| 500 | 0.943 | 0.927 | 0.992 | 0.991 | 0.354 | 0.358 | 0.004 |
+| 1000 | 0.986 | 0.981 | 0.993 | 0.993 | 0.354 | 0.358 | 0.004 |
+| 2000 | 0.993 | 0.991 | 0.998 | 0.996 | 0.354 | 0.354 | 0.000 |
+
+The gini correlation rises monotonically with m (0.943, 0.986, 0.993 at m = 500, 1000,
+2000), consistent with the row-mean estimator's variance falling as 1/m; the CE
+correlation follows the same pattern (0.927, 0.981, 0.991), which is expected since it is
+the same estimator family under the same variance argument.
+
+PAC is reported without an acceptance threshold. Under anchoring, PAC is computed over
+the m-by-m anchor block rather than over all pairs, so it is a legitimately different
+quantity from the exact PAC, and neither this plan nor the spec establishes how close the
+two should be. At this n the observed anchored PAC happens to track the exact value
+closely (absolute difference 0.004, 0.004, 0.000 at m = 500, 1000, 2000), but that
+agreement is a measurement, not a claim this document makes or a bound the test enforces.
+
 ## 5. Plan 2: the two case studies
 
 Both studies follow the existing pipeline. Each contributes a loader under
