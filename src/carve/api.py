@@ -9,8 +9,9 @@ import joblib
 import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
-from sklearn.base import BaseEstimator, ClassifierMixin, ClusterMixin
+from sklearn.base import BaseEstimator, ClassifierMixin, ClusterMixin, clone
 from sklearn.cluster import AgglomerativeClustering
+from sklearn.ensemble import RandomForestClassifier
 
 from . import _anndata
 from ._grids import (
@@ -759,6 +760,9 @@ class CARVE(BaseEstimator):
 
         labels = estimator.fit_predict(D)
 
+        if self.consensus_anchors_ is not None:
+            labels = self._extend_anchor_labels(labels)
+
         # --- Align with reference labels if available ---
         cur_k = int(np.unique(labels).size)
         ref = self.reference_labels
@@ -770,6 +774,51 @@ class CARVE(BaseEstimator):
             labels = align_cluster_labels(ref, labels)
 
         return np.asarray(labels, dtype=np.int32)
+
+    def _extend_anchor_labels(self, anchor_labels: np.ndarray) -> np.ndarray:
+        """Label every sample from a cut taken over the anchor subset.
+
+        The anchor block yields labels for m anchors. The remaining samples
+        are assigned by the same classifier CARVE clones per resample to
+        score generalizability, fitted on the anchors and their cut labels.
+        Anchors keep the labels the cut gave them rather than the
+        classifier's prediction for them.
+        """
+        if self.X_ is None:
+            raise RuntimeError(
+                "X_ is not available, so anchored labels cannot be extended to "
+                "every sample. Call fit() first, or restore X_ after load()."
+            )
+
+        anchors = self.consensus_anchors_
+        n_samples = self.X_.shape[0]
+        anchor_labels = np.asarray(anchor_labels)
+
+        labels = np.empty(n_samples, dtype=np.int64)
+        labels[anchors] = anchor_labels
+
+        rest = np.setdiff1d(np.arange(n_samples), anchors, assume_unique=False)
+        if rest.size == 0:
+            return labels
+
+        if np.unique(anchor_labels).size < 2:
+            # A degenerate cut gives the classifier a single class; every
+            # remaining sample belongs to it by construction.
+            labels[rest] = anchor_labels[0]
+            return labels
+
+        classifier = (
+            clone(self.classifier)
+            if self.classifier is not None
+            else RandomForestClassifier(
+                n_estimators=self.n_trees,
+                n_jobs=-1,
+                random_state=self.random_state,
+            )
+        )
+        classifier.fit(self.X_[anchors], anchor_labels)
+        labels[rest] = classifier.predict(self.X_[rest])
+        return labels
 
     def get_k(
         self,

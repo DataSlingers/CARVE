@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.cluster import KMeans, AgglomerativeClustering
+from sklearn.dummy import DummyClassifier
+from sklearn.metrics import adjusted_rand_score
 
 import matplotlib
 
@@ -1224,3 +1226,62 @@ class TestAnchoredConsensus:
         first, second = c.consensus_matrices_[0], c.consensus_matrices_[1]
         assert first.shape == second.shape == (30, 30)
         assert np.array_equal(np.isnan(first), np.isnan(second))
+
+
+class TestAnchoredLabels:
+    def _fitted(self, n=60, threshold=30):
+        X = _blobs(n)
+        c = CARVE(
+            estimator_param_grids=_grids(),
+            n_resamples=6,
+            random_state=0,
+            anchor_threshold=threshold,
+        )
+        with pytest.warns(RuntimeWarning):
+            c.fit(X)
+        return X, c
+
+    def test_labels_cover_every_sample(self):
+        X, c = self._fitted()
+        labels = c.get_labels(k=2)
+        assert labels.shape == (X.shape[0],)
+        assert labels.dtype == np.int32
+
+    def test_labels_recover_the_planted_structure(self):
+        # _blobs plants two well separated groups, so an extension that
+        # assigned arbitrary labels would fail this even with a valid shape.
+        X, c = self._fitted()
+        truth = np.repeat([0, 1], X.shape[0] // 2)
+        assert adjusted_rand_score(truth, c.get_labels(k=2)) > 0.9
+
+    def test_anchor_positions_keep_their_cut_labels(self):
+        X, c = self._fitted()
+        anchors = c.consensus_anchors_
+        planted = np.arange(anchors.size) % 2
+
+        # A default RandomForest has unbounded depth, so it memorizes the
+        # anchors it is fitted on and predicts the planted labels back at
+        # those same positions. That makes the assertion below pass whether
+        # or not the anchors were overwritten, which is the one defect this
+        # test exists to catch. A constant classifier cannot reproduce an
+        # alternating cut, so an overwrite is visible.
+        c.classifier = DummyClassifier(strategy="constant", constant=0)
+
+        extended = c._extend_anchor_labels(planted)
+        assert np.array_equal(extended[anchors], planted)
+        assert extended.shape == (X.shape[0],)
+
+    def test_number_of_clusters_matches_the_cut(self):
+        X, c = self._fitted()
+        assert np.unique(c.get_labels(k=3)).size == 3
+
+    def test_exact_path_labels_are_unaffected(self):
+        X = _blobs(60)
+        c = CARVE(
+            estimator_param_grids=_grids(),
+            n_resamples=6,
+            random_state=0,
+            anchor_threshold=1000,
+        ).fit(X)
+        assert c.consensus_anchors_ is None
+        assert c.get_labels(k=2).shape == (60,)
