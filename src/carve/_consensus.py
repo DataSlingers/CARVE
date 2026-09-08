@@ -285,3 +285,73 @@ def consensus_anchor_block(
         block = co_cluster_counts / co_sample_counts
     block[co_sample_counts == 0] = np.nan
     return block
+
+
+def stability_from_runs_anchored(
+    n_samples: int,
+    runs: list[SampledLabels],
+    anchors: np.ndarray,
+    *,
+    chunk_size: int = 8192,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per-sample Gini and cross-entropy stability against an anchor set.
+
+    Returns full-length score arrays. Each score is the same row-mean
+    statistic stability_from_consensus computes, taken over m random anchor
+    partners instead of over all n - 1 partners, so it is unbiased with
+    variance of order 1/m.
+
+    The n-by-m slab is never materialized: rows are processed in chunks and
+    reduced to the two score vectors immediately.
+    """
+    Sa, Ba, columns, pos = _anchor_factors(n_samples, runs, anchors)
+    n_runs = Sa.shape[1]
+    n_cols = Ba.shape[1]
+
+    stability_gini = np.empty(n_samples, dtype=float)
+    stability_ce = np.empty(n_samples, dtype=float)
+
+    # The runner's per-resample sample_idx arrays arrive unsorted (an
+    # rng.choice permutation), but searchsorted below requires sorted input.
+    run_indices = [np.sort(np.asarray(sample_idx)) for sample_idx, _ in runs]
+
+    for lo in range(0, n_samples, chunk_size):
+        hi = min(lo + chunk_size, n_samples)
+        rows = hi - lo
+
+        Sc = np.zeros((rows, n_runs), dtype=np.float32)
+        for r, sample_idx in enumerate(run_indices):
+            start = np.searchsorted(sample_idx, lo)
+            stop = np.searchsorted(sample_idx, hi)
+            Sc[sample_idx[start:stop] - lo, r] = 1.0
+
+        Bc = np.zeros((rows, n_cols), dtype=np.float32)
+        for col, members in columns:
+            start = np.searchsorted(members, lo)
+            stop = np.searchsorted(members, hi)
+            Bc[members[start:stop] - lo, col] = 1.0
+
+        co_sample = Sc @ Sa.T
+        co_cluster = Bc @ Ba.T
+        with np.errstate(divide="ignore", invalid="ignore"):
+            probs = np.asarray(co_cluster / co_sample, dtype=float)
+        probs[co_sample == 0] = np.nan
+
+        # Blank each row's self-pair, mirroring the fill_diagonal in
+        # stability_from_consensus. A sample that is itself an anchor must not
+        # contribute its own perfect self-similarity to its own score.
+        self_pos = pos[lo:hi]
+        is_anchor = self_pos >= 0
+        probs[np.nonzero(is_anchor)[0], self_pos[is_anchor]] = np.nan
+
+        term = probs * (1.0 - probs)
+        clipped = np.clip(probs, 1e-12, 1.0 - 1e-12)
+        entropy = -(clipped * np.log(clipped) + (1.0 - clipped) * np.log(1.0 - clipped))
+
+        uncertainty_gini = 2.0 * np.nanmean(term, axis=1)
+        uncertainty_ce = np.nanmean(entropy, axis=1)
+
+        stability_gini[lo:hi] = 1.0 - np.clip(2.0 * uncertainty_gini, 0.0, 1.0)
+        stability_ce[lo:hi] = 1.0 - np.clip(uncertainty_ce / np.log(2.0), 0.0, 1.0)
+
+    return stability_gini, stability_ce

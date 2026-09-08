@@ -10,6 +10,7 @@ from carve._consensus import (
     consensus_anchor_block,
     reorder_consensus_matrix,
     stability_from_consensus,
+    stability_from_runs_anchored,
 )
 
 
@@ -328,3 +329,89 @@ class TestConsensusAnchorBlock:
         block = consensus_anchor_block(n, runs, anchors)
         assert np.isnan(block[0, 2])
         assert not np.isnan(block[0, 1])
+
+
+# -----------------------------------------------------------------------
+# stability_from_runs_anchored
+# -----------------------------------------------------------------------
+
+
+class TestStabilityFromRunsAnchored:
+    def test_all_anchors_matches_the_exact_scores(self):
+        n = 150
+        runs = _make_runs(n, n_runs=10, k=3, seed=5)
+        exact_gini, exact_ce = stability_from_consensus(
+            compute_consensus_matrix(n, runs)
+        )
+        gini, ce = stability_from_runs_anchored(n, runs, np.arange(n))
+
+        assert np.allclose(gini, exact_gini, atol=1e-6)
+        assert np.allclose(ce, exact_ce, atol=1e-6)
+
+    def test_scores_cover_every_sample(self):
+        n = 300
+        runs = _make_runs(n, seed=6)
+        anchors = np.sort(np.random.default_rng(3).choice(n, 50, replace=False))
+        gini, ce = stability_from_runs_anchored(n, runs, anchors)
+
+        assert gini.shape == (n,)
+        assert ce.shape == (n,)
+        assert np.isfinite(gini).all()
+        assert np.isfinite(ce).all()
+
+    def test_chunking_does_not_change_the_result(self):
+        n = 300
+        runs = _make_runs(n, seed=7)
+        anchors = np.sort(np.random.default_rng(4).choice(n, 60, replace=False))
+        a = stability_from_runs_anchored(n, runs, anchors, chunk_size=17)
+        b = stability_from_runs_anchored(n, runs, anchors, chunk_size=100_000)
+        assert np.allclose(a[0], b[0])
+        assert np.allclose(a[1], b[1])
+
+    def test_scores_vary_across_samples(self):
+        # Guards against an implementation that returns a constant vector,
+        # which every shape assertion above would still accept.
+        n = 300
+        runs = _make_runs(n, seed=8)
+        anchors = np.arange(0, n, 4)
+        gini, ce = stability_from_runs_anchored(n, runs, anchors)
+        assert gini.std() > 1e-3
+        assert ce.std() > 1e-3
+
+    def test_anchor_subset_approximates_the_exact_scores(self):
+        # The estimator is a row mean over a random column subset, so a
+        # large anchor set should track the exact answer closely.
+        n = 400
+        runs = _make_runs(n, n_runs=20, k=4, seed=9)
+        exact_gini, _ = stability_from_consensus(compute_consensus_matrix(n, runs))
+        gini, _ = stability_from_runs_anchored(
+            n, runs, np.sort(np.random.default_rng(5).choice(n, 300, replace=False))
+        )
+        assert np.corrcoef(gini, exact_gini)[0, 1] > 0.95
+
+    def test_unsorted_run_indices_match_sorted_indices(self):
+        # Regression test: the runner's per-resample sample_idx arrays are
+        # unsorted permutations (rng.choice without sorting), not the sorted
+        # arrays _make_runs happens to produce. Shuffle each run's indices
+        # (permuting its labels the same way, so the pairing is preserved)
+        # and require a multi-chunk pass to match the sorted-input result.
+        n = 200
+        sorted_runs = _make_runs(n, n_runs=10, k=3, seed=11)
+
+        rng = np.random.default_rng(12)
+        shuffled_runs = []
+        for sample_idx, labels in sorted_runs:
+            perm = rng.permutation(sample_idx.size)
+            shuffled_runs.append((sample_idx[perm], labels[perm]))
+
+        anchors = np.sort(np.random.default_rng(13).choice(n, 40, replace=False))
+
+        sorted_gini, sorted_ce = stability_from_runs_anchored(
+            n, sorted_runs, anchors, chunk_size=23
+        )
+        shuffled_gini, shuffled_ce = stability_from_runs_anchored(
+            n, shuffled_runs, anchors, chunk_size=23
+        )
+
+        assert np.allclose(shuffled_gini, sorted_gini, equal_nan=True)
+        assert np.allclose(shuffled_ce, sorted_ce, equal_nan=True)
