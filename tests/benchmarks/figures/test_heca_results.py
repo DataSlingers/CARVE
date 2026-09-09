@@ -5,6 +5,9 @@ import pytest
 
 matplotlib.use("Agg")
 
+from matplotlib.collections import PathCollection
+from sklearn.metrics import adjusted_rand_score
+
 from benchmarks.figures import figure_heca_results
 from benchmarks.figures._heca_results import AXIS_LABELS, subsample_inputs
 
@@ -137,3 +140,124 @@ def test_figure_does_not_write_when_save_is_false(inputs, tmp_path):
                               out_dir=tmp_path)
     assert len([ax for ax in fig.axes if ax.has_data() or ax.get_title()]) >= 6
     assert list(tmp_path.iterdir()) == []
+
+
+class _CarveForAriPanel:
+    """Minimal stand-in for panel D; irrelevant to panel F's ARI value.
+
+    See TestSubsampleInputs._Carve/the fixture above for the same shape --
+    duplicated rather than shared because these two test files predate this
+    one (a Minor finding already deferred to final review).
+    """
+
+    def __init__(self):
+        ks = [3, 4, 5]
+        self.estimator_results_ = pd.DataFrame(
+            {
+                "n_clusters": ks,
+                "method_id": ["m0"] * len(ks),
+                "method_label": ["MiniBatchKMeans"] * len(ks),
+                "ari_stability": [0.1, 0.2, 0.3],
+                "ari_generalizability": [0.15, 0.25, 0.35],
+            }
+        )
+
+    def _select_row(self, *, measure, rule="1se", not_two=False):
+        row = self.estimator_results_.iloc[1]
+        return row, 0, int(row["n_clusters"]), False
+
+    def get_k(self, *, measure="stability", rule="1se", not_two=False):
+        return 4
+
+
+def _plotted_ari_by_method(fig):
+    """Read panel F's actual plotted (method -> ARI) values off its axes.
+
+    ari_lollipop draws both an hlines LineCollection and a scatter
+    PathCollection; LineCollection also exposes get_offsets(), so the
+    PathCollection must be selected by isinstance, not by hasattr -- an
+    earlier ad hoc version of this check picked the wrong collection and
+    silently read a degenerate (0, 0) point instead of the real data.
+    """
+    ari_ax = next(ax for ax in fig.axes if "ARI" in (ax.get_xlabel() or ""))
+    labels = [t.get_text() for t in ari_ax.get_yticklabels()]
+    scatter = next(c for c in ari_ax.collections if isinstance(c, PathCollection))
+    return dict(zip(labels, (point[0] for point in scatter.get_offsets())))
+
+
+class TestPanelFUsesTheFullPopulation:
+    """Regression guard for the fix in figure_heca_results.
+
+    The brief wired composite_figure(subsample_inputs(inputs, ...),
+    bottom_panel=_ari_panel, ...), which would score CARVE's ARI against
+    the scatter-legibility subsample while best_df's CVI rows are already
+    computed at full scale -- silently comparing the two methods on
+    different populations. figure_heca_results now closes panel F over the
+    full, unsubsampled inputs instead. Nothing else in the committed suite
+    inspects panel F's actual plotted value, so a future revert of
+    bottom_panel back to _ari_panel would pass every other test here.
+
+    The fixture below corrupts the first 400 of 1000 "a"-labeled cells so
+    the full-population ARI is well below 1.0, then confirms (rather than
+    assumes) that a subsample drawn with the module's own default
+    random_state produces a numerically different ARI -- if it did not,
+    the assertion below would not be able to tell the fix from the revert
+    it guards against.
+    """
+
+    @pytest.fixture
+    def lopsided_inputs(self):
+        from benchmarks.figures._case_study import CompositeInputs
+
+        rng = np.random.default_rng(7)
+        n = 2000
+        y = np.array(["a"] * (n // 2) + ["b"] * (n // 2))
+        carve_labels = np.where(y == "a", 0, 1).astype(np.int64)
+        # Mislabel the first fifth of the population. Concentrating the
+        # corruption in one contiguous block, rather than spreading it
+        # evenly, is what makes a random subsample's corrupted fraction
+        # diverge from the full population's.
+        carve_labels[:400] = 1
+        best = pd.DataFrame(
+            {
+                "metric": ["silhouette"],
+                "model": ["MiniBatchKMeans"],
+                "k": [3],
+                "score": [0.4],
+                "ari": [0.5],
+            }
+        )
+        return CompositeInputs(
+            X=rng.normal(size=(n, 5)),
+            y=y,
+            Z=rng.normal(size=(n, 2)),
+            carve=_CarveForAriPanel(),
+            carve_labels=carve_labels,
+            comparison_labels=rng.integers(0, 2, n),
+            comparison_name="Silhouette",
+            comparison_k=3,
+            curves_df=best.copy(),
+            best_df=best,
+        )
+
+    def test_carve_ari_matches_the_full_population_not_the_scatter_subsample(
+        self, lopsided_inputs
+    ):
+        subsample_size = 200
+        full_ari = adjusted_rand_score(
+            lopsided_inputs.y, lopsided_inputs.carve_labels
+        )
+        subsampled = subsample_inputs(lopsided_inputs, size=subsample_size)
+        subsample_ari = adjusted_rand_score(subsampled.y, subsampled.carve_labels)
+
+        # Confirm the fixture actually distinguishes the two populations --
+        # if this ever failed, the assertion below would prove nothing.
+        assert full_ari != pytest.approx(subsample_ari, abs=1e-6)
+
+        fig = figure_heca_results(
+            lopsided_inputs, scatter_subsample=subsample_size, save=False
+        )
+        plotted = _plotted_ari_by_method(fig)
+
+        assert plotted["CARVE"] == pytest.approx(full_ari, abs=1e-9)
+        assert plotted["CARVE"] != pytest.approx(subsample_ari, abs=1e-6)
