@@ -14,6 +14,7 @@ component 1 is a later Signac and ArchR convention.
 """
 
 import gzip
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -160,16 +161,43 @@ def load_cusanovich(
     n_peaks_kept = int(keep_peaks.sum())
     n_kept_cells = int(keep_cells.sum())
 
+    preprocessing = [
+        f"drop cells labeled {UNKNOWN_LABEL!r} in {_ANNOTATION_COLUMN}",
+        f"keep peaks accessible in at least {site_frequency_threshold:.0%} "
+        "of cells (site_frequency_threshold, source default 3%)",
+    ]
+
     if n_peaks_kept == 0:
         # A threshold this strict leaves no signal to embed. TruncatedSVD
         # requires at least one feature, so report a zero embedding rather
-        # than raising a confusing sklearn error deep in the SVD call.
+        # than raising a confusing sklearn error deep in the SVD call. Warn
+        # and record the skip in meta rather than silently claiming the
+        # TF-IDF/SVD chain ran, which it did not.
+        warnings.warn(
+            f"site_frequency_threshold={site_frequency_threshold} removed "
+            "every peak in the Cusanovich atlas; returning a zero embedding "
+            "instead of running TF-IDF/SVD.",
+            stacklevel=2,
+        )
         embedding = np.zeros((n_kept_cells, n_components), dtype=np.float64)
+        preprocessing.append(
+            "TF-IDF and TruncatedSVD were skipped: "
+            f"site_frequency_threshold={site_frequency_threshold} left no "
+            "peaks, so X is a zero embedding, not a real projection"
+        )
     else:
         counts = matrix[keep_peaks][:, keep_cells]
         embedding = TruncatedSVD(
             n_components=n_components, random_state=random_state
         ).fit_transform(_tfidf(counts).T.tocsr())
+        preprocessing.extend(
+            [
+                "TF-IDF: per-cell term frequency, "
+                "IDF = log(1 + n_cells / cells_per_peak)",
+                f"TruncatedSVD(n_components={n_components}); all components "
+                "kept, matching the source, which does not drop component 1",
+            ]
+        )
 
     X = np.asarray(embedding, dtype=np.float64)
     y = pd.Series(
@@ -203,14 +231,7 @@ def load_cusanovich(
         "n_peaks_kept": n_peaks_kept,
         "label_name": label_column,
         "drops_first_component": False,
-        "preprocessing": [
-            f"drop cells labeled {UNKNOWN_LABEL!r} in {_ANNOTATION_COLUMN}",
-            f"keep peaks accessible in at least {site_frequency_threshold:.0%} "
-            "of cells (site_frequency_threshold, source default 3%)",
-            "TF-IDF: per-cell term frequency, IDF = log(1 + n_cells / cells_per_peak)",
-            f"TruncatedSVD(n_components={n_components}); all components kept, "
-            "matching the source, which does not drop component 1",
-        ],
+        "preprocessing": preprocessing,
         "subsample": subsample,
         "random_state": random_state,
     }

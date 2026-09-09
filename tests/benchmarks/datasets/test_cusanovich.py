@@ -92,6 +92,21 @@ class TestLoadCusanovich:
         )
         assert strict["n_peaks_kept"] < loose["n_peaks_kept"]
 
+    def test_zero_surviving_peaks_warns_and_does_not_claim_svd_ran(self, atlas):
+        # threshold=0.5 leaves zero peaks for this fixture (see the test
+        # above), so X degenerates to a zero embedding. That must be loud,
+        # not silent: a warning naming the threshold, and meta that does not
+        # claim TF-IDF/SVD ran when they were skipped.
+        with pytest.warns(UserWarning, match="site_frequency_threshold=0.5"):
+            _, _, meta = load_cusanovich(
+                root=atlas, n_components=10, site_frequency_threshold=0.5
+            )
+        assert meta["n_peaks_kept"] == 0
+        chain = " ".join(meta["preprocessing"])
+        assert "skipped" in chain
+        assert "TruncatedSVD(n_components=10);" not in chain
+        assert "TF-IDF: per-cell term frequency" not in chain
+
     def test_embedding_separates_the_planted_tissues(self, atlas):
         # A loader that returned noise would satisfy every shape assertion
         # above, so pin that the preprocessing preserves real structure.
