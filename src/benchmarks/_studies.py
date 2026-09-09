@@ -168,12 +168,19 @@ def fit_or_load_carve(
     n_jobs: int = 1,
     random_state: int = 42,
     force: bool = False,
+    consensus_anchors: int | None = None,
 ) -> CARVE:
     """Fit CARVE on a case study, caching the fitted state to disk.
 
     A Levine fit takes hours, so the cache is what makes regenerating a figure
     practical. The saved state does not carry the data matrix, so X_ is
     restored after loading, matching the notebook this replaces.
+
+    consensus_anchors : int or None, default=None
+        Forwarded to CARVE only when not None, so studies that leave it at
+        the package default (an exact, unanchored run) are unaffected. hECA
+        sets this at case-study scale, where an exact consensus matrix does
+        not fit.
     """
     cache_path = Path(cache_path)
 
@@ -187,6 +194,11 @@ def fit_or_load_carve(
         n_resamples=n_resamples,
         n_jobs=n_jobs,
         random_state=random_state,
+        **(
+            {}
+            if consensus_anchors is None
+            else {"consensus_anchors": consensus_anchors}
+        ),
     )
     reference = None if y is None else np.asarray(y)
     carve.fit(np.asarray(X), reference_labels=reference)

@@ -109,3 +109,38 @@ def test_klein_prepare_composite_uses_the_generalizability_selection():
     assert 'measure="generalizability"' in source
     assert 'rule="1se"' in source
     assert "not_two=True" in source
+
+
+def test_cusanovich_notebook_reads_its_config_from_studies():
+    import json
+    from pathlib import Path
+
+    source = "".join(
+        "".join(cell["source"])
+        for cell in json.loads(
+            Path("notebooks/case_studies/Cusanovich.ipynb").read_text()
+        )["cells"]
+        if cell["cell_type"] == "code"
+    )
+    # Configuration must be read from STUDIES, not restated. Four manuscript
+    # mismatches on this project came from re-derivation at the call site.
+    assert 'STUDIES["cusanovich"]' in source
+    assert "study_model_grids(study)" in source
+    assert "candidate_k=study.candidate_k" in source
+    assert "range(4, 17)" not in source
+
+
+def test_heca_notebook_reads_its_config_from_studies():
+    import json
+    from pathlib import Path
+
+    source = "".join(
+        "".join(cell["source"])
+        for cell in json.loads(
+            Path("notebooks/case_studies/hECA.ipynb").read_text()
+        )["cells"]
+        if cell["cell_type"] == "code"
+    )
+    assert 'STUDIES["heca"]' in source
+    assert "study_resolution_grids(study)" in source
+    assert "consensus_anchors=study.consensus_anchors" in source
