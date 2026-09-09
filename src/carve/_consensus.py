@@ -287,6 +287,19 @@ def consensus_anchor_block(
     return block
 
 
+def _default_anchor_chunk_size(m: int) -> int:
+    """Default row chunk size for stability_from_runs_anchored.
+
+    probs, term, clipped and entropy are each (chunk_size, m) float64 and
+    live at once: at a flat 8192 rows and m = 5000 that is 1.3 GB, or about
+    1.6 GB with the two float32 count arrays beside them. Capping at 2**23
+    elements holds each near 64 MB. The 8192 ceiling keeps the row-side
+    arrays, which are sized by the run count rather than by m, no larger
+    than they were before.
+    """
+    return max(256, min(8192, 2**23 // max(m, 1)))
+
+
 def stability_from_runs_anchored(
     n_samples: int,
     runs: list[SampledLabels],
@@ -317,13 +330,7 @@ def stability_from_runs_anchored(
     m = Sa.shape[0]
 
     if chunk_size is None:
-        # probs, term, clipped and entropy are each (chunk_size, m) float64
-        # and live at once: at a flat 8192 rows and m = 5000 that is 1.3 GB,
-        # or about 1.6 GB with the two float32 count arrays beside them.
-        # Capping at 2**23 elements holds each near 64 MB. The 8192 ceiling
-        # keeps the row-side arrays, which are sized by the run count rather
-        # than by m, no larger than they were before.
-        chunk_size = max(256, min(8192, 2**23 // max(m, 1)))
+        chunk_size = _default_anchor_chunk_size(m)
 
     stability_gini = np.empty(n_samples, dtype=float)
     stability_ce = np.empty(n_samples, dtype=float)

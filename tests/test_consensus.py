@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from carve._consensus import (
+    _default_anchor_chunk_size,
     compute_consensus_matrix,
     compute_consensus_metrics,
     compute_consensus_pac,
@@ -381,6 +382,24 @@ class TestStabilityFromRunsAnchored:
         explicit = stability_from_runs_anchored(n, runs, anchors, chunk_size=8192)
         assert np.allclose(default[0], explicit[0])
         assert np.allclose(default[1], explicit[1])
+
+    def test_default_chunk_size_binds_at_a_large_anchor_count(self):
+        # At m = 60 (the test above) the 8192 ceiling wins and the
+        # derivation never engages the 2**23-element budget that is the
+        # actual memory fix -- that test would pass unchanged even if the
+        # budget were relaxed to something far larger. Pin the derivation
+        # directly at an m large enough for the budget to bind instead.
+        #
+        # 2**23 // 5000 = 1677, which is below the 8192 ceiling, so this is
+        # the concrete value the documented rule produces at m = 5000; there
+        # is no way to state the expectation here without restating that
+        # same arithmetic, so the value is pinned outright.
+        assert _default_anchor_chunk_size(5000) == 1677
+
+        # And, regardless of the exact constant, the per-chunk (chunk_size,
+        # m) float64 transient this rule bounds stays within the intended
+        # element budget rather than growing with m unchecked.
+        assert _default_anchor_chunk_size(5000) * 5000 <= 2**23
 
     def test_scores_vary_across_samples(self):
         # Guards against an implementation that returns a constant vector,

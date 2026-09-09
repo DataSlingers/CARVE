@@ -1312,12 +1312,14 @@ class TestAnchoredLabels:
         anchors = c.consensus_anchors_
         planted = np.arange(anchors.size) % 2
 
-        # A default RandomForest has unbounded depth, so it memorizes the
-        # anchors it is fitted on and predicts the planted labels back at
-        # those same positions. That makes the assertion below pass whether
-        # or not the anchors were overwritten, which is the one defect this
+        # A RandomForest fitted on the anchors and asked to predict those
+        # same anchors tends to reproduce their labels regardless of whether
+        # the implementation wrongly overwrote them, so whether it memorizes
+        # is a probabilistic margin rather than a guarantee. That would make
+        # the assertion below an unreliable check for the one defect this
         # test exists to catch. A constant classifier cannot reproduce an
-        # alternating cut, so an overwrite is visible.
+        # alternating cut, so an overwrite is visible, and the mutation kill
+        # is exact and deterministic.
         c.classifier = DummyClassifier(strategy="constant", constant=0)
 
         extended = c._extend_anchor_labels(planted)
@@ -1440,11 +1442,16 @@ class TestExactPathUnchanged:
         assert c.consensus_matrices_[0].shape == (80, 80)
 
     def test_results_are_identical_with_and_without_the_feature_present(self):
-        # Two fits differing only in an anchor_threshold that cannot bind.
-        # The first sits exactly on the inclusive boundary (n == threshold),
-        # so a mutation making the comparison exclusive anchors that fit and
-        # every assertion below fires. A threshold that is merely far away
-        # would leave this comparing two identical exact-path fits.
+        # Two fits differing only in anchor_threshold, neither of which
+        # anchors. The first sets anchor_threshold=80, exactly n, so it
+        # exercises the inclusive n == anchor_threshold boundary through
+        # fit() itself rather than only through a resolve_anchors unit call;
+        # the second sets a threshold far above n as a plain control. Both
+        # are expected to take the exact path and agree on every value below.
+        # This does not detect an exclusive-comparison mutation of
+        # resolve_anchors: at m == n the anchored computation reproduces the
+        # exact one exactly, so no threshold pair at this n can distinguish
+        # them by value.
         X, a = self._fit(80, anchor_threshold=80)
         _, b = self._fit(80, anchor_threshold=10_000)
 

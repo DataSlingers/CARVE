@@ -299,14 +299,18 @@ def consensus_matrix(
     Raises
     ------
     KeyError
-        If no consensus matrix was stored, i.e. ``tl.carve`` ran with
-        ``store_consensus=False``.
+        If no consensus matrix was stored in ``adata.obsp``. This happens
+        when ``tl.carve`` ran with ``store_consensus=False``, or when
+        anchored consensus was active: an m-by-m anchor block cannot be
+        written to ``adata.obsp``, which requires an n_obs-by-n_obs matrix.
     """
     obsp_key = f"{key}_consensus"
     if obsp_key not in adata.obsp:
         raise KeyError(
             f"adata.obsp[{obsp_key!r}] not found. It is omitted when "
-            "tl.carve runs with store_consensus=False."
+            "tl.carve runs with store_consensus=False, or when anchored "
+            "consensus was active: an anchor block is m-by-m rather than "
+            "n_obs-by-n_obs and cannot be written to adata.obsp."
         )
     return _plot_consensus_matrix(
         np.asarray(adata.obsp[obsp_key]),

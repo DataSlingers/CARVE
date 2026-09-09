@@ -425,6 +425,11 @@ def attach_results(
         matrix = np.asarray(consensus)
         anchors = model.consensus_anchors_
         if anchors is not None and matrix.shape == (anchors.size, anchors.size):
+            consensus_attr = (
+                "consensus_generalizability_matrices_"
+                if labels_mode == "generalizability"
+                else "consensus_matrices_"
+            )
             warnings.warn(
                 "Anchored consensus is active: the consensus matrix for "
                 f"{key_added!r} is a {anchors.size}x{anchors.size} anchor "
@@ -432,7 +437,7 @@ def attach_results(
                 f"the latter, so nothing was written to "
                 f"adata.obsp[{key_added + '_consensus'!r}]. The block "
                 f"itself is still available at "
-                f"model.consensus_matrices_[{config_id}], and the anchor "
+                f"model.{consensus_attr}[{config_id}], and the anchor "
                 "count is recorded in "
                 f"adata.uns[{key_added!r}]['params']['n_consensus_anchors'].",
                 UserWarning,
