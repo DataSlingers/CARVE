@@ -20,6 +20,7 @@ EXPECTED = (
     "figure_levine_results",
     "figure_carve_output_klein",
     "figure_carve_output_levine",
+    "figure_cusanovich_results",
 )
 
 # Figures not yet implemented. Tasks 9 through 12 each removed their own
