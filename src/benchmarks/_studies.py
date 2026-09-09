@@ -5,6 +5,7 @@ then built a figure and called plt.show() in the same call, so the sweep
 could not be reused without also drawing it.
 """
 
+from collections.abc import Sequence
 from itertools import product
 from pathlib import Path
 from typing import Any
@@ -349,3 +350,98 @@ def study_resolution_grids(
     if not study.resolutions:
         raise ValueError(f"Study {study.name!r} declares no resolutions.")
     return resolution_grids(EstimatorSpec(name="leiden"), study.resolutions)
+
+
+def study_scaling_sweep(
+    X: np.ndarray,
+    y: np.ndarray | pd.Series | None,
+    *,
+    sizes: Sequence[int],
+    model_grids: list[tuple[type[ClusterMixin], dict[str, list[Any]]]],
+    n_resamples: int = 100,
+    n_jobs: int = 1,
+    random_state: int = 42,
+    consensus_anchors: int | None = None,
+    measure: str = "stability",
+    rule: str = "1se",
+) -> pd.DataFrame:
+    """Fit CARVE at a ladder of subsample sizes and measure the cost.
+
+    Every size subsamples from the same (X, y), so the biology (which
+    clusters exist, their proportions and separation) is held constant and n
+    is the only thing varying. This is what a scaling sweep needs and a
+    per-dataset comparison cannot give: a runtime or memory difference
+    between datasets of different sizes could always be attributed to the
+    datasets differing in more than size.
+
+    peak_rss_bytes is the process high-water mark at the end of each fit, not
+    a per-fit delta: ru_maxrss only ever rises. Because the ladder grows
+    monotonically in n, the reported value is still the peak attributable to
+    that size, but it must not be read as the memory a single fit would need
+    in a fresh process. Callers should pass sizes in increasing order.
+
+    Returns
+    -------
+    DataFrame with columns (n, n_configs, wall_clock_s, peak_rss_bytes,
+    selected_k, ari). ari is against y, or NaN when y is None.
+    """
+    import time
+
+    from sklearn.metrics import adjusted_rand_score
+
+    from ._artifacts import peak_rss_bytes
+
+    X = np.asarray(X)
+    y_arr = None if y is None else np.asarray(y)
+    n_total = X.shape[0]
+
+    rows: list[dict[str, Any]] = []
+    for size in sizes:
+        size = int(size)
+        if size > n_total:
+            raise ValueError(
+                f"Requested size {size} exceeds the {n_total} available samples."
+            )
+
+        rng = np.random.default_rng(random_state + size)
+        idx = np.sort(rng.choice(n_total, size=size, replace=False))
+
+        carve = CARVE(
+            estimator_param_grids=model_grids,
+            n_resamples=n_resamples,
+            n_jobs=n_jobs,
+            random_state=random_state,
+            consensus_anchors=consensus_anchors,
+        )
+
+        started = time.perf_counter()
+        carve.fit(X[idx])
+        elapsed = time.perf_counter() - started
+
+        labels = carve.get_labels(measure=measure, rule=rule)
+        rows.append(
+            {
+                "n": size,
+                "n_configs": int(carve.estimator_results_.shape[0]),
+                "wall_clock_s": float(elapsed),
+                "peak_rss_bytes": int(peak_rss_bytes()),
+                "selected_k": int(carve.get_k(measure=measure, rule=rule)),
+                "ari": (
+                    float("nan")
+                    if y_arr is None
+                    else float(adjusted_rand_score(y_arr[idx], labels))
+                ),
+            }
+        )
+
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "n",
+            "n_configs",
+            "wall_clock_s",
+            "peak_rss_bytes",
+            "selected_k",
+            "ari",
+        ],
+    )

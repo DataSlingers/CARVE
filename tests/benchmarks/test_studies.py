@@ -20,6 +20,7 @@ from benchmarks._studies import (
     resolve_scale,
     study_model_grids,
     study_resolution_grids,
+    study_scaling_sweep,
 )
 from benchmarks._types import EstimatorSpec, Study
 
@@ -394,3 +395,76 @@ class TestNewStudies:
     def test_cusanovich_publication_scale_matches_levine(self):
         assert STUDIES["cusanovich"].scales["publication"] == 5000
         assert STUDIES["cusanovich"].scales["atlas"] is None
+
+
+@pytest.fixture
+def ladder_data():
+    rng = np.random.default_rng(0)
+    centers = np.array([[0.0, 0.0], [8.0, 0.0], [4.0, 7.0]])
+    labels = rng.integers(0, 3, 400)
+    X = centers[labels] + rng.normal(0, 1.0, (400, 2))
+    return X, pd.Series(labels.astype(str), name="truth")
+
+
+class TestStudyScalingSweep:
+    def _grids(self):
+        return [(KMeans, {"n_clusters": [2, 3, 4], "n_init": [10]})]
+
+    def test_one_row_per_size(self, ladder_data):
+        X, y = ladder_data
+        out = study_scaling_sweep(
+            X, y, sizes=[100, 200], model_grids=self._grids(), n_resamples=5
+        )
+        assert list(out["n"]) == [100, 200]
+        assert len(out) == 2
+
+    def test_columns_are_the_documented_contract(self, ladder_data):
+        X, y = ladder_data
+        out = study_scaling_sweep(
+            X, y, sizes=[100], model_grids=self._grids(), n_resamples=5
+        )
+        assert list(out.columns) == [
+            "n",
+            "n_configs",
+            "wall_clock_s",
+            "peak_rss_bytes",
+            "selected_k",
+            "ari",
+        ]
+
+    def test_measurements_are_populated(self, ladder_data):
+        X, y = ladder_data
+        out = study_scaling_sweep(
+            X, y, sizes=[100, 200], model_grids=self._grids(), n_resamples=5
+        )
+        assert (out["wall_clock_s"] > 0).all()
+        assert (out["peak_rss_bytes"] > 0).all()
+        assert out["n_configs"].nunique() == 1
+        assert out["selected_k"].between(2, 4).all()
+
+    def test_ari_reflects_the_planted_structure(self, ladder_data):
+        # A sweep that scored against shuffled labels would still produce a
+        # populated frame, so pin that the ARI is meaningful.
+        X, y = ladder_data
+        out = study_scaling_sweep(
+            X, y, sizes=[200], model_grids=self._grids(), n_resamples=8
+        )
+        assert out["ari"].iloc[0] > 0.5
+
+    def test_sizes_larger_than_n_are_rejected(self, ladder_data):
+        X, y = ladder_data
+        with pytest.raises(ValueError, match="exceeds"):
+            study_scaling_sweep(
+                X, y, sizes=[10_000], model_grids=self._grids(), n_resamples=5
+            )
+
+    def test_is_deterministic(self, ladder_data):
+        X, y = ladder_data
+        a = study_scaling_sweep(
+            X, y, sizes=[150], model_grids=self._grids(), n_resamples=5
+        )
+        b = study_scaling_sweep(
+            X, y, sizes=[150], model_grids=self._grids(), n_resamples=5
+        )
+        assert a["selected_k"].equals(b["selected_k"])
+        assert np.allclose(a["ari"], b["ari"])
