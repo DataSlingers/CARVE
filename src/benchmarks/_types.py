@@ -8,7 +8,9 @@ from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-KNOWN_ESTIMATORS: frozenset[str] = frozenset({"kmeans", "agglomerative", "spectral"})
+KNOWN_ESTIMATORS: frozenset[str] = frozenset(
+    {"kmeans", "minibatch_kmeans", "agglomerative", "spectral", "leiden"}
+)
 
 
 @dataclass(frozen=True)

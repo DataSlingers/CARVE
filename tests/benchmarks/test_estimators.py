@@ -1,12 +1,14 @@
 """Tests for estimator construction."""
 
 import pytest
-from sklearn.cluster import AgglomerativeClustering, KMeans
+from sklearn.cluster import AgglomerativeClustering, KMeans, MiniBatchKMeans
 
 from benchmarks._estimators import (
     ESTIMATOR_CLASSES,
+    RESOLUTION_ESTIMATORS,
     build_estimator,
     param_grids,
+    resolution_grids,
 )
 from benchmarks._types import KNOWN_ESTIMATORS, EstimatorSpec
 
@@ -58,3 +60,41 @@ class TestParamGrids:
     def test_rejects_empty_candidate_k(self):
         with pytest.raises(ValueError, match="candidate_k"):
             param_grids(EstimatorSpec(name="kmeans"), candidate_k=())
+
+
+class TestResolutionEstimators:
+    def test_leiden_sweeps_resolution_not_n_clusters(self):
+        assert "leiden" in RESOLUTION_ESTIMATORS
+        assert "kmeans" not in RESOLUTION_ESTIMATORS
+
+    def test_resolution_grid_shape(self):
+        from carve.cluster import LeidenClustering
+
+        grids = resolution_grids(EstimatorSpec(name="leiden"), [0.1, 0.2, 0.3])
+        assert len(grids) == 1
+        cls, grid = grids[0]
+        assert cls is LeidenClustering
+        assert grid["resolution"] == [0.1, 0.2, 0.3]
+        assert "n_clusters" not in grid
+
+    def test_resolution_grid_rejects_a_k_based_estimator(self):
+        with pytest.raises(ValueError, match="does not sweep resolution"):
+            resolution_grids(EstimatorSpec(name="kmeans"), [0.1])
+
+    def test_param_grids_rejects_a_resolution_estimator(self):
+        # SweepSpec is frozen: one run sweeps exactly one parameter, so a
+        # resolution estimator must never be handed an n_clusters grid.
+        with pytest.raises(ValueError, match="sweeps resolution"):
+            param_grids(EstimatorSpec(name="leiden"), [2, 3])
+
+    def test_minibatch_kmeans_builds_with_n_clusters(self):
+        est = build_estimator(
+            EstimatorSpec(name="minibatch_kmeans"), n_clusters=4, random_state=0
+        )
+        assert isinstance(est, MiniBatchKMeans)
+        assert est.n_clusters == 4
+        assert est.random_state == 0
+
+    def test_build_estimator_rejects_a_resolution_estimator(self):
+        with pytest.raises(ValueError, match="sweeps resolution"):
+            build_estimator(EstimatorSpec(name="leiden"), n_clusters=4, random_state=0)
