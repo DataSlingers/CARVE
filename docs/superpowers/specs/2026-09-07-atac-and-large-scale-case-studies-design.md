@@ -209,17 +209,31 @@ comparable across k, and `config_id` must continue to index the matrix lists in 
 `estimator_results_`. The draw is derived arithmetically from `random_state`, consistent with
 the existing rule that seeds are derived and never shared through global state.
 
-Consensus construction. `compute_consensus_matrix` gains an `anchors` argument. When `anchors`
-is `None` the function reproduces current behavior exactly, including the `S @ S.T` formulation.
-When anchors are supplied it returns the `m x m` block and accumulates anchor columns directly
-rather than materializing the `n x (n_resamples * k)` intermediate. Section 3.2 shows that
-intermediate is 2.46 GB at atlas scale, so avoiding it is required for the path to run at all.
+Consensus construction. As built, `compute_consensus_matrix` is left byte for byte identical
+and two siblings are added beside it: `consensus_anchor_block`, which returns the `m x m`
+block, and `stability_from_runs_anchored`, which produces the per-sample scores. Both draw on
+a private `_anchor_factors` helper that accumulates only the anchor rows of the `S` and `B`
+factors, so the `n x (n_resamples * k)` intermediate is never materialized. Section 3.2 shows
+that intermediate is 2.46 GB at atlas scale, so avoiding it is required for the path to run at
+all. `_runner` selects between the exact function and the anchored siblings on whether the
+resolved anchor index is None.
+
+This is not the interface this section originally described, which had `compute_consensus_matrix`
+gain an `anchors` argument that returned the block when anchors were supplied and reproduced
+current behavior when they were not. Siblings were chosen instead. The promise that results at
+or below the threshold do not move is the entire basis of the published Klein and Levine
+numbers, and the strongest way to honor it is to leave the exact function untouched rather than
+to add a branch to it and then argue the branch is inert. Under siblings the exact path is
+unchanged by inspection rather than by test, and no future edit to the anchored code can reach
+it.
 
 Per-sample stability scores. `stability_from_consensus` computes each sample's score as a row
 mean, so restricting the columns to the anchor set leaves the estimator unbiased and only
 increases its variance. The `n x m` slab is processed in row chunks and reduced to the two
 length-n score vectors immediately, so peak memory is of order chunk size times m rather than
-n times m. No `n x m` array is retained.
+n times m. No `n x m` array is retained. The chunk row count defaults to a value derived from
+m, so that bound stays roughly constant rather than growing with the anchor count; a caller
+may still pass one explicitly, and the result does not depend on it.
 
 Label extension. `get_labels` cuts the `m x m` block with the existing average-linkage
 precomputed step, producing m anchor labels, then fits a clone of `self.classifier` on
@@ -273,9 +287,18 @@ not constant.
 Measured in `tests/test_anchored_accuracy.py`. Data: n = 5,000 points drawn from three
 Gaussian blobs (centers at (0, 0), (8, 0), (4, 7), sigma 1.2), a KMeans grid over k in
 {2, 3, 4}, n_resamples = 25, random_state = 0. The anchored fits use anchor_threshold =
-10,000 so the anchored path runs at this n, and are compared against an exact fit on the
-same data. The selected k (measure stability, rule 1se) agreed between the anchored and
-exact fit at every m tested (k = 3 in every case).
+10,000 so the anchored path runs at this n. They are compared against an exact fit on the
+same data which takes the default anchor_threshold of 5,000, a value n equals exactly, so
+the reference fixture also covers the inclusive boundary the Levine study sits on. The
+selected k (measure stability, rule 1se) agreed between the anchored and exact fit at every
+m tested (k = 3 in every case).
+
+The table has three rows rather than the four m values named above. At n = 5,000 the fourth
+value, m = 5,000, is the exact path by definition: `resolve_anchors` returns None once m
+reaches n, so there is no anchored fit at that m to compare against. The identity that value
+would have tested, that an anchor set covering every sample reproduces the full result, is
+covered directly in `tests/test_consensus.py::TestConsensusAnchorBlock` and
+`TestStabilityFromRunsAnchored` instead.
 
 | m | Gini correlation (vs. exact) | CE correlation (vs. exact) | Label ARI (vs. exact) | Label ARI (vs. planted truth) | PAC (exact) | PAC (anchored) | PAC abs diff |
 |---|---|---|---|---|---|---|---|
