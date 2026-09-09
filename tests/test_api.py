@@ -1215,9 +1215,31 @@ class TestAnchoredConsensus:
             anchor_threshold=1000,
             consensus_anchors=25,
         )
-        with pytest.warns(RuntimeWarning):
+        # n=60 is far below anchor_threshold=1000, so a message blaming the
+        # threshold would be false. The opt-in is what engaged anchoring.
+        with pytest.warns(
+            RuntimeWarning,
+            match=r"consensus_anchors=25 opts this run in regardless of "
+            r"anchor_threshold, so CARVE is using anchored consensus over 25 "
+            r"anchors",
+        ):
             c.fit(X)
         assert c.consensus_anchors_.size == 25
+
+    def test_threshold_triggered_anchoring_names_the_threshold(self):
+        X = _blobs(60)
+        c = CARVE(
+            estimator_param_grids=_grids(),
+            n_resamples=6,
+            random_state=0,
+            anchor_threshold=30,
+        )
+        with pytest.warns(
+            RuntimeWarning,
+            match=r"n=60 exceeds anchor_threshold=30, so CARVE is using "
+            r"anchored consensus over 30 anchors",
+        ):
+            c.fit(X)
 
     def test_config_id_alignment_holds_under_anchoring(self):
         X = _blobs(60)

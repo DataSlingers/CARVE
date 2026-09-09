@@ -499,6 +499,28 @@ class TestResolveAnchors:
                 9000, consensus_anchors=bad, anchor_threshold=5000, random_state=0
             )
 
+    def test_tiny_n_is_exact_rather_than_an_error(self):
+        # The default resolves to m = n_samples here, so the run is exact. It
+        # used to raise about consensus_anchors, a parameter the caller in
+        # this case never set.
+        assert resolve_anchors(
+            1, consensus_anchors=None, anchor_threshold=5000, random_state=0
+        ) is None
+
+    def test_degenerate_default_message_names_anchor_threshold(self):
+        # A threshold below 2 is the caller's own doing, but the old message
+        # blamed consensus_anchors for it.
+        with pytest.raises(ValueError, match=r"anchor_threshold=1"):
+            resolve_anchors(
+                9000, consensus_anchors=None, anchor_threshold=1, random_state=0
+            )
+
+    def test_degenerate_explicit_message_names_consensus_anchors(self):
+        with pytest.raises(ValueError, match=r"consensus_anchors=1"):
+            resolve_anchors(
+                9000, consensus_anchors=1, anchor_threshold=5000, random_state=0
+            )
+
 
 # -----------------------------------------------------------------------
 # default_generalizability_classifier

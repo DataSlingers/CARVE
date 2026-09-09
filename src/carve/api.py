@@ -155,7 +155,11 @@ class CARVE(BaseEstimator):
     Attributes
     ----------
     estimator_results_ : pandas.DataFrame
-        Per-configuration aggregate metrics populated by ``fit``.
+        Per-configuration aggregate metrics populated by ``fit``. When a run
+        is anchored, the ``consensus_pac_stability`` column is computed over
+        the anchor-by-anchor block rather than over all pairs, so it is a
+        different quantity from the PAC an exact run reports and the two are
+        not comparable. Every other column still covers all n samples.
     estimator_param_grids_ : list of tuple
         Resolved estimator grids used during fitting.
     preprocessing_results_ : pandas.DataFrame or None
@@ -367,12 +371,22 @@ class CARVE(BaseEstimator):
             random_state=self._random_state_,
         )
         if self.consensus_anchors_ is not None:
+            # resolve_anchors ignores anchor_threshold once consensus_anchors
+            # is given, so naming the threshold in that case would be false.
+            if self.consensus_anchors is None:
+                reason = (
+                    f"n={X.shape[0]} exceeds anchor_threshold={self.anchor_threshold}"
+                )
+            else:
+                reason = (
+                    f"consensus_anchors={self.consensus_anchors!r} opts this "
+                    "run in regardless of anchor_threshold"
+                )
             warnings.warn(
-                f"n={X.shape[0]} exceeds anchor_threshold="
-                f"{self.anchor_threshold}, so CARVE is using anchored "
-                f"consensus over {self.consensus_anchors_.size} anchors. "
-                "Per-sample scores and labels still cover every sample; "
-                "consensus matrices and PAC are computed over the anchors.",
+                f"{reason}, so CARVE is using anchored consensus over "
+                f"{self.consensus_anchors_.size} anchors. Per-sample scores "
+                "and labels still cover every sample; consensus matrices and "
+                "PAC are computed over the anchors.",
                 RuntimeWarning,
                 stacklevel=2,
             )
@@ -654,7 +668,10 @@ class CARVE(BaseEstimator):
             Metric key used to select the best configuration. Common
             aliases: ``"stability"`` / ``"s"``, ``"generalizability"`` /
             ``"g"``, ``"average"`` / ``"avg"``, ``"pac"``, ``"gini"``,
-            ``"ce"``, ``"accuracy"``.
+            ``"ce"``, ``"accuracy"``. When a run is anchored
+            (``consensus_anchors_`` is not None), ``"pac"`` is computed over
+            the anchor block rather than over all pairs, so its values are
+            not comparable with those of an exact run.
         rule : str, default="1se"
             Selection rule. ``"max"`` picks the configuration with the
             highest score. ``"1se"`` picks the largest *k* within one
@@ -841,7 +858,10 @@ class CARVE(BaseEstimator):
             Metric key used to select the best configuration. Common
             aliases: ``"stability"`` / ``"s"``, ``"generalizability"`` /
             ``"g"``, ``"average"`` / ``"avg"``, ``"pac"``, ``"gini"``,
-            ``"ce"``, ``"accuracy"``.
+            ``"ce"``, ``"accuracy"``. When a run is anchored
+            (``consensus_anchors_`` is not None), ``"pac"`` is computed over
+            the anchor block rather than over all pairs, so its values are
+            not comparable with those of an exact run.
         rule : str, default="1se"
             Selection rule. ``"max"`` picks the configuration with the
             highest score. ``"1se"`` picks the largest *k* within one
@@ -919,7 +939,10 @@ class CARVE(BaseEstimator):
             Metric key used to select the best configuration. Common
             aliases: ``"stability"`` / ``"s"``, ``"generalizability"`` /
             ``"g"``, ``"average"`` / ``"avg"``, ``"pac"``, ``"gini"``,
-            ``"ce"``, ``"accuracy"``.
+            ``"ce"``, ``"accuracy"``. When a run is anchored
+            (``consensus_anchors_`` is not None), ``"pac"`` is computed over
+            the anchor block rather than over all pairs, so its values are
+            not comparable with those of an exact run.
         rule : str, default="1se"
             Selection rule. ``"max"`` picks the configuration with the
             highest score. ``"1se"`` picks the largest *k* within one

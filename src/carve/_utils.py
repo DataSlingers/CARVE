@@ -535,13 +535,18 @@ def resolve_anchors(
     else:
         m = int(consensus_anchors)
 
-    if m < 2:
-        raise ValueError(
-            f"consensus_anchors must resolve to at least 2 anchors, got {m}."
-        )
-
+    # The exact-path return comes first: at n_samples < 2 the default resolves
+    # to m = n_samples, and a run that small is simply exact, not misconfigured.
     if m >= n_samples:
         return None
+
+    if m < 2:
+        raise ValueError(
+            f"The consensus anchor count must be at least 2, got {m}. It comes "
+            f"from consensus_anchors={consensus_anchors!r} when that is set, "
+            f"and otherwise from min(n_samples, anchor_threshold="
+            f"{anchor_threshold})."
+        )
 
     rng = np.random.default_rng(0 if random_state is None else int(random_state))
     return np.sort(rng.choice(n_samples, size=m, replace=False)).astype(np.int64)

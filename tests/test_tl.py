@@ -231,3 +231,35 @@ class TestAttachResults:
         )
         with pytest.raises(ValueError, match="observations"):
             carve.tl.attach_results(smaller, model)
+
+
+class TestAnchoringProvenance:
+    """n_consensus_anchors is how a reader of a written h5ad learns that the
+    consensus quantities in it are anchored rather than exact.
+
+    The anchored runs here pass store_consensus=False. An anchored model's
+    consensus matrix is m-by-m, and writing it into obsp, which is indexed by
+    obs, is not currently supported.
+    """
+
+    def test_resolved_anchor_count_is_recorded_under_anchoring(
+        self, adata_three_clusters
+    ):
+        with pytest.warns(RuntimeWarning):
+            _run(adata_three_clusters, anchor_threshold=40, store_consensus=False)
+        params = adata_three_clusters.uns["carve"]["params"]
+        assert params["n_consensus_anchors"] == 40
+
+    def test_explicit_anchor_count_is_recorded(self, adata_three_clusters):
+        with pytest.warns(RuntimeWarning):
+            _run(adata_three_clusters, consensus_anchors=25, store_consensus=False)
+        params = adata_three_clusters.uns["carve"]["params"]
+        assert params["n_consensus_anchors"] == 25
+
+    def test_key_is_absent_on_the_exact_path(self, adata_three_clusters):
+        # params_to_uns drops None, so an exact run must leave no key at all
+        # rather than writing one that reads as an anchor count of nothing.
+        _run(adata_three_clusters)
+        params = adata_three_clusters.uns["carve"]["params"]
+        assert "n_consensus_anchors" not in params
+

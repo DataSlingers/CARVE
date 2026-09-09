@@ -285,8 +285,11 @@ class TestConsensusAnchorBlock:
         exact = compute_consensus_matrix(n, runs)[np.ix_(anchors, anchors)]
         block = consensus_anchor_block(n, runs, anchors)
 
-        # Both carry NaN for never-co-sampled pairs, so compare with equal_nan.
-        assert np.allclose(block, exact, equal_nan=True)
+        # Exact equality, not a tolerance: both sides are correctly rounded
+        # float32 divisions of exactly representable integer counts, so the
+        # promise the block makes is identity, not closeness. equal_nan
+        # because both carry NaN for never-co-sampled pairs.
+        assert np.array_equal(block, exact, equal_nan=True)
 
     def test_shape_and_dtype(self):
         n = 200
