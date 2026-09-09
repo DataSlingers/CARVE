@@ -159,7 +159,11 @@ def carve(
     key_added : str, default="carve"
         Base name for every key written; see Notes.
     store_consensus : bool, default=True
-        Write the selected consensus matrix into ``adata.obsp``.
+        Write the selected consensus matrix into ``adata.obsp``. Under
+        anchored consensus (large ``n_samples``, see ``anchor_threshold``)
+        the stored matrix is an m-by-m anchor block rather than an
+        n_obs-by-n_obs matrix, which ``.obsp`` cannot hold; in that case
+        nothing is written and a ``UserWarning`` is issued instead.
     store_results : bool, default=True
         Write the per-configuration metrics table into ``adata.uns``.
     mode : {"default", "stability", "generalizability"}, default="default"
@@ -336,7 +340,11 @@ def attach_results(
     consensus_k : int, optional
         Number of clusters used to cut the consensus matrix.
     store_consensus : bool, default=True
-        Write the selected consensus matrix into ``adata.obsp``.
+        Write the selected consensus matrix into ``adata.obsp``. Under
+        anchored consensus (large ``n_samples``, see ``anchor_threshold``)
+        the stored matrix is an m-by-m anchor block rather than an
+        n_obs-by-n_obs matrix, which ``.obsp`` cannot hold; in that case
+        nothing is written and a ``UserWarning`` is issued instead.
     store_results : bool, default=True
         Write the per-configuration metrics table into ``adata.uns``.
     use_rep : str, optional
@@ -415,22 +423,38 @@ def attach_results(
     consensus = _artifact(consensus_source, config_id)
     if store_consensus and consensus is not None:
         matrix = np.asarray(consensus)
-        if matrix.shape != (adata.n_obs, adata.n_obs):
+        anchors = model.consensus_anchors_
+        if anchors is not None and matrix.shape == (anchors.size, anchors.size):
+            warnings.warn(
+                "Anchored consensus is active: the consensus matrix for "
+                f"{key_added!r} is a {anchors.size}x{anchors.size} anchor "
+                "block, not a sample-by-sample matrix. adata.obsp requires "
+                f"the latter, so nothing was written to "
+                f"adata.obsp[{key_added + '_consensus'!r}]. The block "
+                f"itself is still available at "
+                f"model.consensus_matrices_[{config_id}], and the anchor "
+                "count is recorded in "
+                f"adata.uns[{key_added!r}]['params']['n_consensus_anchors'].",
+                UserWarning,
+                stacklevel=2,
+            )
+        elif matrix.shape != (adata.n_obs, adata.n_obs):
             raise ValueError(
                 f"Consensus matrix has shape {matrix.shape}, but adata has "
                 f"{adata.n_obs} observations. The model was fitted on "
                 "different data."
             )
-        if adata.n_obs > _CONSENSUS_WARN_OBS:
-            warnings.warn(
-                f"Storing a dense {adata.n_obs}x{adata.n_obs} consensus "
-                f"matrix in adata.obsp[{key_added + '_consensus'!r}] "
-                f"(~{matrix.nbytes / 1e9:.1f} GB). Pass store_consensus=False "
-                "if you do not need it.",
-                UserWarning,
-                stacklevel=2,
-            )
-        adata.obsp[f"{key_added}_consensus"] = matrix
+        else:
+            if adata.n_obs > _CONSENSUS_WARN_OBS:
+                warnings.warn(
+                    f"Storing a dense {adata.n_obs}x{adata.n_obs} consensus "
+                    f"matrix in adata.obsp[{key_added + '_consensus'!r}] "
+                    f"(~{matrix.nbytes / 1e9:.1f} GB). Pass "
+                    "store_consensus=False if you do not need it.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            adata.obsp[f"{key_added}_consensus"] = matrix
 
     params = _build_params(
         model=model,

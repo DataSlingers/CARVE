@@ -223,6 +223,12 @@ class TestAttachResults:
             carve.tl.attach_results(adata_three_clusters, CARVE())
 
     def test_size_mismatch_raises(self, adata_three_clusters):
+        # Genuine fitted-on-different-data mismatch: attach_results must
+        # still raise, not mistake this for the anchored case. In practice
+        # this fires from the per-cell length check on labels, before the
+        # consensus-matrix shape is ever inspected -- see
+        # test_matrix_shape_mismatch_still_raises_with_original_message for
+        # a test isolating that specific guard.
         model = CARVE(n_clusters=np.arange(2, 5), n_resamples=4, random_state=0).fit(
             adata_three_clusters, use_rep="X_pca"
         )
@@ -232,27 +238,63 @@ class TestAttachResults:
         with pytest.raises(ValueError, match="observations"):
             carve.tl.attach_results(smaller, model)
 
+    def test_matrix_shape_mismatch_still_raises_with_original_message(
+        self, adata_three_clusters, monkeypatch
+    ):
+        """The pre-existing "Consensus matrix has shape ..." guard must
+        still raise, unchanged, for a genuine mismatch that is not the
+        anchored case.
+
+        This branch cannot be reached honestly through fit() + attach_results:
+        the per-cell length check on labels runs first, and both labels and
+        the consensus matrix are read from the same fitted model, so a real
+        mismatch on one implies a mismatch on the other and the labels check
+        fires first (see test_size_mismatch_raises). To isolate this guard
+        specifically, get_labels is monkeypatched to return correctly-sized
+        labels while the stored consensus matrix for the selected
+        configuration is corrupted independently -- exactly what an internal
+        inconsistency in a fitted model would look like, as opposed to
+        anchoring (consensus_anchors_ stays None here).
+        """
+        model = CARVE(n_clusters=np.arange(2, 5), n_resamples=4, random_state=0).fit(
+            adata_three_clusters, use_rep="X_pca"
+        )
+        assert model.consensus_anchors_ is None
+
+        n = adata_three_clusters.n_obs
+        monkeypatch.setattr(
+            model, "get_labels", lambda **kwargs: np.zeros(n, dtype=np.int32)
+        )
+        _, config_id, _, _ = model._select_row(
+            measure="stability", rule="1se", not_two=False, k=None, sweep_value=None
+        )
+        model.consensus_matrices_[config_id] = np.zeros((n - 1, n - 1), dtype=np.float32)
+
+        with pytest.raises(ValueError, match="Consensus matrix has shape"):
+            carve.tl.attach_results(adata_three_clusters, model)
+
 
 class TestAnchoringProvenance:
     """n_consensus_anchors is how a reader of a written h5ad learns that the
     consensus quantities in it are anchored rather than exact.
 
-    The anchored runs here pass store_consensus=False. An anchored model's
-    consensus matrix is m-by-m, and writing it into obsp, which is indexed by
-    obs, is not currently supported.
+    The anchored runs here use the default store_consensus=True. An anchored
+    model's consensus matrix is m-by-m, and obsp is indexed by obs, so the
+    write is skipped (with its own warning, checked separately); that does
+    not affect what gets recorded under params.
     """
 
     def test_resolved_anchor_count_is_recorded_under_anchoring(
         self, adata_three_clusters
     ):
         with pytest.warns(RuntimeWarning):
-            _run(adata_three_clusters, anchor_threshold=40, store_consensus=False)
+            _run(adata_three_clusters, anchor_threshold=40)
         params = adata_three_clusters.uns["carve"]["params"]
         assert params["n_consensus_anchors"] == 40
 
     def test_explicit_anchor_count_is_recorded(self, adata_three_clusters):
         with pytest.warns(RuntimeWarning):
-            _run(adata_three_clusters, consensus_anchors=25, store_consensus=False)
+            _run(adata_three_clusters, consensus_anchors=25)
         params = adata_three_clusters.uns["carve"]["params"]
         assert params["n_consensus_anchors"] == 25
 
@@ -262,4 +304,30 @@ class TestAnchoringProvenance:
         _run(adata_three_clusters)
         params = adata_three_clusters.uns["carve"]["params"]
         assert "n_consensus_anchors" not in params
+
+
+class TestAnchoredConsensusObspGuard:
+    """obsp is contractually n_obs-by-n_obs. Under anchored consensus the
+    selected matrix is an m-by-m anchor block, which cannot be written there.
+
+    Regression coverage for the crash where tl.carve raised ValueError under
+    anchoring with the default store_consensus=True, reporting "The model
+    was fitted on different data" even though it was fitted on exactly the
+    data passed in -- only the stored matrix was a subset block.
+    """
+
+    def test_default_store_consensus_survives_anchoring(self, adata_three_clusters):
+        """Regression test for the ValueError crash under anchoring with the
+        default store_consensus=True. Before the fix this raised
+        ValueError("Consensus matrix has shape (40, 40), but adata has 90
+        observations. The model was fitted on different data.") instead of
+        completing with a warning.
+        """
+        with pytest.warns(UserWarning, match="Anchored consensus is active"):
+            _run(adata_three_clusters, anchor_threshold=40)
+        assert "carve_consensus" not in adata_three_clusters.obsp
+        # the rest of what store_consensus=True implies is unaffected by the
+        # skipped obsp write
+        assert "carve" in adata_three_clusters.obs
+        assert adata_three_clusters.uns["carve"]["params"]["n_consensus_anchors"] == 40
 
