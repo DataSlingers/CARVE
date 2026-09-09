@@ -127,6 +127,24 @@ class TestLoadHeca:
         labels = KMeans(n_clusters=2, n_init=10, random_state=0).fit_predict(X)
         assert adjusted_rand_score(y, labels) > 0.7
 
+    def test_random_state_controls_the_pca_embedding(self, heca):
+        # cache=False on every call: a cache hit would serve the first
+        # call's stored embedding regardless of random_state and mask a
+        # real difference (or a real absence of one).
+        kwargs = dict(
+            root=heca,
+            organs=["Lung", "Brain"],
+            n_top_peaks=50,
+            n_components=5,
+            cache=False,
+        )
+        X_seed0, _, _ = load_heca(random_state=0, **kwargs)
+        X_seed1, _, _ = load_heca(random_state=1, **kwargs)
+        X_seed0_again, _, _ = load_heca(random_state=0, **kwargs)
+
+        assert not np.array_equal(X_seed0, X_seed1)
+        np.testing.assert_array_equal(X_seed0, X_seed0_again)
+
     def test_features_are_shared_across_organs(self, heca):
         # Selecting features per organ would make the pooled embedding
         # meaningless, so the selection must be computed across all of them.

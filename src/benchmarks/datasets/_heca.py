@@ -295,7 +295,11 @@ def load_heca(
         n_top = min(int(n_top_peaks), int(adata.n_vars))
         sc.pp.highly_variable_genes(adata, n_top_genes=n_top, flavor="seurat")
         adata = adata[:, adata.var["highly_variable"]].copy()
-        sc.tl.pca(adata, n_comps=min(int(n_components), adata.n_vars - 1))
+        sc.tl.pca(
+            adata,
+            n_comps=min(int(n_components), adata.n_vars - 1),
+            random_state=random_state,
+        )
 
         X_full = np.asarray(adata.obsm["X_pca"], dtype=np.float64)
         y_full = pd.Series(
