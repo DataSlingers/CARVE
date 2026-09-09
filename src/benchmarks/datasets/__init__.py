@@ -7,12 +7,14 @@ preprocessing that previously appeared in two notebooks each.
 """
 
 from ._cusanovich import load_cusanovich
+from ._heca import load_heca
 from ._klein import DATA_ROOT, load_klein, resolve_data_dir
 from ._levine import load_levine32
 
 __all__ = [
     "DATA_ROOT",
     "load_cusanovich",
+    "load_heca",
     "load_klein",
     "load_levine32",
     "resolve_data_dir",
