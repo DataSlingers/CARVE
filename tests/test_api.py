@@ -1356,6 +1356,33 @@ class TestAnchoredLabels:
 
         assert recorded == [7]
 
+    def test_default_save_leaves_an_anchored_model_unable_to_label(self, tmp_path):
+        # save() drops X_ by default, and the extension needs it. The exact
+        # path does not, so this interaction only exists under anchoring and
+        # has to surface as a clear error rather than a crash.
+        X, c = self._fitted()
+        path = tmp_path / "anchored.carve"
+        c.save(path)
+
+        loaded = CARVE.load(path)
+        assert loaded.consensus_anchors_ is not None
+        assert loaded.X_ is None
+
+        with pytest.raises(RuntimeError, match="restore X_ after load"):
+            loaded.get_labels(k=2)
+
+        # Restoring X_ makes it work again, as the docstring promises.
+        loaded.X_ = X
+        assert loaded.get_labels(k=2).shape == (X.shape[0],)
+
+    def test_saving_with_data_keeps_an_anchored_model_able_to_label(self, tmp_path):
+        X, c = self._fitted()
+        path = tmp_path / "anchored_with_data.carve"
+        c.save(path, include_data=True)
+
+        loaded = CARVE.load(path)
+        assert loaded.get_labels(k=2).shape == (X.shape[0],)
+
     def test_exact_path_labels_are_unaffected(self):
         X = _blobs(60)
         c = CARVE(

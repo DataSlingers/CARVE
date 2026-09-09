@@ -2055,6 +2055,19 @@ class CARVE(BaseEstimator):
             When False (default), ``X_`` is excluded to reduce file size;
             methods that need the raw data will require that ``X`` is
             re-supplied after loading.
+
+            This matters more for an anchored run. When
+            ``consensus_anchors_`` is not None, ``get_labels`` extends the
+            anchor cut to every sample by fitting a classifier on ``X_``, so
+            it and the five methods that call it
+            (``plot_consensus_matrix``, ``plot_cluster_boxplot``,
+            ``plot_cluster_violin``, ``plot_cluster_scatter`` and
+            ``plot_diagnostic_scatter``) raise ``RuntimeError`` on a model
+            saved without its data. Pass
+            ``include_data=True``, or restore ``X_`` on the loaded instance
+            before calling them. Runs that took the exact path are
+            unaffected: their labels come from the stored consensus matrix
+            alone.
         compress : int, default=3
             Compression level passed to :func:`joblib.dump` (0-9, where
             0 disables compression and 9 is maximum).
@@ -2112,6 +2125,14 @@ class CARVE(BaseEstimator):
             If ``path`` does not exist.
         TypeError
             If the loaded object is not a ``CARVE`` instance.
+
+        Notes
+        -----
+        ``X_`` is only present when the file was written with
+        ``save(include_data=True)``. An anchored run needs it: ``get_labels``
+        extends the anchor cut to every sample by fitting a classifier on
+        ``X_``, and raises ``RuntimeError`` without it. Assigning the
+        original array to ``loaded.X_`` restores that capability.
 
         Examples
         --------
