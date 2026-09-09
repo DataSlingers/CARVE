@@ -18,7 +18,12 @@ from sklearn.metrics import adjusted_rand_score
 from carve import CARVE
 
 from ._cvi import calculate_cvi, select_k
-from ._estimators import apply_random_state, param_grids
+from ._estimators import (
+    RESOLUTION_ESTIMATORS,
+    apply_random_state,
+    param_grids,
+    resolution_grids,
+)
 from ._types import EstimatorSpec, Study
 
 CVI_SWEEP_METRICS: tuple[str, ...] = (
@@ -205,6 +210,20 @@ def _levine_loader(subsample: int | float | None):
     return load_levine32(subsample=subsample, random_state=42)
 
 
+def _cusanovich_loader(subsample: int | float | None):
+    from .datasets import load_cusanovich
+
+    # tissue is the reference: it is determined by dissection, not by any
+    # clustering, which is what makes it independent ground truth.
+    return load_cusanovich(subsample=subsample, random_state=42, label_column="tissue")
+
+
+def _heca_loader(subsample: int | float | None):
+    from .datasets import load_heca
+
+    return load_heca(subsample=subsample, random_state=42, label_column="organ")
+
+
 def _scale_name(study: Study, scale: str | None) -> str:
     """Resolve a scale argument to the scale name it refers to.
 
@@ -268,20 +287,65 @@ STUDIES: dict[str, Study] = {
         scales={"dev": 800, "publication": 5000},
         default_scale="publication",
     ),
+    "cusanovich": Study(
+        name="cusanovich",
+        loader=_cusanovich_loader,
+        estimator=EstimatorSpec(name="kmeans"),
+        candidate_k=tuple(range(4, 17)),
+        scales={"dev": 1500, "publication": 5000, "atlas": None},
+        default_scale="dev",
+        # The atlas scale runs all 81,173 cells, where spectral and Ward
+        # cannot run, so that pass sweeps Leiden resolution instead. This is
+        # what shows the case-study conclusion survives past the subsample.
+        resolutions=tuple(round(0.1 * i, 1) for i in range(1, 21)),
+    ),
+    "heca": Study(
+        name="heca",
+        loader=_heca_loader,
+        estimator=EstimatorSpec(name="minibatch_kmeans"),
+        candidate_k=tuple(range(3, 16)),
+        scales={"dev": 25_000, "publication": None},
+        default_scale="dev",
+        resolutions=tuple(round(0.1 * i, 1) for i in range(1, 21)),
+        consensus_anchors=2000,
+    ),
 }
 
 
 def study_model_grids(
     study: Study,
 ) -> list[tuple[type[ClusterMixin], dict[str, list[Any]]]]:
-    """The study's own estimator plus spectral clustering.
+    """The study's own estimator plus a second one, over candidate_k.
 
-    The manuscript reports running two estimators per case study, but the
-    pair differs by study: Klein sweeps Ward agglomerative clustering and
-    spectral clustering with self-tuning affinity; Levine sweeps KMeans and
-    spectral. This mirrors the simulated benchmarks fixing one estimator per
-    scenario, except a case study adds spectral as a second one.
+    Klein sweeps Ward agglomerative and spectral; Levine sweeps KMeans and
+    spectral; Cusanovich sweeps KMeans and spectral at case-study scale. The
+    hECA study cannot use spectral, which builds a dense n-by-n affinity, so
+    it pairs MiniBatchKMeans with KMeans instead.
     """
-    return param_grids(study.estimator, study.candidate_k) + param_grids(
-        EstimatorSpec(name="spectral"), study.candidate_k
+    if study.estimator.name in RESOLUTION_ESTIMATORS:
+        raise ValueError(
+            f"Study {study.name!r} has a resolution-based estimator; use "
+            "study_resolution_grids."
+        )
+
+    partner = (
+        EstimatorSpec(name="kmeans")
+        if study.name == "heca"
+        else EstimatorSpec(name="spectral")
     )
+    return param_grids(study.estimator, study.candidate_k) + param_grids(
+        partner, study.candidate_k
+    )
+
+
+def study_resolution_grids(
+    study: Study,
+) -> list[tuple[type[ClusterMixin], dict[str, list[Any]]]]:
+    """The study's Leiden resolution sweep.
+
+    A separate CARVE run from study_model_grids: SweepSpec is frozen, so a
+    k-based and a resolution-based sweep cannot share one run.
+    """
+    if not study.resolutions:
+        raise ValueError(f"Study {study.name!r} declares no resolutions.")
+    return resolution_grids(EstimatorSpec(name="leiden"), study.resolutions)

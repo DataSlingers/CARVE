@@ -19,6 +19,7 @@ from benchmarks._studies import (
     load_study,
     resolve_scale,
     study_model_grids,
+    study_resolution_grids,
 )
 from benchmarks._types import EstimatorSpec, Study
 
@@ -163,7 +164,7 @@ class TestFitOrLoadCarve:
 
 class TestStudies:
     def test_both_case_studies_are_registered(self):
-        assert set(STUDIES) == {"klein", "levine32"}
+        assert set(STUDIES) == {"klein", "levine32", "cusanovich", "heca"}
 
     def test_each_study_has_a_loader_and_candidate_k(self):
         for study in STUDIES.values():
@@ -326,3 +327,70 @@ class TestRegisteredStudiesCarryScales:
 
     def test_levine_publication_scale_is_five_thousand(self):
         assert STUDIES["levine32"].scales["publication"] == 5000
+
+
+class TestNewStudies:
+    def test_both_new_studies_are_registered(self):
+        assert {"cusanovich", "heca"} <= set(STUDIES)
+
+    def test_cusanovich_sweeps_four_through_sixteen(self):
+        # Centered near the 13 tissues; stops well short of the 30 clusters
+        # and 40 cell labels the source reports.
+        assert STUDIES["cusanovich"].candidate_k == tuple(range(4, 17))
+
+    def test_heca_sweeps_three_through_fifteen(self):
+        assert STUDIES["heca"].candidate_k == tuple(range(3, 16))
+
+    def test_cusanovich_pairs_kmeans_with_spectral(self):
+        grids = study_model_grids(STUDIES["cusanovich"])
+        from carve.cluster import SpectralClustering
+        from sklearn.cluster import KMeans
+
+        assert {cls for cls, _ in grids} == {KMeans, SpectralClustering}
+
+    def test_heca_uses_estimators_that_can_run_at_scale(self):
+        # Spectral builds a dense n-by-n affinity and Ward is quadratic in
+        # memory, so neither may appear in the large-scale study.
+        from carve.cluster import SpectralClustering
+        from sklearn.cluster import AgglomerativeClustering
+
+        classes = {cls for cls, _ in study_model_grids(STUDIES["heca"])}
+        assert SpectralClustering not in classes
+        assert AgglomerativeClustering not in classes
+
+    def test_heca_declares_a_resolution_sweep(self):
+        from carve.cluster import LeidenClustering
+
+        grids = study_resolution_grids(STUDIES["heca"])
+        assert len(grids) == 1
+        cls, grid = grids[0]
+        assert cls is LeidenClustering
+        assert grid["resolution"][0] == pytest.approx(0.1)
+        assert grid["resolution"][-1] == pytest.approx(2.0)
+        assert len(grid["resolution"]) == 20
+
+    def test_a_study_without_resolutions_raises(self):
+        with pytest.raises(ValueError, match="declares no resolutions"):
+            study_resolution_grids(STUDIES["klein"])
+
+    def test_cusanovich_also_declares_resolutions_for_its_atlas_pass(self):
+        # At 81,173 cells neither spectral nor Ward can run, so the
+        # full-atlas pass sweeps Leiden resolution instead of k.
+        assert len(STUDIES["cusanovich"].resolutions) == 20
+        assert study_resolution_grids(STUDIES["cusanovich"])
+
+    def test_heca_pins_its_anchor_count(self):
+        # 20 configurations at m=5000 would retain about 4 GB of blocks; at
+        # m=2000 it is about 0.83 GB.
+        assert STUDIES["heca"].consensus_anchors == 2000
+
+    def test_cusanovich_leaves_anchors_at_the_package_default(self):
+        assert STUDIES["cusanovich"].consensus_anchors is None
+
+    def test_new_studies_declare_dev_and_publication_scales(self):
+        for name in ("cusanovich", "heca"):
+            assert {"dev", "publication"} <= set(STUDIES[name].scales)
+
+    def test_cusanovich_publication_scale_matches_levine(self):
+        assert STUDIES["cusanovich"].scales["publication"] == 5000
+        assert STUDIES["cusanovich"].scales["atlas"] is None
