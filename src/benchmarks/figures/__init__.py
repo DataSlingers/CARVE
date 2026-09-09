@@ -20,6 +20,7 @@ from ._levine_results import figure_levine_results
 from ._paths import BENCHMARKING_DIR, CASE_STUDY_DIR, VIS_ROOT, figure_path
 from ._scaling import figure_scaling_ari, figure_scaling_runtime
 from ._scenario_overview import figure_scenario_overview
+from ._study_scaling import figure_study_scaling
 
 __all__ = [
     "BENCHMARKING_DIR",
@@ -39,5 +40,6 @@ __all__ = [
     "figure_scaling_ari",
     "figure_scaling_runtime",
     "figure_scenario_overview",
+    "figure_study_scaling",
     "prepare_composite",
 ]

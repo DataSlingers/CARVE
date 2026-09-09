@@ -22,6 +22,7 @@ EXPECTED = (
     "figure_carve_output_levine",
     "figure_cusanovich_results",
     "figure_heca_results",
+    "figure_study_scaling",
 )
 
 # Figures not yet implemented. Tasks 9 through 12 each removed their own
