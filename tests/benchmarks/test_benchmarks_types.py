@@ -149,7 +149,7 @@ from benchmarks._types import Manifest, Study
 
 class TestStudy:
     def test_holds_a_loader_and_an_estimator(self):
-        def loader():
+        def loader(subsample):
             return np.zeros((4, 2)), np.array([0, 0, 1, 1]), {"source": "test"}
 
         study = Study(
@@ -157,8 +157,10 @@ class TestStudy:
             loader=loader,
             estimator=EstimatorSpec(name="kmeans"),
             candidate_k=(2, 3),
+            scales={"dev": 100},
+            default_scale="dev",
         )
-        X, y, meta = study.loader()
+        X, y, meta = study.loader(100)
         assert X.shape == (4, 2)
         assert meta["source"] == "test"
         assert study.k_star is None
@@ -167,9 +169,11 @@ class TestStudy:
         with pytest.raises(ValueError, match="candidate_k"):
             Study(
                 name="demo",
-                loader=lambda: (np.zeros((2, 2)), np.zeros(2), {}),
+                loader=lambda subsample: (np.zeros((2, 2)), np.zeros(2), {}),
                 estimator=EstimatorSpec(name="kmeans"),
                 candidate_k=(),
+                scales={"dev": 100},
+                default_scale="dev",
             )
 
 
@@ -228,3 +232,27 @@ def test_graph_and_minibatch_estimators_are_known():
 def test_unknown_estimator_still_raises():
     with pytest.raises(ValueError, match="Unknown estimator"):
         EstimatorSpec(name="kmenas")
+
+
+def test_study_requires_its_default_scale_to_exist():
+    with pytest.raises(ValueError, match="default_scale"):
+        Study(
+            name="s",
+            loader=lambda subsample: (None, None, {}),
+            estimator=EstimatorSpec(name="kmeans"),
+            candidate_k=(2, 3),
+            scales={"dev": 100},
+            default_scale="publication",
+        )
+
+
+def test_study_requires_a_nonempty_scale_map():
+    with pytest.raises(ValueError, match="at least one scale"):
+        Study(
+            name="s",
+            loader=lambda subsample: (None, None, {}),
+            estimator=EstimatorSpec(name="kmeans"),
+            candidate_k=(2, 3),
+            scales={},
+            default_scale="dev",
+        )

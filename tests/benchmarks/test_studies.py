@@ -13,8 +13,11 @@ from benchmarks._studies import (
     STUDIES,
     _klein_loader,
     _levine_loader,
+    carve_cache_path,
     cvi_sweep,
     fit_or_load_carve,
+    load_study,
+    resolve_scale,
     study_model_grids,
 )
 from benchmarks._types import EstimatorSpec, Study
@@ -206,7 +209,7 @@ class TestStudyModelGrids:
         study.name instead of reading study.estimator.
         """
 
-        def _unused_loader():
+        def _unused_loader(subsample):
             raise AssertionError("the loader must not run for this test")
 
         ward_study = Study(
@@ -214,12 +217,16 @@ class TestStudyModelGrids:
             loader=_unused_loader,
             estimator=EstimatorSpec(name="agglomerative"),
             candidate_k=(2, 3),
+            scales={"dev": 100},
+            default_scale="dev",
         )
         kmeans_study = Study(
             name="probe",
             loader=_unused_loader,
             estimator=EstimatorSpec(name="kmeans"),
             candidate_k=(2, 3),
+            scales={"dev": 100},
+            default_scale="dev",
         )
 
         ward_classes = {cls for cls, _ in study_model_grids(ward_study)}
@@ -247,7 +254,7 @@ class TestLoaderSubsampling:
             return np.zeros((1, 1)), pd.Series(["a"]), {}
 
         monkeypatch.setattr("benchmarks.datasets.load_klein", fake_load_klein)
-        _klein_loader()
+        _klein_loader(0.5)
         assert calls["subsample"] == 0.5
 
     def test_levine_loader_requests_five_thousand_cells(self, monkeypatch):
@@ -258,5 +265,64 @@ class TestLoaderSubsampling:
             return np.zeros((1, 1)), pd.Series(["a"]), {}
 
         monkeypatch.setattr("benchmarks.datasets.load_levine32", fake_load_levine32)
-        _levine_loader()
+        _levine_loader(5000)
         assert calls["subsample"] == 5000
+
+
+def _study(**kw):
+    base = dict(
+        name="demo",
+        loader=lambda subsample: (subsample, None, {"subsample": subsample}),
+        estimator=EstimatorSpec(name="kmeans"),
+        candidate_k=(2, 3),
+        scales={"dev": 100, "publication": None},
+        default_scale="dev",
+    )
+    base.update(kw)
+    return Study(**base)
+
+
+class TestScaleResolution:
+    def test_default_scale_is_used_when_none_is_given(self):
+        assert resolve_scale(_study(), None) == 100
+
+    def test_named_scale_wins(self):
+        assert resolve_scale(_study(), "publication") is None
+
+    def test_unknown_scale_names_the_valid_ones(self):
+        with pytest.raises(ValueError, match="dev"):
+            resolve_scale(_study(), "enormous")
+
+    def test_load_study_passes_the_resolved_size_to_the_loader(self):
+        # The loader echoes its argument, so this pins that configuration
+        # travels from STUDIES rather than being re-derived at the call site.
+        X, _, meta = load_study(_study(), scale="dev")
+        assert X == 100
+        assert meta["subsample"] == 100
+
+
+class TestCarveCachePath:
+    def test_scale_is_part_of_the_filename(self, tmp_path):
+        dev = carve_cache_path(_study(), scale="dev", root=tmp_path)
+        pub = carve_cache_path(_study(), scale="publication", root=tmp_path)
+        assert dev != pub
+        assert "dev" in dev.name
+        assert "publication" in pub.name
+        assert dev.suffix == ".carve"
+
+    def test_study_name_is_part_of_the_filename(self, tmp_path):
+        a = carve_cache_path(_study(name="alpha"), scale="dev", root=tmp_path)
+        b = carve_cache_path(_study(name="beta"), scale="dev", root=tmp_path)
+        assert a != b
+
+
+class TestRegisteredStudiesCarryScales:
+    def test_every_study_declares_its_default_scale(self):
+        for study in STUDIES.values():
+            assert study.default_scale in study.scales
+
+    def test_klein_publication_scale_is_the_published_half_subsample(self):
+        assert STUDIES["klein"].scales["publication"] == 0.5
+
+    def test_levine_publication_scale_is_five_thousand(self):
+        assert STUDIES["levine32"].scales["publication"] == 5000

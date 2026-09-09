@@ -190,19 +190,58 @@ def fit_or_load_carve(
     return carve
 
 
-def _klein_loader():
+def _klein_loader(subsample: int | float | None):
     from .datasets import load_klein
 
     # The manuscript's 1,358 cells is a 0.5 subsample of the 2,717-cell
     # preprocessed set (Klein sample size, manuscript line 606).
-    return load_klein(subsample=0.5, random_state=42)
+    return load_klein(subsample=subsample, random_state=42)
 
 
-def _levine_loader():
+def _levine_loader(subsample: int | float | None):
     from .datasets import load_levine32
 
     # Manuscript line 627: a stratified subsample of 5,000 cells.
-    return load_levine32(subsample=5000, random_state=42)
+    return load_levine32(subsample=subsample, random_state=42)
+
+
+def resolve_scale(study: Study, scale: str | None) -> int | float | None:
+    """Resolve a scale name to the subsample size the loader receives."""
+    name = study.default_scale if scale is None else scale
+    if name not in study.scales:
+        raise ValueError(
+            f"Study {study.name!r} has no scale {name!r}. "
+            f"Declared scales are {sorted(study.scales)}."
+        )
+    return study.scales[name]
+
+
+def load_study(
+    study: Study, *, scale: str | None = None
+) -> tuple[Any, Any, dict[str, Any]]:
+    """Load a study's data at a named scale, recording the scale in meta."""
+    name = study.default_scale if scale is None else scale
+    X, y, meta = study.loader(resolve_scale(study, name))
+    meta = dict(meta)
+    meta["scale"] = name
+    meta["study"] = study.name
+    return X, y, meta
+
+
+def carve_cache_path(study: Study, *, scale: str | None = None, root: Path) -> Path:
+    """Where a study's fitted CARVE state is cached, per scale.
+
+    The scale is part of the filename deliberately. fit_or_load_carve loads
+    whatever file sits at the path it is handed, so a shared path would let a
+    publication run silently reuse a development-scale fit.
+    """
+    name = study.default_scale if scale is None else scale
+    if name not in study.scales:
+        raise ValueError(
+            f"Study {study.name!r} has no scale {name!r}. "
+            f"Declared scales are {sorted(study.scales)}."
+        )
+    return Path(root) / f"carve_{study.name}_{name}.carve"
 
 
 STUDIES: dict[str, Study] = {
@@ -211,12 +250,16 @@ STUDIES: dict[str, Study] = {
         loader=_klein_loader,
         estimator=EstimatorSpec(name="agglomerative"),
         candidate_k=tuple(range(2, 11)),
+        scales={"dev": 400, "publication": 0.5},
+        default_scale="publication",
     ),
     "levine32": Study(
         name="levine32",
         loader=_levine_loader,
         estimator=EstimatorSpec(name="kmeans"),
         candidate_k=tuple(range(7, 18)),
+        scales={"dev": 800, "publication": 5000},
+        default_scale="publication",
     ),
 }
 
