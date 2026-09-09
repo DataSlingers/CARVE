@@ -292,7 +292,7 @@ def stability_from_runs_anchored(
     runs: list[SampledLabels],
     anchors: np.ndarray,
     *,
-    chunk_size: int = 8192,
+    chunk_size: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Per-sample Gini and cross-entropy stability against an anchor set.
 
@@ -303,10 +303,27 @@ def stability_from_runs_anchored(
 
     The n-by-m slab is never materialized: rows are processed in chunks and
     reduced to the two score vectors immediately.
+
+    A fixed row count would still let the transient grow with the anchor
+    count, because each chunk holds several float64 arrays of shape
+    (chunk_size, m). The default row count is therefore chosen against m so
+    that the transient stays roughly constant instead. An explicitly passed
+    ``chunk_size`` is honored exactly as given, and the result does not
+    depend on it either way.
     """
     Sa, Ba, columns, pos = _anchor_factors(n_samples, runs, anchors)
     n_runs = Sa.shape[1]
     n_cols = Ba.shape[1]
+    m = Sa.shape[0]
+
+    if chunk_size is None:
+        # probs, term, clipped and entropy are each (chunk_size, m) float64
+        # and live at once: at a flat 8192 rows and m = 5000 that is 1.3 GB,
+        # or about 1.6 GB with the two float32 count arrays beside them.
+        # Capping at 2**23 elements holds each near 64 MB. The 8192 ceiling
+        # keeps the row-side arrays, which are sized by the run count rather
+        # than by m, no larger than they were before.
+        chunk_size = max(256, min(8192, 2**23 // max(m, 1)))
 
     stability_gini = np.empty(n_samples, dtype=float)
     stability_ce = np.empty(n_samples, dtype=float)

@@ -368,6 +368,17 @@ class TestStabilityFromRunsAnchored:
         assert np.allclose(a[0], b[0])
         assert np.allclose(a[1], b[1])
 
+    def test_default_chunk_size_matches_an_explicit_one(self):
+        # The default row count is derived from the anchor count so the
+        # float64 temporaries stay bounded. Deriving it must not move a value.
+        n = 300
+        runs = _make_runs(n, seed=7)
+        anchors = np.sort(np.random.default_rng(4).choice(n, 60, replace=False))
+        default = stability_from_runs_anchored(n, runs, anchors)
+        explicit = stability_from_runs_anchored(n, runs, anchors, chunk_size=8192)
+        assert np.allclose(default[0], explicit[0])
+        assert np.allclose(default[1], explicit[1])
+
     def test_scores_vary_across_samples(self):
         # Guards against an implementation that returns a constant vector,
         # which every shape assertion above would still accept.
