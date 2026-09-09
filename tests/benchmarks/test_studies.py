@@ -468,3 +468,48 @@ class TestStudyScalingSweep:
         )
         assert a["selected_k"].equals(b["selected_k"])
         assert np.allclose(a["ari"], b["ari"])
+
+    def test_peak_rss_is_read_after_fit_not_before(self, ladder_data, monkeypatch):
+        # wall_clock_s > 0 and peak_rss_bytes > 0 (test_measurements_are_
+        # populated) cannot fail on a measurement taken at the wrong moment:
+        # any running process has nonzero RSS and any real fit takes
+        # nonzero time.
+        #
+        # A numeric "peak_rss_bytes is non-decreasing across an ascending
+        # size ladder" check was tried instead and does not work either:
+        # ru_maxrss is a per-process high-water mark that never falls, so
+        # sampling it anywhere in a sequential, ascending-size loop -- even
+        # right before fit() runs, which still lands after the previous
+        # size's fit finished -- yields a non-decreasing sequence regardless
+        # of where the sample is taken. Verified directly: moving the
+        # peak_rss_bytes() call in study_scaling_sweep to before carve.fit()
+        # left such a check green.
+        #
+        # This test instead pins the call order itself, independent of what
+        # any particular OS reports for RSS: peak_rss_bytes must be read
+        # after fit() has already run for that size, not before.
+        import benchmarks._artifacts as artifacts
+        from carve import CARVE
+
+        X, y = ladder_data
+        events: list[str] = []
+        real_fit = CARVE.fit
+
+        def spy_fit(self, X, *args, **kwargs):
+            result = real_fit(self, X, *args, **kwargs)
+            events.append("fit")
+            return result
+
+        def spy_peak_rss_bytes():
+            events.append("peak")
+            return 1
+
+        monkeypatch.setattr(CARVE, "fit", spy_fit)
+        monkeypatch.setattr(artifacts, "peak_rss_bytes", spy_peak_rss_bytes)
+
+        study_scaling_sweep(
+            X, y, sizes=[50, 100], model_grids=self._grids(), n_resamples=5
+        )
+
+        # One (fit, peak) pair per size, fit strictly before its peak.
+        assert events == ["fit", "peak", "fit", "peak"]
