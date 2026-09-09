@@ -205,9 +205,19 @@ def _levine_loader(subsample: int | float | None):
     return load_levine32(subsample=subsample, random_state=42)
 
 
+def _scale_name(study: Study, scale: str | None) -> str:
+    """Resolve a scale argument to the scale name it refers to.
+
+    None means the study's own default. This is the one place the
+    dev/publication default is chosen; resolve_scale, load_study, and
+    carve_cache_path all go through it so the rule cannot drift between them.
+    """
+    return study.default_scale if scale is None else scale
+
+
 def resolve_scale(study: Study, scale: str | None) -> int | float | None:
     """Resolve a scale name to the subsample size the loader receives."""
-    name = study.default_scale if scale is None else scale
+    name = _scale_name(study, scale)
     if name not in study.scales:
         raise ValueError(
             f"Study {study.name!r} has no scale {name!r}. "
@@ -220,8 +230,9 @@ def load_study(
     study: Study, *, scale: str | None = None
 ) -> tuple[Any, Any, dict[str, Any]]:
     """Load a study's data at a named scale, recording the scale in meta."""
-    name = study.default_scale if scale is None else scale
-    X, y, meta = study.loader(resolve_scale(study, name))
+    subsample = resolve_scale(study, scale)
+    name = _scale_name(study, scale)
+    X, y, meta = study.loader(subsample)
     meta = dict(meta)
     meta["scale"] = name
     meta["study"] = study.name
@@ -235,12 +246,8 @@ def carve_cache_path(study: Study, *, scale: str | None = None, root: Path) -> P
     whatever file sits at the path it is handed, so a shared path would let a
     publication run silently reuse a development-scale fit.
     """
-    name = study.default_scale if scale is None else scale
-    if name not in study.scales:
-        raise ValueError(
-            f"Study {study.name!r} has no scale {name!r}. "
-            f"Declared scales are {sorted(study.scales)}."
-        )
+    resolve_scale(study, scale)  # validates scale, raising if it is unknown
+    name = _scale_name(study, scale)
     return Path(root) / f"carve_{study.name}_{name}.carve"
 
 
