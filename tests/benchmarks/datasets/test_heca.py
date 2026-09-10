@@ -175,6 +175,35 @@ class TestLoadHeca:
         assert "PCA" in chain
         assert "deviation" in " ".join(meta["deviations"]).lower()
 
+    def test_mismatched_peak_reference_across_organs_is_rejected(self, heca):
+        # Lung and Brain (the `heca` fixture) share one var index. A third
+        # organ with the same peak count but a different order must be
+        # caught before pooling silently mixes different peaks across
+        # organs -- total_counts + counts only checks length, so it would
+        # not notice on its own.
+        adata = ad.AnnData(
+            X=sparse.csr_matrix(np.zeros((10, N_PEAKS), dtype=np.int32)),
+            obs=pd.DataFrame(
+                {
+                    "cell_type": ["T cell"] * 10,
+                    "organ": "Kidney",
+                    "donor_id": "d1",
+                    "study_id": "10.1000/x",
+                },
+                index=[f"Kidney_{i}" for i in range(10)],
+            ),
+            var=pd.DataFrame(index=[f"peak{i}" for i in range(N_PEAKS)][::-1]),
+        )
+        adata.write_h5ad(heca / "hECA" / "ATAC-Kidney.h5ad")
+
+        with pytest.raises(ValueError, match="Kidney"):
+            load_heca(
+                root=heca,
+                organs=["Lung", "Kidney"],
+                n_top_peaks=50,
+                n_components=5,
+            )
+
     def test_missing_organ_names_the_download(self, heca):
         with pytest.raises(FileNotFoundError, match="15627886"):
             load_heca(root=heca, organs=["Pancreas"], n_top_peaks=50)

@@ -125,6 +125,40 @@ def _read_obs(path: Path, columns: Sequence[str]) -> pd.DataFrame:
     return frame.reset_index(drop=True)
 
 
+def _peak_ids(path: Path) -> pd.Index:
+    """Read only the var index (cPeak ids), never touching X."""
+    import anndata as ad
+
+    adata = ad.read_h5ad(path, backed="r")
+    names = adata.var_names.copy()
+    adata.file.close()
+    return names
+
+
+def _check_peaks_aligned(organs: Sequence[str], paths: Sequence[Path]) -> None:
+    """Fail loudly if the pooled organs do not share one cPeak reference.
+
+    total_counts + counts below only requires matching length, which raises
+    on a mismatched peak count but says nothing when two organs carry the
+    same number of cPeaks in a different order. In that case the pooled
+    feature selection and reduce_to_peaks would silently mix different
+    peaks across organs, and every downstream number would be wrong with no
+    symptom. All five real hECA files come from one cPeak reference, so this
+    is expected to pass; it exists for when that assumption stops holding.
+    """
+    reference_organ, reference_peaks = organs[0], _peak_ids(paths[0])
+    for organ, path in zip(organs[1:], paths[1:]):
+        peaks = _peak_ids(path)
+        if not peaks.equals(reference_peaks):
+            raise ValueError(
+                f"ATAC-{organ}.h5ad's cPeaks do not match "
+                f"ATAC-{reference_organ}.h5ad's -- pooling would silently "
+                "mix different peaks across organs. Expected the same "
+                "cPeak reference (same peaks, same order) in every organ "
+                "file being pooled."
+            )
+
+
 def _cache_key(
     organs: Sequence[str],
     open_fraction: float,
@@ -242,6 +276,7 @@ def load_heca(
         n_top = cached["n_peaks_selected"]
     else:
         paths = [_organ_path(data_dir, organ) for organ in organs]
+        _check_peaks_aligned(list(organs), paths)
 
         # Pass 1: per-peak open counts pooled across every organ, so the
         # feature set is shared. Selecting features per organ would make the
