@@ -16,9 +16,11 @@ import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from sklearn.metrics import adjusted_rand_score
 
 from .._panels import (
     aligned_color_maps,
+    ari_lollipop,
     axis_arrows,
     carve_lines,
     cvi_lines,
@@ -153,6 +155,40 @@ def composite_color_maps(
         inputs.y, inputs.carve_labels, inputs.comparison_labels
     )
     return true_cmap, carve_cmap, comparison_cmap
+
+
+def ari_table(inputs: CompositeInputs) -> pd.DataFrame:
+    """ARI of each selection against the reported labels.
+
+    Shared by the Levine and hECA figures, whose panel F is this table
+    rendered as a lollipop chart rather than an alluvial -- the ARI table is
+    the number both case studies exist to report, so a fix to one must reach
+    both rather than living in two copies that can drift apart.
+    """
+    rows = [
+        {
+            "method": "CARVE",
+            "metric": "ari_stability_1se",
+            "ari": float(adjusted_rand_score(inputs.y, inputs.carve_labels)),
+            "k": int(len(set(np.asarray(inputs.carve_labels).tolist()))),
+        }
+    ]
+    for _, row in inputs.best_df.iterrows():
+        rows.append(
+            {
+                "method": str(row["metric"]).replace("_", " ").title(),
+                "metric": str(row["metric"]),
+                "ari": float(row["ari"]),
+                "k": int(row["k"]),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def ari_panel(ax: Axes, inputs: CompositeInputs) -> Axes:
+    return ari_lollipop(
+        ax, ari_table(inputs), title="Agreement with Reported Labels (ARI)"
+    )
 
 
 def prepare_composite(

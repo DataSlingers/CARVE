@@ -11,13 +11,10 @@ from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from sklearn.metrics import adjusted_rand_score
 
-from .._panels import ari_lollipop
-from ._case_study import CompositeInputs, composite_figure
+from ._case_study import CompositeInputs, ari_panel, composite_figure
 
 MARKER_SIZE = 3.0
 AXIS_LABELS = ("PC1", "PC2")
@@ -50,34 +47,6 @@ def subsample_inputs(
     )
 
 
-def _ari_table(inputs: CompositeInputs) -> pd.DataFrame:
-    """ARI of each selection against the reported labels."""
-    rows = [
-        {
-            "method": "CARVE",
-            "metric": "ari_stability_1se",
-            "ari": float(adjusted_rand_score(inputs.y, inputs.carve_labels)),
-            "k": int(len(set(np.asarray(inputs.carve_labels).tolist()))),
-        }
-    ]
-    for _, row in inputs.best_df.iterrows():
-        rows.append(
-            {
-                "method": str(row["metric"]).replace("_", " ").title(),
-                "metric": str(row["metric"]),
-                "ari": float(row["ari"]),
-                "k": int(row["k"]),
-            }
-        )
-    return pd.DataFrame(rows)
-
-
-def _ari_panel(ax: Axes, inputs: CompositeInputs) -> Axes:
-    return ari_lollipop(
-        ax, _ari_table(inputs), title="Agreement with Reported Labels (ARI)"
-    )
-
-
 def figure_heca_results(
     inputs: CompositeInputs,
     *,
@@ -97,7 +66,7 @@ def figure_heca_results(
     """
 
     def _bottom_panel(ax: Axes, _subsampled: CompositeInputs) -> Axes:
-        return _ari_panel(ax, inputs)
+        return ari_panel(ax, inputs)
 
     return composite_figure(
         subsample_inputs(inputs, size=scatter_subsample),
