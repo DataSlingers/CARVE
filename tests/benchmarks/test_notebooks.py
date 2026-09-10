@@ -128,6 +128,7 @@ def test_cusanovich_notebook_reads_its_config_from_studies():
     assert "study_model_grids(study)" in source
     assert "candidate_k=study.candidate_k" in source
     assert "range(4, 17)" not in source
+    assert "consensus_anchors=study.consensus_anchors" in source
 
 
 def test_heca_notebook_reads_its_config_from_studies():

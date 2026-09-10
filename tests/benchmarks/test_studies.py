@@ -467,12 +467,19 @@ class TestNewStudies:
         assert study_resolution_grids(STUDIES["cusanovich"])
 
     def test_heca_pins_its_anchor_count(self):
-        # 20 configurations at m=5000 would retain about 4 GB of blocks; at
-        # m=2000 it is about 0.83 GB.
+        # The 20-config Leiden resolution sweep retains both
+        # consensus_matrices_ and consensus_generalizability_matrices_ per
+        # config: 20 * 2 * 2000**2 * 8 B = 1.28 GB at m=2000, against 8.0 GB
+        # at the package default (anchor_threshold=5000), which applies at
+        # hECA's own scale.
         assert STUDIES["heca"].consensus_anchors == 2000
 
-    def test_cusanovich_leaves_anchors_at_the_package_default(self):
-        assert STUDIES["cusanovich"].consensus_anchors is None
+    def test_cusanovich_pins_the_same_anchor_count_as_heca(self):
+        # Left at the package default, the atlas-scale Leiden sweep (tens of
+        # thousands of cells, above anchor_threshold=5000) would retain 8.0
+        # GB of consensus blocks against hECA's 1.28 GB at a tenth the
+        # sample count. Pinned to the same 2000 anchors for the same reason.
+        assert STUDIES["cusanovich"].consensus_anchors == 2000
 
     def test_new_studies_declare_dev_and_publication_scales(self):
         for name in ("cusanovich", "heca"):

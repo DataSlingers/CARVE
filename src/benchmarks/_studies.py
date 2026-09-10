@@ -368,6 +368,22 @@ STUDIES: dict[str, Study] = {
         # subset actually analyzed at this scale is smaller (see
         # datasets._cusanovich and meta["n_cells_annotated"]).
         resolutions=tuple(round(0.1 * i, 1) for i in range(1, 21)),
+        # Pinned rather than left at the package default. Both
+        # consensus_matrices_ and consensus_generalizability_matrices_ are
+        # retained per configuration, so retained memory is
+        # n_configs * 2 * m**2 * 8 bytes. At atlas scale (tens of thousands
+        # of cells, above anchor_threshold=5000) the 20-config Leiden
+        # resolution sweep would otherwise anchor to the package default of
+        # m=5000: 20 * 2 * 5000**2 * 8 B = 8.0 GB retained. Pinned to the
+        # same 2000 anchors hECA uses (below), that sweep instead retains
+        # 20 * 2 * 2000**2 * 8 B = 1.28 GB. At dev scale (1,500 cells) this
+        # is a no-op: m=2000 exceeds n, so resolve_anchors takes the exact,
+        # unanchored path regardless. At publication scale (5,000 cells) it
+        # newly anchors to 2000 where the run was previously exact, which
+        # is a deliberate, harmless trade at that size (a 5000x5000 exact
+        # matrix is only 0.2 GB) made for one consistent anchor count across
+        # every scale this study declares.
+        consensus_anchors=2000,
     ),
     "heca": Study(
         name="heca",
@@ -377,6 +393,12 @@ STUDIES: dict[str, Study] = {
         scales={"dev": 25_000, "publication": None},
         default_scale="dev",
         resolutions=tuple(round(0.1 * i, 1) for i in range(1, 21)),
+        # See the cusanovich entry above for the arithmetic: both
+        # consensus_matrices_ and consensus_generalizability_matrices_ are
+        # retained per configuration, so the 20-config Leiden resolution
+        # sweep retains 20 * 2 * 2000**2 * 8 B = 1.28 GB here, against 8.0 GB
+        # at the package default (anchor_threshold=5000) at hECA's own
+        # scale, which is always above that threshold.
         consensus_anchors=2000,
     ),
 }
