@@ -382,6 +382,25 @@ class TestCarveCachePath:
         b = carve_cache_path(_study(name="beta"), scale="dev", root=tmp_path)
         assert a != b
 
+    def test_editing_a_scales_resolved_size_changes_the_path(self, tmp_path):
+        # Same study name, same scale name ("dev"), different resolved size
+        # -- as if STUDIES[...].scales["dev"] were edited from 25,000 to
+        # 50,000. Keying only on the scale name would leave this path
+        # unchanged and fit_or_load_carve would silently serve the fit taken
+        # at the old size.
+        small = _study(scales={"dev": 100, "publication": None})
+        big = _study(scales={"dev": 50_000, "publication": None})
+        a = carve_cache_path(small, scale="dev", root=tmp_path)
+        b = carve_cache_path(big, scale="dev", root=tmp_path)
+        assert a != b
+
+    def test_the_full_data_none_scale_gets_a_stable_path(self, tmp_path):
+        # None (full data) has no natural filename spelling; the hash must
+        # still be deterministic across calls.
+        a = carve_cache_path(_study(), scale="publication", root=tmp_path)
+        b = carve_cache_path(_study(), scale="publication", root=tmp_path)
+        assert a == b
+
 
 class TestRegisteredStudiesCarryScales:
     def test_every_study_declares_its_default_scale(self):

@@ -5,6 +5,7 @@ then built a figure and called plt.show() in the same call, so the sweep
 could not be reused without also drawing it.
 """
 
+import hashlib
 from collections.abc import Sequence
 from itertools import product
 from pathlib import Path
@@ -318,13 +319,21 @@ def load_study(
 def carve_cache_path(study: Study, *, scale: str | None = None, root: Path) -> Path:
     """Where a study's fitted CARVE state is cached, per scale.
 
-    The scale is part of the filename deliberately. fit_or_load_carve loads
-    whatever file sits at the path it is handed, so a shared path would let a
-    publication run silently reuse a development-scale fit.
+    Both the scale name and a short hash of its resolved size are part of
+    the filename deliberately. fit_or_load_carve loads whatever file sits at
+    the path it is handed, so a shared path would let a publication run
+    silently reuse a development-scale fit -- that is what the scale name
+    guards against. The hash guards the same failure one level up: editing
+    STUDIES[...].scales[name] (say, hECA's "dev" from 25,000 to 50,000)
+    changes what that scale resolves to without changing its name, and
+    without the hash fit_or_load_carve would silently load the fit taken at
+    the old size. A hash reads better than the raw resolved size for the
+    None case (full data), which has no natural filename spelling.
     """
-    resolve_scale(study, scale)  # validates scale, raising if it is unknown
+    resolved = resolve_scale(study, scale)  # raises if the scale is unknown
     name = _scale_name(study, scale)
-    return Path(root) / f"carve_{study.name}_{name}.carve"
+    size_key = hashlib.sha1(repr(resolved).encode()).hexdigest()[:8]
+    return Path(root) / f"carve_{study.name}_{name}_{size_key}.carve"
 
 
 STUDIES: dict[str, Study] = {
