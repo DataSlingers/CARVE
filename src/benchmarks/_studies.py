@@ -307,9 +307,13 @@ STUDIES: dict[str, Study] = {
         candidate_k=tuple(range(4, 17)),
         scales={"dev": 1500, "publication": 5000, "atlas": None},
         default_scale="dev",
-        # The atlas scale runs all 81,173 cells, where spectral and Ward
-        # cannot run, so that pass sweeps Leiden resolution instead. This is
-        # what shows the case-study conclusion survives past the subsample.
+        # The atlas scale runs every annotated cell (the loader always drops
+        # cell_label=="Unknown", roughly a third of the atlas), where
+        # spectral and Ward cannot run, so that pass sweeps Leiden resolution
+        # instead. This is what shows the case-study conclusion survives past
+        # the subsample. 81,173 is the atlas as published; the annotated
+        # subset actually analyzed at this scale is smaller (see
+        # datasets._cusanovich and meta["n_cells_annotated"]).
         resolutions=tuple(round(0.1 * i, 1) for i in range(1, 21)),
     ),
     "heca": Study(

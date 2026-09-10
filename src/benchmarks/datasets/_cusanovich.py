@@ -151,6 +151,12 @@ def load_cusanovich(
     metadata = metadata.set_index("cell").reindex(cells)
     n_cells_full = int(matrix.shape[1])
 
+    # UNKNOWN_LABEL is not a rare edge case: in the source cell_metadata.txt
+    # it accounts for roughly a third of the atlas. Dropping it here,
+    # regardless of scale or label_column, means the atlas's published
+    # 81,173 cells and the annotated set this function actually returns
+    # (n_cells_annotated in meta, below) are two different numbers -- do not
+    # conflate them, including at scales={"atlas": None}.
     keep_cells = metadata[_ANNOTATION_COLUMN].notna().to_numpy() & (
         metadata[_ANNOTATION_COLUMN].to_numpy() != UNKNOWN_LABEL
     )

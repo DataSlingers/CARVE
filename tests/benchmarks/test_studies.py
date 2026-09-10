@@ -375,8 +375,10 @@ class TestNewStudies:
             study_resolution_grids(STUDIES["klein"])
 
     def test_cusanovich_also_declares_resolutions_for_its_atlas_pass(self):
-        # At 81,173 cells neither spectral nor Ward can run, so the
-        # full-atlas pass sweeps Leiden resolution instead of k.
+        # At atlas scale (every annotated cell -- smaller than the atlas's
+        # published 81,173, since Unknown-labeled cells are always dropped)
+        # neither spectral nor Ward can run, so the full-atlas pass sweeps
+        # Leiden resolution instead of k.
         assert len(STUDIES["cusanovich"].resolutions) == 20
         assert study_resolution_grids(STUDIES["cusanovich"])
 
