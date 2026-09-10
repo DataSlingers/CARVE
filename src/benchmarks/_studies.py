@@ -471,12 +471,22 @@ def study_scaling_sweep(
     that size, but it must not be read as the memory a single fit would need
     in a fresh process. Callers should pass sizes in increasing order.
 
+    A rung larger than the data actually available is skipped, with a
+    warning naming it, rather than raised as an error. hECA's publication
+    ladder tops out at a literal 500_000, but the count that matters is the
+    pooled total after the Unclassified drop, which is not independently
+    verified anywhere; failing on an oversized top rung after already
+    running every smaller one would waste hours of prior compute for no
+    reason better than a hardcoded target the data may not actually reach.
+
     Returns
     -------
     DataFrame with columns (n, n_configs, wall_clock_s, peak_rss_bytes,
-    selected_k, ari). ari is against y, or NaN when y is None.
+    selected_k, ari). ari is against y, or NaN when y is None. A row is
+    omitted for any size skipped as too large.
     """
     import time
+    import warnings
 
     from sklearn.metrics import adjusted_rand_score
 
@@ -490,9 +500,12 @@ def study_scaling_sweep(
     for size in sizes:
         size = int(size)
         if size > n_total:
-            raise ValueError(
-                f"Requested size {size} exceeds the {n_total} available samples."
+            warnings.warn(
+                f"Skipping scaling-sweep size {size}: it exceeds the "
+                f"{n_total} available samples.",
+                stacklevel=2,
             )
+            continue
         _check_dense_fit(size, model_grids)
 
         rng = np.random.default_rng(random_state + size)

@@ -544,12 +544,35 @@ class TestStudyScalingSweep:
         )
         assert out["ari"].iloc[0] > 0.5
 
-    def test_sizes_larger_than_n_are_rejected(self, ladder_data):
+    def test_a_size_larger_than_n_is_skipped_with_a_warning(self, ladder_data):
+        # Failing on an oversized top rung after already running every
+        # smaller one would waste the prior rungs' compute for no reason
+        # better than a hardcoded target the data may not actually reach
+        # (see hECA's publication ladder). A skip-and-warn must not silently
+        # swallow every rung, though -- the rows for sizes that do fit must
+        # still come back.
         X, y = ladder_data
-        with pytest.raises(ValueError, match="exceeds"):
-            study_scaling_sweep(
+        with pytest.warns(UserWarning, match="10000"):
+            out = study_scaling_sweep(
+                X, y, sizes=[100, 10_000], model_grids=self._grids(), n_resamples=5
+            )
+        assert list(out["n"]) == [100]
+
+    def test_every_size_larger_than_n_yields_an_empty_frame(self, ladder_data):
+        X, y = ladder_data
+        with pytest.warns(UserWarning, match="10000"):
+            out = study_scaling_sweep(
                 X, y, sizes=[10_000], model_grids=self._grids(), n_resamples=5
             )
+        assert list(out.columns) == [
+            "n",
+            "n_configs",
+            "wall_clock_s",
+            "peak_rss_bytes",
+            "selected_k",
+            "ari",
+        ]
+        assert len(out) == 0
 
     def test_is_deterministic(self, ladder_data):
         X, y = ladder_data
