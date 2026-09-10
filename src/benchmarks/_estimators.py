@@ -41,6 +41,13 @@ ESTIMATOR_DEFAULTS: dict[str, dict[str, Any]] = {
 # cannot appear in the same grid as a k-based estimator.
 RESOLUTION_ESTIMATORS: frozenset[str] = frozenset({"leiden"})
 
+# Estimators that build a dense n-by-n affinity or distance matrix, so their
+# memory cost is quadratic in the sample count regardless of k or resolution.
+# SpectralClustering computes a full affinity matrix; AgglomerativeClustering
+# with ward linkage is likewise quadratic. See _studies._check_dense_fit,
+# which is where this matters: at n=50,000 a single such matrix is 20 GB.
+DENSE_PAIRWISE_ESTIMATORS: frozenset[str] = frozenset({"spectral", "agglomerative"})
+
 
 def apply_random_state(
     estimator_cls: type[ClusterMixin], params: dict[str, Any], random_state: int

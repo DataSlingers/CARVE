@@ -163,6 +163,71 @@ class TestFitOrLoadCarve:
         assert cache.stat().st_mtime_ns != mtime
 
 
+class TestDenseEstimatorGuard:
+    """cvi_sweep, fit_or_load_carve, and study_scaling_sweep all bring X and
+    model_grids together before handing them to a real estimator, which is
+    why the O(n^2)-estimator guard lives in each of them rather than in
+    study_model_grids -- which never sees n, and which a caller assembling
+    model_grids by hand would not even go through.
+    """
+
+    def test_cvi_sweep_rejects_spectral_at_large_n(self):
+        rng = np.random.default_rng(0)
+        X = rng.normal(size=(6000, 3))
+        y = np.repeat(["a", "b"], 3000)
+        grids = param_grids(EstimatorSpec(name="spectral"), (2, 3))
+        with pytest.raises(ValueError, match="SpectralClustering"):
+            cvi_sweep(X, y, model_grids=grids, candidate_k=(2, 3))
+
+    def test_fit_or_load_carve_rejects_agglomerative_at_large_n(self, tmp_path):
+        rng = np.random.default_rng(0)
+        X = rng.normal(size=(6000, 3))
+        y = np.repeat(["a", "b"], 3000)
+        grids = param_grids(EstimatorSpec(name="agglomerative"), (2, 3))
+        with pytest.raises(ValueError, match="AgglomerativeClustering"):
+            fit_or_load_carve(
+                X,
+                y,
+                cache_path=tmp_path / "demo.carve",
+                model_grids=grids,
+                n_resamples=3,
+            )
+
+    def test_study_scaling_sweep_rejects_spectral_at_a_large_rung(self):
+        rng = np.random.default_rng(0)
+        X = rng.normal(size=(6000, 2))
+        grids = param_grids(EstimatorSpec(name="spectral"), (2, 3))
+        with pytest.raises(ValueError, match="SpectralClustering"):
+            study_scaling_sweep(X, None, sizes=[6000], model_grids=grids, n_resamples=3)
+
+    def test_error_names_the_resolved_n(self):
+        rng = np.random.default_rng(0)
+        X = rng.normal(size=(6000, 3))
+        grids = param_grids(EstimatorSpec(name="spectral"), (2, 3))
+        with pytest.raises(ValueError, match="6000"):
+            cvi_sweep(X, None, model_grids=grids, candidate_k=(2, 3))
+
+    def test_guard_does_not_block_a_safe_n(self):
+        # At or below the safe boundary this must not become a blanket ban
+        # on spectral or agglomerative.
+        rng = np.random.default_rng(0)
+        X = rng.normal(size=(200, 3))
+        y = np.repeat(["a", "b"], 100)
+        grids = param_grids(EstimatorSpec(name="spectral"), (2, 3))
+        curves, _ = cvi_sweep(X, y, model_grids=grids, candidate_k=(2, 3))
+        assert not curves.empty
+
+    def test_guard_ignores_estimators_that_are_not_dense(self):
+        # KMeans has no quadratic-memory affinity/distance matrix, so a large
+        # n paired only with KMeans must not raise.
+        rng = np.random.default_rng(0)
+        X = rng.normal(size=(6000, 3))
+        y = np.repeat(["a", "b"], 3000)
+        grids = param_grids(EstimatorSpec(name="kmeans"), (2, 3))
+        curves, _ = cvi_sweep(X, y, model_grids=grids, candidate_k=(2, 3))
+        assert not curves.empty
+
+
 class TestStudies:
     def test_both_case_studies_are_registered(self):
         assert set(STUDIES) == {"klein", "levine32", "cusanovich", "heca"}

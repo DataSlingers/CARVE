@@ -20,6 +20,8 @@ from carve import CARVE
 
 from ._cvi import calculate_cvi, select_k
 from ._estimators import (
+    DENSE_PAIRWISE_ESTIMATORS,
+    ESTIMATOR_CLASSES,
     RESOLUTION_ESTIMATORS,
     apply_random_state,
     param_grids,
@@ -33,6 +35,46 @@ CVI_SWEEP_METRICS: tuple[str, ...] = (
     "davies_bouldin",
     "calinski_harabasz",
 )
+
+# Above this many samples, a dense n-by-n float64 matrix is no longer a
+# reasonable thing to build without asking first: at 5,000 it is 0.2 GB; at
+# 50,000 it is 20 GB. 5,000 also matches CARVE's own anchor_threshold
+# default, which draws the same "an exact n-by-n matrix stops being
+# tractable here" line for the consensus matrix.
+DENSE_ESTIMATOR_SAFE_N = 5_000
+
+_DENSE_ESTIMATOR_CLASSES: frozenset[type[ClusterMixin]] = frozenset(
+    cls for name, cls in ESTIMATOR_CLASSES.items() if name in DENSE_PAIRWISE_ESTIMATORS
+)
+
+
+def _check_dense_fit(
+    n_samples: int,
+    model_grids: list[tuple[type[ClusterMixin], dict[str, list[Any]]]],
+) -> None:
+    """Refuse to silently build an O(n^2) affinity or distance matrix.
+
+    study_model_grids is scale-blind by design -- it knows an estimator and
+    candidate_k, never n -- so a check placed there could not see this
+    coming, and a caller who assembles model_grids by hand instead of going
+    through study_model_grids would walk straight past it anyway. cvi_sweep,
+    fit_or_load_carve, and study_scaling_sweep are the one place every
+    case-study entry point brings X and model_grids together before handing
+    them to a real estimator, which is why the check lives here instead.
+    """
+    offending = sorted(
+        {cls.__name__ for cls, _ in model_grids if cls in _DENSE_ESTIMATOR_CLASSES}
+    )
+    if offending and n_samples > DENSE_ESTIMATOR_SAFE_N:
+        gb = 8 * n_samples**2 / 1e9
+        raise ValueError(
+            f"model_grids includes {', '.join(offending)} at n_samples="
+            f"{n_samples}, which would build a dense {n_samples}-by-"
+            f"{n_samples} matrix (about {gb:.1f} GB). That is only safe up "
+            f"to about {DENSE_ESTIMATOR_SAFE_N} samples here; use a smaller "
+            "scale, or restrict model_grids to estimators that scale to "
+            "this n (Leiden via study_resolution_grids, for example)."
+        )
 
 
 def _model_label(estimator_cls: type[ClusterMixin], params: dict[str, Any]) -> str:
@@ -109,6 +151,7 @@ def cvi_sweep(
     """
     X = np.asarray(X)
     y_arr = None if y is None else np.asarray(y)
+    _check_dense_fit(X.shape[0], model_grids)
 
     jobs = []
     for estimator_cls, grid in model_grids:
@@ -183,6 +226,7 @@ def fit_or_load_carve(
         not fit.
     """
     cache_path = Path(cache_path)
+    _check_dense_fit(np.asarray(X).shape[0], model_grids)
 
     if cache_path.is_file() and not force:
         carve = CARVE.load(str(cache_path))
@@ -418,6 +462,7 @@ def study_scaling_sweep(
             raise ValueError(
                 f"Requested size {size} exceeds the {n_total} available samples."
             )
+        _check_dense_fit(size, model_grids)
 
         rng = np.random.default_rng(random_state + size)
         idx = np.sort(rng.choice(n_total, size=size, replace=False))
