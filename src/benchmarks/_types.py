@@ -8,7 +8,9 @@ from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-KNOWN_ESTIMATORS: frozenset[str] = frozenset({"kmeans", "agglomerative", "spectral"})
+KNOWN_ESTIMATORS: frozenset[str] = frozenset(
+    {"kmeans", "minibatch_kmeans", "agglomerative", "spectral", "leiden"}
+)
 
 
 @dataclass(frozen=True)
@@ -150,22 +152,34 @@ class Scenario:
 
 @dataclass(frozen=True)
 class Study:
-    """One case study: a real dataset run through the same runner.
+    """One case study: a real dataset run through the same pipeline.
 
-    A Study has no axis. The runner treats it as a single cell, so the
-    artifact schema is identical with axis_name, axis_value, and axis_label
-    set to the study name, 0, and the study name respectively.
+    A Study has no axis. Its loader is parameterized by a subsample size so
+    that development runs cheaply against a subsample and the publication run
+    uses the whole dataset, with both sizes declared here rather than chosen
+    at a call site.
     """
 
     name: str
-    loader: Callable[[], tuple[Any, Any, Mapping[str, Any]]]
+    loader: Callable[[int | float | None], tuple[Any, Any, Mapping[str, Any]]]
     estimator: EstimatorSpec
     candidate_k: tuple[int, ...]
+    scales: Mapping[str, int | float | None]
+    default_scale: str
+    resolutions: tuple[float, ...] = ()
+    consensus_anchors: int | None = None
     k_star: int | None = None
 
     def __post_init__(self) -> None:
         if not self.candidate_k:
             raise ValueError(f"Study {self.name!r}: candidate_k must not be empty.")
+        if not self.scales:
+            raise ValueError(f"Study {self.name!r}: declare at least one scale.")
+        if self.default_scale not in self.scales:
+            raise ValueError(
+                f"Study {self.name!r}: default_scale {self.default_scale!r} is "
+                f"not among the declared scales {sorted(self.scales)}."
+            )
 
 
 @dataclass(frozen=True)
