@@ -1,5 +1,7 @@
 """Tests for case-study compute."""
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -161,6 +163,64 @@ class TestFitOrLoadCarve:
             X, y, cache_path=cache, model_grids=grids, n_resamples=3, force=True
         )
         assert cache.stat().st_mtime_ns != mtime
+
+
+class _SpyCARVE:
+    """Records the kwargs it was constructed with; does no real fitting.
+
+    Used to confirm fit_or_load_carve's conditional splat at the CARVE(...)
+    call site actually forwards consensus_anchors, rather than trusting the
+    splat by inspection -- it is a single easy-to-break line and it is the
+    parameter the scalability answer depends on.
+    """
+
+    captured_kwargs: dict | None = None
+
+    def __init__(self, **kwargs):
+        type(self).captured_kwargs = kwargs
+
+    def fit(self, *args, **kwargs):
+        return self
+
+    def save(self, path):
+        Path(path).write_text("stub")
+
+
+class TestConsensusAnchorsForwarding:
+    def test_fit_or_load_carve_forwards_consensus_anchors(
+        self, blobs, tmp_path, monkeypatch
+    ):
+        X, y = blobs
+        grids = param_grids(EstimatorSpec(name="kmeans"), (2, 3))
+        monkeypatch.setattr("benchmarks._studies.CARVE", _SpyCARVE)
+
+        fit_or_load_carve(
+            X,
+            y,
+            cache_path=tmp_path / "demo.carve",
+            model_grids=grids,
+            n_resamples=3,
+            consensus_anchors=123,
+        )
+
+        assert _SpyCARVE.captured_kwargs["consensus_anchors"] == 123
+
+    def test_fit_or_load_carve_omits_consensus_anchors_when_none(
+        self, blobs, tmp_path, monkeypatch
+    ):
+        X, y = blobs
+        grids = param_grids(EstimatorSpec(name="kmeans"), (2, 3))
+        monkeypatch.setattr("benchmarks._studies.CARVE", _SpyCARVE)
+
+        fit_or_load_carve(
+            X,
+            y,
+            cache_path=tmp_path / "demo.carve",
+            model_grids=grids,
+            n_resamples=3,
+        )
+
+        assert "consensus_anchors" not in _SpyCARVE.captured_kwargs
 
 
 class TestDenseEstimatorGuard:

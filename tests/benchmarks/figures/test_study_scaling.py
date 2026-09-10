@@ -32,7 +32,9 @@ def test_panels_are_labeled_for_their_quantities(sweep, tmp_path):
     labels = " ".join(ax.get_ylabel() for ax in fig.axes).lower()
     assert "second" in labels
     assert "gb" in labels or "memory" in labels
-    assert "k" in labels
+    # Not "k" in labels: "peak" (the memory panel's own label) contains a
+    # "k", so that check could never fail.
+    assert "selected k" in labels
 
 
 def test_memory_is_plotted_in_gigabytes_not_bytes(sweep, tmp_path):

@@ -28,6 +28,8 @@ NOTEBOOKS = {
     "klein": REPO_ROOT / "notebooks" / "case_studies" / "Klein.ipynb",
     "levine": REPO_ROOT / "notebooks" / "case_studies" / "Levine_32dim.ipynb",
     "motivation": REPO_ROOT / "notebooks" / "case_studies" / "Motivation.ipynb",
+    "cusanovich": REPO_ROOT / "notebooks" / "case_studies" / "Cusanovich.ipynb",
+    "heca": REPO_ROOT / "notebooks" / "case_studies" / "hECA.ipynb",
 }
 
 
@@ -112,16 +114,7 @@ def test_klein_prepare_composite_uses_the_generalizability_selection():
 
 
 def test_cusanovich_notebook_reads_its_config_from_studies():
-    import json
-    from pathlib import Path
-
-    source = "".join(
-        "".join(cell["source"])
-        for cell in json.loads(
-            Path("notebooks/case_studies/Cusanovich.ipynb").read_text()
-        )["cells"]
-        if cell["cell_type"] == "code"
-    )
+    source = _code(NOTEBOOKS["cusanovich"])
     # Configuration must be read from STUDIES, not restated. Four manuscript
     # mismatches on this project came from re-derivation at the call site.
     assert 'STUDIES["cusanovich"]' in source
@@ -132,16 +125,7 @@ def test_cusanovich_notebook_reads_its_config_from_studies():
 
 
 def test_heca_notebook_reads_its_config_from_studies():
-    import json
-    from pathlib import Path
-
-    source = "".join(
-        "".join(cell["source"])
-        for cell in json.loads(
-            Path("notebooks/case_studies/hECA.ipynb").read_text()
-        )["cells"]
-        if cell["cell_type"] == "code"
-    )
+    source = _code(NOTEBOOKS["heca"])
     assert 'STUDIES["heca"]' in source
     assert "study_resolution_grids(study)" in source
     assert "consensus_anchors=study.consensus_anchors" in source

@@ -258,6 +258,24 @@ class TestCache:
         np.testing.assert_array_equal(second_X, first_X)
         assert list(second_y) == list(first_y)
 
+    def test_changing_n_top_peaks_invalidates_the_cache(self, heca):
+        # n_top_peaks is part of _cache_key alongside organs, open_fraction,
+        # n_components, and label_column. A change to it must miss the
+        # cache and recompute -- not silently serve the previous call's
+        # cached embedding, selected under a different peak count.
+        first_X, _, first_meta = load_heca(
+            root=heca, organs=["Lung"], n_top_peaks=50, n_components=5
+        )
+        assert first_meta["cached"] is False
+        assert first_meta["n_peaks_selected"] == 50
+
+        second_X, _, second_meta = load_heca(
+            root=heca, organs=["Lung"], n_top_peaks=100, n_components=5
+        )
+        assert second_meta["cached"] is False
+        assert second_meta["n_peaks_selected"] == 100
+        assert first_X.shape[1] == second_X.shape[1] == 5
+
     def test_cache_false_does_not_survive_source_deletion(self, heca):
         load_heca(
             root=heca,

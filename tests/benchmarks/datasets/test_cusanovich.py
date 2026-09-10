@@ -88,9 +88,15 @@ class TestLoadCusanovich:
         _, _, loose = load_cusanovich(
             root=atlas, n_components=10, site_frequency_threshold=0.0
         )
-        _, _, strict = load_cusanovich(
-            root=atlas, n_components=10, site_frequency_threshold=0.5
-        )
+        # threshold=0.5 leaves zero peaks for this fixture (see
+        # test_zero_surviving_peaks_warns_and_does_not_claim_svd_ran, below),
+        # which load_cusanovich warns about; that warning is exercised on
+        # its own there; it is incidental here and must not leak into the
+        # suite's output.
+        with pytest.warns(UserWarning, match="site_frequency_threshold=0.5"):
+            _, _, strict = load_cusanovich(
+                root=atlas, n_components=10, site_frequency_threshold=0.5
+            )
         assert strict["n_peaks_kept"] < loose["n_peaks_kept"]
 
     def test_zero_surviving_peaks_warns_and_does_not_claim_svd_ran(self, atlas):
