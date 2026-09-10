@@ -5,6 +5,8 @@ the same layout: CSR raw counts, cells by cPeaks, annotations in obs, and an
 empty obsm.
 """
 
+from pathlib import Path
+
 import anndata as ad
 import numpy as np
 import pandas as pd
@@ -207,6 +209,19 @@ class TestLoadHeca:
     def test_missing_organ_names_the_download(self, heca):
         with pytest.raises(FileNotFoundError, match="15627886"):
             load_heca(root=heca, organs=["Pancreas"], n_top_peaks=50)
+
+    def test_missing_organ_names_a_path_that_resolves_correctly(self, heca, monkeypatch):
+        # load_heca takes no root in the notebooks, so a relative "data/"
+        # resolves against the process's cwd at call time -- the notebook's
+        # own directory when run via nbconvert, not the repository root. A
+        # message that just repeats "data/hECA/" reads correctly only from
+        # the repo root; the resolved absolute path is correct regardless
+        # of where the process actually started.
+        monkeypatch.chdir(heca.parent)
+        with pytest.raises(FileNotFoundError) as excinfo:
+            load_heca(root=Path("data"), organs=["Pancreas"], n_top_peaks=50)
+        expected = (Path("data") / "hECA" / "ATAC-Pancreas.h5ad").resolve()
+        assert str(expected) in str(excinfo.value)
 
     def test_open_fraction_that_empties_every_peak_raises(self, heca):
         # A threshold above 1.0 can never be met, so the pass-1 accumulator

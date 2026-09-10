@@ -55,11 +55,17 @@ _CACHE_PREFIX = ".heca_cache_"
 def _organ_path(data_dir: Path, organ: str) -> Path:
     path = data_dir / f"ATAC-{organ}.h5ad"
     if not path.is_file():
+        # data_dir is resolved relative to the current working directory,
+        # not the repository root: a notebook run via nbconvert has its own
+        # directory as cwd. Showing the resolved absolute path, rather than
+        # repeating the relative "data/hECA/" spelling, names a location
+        # that is correct regardless of where this happened to run from.
         raise FileNotFoundError(
-            f"Missing {path}. Download ATAC-{organ}.h5ad.zip from Zenodo "
-            f"record {ZENODO_RECORD} ({DOWNLOAD_ROOT}) and extract it into "
-            "data/hECA/. Extract one organ at a time and delete the h5ad "
-            "after use; all five extracted at once will not fit."
+            f"Missing {path.resolve()}. Download ATAC-{organ}.h5ad.zip from "
+            f"Zenodo record {ZENODO_RECORD} ({DOWNLOAD_ROOT}) and extract "
+            f"it into {data_dir.resolve()}/. Extract one organ at a time "
+            "and delete the h5ad after use; all five extracted at once "
+            "will not fit."
         )
     return path
 

@@ -5,6 +5,7 @@ on-disk layout and exercises the preprocessing chain against it.
 """
 
 import gzip
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -134,3 +135,18 @@ class TestLoadCusanovich:
     def test_missing_data_directory_names_the_download(self, tmp_path):
         with pytest.raises(FileNotFoundError, match="mouse_atlas_data_release"):
             load_cusanovich(root=tmp_path / "nothing")
+
+    def test_missing_data_directory_names_a_path_that_resolves_correctly(
+        self, tmp_path, monkeypatch
+    ):
+        # load_cusanovich takes no root in the notebooks, so a relative
+        # "data/" resolves against the process's cwd at call time -- the
+        # notebook's own directory when run via nbconvert, not the
+        # repository root. A message that just repeats "data/Cusanovich/"
+        # reads correctly only from the repo root; the resolved absolute
+        # path is correct regardless of where the process actually started.
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(FileNotFoundError) as excinfo:
+            load_cusanovich(root=Path("nothing"))
+        expected = Path("nothing").resolve()
+        assert str(expected) in str(excinfo.value)

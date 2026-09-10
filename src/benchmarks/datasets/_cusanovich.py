@@ -44,10 +44,16 @@ _ANNOTATION_COLUMN = "cell_label"
 
 def _require(path: Path) -> Path:
     if not path.is_file():
+        # path (and data_dir, its grandparent) is resolved relative to the
+        # current working directory, not the repository root: a notebook
+        # run via nbconvert has its own directory as cwd. Showing the
+        # resolved absolute path, rather than repeating the relative
+        # "data/Cusanovich/" spelling, names a location that is correct
+        # regardless of where this happened to run from.
         raise FileNotFoundError(
-            f"Missing {path}. Download the Cusanovich atlas from "
-            f"{DOWNLOAD_ROOT} into data/Cusanovich/, keeping the "
-            "matrices/ and metadata/ subdirectories."
+            f"Missing {path.resolve()}. Download the Cusanovich atlas from "
+            f"{DOWNLOAD_ROOT} into {path.resolve().parent.parent}/, keeping "
+            "the matrices/ and metadata/ subdirectories."
         )
     return path
 
@@ -62,11 +68,14 @@ def _resolve_cusanovich_dir(root: Path | None) -> Path:
     try:
         return resolve_data_dir("Cusanovich", root=root)
     except FileNotFoundError as exc:
-        searched = root if root is not None else DATA_ROOT
+        searched = (root if root is not None else DATA_ROOT).resolve()
         raise FileNotFoundError(
-            f"No Cusanovich atlas found under {searched}. Download it from "
-            f"{DOWNLOAD_ROOT} into data/Cusanovich/, keeping the matrices/ "
-            "and metadata/ subdirectories."
+            f"No Cusanovich atlas found under {searched}. This path is "
+            "resolved relative to the current working directory, not the "
+            "repository root -- for a notebook run via nbconvert, that is "
+            f"the notebook's own directory. Download the atlas from "
+            f"{DOWNLOAD_ROOT} into {searched / 'Cusanovich'}/, keeping the "
+            "matrices/ and metadata/ subdirectories."
         ) from exc
 
 
