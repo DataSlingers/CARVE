@@ -23,13 +23,16 @@ EXPECTED = (
     "figure_cusanovich_results",
     "figure_heca_results",
     "figure_study_scaling",
+    "figure_reference_scatter",
 )
 
 # Figures not yet implemented. Tasks 9 through 12 each removed their own
 # figures from this set as they landed; it is now empty, since all eleven
-# manuscript figures exist. It is a one-way ratchet from here: re-adding a
-# name would silence that figure's contract checks below, so doing so must
-# be a deliberate, visible act, never an incidental append to a list.
+# manuscript figures exist, as does the case-study reference-label overview
+# (figure_reference_scatter), a notebook figure held to the same contract.
+# It is a one-way ratchet from here: re-adding a name would silence that
+# figure's contract checks below, so doing so must be a deliberate, visible
+# act, never an incidental append to a list.
 NOT_YET_IMPLEMENTED = frozenset()
 
 
@@ -37,7 +40,7 @@ def test_not_yet_implemented_is_empty():
     assert NOT_YET_IMPLEMENTED == frozenset()
 
 
-def test_all_eleven_manuscript_figures_are_exported():
+def test_all_twelve_figures_are_exported():
     assert set(figures.__all__) >= set(EXPECTED) - NOT_YET_IMPLEMENTED
 
 

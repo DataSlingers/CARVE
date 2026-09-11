@@ -1,10 +1,10 @@
 """The Cusanovich mouse sci-ATAC case-study composite.
 
 Panel F is an alluvial linking the CARVE clustering, the reported labels and
-the CVI clustering, the same shape the Klein figure uses. Panels A to C use
-the first two LSI components, which is the embedding the source publication's
-own pipeline produces, and 8-point markers because the study is Levine sized
-rather than Klein sized.
+the CVI clustering, the same shape the Klein figure uses. Panels A to C draw
+the source publication's own t-SNE coordinates, which cell_metadata.txt ships
+and the loader carries through as meta["source_tsne"], with 8-point markers
+because the study is Levine sized rather than Klein sized.
 """
 
 from pathlib import Path
@@ -16,7 +16,7 @@ from .._panels import alluvial
 from ._case_study import CompositeInputs, composite_color_maps, composite_figure
 
 MARKER_SIZE = 8.0
-AXIS_LABELS = ("LSI 1", "LSI 2")
+AXIS_LABELS = ("t-SNE 1", "t-SNE 2")
 
 
 def _alluvial_panel(ax: Axes, inputs: CompositeInputs) -> Axes:

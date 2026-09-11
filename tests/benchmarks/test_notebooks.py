@@ -129,3 +129,26 @@ def test_heca_notebook_reads_its_config_from_studies():
     assert 'STUDIES["heca"]' in source
     assert "study_resolution_grids(study)" in source
     assert "consensus_anchors=study.consensus_anchors" in source
+
+
+# Each ATAC case-study notebook opens with a reference-label scatter of one
+# embedding and then hands that same embedding to prepare_composite, so the
+# data is shown one way throughout. The embedding follows the source: the
+# Cusanovich atlas ships its own t-SNE, which the loader carries through as
+# meta["source_tsne"]; hECA ships nothing, so the notebook computes a UMAP
+# the way Levine_32dim.ipynb computes its t-SNE. AXIS_LABELS in the two
+# composite modules are pinned to match, in their own test files.
+def test_cusanovich_notebook_draws_the_source_tsne_throughout():
+    source = _code(NOTEBOOKS["cusanovich"])
+    assert 'meta["source_tsne"]' in source
+    assert "figure_reference_scatter(" in source
+    assert "embedding=" in source
+    assert "plt.subplots" not in source
+
+
+def test_heca_notebook_draws_one_umap_throughout():
+    source = _code(NOTEBOOKS["heca"])
+    assert "UMAP(random_state=RANDOM_SEED)" in source
+    assert "figure_reference_scatter(" in source
+    assert "embedding=" in source
+    assert "plt.subplots" not in source

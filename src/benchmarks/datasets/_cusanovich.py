@@ -31,6 +31,11 @@ _MATRIX = "matrices/atac_matrix.binary.qc_filtered.mtx.gz"
 _CELLS = "matrices/atac_matrix.binary.qc_filtered.cells.txt"
 _METADATA = "metadata/cell_metadata.txt"
 
+#: Columns of cell_metadata.txt holding the source publication's own t-SNE
+#: coordinates (their Figure 1). Carried through as meta["source_tsne"] so a
+#: notebook can show the data the way the source does, at zero compute.
+_SOURCE_TSNE_COLUMNS = ("tsne_1", "tsne_2")
+
 #: Label value marking cells the source left unannotated. Dropped, mirroring
 #: the Levine study's removal of the uncharacterized population 15.
 UNKNOWN_LABEL = "Unknown"
@@ -134,6 +139,9 @@ def load_cusanovich(
     Returns
     -------
     (X, y, meta)
+        meta["source_tsne"] is an (n_cells, 2) float array of the source's
+        own t-SNE coordinates, filtered and subsampled alongside X so that
+        row i of both is the same cell.
     """
     from sklearn.decomposition import TruncatedSVD
     from sklearn.model_selection import StratifiedShuffleSplit
@@ -212,6 +220,10 @@ def load_cusanovich(
         metadata.loc[keep_cells, label_column].to_numpy(),
         name=label_column,
     ).astype(str)
+    source_tsne = np.asarray(
+        metadata.loc[keep_cells, list(_SOURCE_TSNE_COLUMNS)].to_numpy(),
+        dtype=np.float64,
+    )
 
     n_annotated = int(X.shape[0])
     if subsample is not None:
@@ -226,6 +238,7 @@ def load_cusanovich(
         _, idx = next(splitter.split(X, y))
         X = X[idx]
         y = y.iloc[idx].reset_index(drop=True)
+        source_tsne = source_tsne[idx]
 
     meta = {
         "source": "Cusanovich",
@@ -242,5 +255,6 @@ def load_cusanovich(
         "preprocessing": preprocessing,
         "subsample": subsample,
         "random_state": random_state,
+        "source_tsne": source_tsne,
     }
     return X, y, meta

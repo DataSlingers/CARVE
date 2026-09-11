@@ -17,6 +17,7 @@ from benchmarks.datasets import load_cusanovich
 
 N_CELLS = 120
 N_PEAKS = 400
+TISSUE_CODE = {"Lung": 0.0, "Liver": 1.0, "Spleen": 2.0}
 
 
 @pytest.fixture
@@ -51,14 +52,23 @@ def atlas(tmp_path):
     (d / "matrices" / "atac_matrix.binary.qc_filtered.peaks.txt").write_text(
         "\n".join(f"chr1_{i}_{i + 100}" for i in range(N_PEAKS)) + "\n"
     )
+    # The source's own t-SNE coordinates. tsne_1 encodes the cell's column
+    # in the matrix and tsne_2 its tissue, so a test can check which cell a
+    # coordinate row belongs to after the loader has filtered and
+    # subsampled. Rows are written in a shuffled order because the real
+    # cell_metadata.txt does not follow the matrix's cell order either; the
+    # loader reindexes by cell id.
+    order = rng.permutation(N_CELLS)
     pd.DataFrame(
         {
             "cell": cells,
             "tissue": tissues,
             "cluster": rng.integers(1, 5, N_CELLS),
+            "tsne_1": np.arange(N_CELLS, dtype=float),
+            "tsne_2": np.array([TISSUE_CODE[t] for t in tissues], dtype=float),
             "cell_label": np.where(rng.random(N_CELLS) < 0.15, "Unknown", tissues),
         }
-    ).to_csv(d / "metadata" / "cell_metadata.txt", sep="\t", index=False)
+    ).iloc[order].to_csv(d / "metadata" / "cell_metadata.txt", sep="\t", index=False)
     return root
 
 
@@ -129,6 +139,37 @@ class TestLoadCusanovich:
         assert X.shape[0] == 30
         assert meta["subsample"] == 30
         assert y.nunique() == 3
+
+    def test_source_tsne_rows_follow_x_through_filter_and_subsample(self, atlas):
+        # meta["source_tsne"] is the source's own t-SNE, carried through as
+        # an (n, 2) array whose row i is the same cell as row i of X and y.
+        # The fixture encodes each cell's matrix column in tsne_1 and its
+        # tissue in tsne_2, so both the Unknown filter and the stratified
+        # subsample can be checked without reconstructing the split.
+        X, y, meta = load_cusanovich(root=atlas, n_components=10, subsample=30)
+        tsne = meta["source_tsne"]
+        assert isinstance(tsne, np.ndarray)
+        assert tsne.dtype == np.float64
+        assert tsne.shape == (X.shape[0], 2)
+
+        # Row i's tissue code matches row i of y.
+        expected = np.array([TISSUE_CODE[t] for t in y], dtype=float)
+        np.testing.assert_array_equal(tsne[:, 1], expected)
+
+        # Every row is a distinct annotated cell: no Unknown cell survives
+        # and no cell appears twice.
+        metadata = pd.read_csv(
+            atlas / "Cusanovich" / "metadata" / "cell_metadata.txt", sep="\t"
+        ).set_index("cell")
+        columns = tsne[:, 0].astype(int)
+        assert len(set(columns)) == len(columns)
+        labels = metadata["cell_label"].loc[[f"cell{i:04d}" for i in columns]]
+        assert "Unknown" not in set(labels)
+
+    def test_source_tsne_is_full_length_without_subsample(self, atlas):
+        X, _, meta = load_cusanovich(root=atlas, n_components=10)
+        assert meta["source_tsne"].shape == (X.shape[0], 2)
+        assert X.shape[0] == meta["n_cells_annotated"]
 
     def test_meta_records_the_preprocessing_chain(self, atlas):
         _, _, meta = load_cusanovich(root=atlas, n_components=10)

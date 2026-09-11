@@ -74,10 +74,13 @@ def inputs():
     )
 
 
-def test_axis_labels_name_the_lsi_components():
-    # The embedding is LSI, not PCA; mislabeling it would misreport the
-    # preprocessing the manuscript describes.
-    assert AXIS_LABELS == ("LSI 1", "LSI 2")
+def test_axis_labels_name_the_source_tsne():
+    # Panels A to C draw the source publication's own t-SNE coordinates,
+    # which the loader carries through as meta["source_tsne"] and the
+    # notebook passes to prepare_composite; the overview scatter that opens
+    # the notebook draws the same embedding. Labeling them LSI or PCA would
+    # misreport what is drawn.
+    assert AXIS_LABELS == ("t-SNE 1", "t-SNE 2")
 
 
 def test_marker_size_matches_the_levine_scale():

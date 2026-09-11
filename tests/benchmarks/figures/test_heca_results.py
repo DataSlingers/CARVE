@@ -124,10 +124,13 @@ class TestSubsampleInputs:
         assert out.curves_df.equals(inputs.curves_df)
 
 
-def test_axis_labels_name_the_pca_components():
-    # hECA follows the source's log-normalization and PCA chain, not the
-    # TF-IDF and LSI chain the Cusanovich study uses.
-    assert AXIS_LABELS == ("PC1", "PC2")
+def test_axis_labels_name_the_umap():
+    # The source ships no coordinates, so the notebook computes a UMAP on
+    # the loader's principal components, the way the source publication
+    # visualizes, and passes it to prepare_composite; the overview scatter
+    # that opens the notebook draws the same embedding. Labeling the panels
+    # PC1/PC2 would misreport what is drawn.
+    assert AXIS_LABELS == ("UMAP 1", "UMAP 2")
 
 
 def test_figure_writes_under_its_manuscript_name(inputs, tmp_path):

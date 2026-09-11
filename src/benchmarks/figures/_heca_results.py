@@ -5,6 +5,10 @@ The scatter panels are drawn on a declared fixed subsample, because half a
 million points do not rasterize legibly and an undeclared crop would be worse
 than a declared sample. Panel F is the ARI comparison the Levine figure uses
 rather than an alluvial, which is unreadable at roughly 20 cell types.
+
+The scatter embedding is a UMAP of the loader's principal components, computed
+in the notebook and passed to prepare_composite: the source ships no
+coordinates, and UMAP is how the source publication visualizes.
 """
 
 from dataclasses import replace
@@ -17,7 +21,7 @@ from matplotlib.figure import Figure
 from ._case_study import CompositeInputs, ari_panel, composite_figure
 
 MARKER_SIZE = 3.0
-AXIS_LABELS = ("PC1", "PC2")
+AXIS_LABELS = ("UMAP 1", "UMAP 2")
 DEFAULT_SCATTER_SUBSAMPLE = 50_000
 
 
