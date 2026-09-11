@@ -12,7 +12,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-DATA_ROOT = Path("data")
+# src/benchmarks/datasets/_klein.py -> repo root is three directories up.
+# Anchored here rather than to the working directory so that a notebook,
+# whose cwd is its own directory, finds the same data/ as everything else.
+DATA_ROOT = Path(__file__).resolve().parents[3] / "data"
 
 _FILES = {
     "d0": "GSM1599494_ES_d0_main.csv.bz2",
