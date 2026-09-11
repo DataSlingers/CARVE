@@ -58,6 +58,7 @@ from ._utils import (
     default_generalizability_classifier,
     ensure_2d_array,
     resolve_anchors,
+    resolve_core_budget,
     summarize_preprocessing_records,
 )
 
@@ -134,7 +135,9 @@ class CARVE(BaseEstimator):
         Classifier used to score generalizability. If None (default), a
         ``RandomForestClassifier`` is built with ``n_trees`` trees. Must
         implement the sklearn classifier interface (``fit``/``predict``).
-        Cloned per resample to avoid state leakage.
+        Cloned per resample to avoid state leakage. When the clone accepts
+        an ``n_jobs`` parameter it is set to the classifier's share of
+        ``n_jobs`` (see below), overriding the value it was built with.
     n_trees : int, default=100
         Number of trees in the default random-forest classifier. Ignored
         when ``classifier`` is provided.
@@ -143,7 +146,18 @@ class CARVE(BaseEstimator):
         successive ``get_labels`` calls so that cluster indices remain
         consistent.
     n_jobs : int, default=1
-        Number of parallel jobs for resampling. ``-1`` uses all cores.
+        Core budget for the run, in joblib's convention (``-1`` for every
+        core). Resamples are spread over ``n_jobs`` worker processes, and
+        each worker's classifier and BLAS get the cores left over,
+        ``cpu_count // n_jobs``, so a run uses the machine once rather than
+        ``n_jobs`` times over.
+        ``1`` keeps one worker with the classifier on every core; ``-1``
+        runs one resample per core with single-threaded classifiers. Memory
+        scales with the worker count: every worker holds its own fitted
+        forest, roughly 5.5 KB per training row at the default settings, so
+        at large ``n`` prefer a small ``n_jobs`` and let the forest use the
+        threads. ``get_labels`` fits its one extension classifier with the
+        whole budget.
     random_state : int, optional
         Seed for the random number generator, ensuring reproducibility.
     verbose : int, default=0
@@ -831,12 +845,18 @@ class CARVE(BaseEstimator):
             return labels
 
         # Same factory _runner.py's generalizability path calls, so the
-        # extension and the per-resample prediction cannot drift apart.
+        # extension and the per-resample prediction cannot drift apart. This
+        # is one fit outside the resample loop, so it gets the whole budget
+        # fit() spread over its workers rather than one worker's share.
+        outer_n_jobs, classifier_n_jobs = resolve_core_budget(
+            self.n_jobs, n_resamples=self.n_resamples
+        )
         classifier = default_generalizability_classifier(
             classifier=self.classifier,
             n_features=self.X_.shape[1],
             n_trees=self.n_trees,
             random_state=self._random_state_,
+            n_jobs=outer_n_jobs * classifier_n_jobs,
         )
 
         classifier.fit(self.X_[anchors], anchor_labels)

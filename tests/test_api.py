@@ -17,6 +17,7 @@ import warnings
 import warnings as _w
 
 import carve._runner as carve_runner
+import carve._utils as carve_utils
 import carve.api as carve_api
 from carve import CARVE, LeidenClustering, LouvainClustering
 from carve._utils import resolve_anchors
@@ -1166,6 +1167,23 @@ class _SeedSpy(BaseEstimator, ClassifierMixin):
         return np.full(X.shape[0], self.classes_[0])
 
 
+class _NJobsSpy(BaseEstimator, ClassifierMixin):
+    """Records the ``n_jobs`` CARVE injects, then predicts a constant."""
+
+    seen: list = []
+
+    def __init__(self, n_jobs=None):
+        self.n_jobs = n_jobs
+
+    def fit(self, X, y):
+        type(self).seen.append(self.n_jobs)
+        self.classes_ = np.unique(y)
+        return self
+
+    def predict(self, X):
+        return np.full(X.shape[0], self.classes_[0])
+
+
 class TestAnchoredConsensus:
     def test_below_threshold_stores_no_anchors_and_full_matrices(self):
         X = _blobs(60)
@@ -1379,6 +1397,32 @@ class TestAnchoredLabels:
             _SeedSpy.seen.clear()
 
         assert recorded == [7]
+
+    def test_extension_fit_receives_the_whole_core_budget(self, monkeypatch):
+        # fit() spreads n_jobs=4 over 4 workers x 2 threads on 11 cores. The
+        # extension is one fit outside that loop, so it gets the product, not
+        # the per-worker share.
+        monkeypatch.setattr(carve_utils, "cpu_count", lambda: 11)
+        X = _blobs(60)
+        c = CARVE(
+            estimator_param_grids=_grids(),
+            n_resamples=6,
+            anchor_threshold=30,
+            n_jobs=4,
+            random_state=0,
+        )
+        with pytest.warns(RuntimeWarning):
+            c.fit(X)
+
+        c.classifier = _NJobsSpy()
+        _NJobsSpy.seen.clear()
+        try:
+            c._extend_anchor_labels(np.arange(c.consensus_anchors_.size) % 2)
+        finally:
+            recorded = list(_NJobsSpy.seen)
+            _NJobsSpy.seen.clear()
+
+        assert recorded == [8]
 
     def test_default_save_leaves_an_anchored_model_unable_to_label(self, tmp_path):
         # save() drops X_ by default, and the extension needs it. The exact

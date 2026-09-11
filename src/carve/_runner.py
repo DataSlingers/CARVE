@@ -43,6 +43,7 @@ from ._utils import (
     cluster_labels,
     count_clusters,
     default_generalizability_classifier,
+    resolve_core_budget,
     split_subsample_indices,
 )
 
@@ -162,7 +163,8 @@ def run_validation(
     randomize_preprocessing : bool, default=False
         Whether to sample preprocessing randomly per resample.
     n_jobs : int, default=1
-        Number of parallel jobs for resamples.
+        Core budget for the run. Split once by ``resolve_core_budget`` into
+        workers over resamples and threads per worker for the classifier.
     random_state : int or None, default=None
         Random seed for reproducibility.
     sweep : SweepSpec, optional
@@ -227,6 +229,14 @@ def run_validation(
 
     n = X.shape[0]
 
+    # Workers over resamples, threads inside each worker's classifier. The
+    # loky backend already caps BLAS and OpenMP in its workers at the same
+    # cpu_count // outer, and keeps an OMP_NUM_THREADS pin from the parent;
+    # the forest's own thread pool is the one thing it cannot reach.
+    outer_n_jobs, classifier_n_jobs = resolve_core_budget(
+        n_jobs, n_resamples=n_resamples
+    )
+
     with tqdm(
         total=total_configs, desc="Grid configs", disable=not show_progress
     ) as pbar:
@@ -235,7 +245,7 @@ def run_validation(
                 config_idx += 1
 
                 worker = delayed(validation_iter)
-                results = Parallel(n_jobs=n_jobs)(
+                results = Parallel(n_jobs=outer_n_jobs)(
                     worker(
                         X=X,
                         est_class=est_class,
@@ -252,6 +262,7 @@ def run_validation(
                         noise_policy=noise_policy,
                         mode=mode,
                         random_state=random_state,
+                        classifier_n_jobs=classifier_n_jobs,
                     )
                     for b in range(n_resamples)
                 )
@@ -455,6 +466,7 @@ def validation_iter(
     randomize_preprocessing: bool = False,
     mode: RunMode = "default",
     random_state: int = None,
+    classifier_n_jobs: int = 1,
 ) -> ResampleResult:
     """Run a single resampling iteration for one estimator configuration.
 
@@ -493,6 +505,9 @@ def validation_iter(
         or generalizability analysis ('generalizability').
     random_state : int or None, default=None
         Base random seed for reproducibility.
+    classifier_n_jobs : int, default=1
+        Threads for this resample's classifier, its share of the run's core
+        budget.
 
     Returns
     -------
@@ -617,6 +632,7 @@ def validation_iter(
         classifier=classifier,
         n_trees=n_trees,
         seed=random_state0 + seed,
+        classifier_n_jobs=classifier_n_jobs,
     )
 
     return ResampleResult(
@@ -695,6 +711,7 @@ def _compute_generalizability_ari(
     classifier,
     n_trees,
     seed,
+    classifier_n_jobs=1,
 ):
     """Compute generalizability ARI via random-forest prediction.
 
@@ -717,6 +734,8 @@ def _compute_generalizability_ari(
         Number of trees in the default random-forest classifier.
     seed : int
         Random seed for the random forest.
+    classifier_n_jobs : int, default=1
+        Threads for the classifier.
 
     Returns
     -------
@@ -743,6 +762,7 @@ def _compute_generalizability_ari(
         n_features=X_1.shape[1],
         n_trees=n_trees,
         random_state=seed,
+        n_jobs=classifier_n_jobs,
     )
 
     clf.fit(X_1, labels_1)

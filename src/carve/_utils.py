@@ -9,6 +9,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from joblib import cpu_count
 from numpy.typing import ArrayLike
 from scipy import sparse
 from scipy.optimize import linear_sum_assignment
@@ -433,12 +434,56 @@ def ensure_2d_array(
         )
 
 
+def resolve_core_budget(n_jobs: int | None, *, n_resamples: int) -> tuple[int, int]:
+    """Split ``n_jobs`` into resample workers and threads per worker.
+
+    ``n_jobs`` follows joblib's convention: a positive count, ``-1`` for
+    every core, ``-2`` for all but one, and None for one worker. The worker
+    count is capped at ``n_resamples`` because Parallel never runs more
+    workers than tasks; the threads those workers would have held go to the
+    ones that run. Each worker's classifier gets the cores left over,
+    ``cpu_count // workers``, never fewer than one.
+
+    ``n_jobs=1`` therefore keeps the historical default: one worker with the
+    forest on every core. ``n_jobs=-1`` is the other end, one resample per
+    core with single-threaded forests. In between, the product of the two
+    never exceeds the machine when the workers fit on it.
+
+    Parameters
+    ----------
+    n_jobs : int or None
+        The core budget passed to ``CARVE``.
+    n_resamples : int
+        Resamples per configuration, the number of tasks the workers share.
+
+    Returns
+    -------
+    outer : int
+        Worker count to give ``joblib.Parallel`` over resamples.
+    inner : int
+        Thread count to give each resample's classifier.
+    """
+    n_cores = cpu_count()
+    if n_jobs is None:
+        outer = 1
+    elif n_jobs == 0:
+        raise ValueError("n_jobs == 0 has no meaning; use 1 or a negative count")
+    elif n_jobs < 0:
+        outer = max(n_cores + 1 + n_jobs, 1)
+    else:
+        outer = n_jobs
+    outer = max(1, min(outer, n_resamples))
+    inner = max(1, n_cores // outer)
+    return outer, inner
+
+
 def default_generalizability_classifier(
     *,
     classifier: ClassifierMixin | None,
     n_features: int,
     n_trees: int,
     random_state: int | None,
+    n_jobs: int,
 ) -> ClassifierMixin:
     """Build the classifier CARVE uses to predict labels for unseen samples.
 
@@ -461,6 +506,11 @@ def default_generalizability_classifier(
     random_state : int or None
         Seed. Applied to a user-supplied classifier only when it accepts a
         ``random_state`` parameter.
+    n_jobs : int
+        Threads the classifier may use, its share of the run's core budget
+        from ``resolve_core_budget``. Applied to a user-supplied classifier
+        only when it accepts an ``n_jobs`` parameter, overriding whatever it
+        was built with.
 
     Returns
     -------
@@ -474,12 +524,15 @@ def default_generalizability_classifier(
             max_depth=n_features,
             max_features=int(np.sqrt(n_features)),
             random_state=random_state,
-            n_jobs=-1,
+            n_jobs=n_jobs,
         )
 
     clf = clone(classifier)
-    if "random_state" in clf.get_params():
+    params = clf.get_params()
+    if "random_state" in params:
         clf.set_params(random_state=random_state)
+    if "n_jobs" in params:
+        clf.set_params(n_jobs=n_jobs)
     return clf
 
 

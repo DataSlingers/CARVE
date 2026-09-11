@@ -5,9 +5,11 @@ from collections import Counter
 
 import numpy as np
 import pytest
-from sklearn.base import BaseEstimator, ClusterMixin
+from sklearn.base import BaseEstimator, ClassifierMixin, ClusterMixin
 from sklearn.cluster import HDBSCAN, AgglomerativeClustering, KMeans
 
+import carve._runner as carve_runner
+import carve._utils as carve_utils
 from carve._consensus import compute_consensus_metrics
 from carve._runner import (
     ResampleResult,
@@ -58,6 +60,35 @@ class _NoisyStub(_LabelStub):
     """Produces 2 clusters plus noise points, like HDBSCAN."""
 
     _pattern = np.array([0, 1, -1, 0, 1])
+
+
+class _NJobsSpy(BaseEstimator, ClassifierMixin):
+    """Records the ``n_jobs`` CARVE injects at fit time, then predicts a constant."""
+
+    seen: list = []
+
+    def __init__(self, n_jobs=None):
+        self.n_jobs = n_jobs
+
+    def fit(self, X, y):
+        type(self).seen.append(self.n_jobs)
+        self.classes_ = np.unique(y)
+        return self
+
+    def predict(self, X):
+        return np.full(X.shape[0], self.classes_[0])
+
+
+class _ParallelSpy:
+    """Stands in for joblib.Parallel: records n_jobs, runs the tasks inline."""
+
+    seen: list = []
+
+    def __init__(self, n_jobs=None, **kwargs):
+        type(self).seen.append(n_jobs)
+
+    def __call__(self, tasks):
+        return [func(*args, **kwargs) for func, args, kwargs in tasks]
 
 
 @pytest.fixture()
@@ -208,6 +239,31 @@ class TestComputeGeneralizabilityAri:
         assert labels_pred is None
         assert np.isnan(ari)
 
+    def test_classifier_receives_the_thread_budget(self, default_policy):
+        rng = np.random.RandomState(0)
+        X_train = rng.randn(20, 3)
+        X_test = rng.randn(5, 3)
+        labels_train = np.array([0] * 10 + [1] * 10)
+        labels_test = np.array([0] * 3 + [1] * 2)
+
+        _NJobsSpy.seen.clear()
+        try:
+            _compute_generalizability_ari(
+                default_policy,
+                X_train,
+                X_test,
+                labels_train,
+                labels_test,
+                classifier=_NJobsSpy(),
+                n_trees=100,
+                seed=0,
+                classifier_n_jobs=3,
+            )
+            recorded = list(_NJobsSpy.seen)
+        finally:
+            _NJobsSpy.seen.clear()
+        assert recorded == [3]
+
 
 # -----------------------------------------------------------------------
 # validation_iter
@@ -270,6 +326,29 @@ class TestValidationIter:
         assert np.isnan(result.ari_stability)
         assert not np.isnan(result.ari_generalizability)
         assert result.labels_stability is None
+
+    def test_classifier_n_jobs_reaches_the_classifier(self, X_two_clusters):
+        _NJobsSpy.seen.clear()
+        try:
+            validation_iter(
+                X=X_two_clusters,
+                est_class=KMeans,
+                params={"n_clusters": 2},
+                subsample_ratio=0.8,
+                n_resamples=3,
+                seed=0,
+                normalization_options=[],
+                dim_reduction_options=[],
+                classifier=_NJobsSpy(),
+                randomize_preprocessing=False,
+                mode="default",
+                random_state=0,
+                classifier_n_jobs=5,
+            )
+            recorded = list(_NJobsSpy.seen)
+        finally:
+            _NJobsSpy.seen.clear()
+        assert recorded == [5]
 
 
 # -----------------------------------------------------------------------
@@ -389,6 +468,61 @@ class TestRunValidation:
         assert -0.5 <= rec["ari_stability"] <= 1.0
         assert -0.5 <= rec["ari_generalizability"] <= 1.0
         assert rec["ari_stability_se"] >= 0
+
+
+class TestRunValidationCoreBudget:
+    """n_jobs is split once per run: workers over resamples, threads inside.
+
+    Parallel receives the worker count and every resample's classifier
+    receives the per-worker thread count. Parallel is replaced by an inline
+    spy so the classifier spy's record survives the call, which it would not
+    across loky processes.
+    """
+
+    @pytest.fixture(autouse=True)
+    def eleven_cores(self, monkeypatch):
+        monkeypatch.setattr(carve_utils, "cpu_count", lambda: 11)
+        monkeypatch.setattr(carve_runner, "Parallel", _ParallelSpy)
+        _ParallelSpy.seen.clear()
+        _NJobsSpy.seen.clear()
+        yield
+        _ParallelSpy.seen.clear()
+        _NJobsSpy.seen.clear()
+
+    def _run(self, X, n_jobs, n_resamples=6, n_clusters=(2,)):
+        run_validation(
+            X=X,
+            estimator_grids=[(KMeans, {"n_clusters": list(n_clusters)})],
+            n_resamples=n_resamples,
+            subsample_ratio=0.8,
+            normalization_options=[],
+            dim_reduction_options=[],
+            classifier=_NJobsSpy(),
+            n_jobs=n_jobs,
+            random_state=0,
+            verbose=0,
+        )
+
+    def test_one_worker_gives_the_classifier_every_core(self, X_two_clusters):
+        self._run(X_two_clusters, n_jobs=1)
+        assert _ParallelSpy.seen == [1]
+        assert _NJobsSpy.seen == [11] * 6
+
+    def test_all_cores_gives_one_thread_per_resample(self, X_two_clusters):
+        self._run(X_two_clusters, n_jobs=-1, n_resamples=20)
+        assert _ParallelSpy.seen == [11]
+        assert _NJobsSpy.seen == [1] * 20
+
+    def test_partial_budget_splits_the_remainder(self, X_two_clusters):
+        self._run(X_two_clusters, n_jobs=4)
+        assert _ParallelSpy.seen == [4]
+        assert _NJobsSpy.seen == [2] * 6
+
+    def test_budget_is_resolved_once_per_run(self, X_two_clusters):
+        # Two configurations, one Parallel call each, the same split for both.
+        self._run(X_two_clusters, n_jobs=4, n_clusters=(2, 3))
+        assert _ParallelSpy.seen == [4, 4]
+        assert _NJobsSpy.seen == [2] * 12
 
 
 # -----------------------------------------------------------------------
