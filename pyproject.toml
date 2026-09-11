@@ -83,6 +83,7 @@ notebooks = [
 ]
 benchmarks = [
   "pyarrow>=17",
+  "scanpy>=1.11.4",
 ]
 
 [tool.setuptools.packages.find]

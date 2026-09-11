@@ -50,6 +50,9 @@ jobs:
 
       # [graph] pulls igraph + leidenalg. Without it the Leiden/Louvain and
       # resolution-sweep tests skip, leaving that mode uncovered in CI.
+      # [benchmarks] pulls pyarrow (parquet checkpoints) and scanpy (the
+      # hECA and Klein loaders). tests/benchmarks/ runs here alongside the
+      # carve suite and fails at import without them.
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
@@ -57,7 +60,7 @@ jobs:
         run: >
           uv pip install --system
           --resolution ${{ matrix.resolution }}
-          -e ".[dev,graph]"
+          -e ".[dev,graph,benchmarks]"
 
       # umap-learn is an optional extra and its wheels lag new Python
       # releases, so only exercise the UMAP code path where it installs
