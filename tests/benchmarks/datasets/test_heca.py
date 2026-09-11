@@ -223,6 +223,22 @@ class TestLoadHeca:
         expected = (Path("data") / "hECA" / "ATAC-Pancreas.h5ad").resolve()
         assert str(expected) in str(excinfo.value)
 
+    def test_truncated_organ_file_names_the_file_and_the_fix(self, heca):
+        # A download that stopped short leaves a file HDF5 can open but not
+        # read: h5py's own error ("free block size is zero?", "bad symbol
+        # table node signature") surfaces from ten frames deep and names
+        # neither the file nor what to do. The real ATAC-Brain.h5ad failed
+        # exactly this way after an interrupted download.
+        path = heca / "hECA" / "ATAC-Brain.h5ad"
+        data = path.read_bytes()
+        path.write_bytes(data[: len(data) // 2])
+        with pytest.raises(OSError, match="ATAC-Brain.h5ad") as excinfo:
+            load_heca(root=heca, organs=["Lung", "Brain"], n_top_peaks=50)
+        message = str(excinfo.value)
+        assert str(path.resolve()) in message
+        assert "truncated or corrupt" in message
+        assert "md5" in message
+
     def test_open_fraction_that_empties_every_peak_raises(self, heca):
         # A threshold above 1.0 can never be met, so the pass-1 accumulator
         # must reject it rather than silently handing PCA a zero-feature

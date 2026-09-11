@@ -119,11 +119,33 @@ def reduce_to_peaks(
     return sparse.vstack(blocks, format="csr")
 
 
-def _read_obs(path: Path, columns: Sequence[str]) -> pd.DataFrame:
-    """Read only the requested obs columns, never touching X."""
+def _open_backed(path: Path):
+    """Open an organ file backed, naming the file and the fix if it is unreadable.
+
+    A download that stopped short leaves a file whose HDF5 signature is
+    intact but whose objects are not. h5py reports that as an OSError at
+    open ("truncated file") for a small file, or as a RuntimeError or
+    KeyError while resolving the root group ("free block size is zero?",
+    "bad symbol table node signature") for a large one, from a dozen frames
+    deep and naming neither the file nor what to do. Both mean the same
+    thing here.
+    """
     import anndata as ad
 
-    adata = ad.read_h5ad(path, backed="r")
+    try:
+        return ad.read_h5ad(path, backed="r")
+    except (OSError, RuntimeError, KeyError) as exc:
+        raise OSError(
+            f"{path.resolve()} is truncated or corrupt and cannot be read "
+            f"({exc}). Re-download {path.name}.zip from Zenodo record "
+            f"{ZENODO_RECORD} ({DOWNLOAD_ROOT}), check the zip's md5 against "
+            "the record before extracting, and extract it in place."
+        ) from exc
+
+
+def _read_obs(path: Path, columns: Sequence[str]) -> pd.DataFrame:
+    """Read only the requested obs columns, never touching X."""
+    adata = _open_backed(path)
     frame = adata.obs[list(columns)].copy()
     adata.file.close()
     return frame.reset_index(drop=True)
@@ -131,9 +153,7 @@ def _read_obs(path: Path, columns: Sequence[str]) -> pd.DataFrame:
 
 def _peak_ids(path: Path) -> pd.Index:
     """Read only the var index (cPeak ids), never touching X."""
-    import anndata as ad
-
-    adata = ad.read_h5ad(path, backed="r")
+    adata = _open_backed(path)
     names = adata.var_names.copy()
     adata.file.close()
     return names
