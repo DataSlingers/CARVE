@@ -98,8 +98,6 @@ def figure_reference_scatter(
             f"{Z.shape} and y of length {y.shape[0]}."
         )
 
-    # Sorted category order, the same order aligned_color_maps keys on, so
-    # the legend reads in the order the palette was assigned.
     if color_map is None:
         (color_map,) = aligned_color_maps(y)
 
@@ -112,18 +110,25 @@ def figure_reference_scatter(
         )
         axis_arrows(ax, axis_labels)
 
+        # Legend entries in sorted order of the raw label values, which is
+        # the order aligned_color_maps assigns the palette in, so the legend
+        # walks the palette in sequence. scatter_clusters labels each
+        # collection str(label), so sorting those strings instead would put
+        # integer labels out of sequence ("1", "10", "2").
+        handle_for = dict(zip(*reversed(ax.get_legend_handles_labels())))
+        categories = sorted(set(y[idx].tolist()))
+        handles = [handle_for[str(category)] for category in categories]
+        labels = [str(category) for category in categories]
         # Hung from the figure's bottom edge, so however many rows the
         # labels need (13 tissues take four) the legend grows downward into
         # the margin save_figure's tight bounding box picks up, never upward
-        # into the axes and the corner arrows.
-        handles, labels = ax.get_legend_handles_labels()
-        order = sorted(range(len(labels)), key=lambda i: labels[i])
-        # At most four columns, filled evenly: five organs read as 2+2+1
-        # across three columns rather than 4+1 across four.
+        # into the axes and the corner arrows. At most four columns, filled
+        # evenly: five organs read as 2+2+1 across three columns rather than
+        # 4+1 across four.
         n_rows = -(-len(labels) // 4)
         fig.legend(
-            [handles[i] for i in order],
-            [labels[i] for i in order],
+            handles,
+            labels,
             loc="upper center",
             bbox_to_anchor=(0.5, 0.0),
             ncol=-(-len(labels) // n_rows),

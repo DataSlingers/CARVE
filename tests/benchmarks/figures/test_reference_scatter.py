@@ -119,6 +119,20 @@ def test_legend_lists_each_label_once_in_sorted_order(embedding, tmp_path):
     assert labels == ["Liver", "Lung", "Spleen"]
 
 
+def test_legend_order_follows_the_palette_order_for_integer_labels(tmp_path):
+    # aligned_color_maps assigns the palette in sorted order of the raw
+    # label values. The legend must walk the same order, so sorting the
+    # string form ("1", "10", "2") would put the palette out of sequence.
+    rng = np.random.default_rng(0)
+    y = np.repeat([10, 2, 1], 20)
+    Z = rng.normal(size=(60, 2))
+    fig = figure_reference_scatter(
+        Z, y, axis_labels=AXIS_LABELS, save=False, out_dir=tmp_path
+    )
+    labels = [text.get_text() for text in fig.legends[0].get_texts()]
+    assert labels == ["1", "2", "10"]
+
+
 def test_max_points_draws_a_seeded_subsample_and_keeps_rows_together(
     embedding, tmp_path
 ):
