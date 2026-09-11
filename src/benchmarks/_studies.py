@@ -361,7 +361,7 @@ STUDIES: dict[str, Study] = {
         scales={"dev": 1500, "publication": 5000, "atlas": None},
         default_scale="dev",
         # The atlas scale runs every annotated cell (the loader always drops
-        # cell_label=="Unknown", roughly a third of the atlas), where
+        # cell_label=="Unknown", about 12 percent of the atlas), where
         # spectral and Ward cannot run, so that pass sweeps Leiden resolution
         # instead. This is what shows the case-study conclusion survives past
         # the subsample. 81,173 is the atlas as published; the annotated

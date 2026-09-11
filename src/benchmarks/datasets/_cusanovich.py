@@ -161,7 +161,7 @@ def load_cusanovich(
     n_cells_full = int(matrix.shape[1])
 
     # UNKNOWN_LABEL is not a rare edge case: in the source cell_metadata.txt
-    # it accounts for roughly a third of the atlas. Dropping it here,
+    # it covers 10,029 of 81,173 cells, about 12 percent. Dropping it here,
     # regardless of scale or label_column, means the atlas's published
     # 81,173 cells and the annotated set this function actually returns
     # (n_cells_annotated in meta, below) are two different numbers -- do not
