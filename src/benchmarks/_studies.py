@@ -6,6 +6,7 @@ could not be reused without also drawing it.
 """
 
 import hashlib
+import warnings
 from collections.abc import Sequence
 from itertools import product
 from pathlib import Path
@@ -202,6 +203,45 @@ def cvi_sweep(
     return returned_curves, best.reset_index(drop=True)
 
 
+def _fingerprint(X: np.ndarray) -> str:
+    return hashlib.sha1(
+        np.ascontiguousarray(np.asarray(X, dtype=np.float64)).tobytes()
+    ).hexdigest()
+
+
+def _fingerprint_path(cache_path: Path) -> Path:
+    return cache_path.with_name(cache_path.name + ".x-sha1")
+
+
+def _check_fingerprint(cache_path: Path, X: np.ndarray) -> None:
+    """Refuse to serve a cached fit against a different X.
+
+    A cached fit is only valid for the matrix it was fit on, and
+    fit_or_load_carve restores X_ onto whatever it loads. The hECA
+    development embedding changes under one scale name (subsample-first
+    until the pooled cache exists, pooled after), which is exactly the case
+    a scale-keyed filename cannot catch. A cache written before this check
+    existed has no record to compare against; it is served with a warning
+    rather than discarded, since a fit can be hours of compute.
+    """
+    sidecar = _fingerprint_path(cache_path)
+    if not sidecar.is_file():
+        warnings.warn(
+            f"{cache_path} carries no fingerprint of the X it was fit on, so "
+            "it cannot be checked against the X passed now. Pass force=True "
+            "to refit if the data has changed since it was cached.",
+            stacklevel=3,
+        )
+        return
+    if sidecar.read_text().strip() != _fingerprint(X):
+        raise ValueError(
+            f"{cache_path} was fit on a different X than the one passed now "
+            "(the fingerprint differs). Serving it would report results for "
+            "data it never saw. Pass force=True to refit on this X, or load "
+            "the data the cache was fit on."
+        )
+
+
 def fit_or_load_carve(
     X: np.ndarray,
     y: np.ndarray | pd.Series | None,
@@ -230,6 +270,7 @@ def fit_or_load_carve(
     _check_dense_fit(np.asarray(X).shape[0], model_grids)
 
     if cache_path.is_file() and not force:
+        _check_fingerprint(cache_path, X)
         carve = CARVE.load(str(cache_path))
         carve.X_ = np.asarray(X)
         return carve
@@ -250,6 +291,7 @@ def fit_or_load_carve(
 
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     carve.save(str(cache_path))
+    _fingerprint_path(cache_path).write_text(_fingerprint(X))
     return carve
 
 
@@ -279,7 +321,16 @@ def _cusanovich_loader(subsample: int | float | None):
 def _heca_loader(subsample: int | float | None):
     from .datasets import load_heca
 
-    return load_heca(subsample=subsample, random_state=42, label_column="organ")
+    # subsample_before_embedding: the pooled embedding of the five organs
+    # is tens of GB to compute, so a development-scale load draws its rows
+    # from the organ files first. load_heca ignores the flag at publication
+    # scale (subsample=None) and whenever the pooled cache is present.
+    return load_heca(
+        subsample=subsample,
+        random_state=42,
+        label_column="organ",
+        subsample_before_embedding=True,
+    )
 
 
 def _scale_name(study: Study, scale: str | None) -> str:

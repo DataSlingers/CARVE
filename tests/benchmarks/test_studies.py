@@ -13,6 +13,7 @@ from benchmarks._estimators import param_grids
 from benchmarks._studies import (
     CVI_SWEEP_METRICS,
     STUDIES,
+    _heca_loader,
     _klein_loader,
     _levine_loader,
     carve_cache_path,
@@ -163,6 +164,55 @@ class TestFitOrLoadCarve:
             X, y, cache_path=cache, model_grids=grids, n_resamples=3, force=True
         )
         assert cache.stat().st_mtime_ns != mtime
+
+
+class TestFitOrLoadCarveFingerprint:
+    """A cached fit is only valid for the X it was fit on.
+
+    fit_or_load_carve restores X_ onto whatever it loads, so a fit taken on
+    one embedding served against another would misreport silently. The hECA
+    development embedding changes under the same scale name (subsample-first
+    now, pooled once that cache exists), which is exactly that case.
+    """
+
+    def test_loading_against_a_different_x_raises(self, blobs, tmp_path):
+        X, y = blobs
+        grids = param_grids(EstimatorSpec(name="kmeans"), (2, 3))
+        cache = tmp_path / "demo.carve"
+        fit_or_load_carve(X, y, cache_path=cache, model_grids=grids, n_resamples=3)
+        with pytest.raises(ValueError, match="force=True") as excinfo:
+            fit_or_load_carve(
+                X + 1.0, y, cache_path=cache, model_grids=grids, n_resamples=3
+            )
+        assert str(cache) in str(excinfo.value)
+
+    def test_force_refits_and_records_the_new_x(self, blobs, tmp_path):
+        X, y = blobs
+        grids = param_grids(EstimatorSpec(name="kmeans"), (2, 3))
+        cache = tmp_path / "demo.carve"
+        fit_or_load_carve(X, y, cache_path=cache, model_grids=grids, n_resamples=3)
+        fit_or_load_carve(
+            X + 1.0, y, cache_path=cache, model_grids=grids, n_resamples=3, force=True
+        )
+        mtime = cache.stat().st_mtime_ns
+        fit_or_load_carve(X + 1.0, y, cache_path=cache, model_grids=grids, n_resamples=3)
+        assert cache.stat().st_mtime_ns == mtime
+
+    def test_a_cache_without_a_fingerprint_warns_and_loads(self, blobs, tmp_path):
+        # Fits cached before the fingerprint existed have no record to
+        # check against; refusing them would throw away hours of compute,
+        # and silently trusting them is the failure this guards against.
+        X, y = blobs
+        grids = param_grids(EstimatorSpec(name="kmeans"), (2, 3))
+        cache = tmp_path / "demo.carve"
+        fit_or_load_carve(X, y, cache_path=cache, model_grids=grids, n_resamples=3)
+        for sidecar in tmp_path.glob("demo.carve.*"):
+            sidecar.unlink()
+        with pytest.warns(UserWarning, match="fingerprint"):
+            carve = fit_or_load_carve(
+                X, y, cache_path=cache, model_grids=grids, n_resamples=3
+            )
+        assert carve.estimator_results_ is not None
 
 
 class _SpyCARVE:
@@ -383,6 +433,23 @@ class TestLoaderSubsampling:
         monkeypatch.setattr("benchmarks.datasets.load_klein", fake_load_klein)
         _klein_loader(0.5)
         assert calls["subsample"] == 0.5
+
+    def test_heca_loader_draws_the_subsample_before_embedding(self, monkeypatch):
+        # The pooled hECA embedding holds tens of GB; a development-scale
+        # load only fits on a laptop if the rows are drawn from the organ
+        # files first. The loader passes the flag at every scale; load_heca
+        # ignores it when subsample is None (publication) and whenever the
+        # pooled cache is present.
+        calls = {}
+
+        def fake_load_heca(**kwargs):
+            calls.update(kwargs)
+            return np.zeros((1, 1)), pd.Series(["a"]), {}
+
+        monkeypatch.setattr("benchmarks.datasets.load_heca", fake_load_heca)
+        _heca_loader(25_000)
+        assert calls["subsample"] == 25_000
+        assert calls["subsample_before_embedding"] is True
 
     def test_levine_loader_requests_five_thousand_cells(self, monkeypatch):
         calls = {}

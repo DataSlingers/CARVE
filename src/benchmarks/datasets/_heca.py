@@ -8,8 +8,17 @@ secondary reference but is coarse, averaging roughly four types per organ.
 
 Preprocessing follows the hECA publication rather than the Cusanovich chain:
 cPeaks open in at least 0.5% of cells, highly variable peak selection, then
-log-normalization and PCA. The peak matrix is never fully resident; two
-chunked passes over the backed CSR do the work.
+log-normalization and PCA.
+
+Two paths produce the embedding. The pooled path runs the chain on every
+annotated cell: two chunked passes over the backed CSR files, then the full
+cells-by-kept-peaks matrix in memory -- on the five default organs that is
+about 5 billion nonzeros and tens of GB, so it belongs on a large machine,
+after which its cache serves every later call. The subsample-first path
+(subsample_before_embedding=True) draws the stratified subsample from the
+organ files and runs the chain on those rows only, which fits on a laptop;
+its embedding is computed on the subsample rather than the population, and
+meta says so.
 """
 
 import hashlib
@@ -50,6 +59,8 @@ _ANNOTATION_COLUMN = "cell_type"
 DEFAULT_BLOCK = 20_000
 
 _CACHE_PREFIX = ".heca_cache_"
+
+_OBS_COLUMNS = ("cell_type", "organ", "donor_id", "study_id")
 
 
 def _organ_path(data_dir: Path, organ: str) -> Path:
@@ -143,6 +154,37 @@ def _open_backed(path: Path):
         ) from exc
 
 
+def read_rows(path: Path, rows: np.ndarray) -> sparse.csr_matrix:
+    """Read the given rows of an h5ad CSR X, and nothing else.
+
+    One slice of data/indices per row, so memory is bounded by the rows
+    asked for rather than by the file. The hECA files are uncompressed and
+    chunked, so a row read costs a fraction of a millisecond; 25,000 rows
+    out of 765,000 read in seconds and pull about 1.4 GB.
+    """
+    rows = np.asarray(rows, dtype=np.int64)
+    with h5py.File(path, "r") as handle:
+        _, n_peaks = _shape(handle)
+        indptr = handle["X"]["indptr"][:]
+        data_set = handle["X"]["data"]
+        index_set = handle["X"]["indices"]
+        data, indices, local_indptr = [], [], [0]
+        for row in rows:
+            start, stop = int(indptr[row]), int(indptr[row + 1])
+            data.append(data_set[start:stop])
+            indices.append(index_set[start:stop])
+            local_indptr.append(local_indptr[-1] + (stop - start))
+    empty = np.zeros(0, dtype=np.int32)
+    return sparse.csr_matrix(
+        (
+            np.concatenate(data) if data else empty,
+            np.concatenate(indices) if indices else empty,
+            np.asarray(local_indptr),
+        ),
+        shape=(rows.size, n_peaks),
+    )
+
+
 def _read_obs(path: Path, columns: Sequence[str]) -> pd.DataFrame:
     """Read only the requested obs columns, never touching X."""
     adata = _open_backed(path)
@@ -189,12 +231,15 @@ def _cache_key(
     n_top_peaks: int,
     n_components: int,
     label_column: str,
+    subset: tuple[int | float, int] | None = None,
 ) -> str:
-    """A stable key for the pre-subsample result of one preprocessing config.
+    """A stable key for the cached result of one preprocessing config.
 
-    subsample and random_state are deliberately excluded: they are applied
-    fresh on top of the cached, already-preprocessed embedding, matching how
-    the uncached path handles them.
+    For the pooled embedding, subsample and random_state are deliberately
+    excluded: they are applied fresh on top of the cached, already-
+    preprocessed embedding, matching how the uncached path handles them.
+    For a subsample-first embedding they are the population, so ``subset``
+    carries (subsample, random_state) into the key.
     """
     raw = "|".join(
         [
@@ -205,11 +250,22 @@ def _cache_key(
             label_column,
         ]
     )
+    if subset is not None:
+        raw += f"|subset:{subset[0]!r}:{int(subset[1])}"
     return hashlib.sha1(raw.encode()).hexdigest()[:16]
 
 
 def _cache_path(data_dir: Path, key: str) -> Path:
     return data_dir / f"{_CACHE_PREFIX}{key}.npz"
+
+
+_CACHE_SCALARS = (
+    "n_cells_full",
+    "n_cells_annotated",
+    "n_peaks_full",
+    "n_peaks_open",
+    "n_peaks_selected",
+)
 
 
 def _read_cache(path: Path) -> dict | None:
@@ -219,16 +275,219 @@ def _read_cache(path: Path) -> dict | None:
         return {
             "X": payload["X"],
             "y": payload["y"],
-            "n_cells_full": int(payload["n_cells_full"]),
-            "n_peaks_full": int(payload["n_peaks_full"]),
-            "n_peaks_open": int(payload["n_peaks_open"]),
-            "n_peaks_selected": int(payload["n_peaks_selected"]),
+            **{key: int(payload[key]) for key in _CACHE_SCALARS},
         }
 
 
 def _write_cache(path: Path, X: np.ndarray, y: np.ndarray, **scalars: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(path, X=X, y=np.asarray(y).astype(str), **scalars)
+
+
+def _annotated(obs: pd.DataFrame) -> np.ndarray:
+    return obs[_ANNOTATION_COLUMN].notna().to_numpy() & (
+        obs[_ANNOTATION_COLUMN].to_numpy() != UNCLASSIFIED_LABEL
+    )
+
+
+def _embed(
+    counts_matrix: sparse.csr_matrix,
+    obs: pd.DataFrame,
+    *,
+    n_top_peaks: int,
+    n_components: int,
+    random_state: int,
+) -> tuple[np.ndarray, pd.DataFrame, int]:
+    """The source's chain on already-annotated cells: normalize, log1p, HVG, PCA.
+
+    Returns (X, obs, n_top). The caller has dropped Unclassified cells and
+    selected the open peaks; this is the part the pooled and the
+    subsample-first paths share.
+    """
+    import scanpy as sc
+    from anndata import AnnData
+
+    # AnnData requires a string obs index; the integer RangeIndex from
+    # ignore_index=True would otherwise trigger an implicit-conversion
+    # warning on every call.
+    obs = obs.copy()
+    obs.index = obs.index.astype(str)
+    adata = AnnData(X=counts_matrix, obs=obs)
+    del counts_matrix
+
+    sc.pp.normalize_total(adata, target_sum=1e4)
+    sc.pp.log1p(adata)
+    n_top = min(int(n_top_peaks), int(adata.n_vars))
+    sc.pp.highly_variable_genes(adata, n_top_genes=n_top, flavor="seurat")
+    adata = adata[:, adata.var["highly_variable"]].copy()
+    sc.tl.pca(
+        adata,
+        n_comps=min(int(n_components), adata.n_vars - 1, adata.n_obs - 1),
+        random_state=random_state,
+    )
+    return np.asarray(adata.obsm["X_pca"], dtype=np.float64), adata.obs, n_top
+
+
+def _pooled_embedding(
+    paths: Sequence[Path],
+    *,
+    open_fraction: float,
+    n_top_peaks: int,
+    n_components: int,
+    random_state: int,
+) -> tuple[np.ndarray, pd.DataFrame, dict[str, int]]:
+    """Embed every annotated cell of every organ.
+
+    Two chunked passes select the open peaks and build the reduced matrix
+    one row block at a time, but the reduced matrix itself is fully
+    resident from there on. On the five default organs that is tens of GB.
+    """
+    # Pass 1: per-peak open counts pooled across every organ, so the
+    # feature set is shared. Selecting features per organ would make the
+    # pooled embedding meaningless.
+    total_counts: np.ndarray | None = None
+    total_cells = 0
+    for path in paths:
+        counts, n_cells = peak_open_counts(path, block=DEFAULT_BLOCK)
+        total_counts = counts if total_counts is None else total_counts + counts
+        total_cells += n_cells
+
+    keep = np.flatnonzero(total_counts >= open_fraction * total_cells)
+    if keep.size == 0:
+        raise ValueError(
+            f"open_fraction={open_fraction} removed every cPeak. Lower it."
+        )
+
+    # Pass 2: build the reduced matrix, one organ and one row block at a
+    # time.
+    matrices = [reduce_to_peaks(path, keep, block=DEFAULT_BLOCK) for path in paths]
+    counts_matrix = sparse.vstack(matrices, format="csr")
+    del matrices
+
+    obs = pd.concat(
+        [_read_obs(path, _OBS_COLUMNS) for path in paths], ignore_index=True
+    )
+    annotated = _annotated(obs)
+    counts_matrix = counts_matrix[annotated]
+    obs = obs[annotated].reset_index(drop=True)
+
+    X, obs, n_top = _embed(
+        counts_matrix,
+        obs,
+        n_top_peaks=n_top_peaks,
+        n_components=n_components,
+        random_state=random_state,
+    )
+    return (
+        X,
+        obs,
+        {
+            "n_cells_full": int(total_cells),
+            "n_cells_annotated": int(annotated.sum()),
+            "n_peaks_full": int(total_counts.size),
+            "n_peaks_open": int(keep.size),
+            "n_peaks_selected": int(n_top),
+        },
+    )
+
+
+def _allocate(size: int, counts: Sequence[int]) -> list[int]:
+    """Split ``size`` across strata in proportion to ``counts``, summing exactly.
+
+    Largest-remainder rounding, so the total is ``size`` and no stratum is
+    off by more than one from its proportional share.
+    """
+    total = sum(counts)
+    shares = [size * count / total for count in counts]
+    allocation = [int(share) for share in shares]
+    for index in sorted(
+        range(len(counts)), key=lambda i: shares[i] - allocation[i], reverse=True
+    )[: size - sum(allocation)]:
+        allocation[index] += 1
+    return allocation
+
+
+def _subsample_embedding(
+    paths: Sequence[Path],
+    *,
+    subsample: int | float,
+    open_fraction: float,
+    n_top_peaks: int,
+    n_components: int,
+    random_state: int,
+) -> tuple[np.ndarray, pd.DataFrame, dict[str, int]]:
+    """Draw the rows first, then embed only those.
+
+    The subsample is stratified by organ over annotated cells, in proportion
+    to each organ's annotated count, and drawn from the files row by row.
+    Open-peak selection, HVG and PCA then run on the drawn rows, so the
+    embedding describes the subsample rather than the population; a
+    publication run must use the pooled path.
+    """
+    obs_per_organ = [_read_obs(path, _OBS_COLUMNS) for path in paths]
+    annotated_per_organ = [_annotated(obs) for obs in obs_per_organ]
+    n_full = sum(len(obs) for obs in obs_per_organ)
+    n_annotated = sum(int(mask.sum()) for mask in annotated_per_organ)
+
+    size = (
+        int(subsample * n_annotated) if isinstance(subsample, float) else int(subsample)
+    )
+    if not 0 < size <= n_annotated:
+        raise ValueError(
+            f"subsample={subsample!r} resolves to {size} cells, but the organs "
+            f"hold {n_annotated} annotated cells."
+        )
+
+    rng = np.random.default_rng(random_state)
+    rows_per_organ = []
+    for mask, n_rows in zip(
+        annotated_per_organ,
+        _allocate(size, [int(mask.sum()) for mask in annotated_per_organ]),
+    ):
+        candidates = np.flatnonzero(mask)
+        rows_per_organ.append(
+            np.sort(rng.choice(candidates, size=n_rows, replace=False))
+        )
+
+    counts_matrix = sparse.vstack(
+        [read_rows(path, rows) for path, rows in zip(paths, rows_per_organ)],
+        format="csr",
+    )
+    obs = pd.concat(
+        [
+            obs.iloc[rows].reset_index(drop=True)
+            for obs, rows in zip(obs_per_organ, rows_per_organ)
+        ],
+        ignore_index=True,
+    )
+
+    open_counts = np.asarray((counts_matrix > 0).sum(axis=0)).ravel()
+    keep = np.flatnonzero(open_counts >= open_fraction * size)
+    if keep.size == 0:
+        raise ValueError(
+            f"open_fraction={open_fraction} removed every cPeak. Lower it."
+        )
+    n_peaks_full = int(counts_matrix.shape[1])
+    counts_matrix = counts_matrix[:, keep]
+
+    X, obs, n_top = _embed(
+        counts_matrix,
+        obs,
+        n_top_peaks=n_top_peaks,
+        n_components=n_components,
+        random_state=random_state,
+    )
+    return (
+        X,
+        obs,
+        {
+            "n_cells_full": int(n_full),
+            "n_cells_annotated": int(n_annotated),
+            "n_peaks_full": n_peaks_full,
+            "n_peaks_open": int(keep.size),
+            "n_peaks_selected": int(n_top),
+        },
+    )
 
 
 def load_heca(
@@ -242,6 +501,7 @@ def load_heca(
     n_components: int = 50,
     label_column: str = "organ",
     cache: bool = True,
+    subsample_before_embedding: bool = False,
 ) -> tuple[np.ndarray, pd.Series, dict]:
     """Load and preprocess pooled hECA v2.0 ATAC organs.
 
@@ -250,7 +510,7 @@ def load_heca(
     root : Path or None
         Directory holding the dataset folders. Defaults to data/.
     organs : sequence of str
-        Organ names to pool. Files are read as data/hECA/ATAC-<organ>.h5ad.
+        Organ files to pool, ATAC-{organ}.h5ad each.
     subsample : int, float, or None
         Stratified subsample size, as a count or a fraction. None keeps all.
     random_state : int
@@ -267,121 +527,84 @@ def load_heca(
         Reference label column. "organ" is unambiguous; "cell_type" is the
         uHAF-harmonized annotation and is coarse.
     cache : bool
-        Cache the preprocessed embedding for every annotated cell, before
-        subsampling, alongside the organ h5ad files, keyed by organs and
-        preprocessing parameters. On a hit, the two chunked passes and the
-        scanpy preprocessing are skipped entirely; only the stratified
-        subsample is redone for the current call. True by default: at real
-        hECA scale the chunked passes are the expensive part, and the source
-        h5ad files may already be deleted by the time a second call is made.
+        Cache the preprocessed embedding alongside the organ h5ad files,
+        keyed by organs and preprocessing parameters (and, for a
+        subsample-first embedding, by subsample and random_state). On a
+        hit, the chunked passes and the scanpy preprocessing are skipped
+        entirely. True by default: at real hECA scale the passes are the
+        expensive part, and the source h5ad files may already be deleted by
+        the time a second call is made.
+    subsample_before_embedding : bool
+        When True and ``subsample`` is given, draw the subsample from the
+        organ files first and run the preprocessing chain on those rows
+        only, instead of embedding every annotated cell and subsampling the
+        result. The pooled path holds the whole cells-by-kept-peaks matrix
+        in memory, tens of GB on the five default organs, so this is what
+        makes a development-scale load possible on a laptop. The embedding
+        is then computed on the subsample, not the population, and
+        ``meta["embedding_population"]`` records which. A cached pooled
+        embedding, when present, is used regardless: it is the better
+        embedding and it is free.
 
     Returns
     -------
     (X, y, meta)
     """
-    import scanpy as sc
-    from anndata import AnnData
     from sklearn.model_selection import StratifiedShuffleSplit
 
     data_dir = resolve_data_dir("hECA", root=root)
+    config = (organs, open_fraction, n_top_peaks, n_components, label_column)
 
-    cache_path = _cache_path(
-        data_dir,
-        _cache_key(organs, open_fraction, n_top_peaks, n_components, label_column),
-    )
-    cached = _read_cache(cache_path) if cache else None
+    pooled_path = _cache_path(data_dir, _cache_key(*config))
+    cached = _read_cache(pooled_path) if cache else None
+    population = "pooled"
+    cache_path = pooled_path
+
+    if cached is None and subsample is not None and subsample_before_embedding:
+        population = "subsample"
+        cache_path = _cache_path(
+            data_dir, _cache_key(*config, subset=(subsample, random_state))
+        )
+        cached = _read_cache(cache_path) if cache else None
 
     if cached is not None:
         X_full = np.asarray(cached["X"], dtype=np.float64)
         y_full = pd.Series(cached["y"], name=label_column).astype(str)
-        n_full = cached["n_cells_full"]
-        n_peaks_full = cached["n_peaks_full"]
-        n_peaks_open = cached["n_peaks_open"]
-        n_top = cached["n_peaks_selected"]
+        scalars = {key: cached[key] for key in _CACHE_SCALARS}
     else:
         paths = [_organ_path(data_dir, organ) for organ in organs]
         _check_peaks_aligned(list(organs), paths)
-
-        # Pass 1: per-peak open counts pooled across every organ, so the
-        # feature set is shared. Selecting features per organ would make the
-        # pooled embedding meaningless.
-        total_counts: np.ndarray | None = None
-        total_cells = 0
-        for path in paths:
-            counts, n_cells = peak_open_counts(path, block=DEFAULT_BLOCK)
-            total_counts = counts if total_counts is None else total_counts + counts
-            total_cells += n_cells
-
-        keep = np.flatnonzero(total_counts >= open_fraction * total_cells)
-        if keep.size == 0:
-            raise ValueError(
-                f"open_fraction={open_fraction} removed every cPeak. Lower it."
+        if population == "subsample":
+            X_full, obs, scalars = _subsample_embedding(
+                paths,
+                subsample=subsample,
+                open_fraction=open_fraction,
+                n_top_peaks=n_top_peaks,
+                n_components=n_components,
+                random_state=random_state,
             )
-
-        # Pass 2: build the reduced matrix, one organ and one row block at a
-        # time.
-        matrices = [reduce_to_peaks(path, keep, block=DEFAULT_BLOCK) for path in paths]
-        counts_matrix = sparse.vstack(matrices, format="csr")
-        del matrices
-
-        obs = pd.concat(
-            [
-                _read_obs(path, ["cell_type", "organ", "donor_id", "study_id"])
-                for path in paths
-            ],
-            ignore_index=True,
-        )
-        # AnnData requires a string obs index; the integer RangeIndex from
-        # ignore_index=True would otherwise trigger an implicit-conversion
-        # warning on every call.
-        obs.index = obs.index.astype(str)
-
+        else:
+            X_full, obs, scalars = _pooled_embedding(
+                paths,
+                open_fraction=open_fraction,
+                n_top_peaks=n_top_peaks,
+                n_components=n_components,
+                random_state=random_state,
+            )
         if label_column not in obs.columns:
             raise ValueError(
                 f"obs has no column {label_column!r}. Available: {sorted(obs.columns)}."
             )
-
-        adata = AnnData(X=counts_matrix, obs=obs)
-        n_full = int(adata.n_obs)
-
-        annotated = adata.obs[_ANNOTATION_COLUMN].notna().to_numpy() & (
-            adata.obs[_ANNOTATION_COLUMN].to_numpy() != UNCLASSIFIED_LABEL
-        )
-        adata = adata[annotated].copy()
-
-        sc.pp.normalize_total(adata, target_sum=1e4)
-        sc.pp.log1p(adata)
-        n_top = min(int(n_top_peaks), int(adata.n_vars))
-        sc.pp.highly_variable_genes(adata, n_top_genes=n_top, flavor="seurat")
-        adata = adata[:, adata.var["highly_variable"]].copy()
-        sc.tl.pca(
-            adata,
-            n_comps=min(int(n_components), adata.n_vars - 1),
-            random_state=random_state,
-        )
-
-        X_full = np.asarray(adata.obsm["X_pca"], dtype=np.float64)
-        y_full = pd.Series(
-            adata.obs[label_column].to_numpy(), name=label_column
-        ).astype(str)
-        n_peaks_full = int(total_counts.size)
-        n_peaks_open = int(keep.size)
-
+        y_full = pd.Series(obs[label_column].to_numpy(), name=label_column).astype(str)
         if cache:
-            _write_cache(
-                cache_path,
-                X_full,
-                y_full.to_numpy(),
-                n_cells_full=n_full,
-                n_peaks_full=n_peaks_full,
-                n_peaks_open=n_peaks_open,
-                n_peaks_selected=n_top,
-            )
+            _write_cache(cache_path, X_full, y_full.to_numpy(), **scalars)
 
     X = X_full
     y = y_full
-    n_annotated = int(X.shape[0])
-    if subsample is not None:
+    n_annotated = int(scalars["n_cells_annotated"])
+    # A subsample-first embedding already is the subsample; the pooled one
+    # is subsampled here, on top of the cached or freshly computed result.
+    if subsample is not None and population == "pooled":
         size = (
             int(subsample * n_annotated)
             if isinstance(subsample, float)
@@ -394,26 +617,43 @@ def load_heca(
         X = X[idx]
         y = y.iloc[idx].reset_index(drop=True)
 
+    n_top = int(scalars["n_peaks_selected"])
+    if population == "pooled":
+        feature_scope = "pooled across organs"
+        open_line = (
+            f"keep cPeaks open in at least {open_fraction:.1%} of pooled cells "
+            "(0.5%, the source value)"
+        )
+    else:
+        feature_scope = "pooled across organs, on the row subsample"
+        open_line = (
+            f"keep cPeaks open in at least {open_fraction:.1%} of the "
+            f"{X.shape[0]} subsampled cells (0.5%, the source value); the "
+            "subsample was drawn from the organ files before any "
+            "preprocessing, so peak selection, HVG and PCA describe the "
+            "subsample, not the pooled population"
+        )
+
     meta = {
         "source": "hECA v2.0 ATAC",
         "citation": "Chen et al. 2025, Scientific Data",
         "download": DOWNLOAD_ROOT,
         "organs": list(organs),
-        "n_cells_full": n_full,
+        "n_cells_full": int(scalars["n_cells_full"]),
         "n_cells_annotated": n_annotated,
         "n_cells": int(X.shape[0]),
         "n_features": int(X.shape[1]),
-        "n_peaks_full": n_peaks_full,
-        "n_peaks_open": n_peaks_open,
-        "n_peaks_selected": int(n_top),
-        "feature_selection_scope": "pooled across organs",
+        "n_peaks_full": int(scalars["n_peaks_full"]),
+        "n_peaks_open": int(scalars["n_peaks_open"]),
+        "n_peaks_selected": n_top,
+        "feature_selection_scope": feature_scope,
+        "embedding_population": population,
         "label_name": label_column,
         "preprocessing": [
             f"pool organs {list(organs)}",
             f"drop cells labeled {UNCLASSIFIED_LABEL!r} in {_ANNOTATION_COLUMN} "
             "(checked regardless of label_column)",
-            f"keep cPeaks open in at least {open_fraction:.1%} of pooled cells "
-            "(0.5%, the source value)",
+            open_line,
             "normalize_total(target_sum=1e4) then log1p",
             f"highly_variable_genes(n_top_genes={n_top}, flavor='seurat')",
             f"PCA to {X.shape[1]} components",

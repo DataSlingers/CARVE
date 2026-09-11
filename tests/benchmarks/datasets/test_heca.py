@@ -14,7 +14,7 @@ import pytest
 from scipy import sparse
 
 from benchmarks.datasets import load_heca
-from benchmarks.datasets._heca import peak_open_counts, reduce_to_peaks
+from benchmarks.datasets._heca import peak_open_counts, read_rows, reduce_to_peaks
 
 N_PEAKS = 300
 
@@ -76,6 +76,15 @@ class TestChunkedPasses:
         dense = ad.read_h5ad(path).X.toarray()
         assert reduced.shape == (dense.shape[0], peaks.size)
         assert np.array_equal(reduced.toarray(), dense[:, peaks])
+
+
+    def test_read_rows_matches_the_dense_rows(self, heca):
+        path = heca / "hECA" / "ATAC-Lung.h5ad"
+        dense = ad.read_h5ad(path).X.toarray()
+        rows = np.array([3, 4, 17, 42, 88])
+        out = read_rows(path, rows)
+        assert out.shape == (5, N_PEAKS)
+        np.testing.assert_array_equal(out.toarray(), dense[rows])
 
 
 class TestLoadHeca:
@@ -166,6 +175,10 @@ class TestLoadHeca:
         )
         assert X.shape[0] == 40
         assert y.nunique() == 2
+
+    def test_default_path_embeds_the_pooled_population(self, heca):
+        _, _, meta = load_heca(root=heca, organs=["Lung", "Brain"], n_top_peaks=50)
+        assert meta["embedding_population"] == "pooled"
 
     def test_meta_records_the_hvg_deviation(self, heca):
         _, _, meta = load_heca(
@@ -310,3 +323,160 @@ class TestCache:
                 n_components=5,
                 cache=False,
             )
+
+
+
+def _annotated_per_organ(root, organs):
+    counts = {}
+    for organ in organs:
+        obs = ad.read_h5ad(root / "hECA" / f"ATAC-{organ}.h5ad", backed="r").obs
+        counts[organ] = int((obs["cell_type"] != "Unclassified").sum())
+    return counts
+
+
+class TestSubsampleBeforeEmbedding:
+    """The dev-scale path: draw the rows first, embed only those.
+
+    The pooled pass holds the whole cells-by-kept-peaks matrix in memory
+    (tens of GB on the real five organs), and the subsample was drawn from
+    the pooled embedding afterwards, so even SCALE="dev" could not load on
+    a laptop without a cache. With subsample_before_embedding=True the rows
+    are drawn from the organ files and the preprocessing chain runs on those
+    rows only. The pooled embedding still wins whenever it is cached.
+    """
+
+    def test_embeds_only_the_drawn_rows_and_never_runs_the_pooled_pass(self, heca):
+        X, y, meta = load_heca(
+            root=heca,
+            organs=["Lung", "Brain"],
+            subsample=40,
+            n_top_peaks=50,
+            subsample_before_embedding=True,
+        )
+        assert X.shape[0] == 40
+        assert y.shape[0] == 40
+        assert meta["embedding_population"] == "subsample"
+        assert meta["n_cells"] == 40
+        assert meta["cached"] is False
+
+        # The pooled embedding was never computed: a pooled call afterwards
+        # finds no cache to read.
+        _, _, pooled = load_heca(root=heca, organs=["Lung", "Brain"], n_top_peaks=50)
+        assert pooled["cached"] is False
+
+    def test_rows_are_stratified_by_organ_over_annotated_cells(self, heca):
+        # A third, much smaller organ, so a proportional allocation and an
+        # equal split disagree by more than the rounding tolerance below.
+        _organ(heca / "hECA", "Kidney", 20, 2)
+        organs = ["Lung", "Brain", "Kidney"]
+        annotated = _annotated_per_organ(heca, organs)
+        _, y, meta = load_heca(
+            root=heca,
+            organs=organs,
+            subsample=40,
+            n_top_peaks=50,
+            subsample_before_embedding=True,
+        )
+        total = sum(annotated.values())
+        assert meta["n_cells_full"] == 190
+        assert meta["n_cells_annotated"] == total
+        for organ, n_annotated in annotated.items():
+            expected = 40 * n_annotated / total
+            assert abs(int((y == organ).sum()) - expected) <= 1
+
+    def test_unclassified_cells_are_never_drawn(self, heca):
+        _, label, _ = load_heca(
+            root=heca,
+            organs=["Lung", "Brain"],
+            subsample=40,
+            n_top_peaks=50,
+            label_column="cell_type",
+            subsample_before_embedding=True,
+        )
+        assert "Unclassified" not in set(label)
+
+    def test_embedding_separates_the_planted_organs(self, heca):
+        from sklearn.cluster import KMeans
+        from sklearn.metrics import adjusted_rand_score
+
+        X, y, _ = load_heca(
+            root=heca,
+            organs=["Lung", "Brain"],
+            subsample=60,
+            n_top_peaks=50,
+            n_components=5,
+            subsample_before_embedding=True,
+        )
+        labels = KMeans(n_clusters=2, n_init=10, random_state=0).fit_predict(X)
+        assert adjusted_rand_score(y, labels) > 0.7
+
+    def test_is_cached_by_subsample_and_seed(self, heca):
+        kwargs = dict(
+            root=heca,
+            organs=["Lung", "Brain"],
+            subsample=40,
+            n_top_peaks=50,
+            subsample_before_embedding=True,
+        )
+        X1, y1, meta1 = load_heca(**kwargs)
+        X2, y2, meta2 = load_heca(**kwargs)
+        assert meta1["cached"] is False
+        assert meta2["cached"] is True
+        assert meta2["embedding_population"] == "subsample"
+        np.testing.assert_array_equal(X1, X2)
+        assert y1.equals(y2)
+
+        X3, _, meta3 = load_heca(**kwargs, random_state=7)
+        assert meta3["cached"] is False
+        assert not np.array_equal(X1, X3)
+
+    def test_pooled_cache_wins_when_present(self, heca):
+        load_heca(root=heca, organs=["Lung", "Brain"], n_top_peaks=50)
+        X, y, meta = load_heca(
+            root=heca,
+            organs=["Lung", "Brain"],
+            subsample=40,
+            n_top_peaks=50,
+            subsample_before_embedding=True,
+        )
+        assert meta["embedding_population"] == "pooled"
+        assert meta["cached"] is True
+        assert X.shape[0] == 40
+
+    def test_without_a_subsample_the_flag_changes_nothing(self, heca):
+        _, _, meta = load_heca(
+            root=heca,
+            organs=["Lung", "Brain"],
+            n_top_peaks=50,
+            subsample_before_embedding=True,
+        )
+        assert meta["embedding_population"] == "pooled"
+        assert meta["n_cells"] == meta["n_cells_annotated"]
+
+    def test_open_fraction_is_applied_to_the_drawn_rows(self, heca):
+        kwargs = dict(
+            root=heca,
+            organs=["Lung", "Brain"],
+            subsample=40,
+            n_top_peaks=50,
+            cache=False,
+            subsample_before_embedding=True,
+        )
+        _, _, loose = load_heca(**kwargs, open_fraction=0.0)
+        _, _, strict = load_heca(**kwargs, open_fraction=0.45)
+        assert strict["n_peaks_open"] < loose["n_peaks_open"]
+        with pytest.raises(ValueError, match="open_fraction"):
+            load_heca(**kwargs, open_fraction=0.99)
+
+    def test_preprocessing_says_features_were_selected_on_the_subsample(self, heca):
+        _, _, meta = load_heca(
+            root=heca,
+            organs=["Lung", "Brain"],
+            subsample=40,
+            n_top_peaks=50,
+            subsample_before_embedding=True,
+        )
+        chain = " ".join(meta["preprocessing"])
+        assert "subsample" in chain
+        assert "subsample" in meta["feature_selection_scope"]
+
