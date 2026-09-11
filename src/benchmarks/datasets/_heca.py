@@ -63,9 +63,10 @@ def _organ_path(data_dir: Path, organ: str) -> Path:
         raise FileNotFoundError(
             f"Missing {path.resolve()}. Download ATAC-{organ}.h5ad.zip from "
             f"Zenodo record {ZENODO_RECORD} ({DOWNLOAD_ROOT}) and extract "
-            f"it into {data_dir.resolve()}/. Extract one organ at a time "
-            "and delete the h5ad after use; all five extracted at once "
-            "will not fit."
+            f"it into {data_dir.resolve()}/. All organs must be present "
+            "together for the pooled pass, so delete each zip as soon as it "
+            "is extracted; once this loader has written its .npz cache the "
+            "h5ad files can be deleted too."
         )
     return path
 
