@@ -120,9 +120,10 @@ class TestSummarizeAriScores:
     def test_normal(self):
         scores = [0.8, 0.85, 0.9, 0.82, 0.88]
         mean, se, q95, q05 = _summarize_ari_scores(scores, 5)
-        assert abs(mean - np.mean(scores)) < 1e-10
-        assert se > 0
-        assert q95 >= q05
+        assert mean == pytest.approx(np.mean(scores))
+        assert se == pytest.approx(np.std(scores, ddof=1) / np.sqrt(5))
+        assert q95 == pytest.approx(np.quantile(scores, 0.95))
+        assert q05 == pytest.approx(np.quantile(scores, 0.05))
 
     def test_all_nan(self):
         mean, se, q95, q05 = _summarize_ari_scores([np.nan, np.nan], 2)
@@ -133,6 +134,8 @@ class TestSummarizeAriScores:
         mean, se, q95, q05 = _summarize_ari_scores([0.5], 1)
         assert mean == 0.5
         assert np.isnan(se)  # can't compute SE with 1 value
+        assert q95 == 0.5
+        assert q05 == 0.5
 
     def test_with_nans(self):
         scores = [0.8, np.nan, 0.9, np.nan, 0.85]

@@ -6,9 +6,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.cluster import AgglomerativeClustering, KMeans
+from sklearn.cluster import HDBSCAN, AgglomerativeClustering, KMeans
+from sklearn.decomposition import PCA
 from sklearn.dummy import DummyClassifier
 from sklearn.metrics import adjusted_rand_score
+from sklearn.preprocessing import FunctionTransformer, StandardScaler
 
 import carve._runner as carve_runner
 import carve._utils as carve_utils
@@ -400,6 +402,100 @@ class TestGetLabels:
         np.testing.assert_array_equal(l1, l2)
 
 
+class TestReferenceLabels:
+    """get_labels aligns to self.reference_labels when the cluster counts
+    match and replaces the reference when they differ or it is unset.
+    """
+
+    def _fit(self):
+        rng = np.random.RandomState(42)
+        X = np.vstack(
+            [
+                rng.randn(30, 5) + [4, 0, 0, 0, 0],
+                rng.randn(30, 5) + [0, 4, 0, 0, 0],
+                rng.randn(30, 5) + [0, 0, 4, 0, 0],
+            ]
+        )
+        return CARVE(
+            n_clusters=np.array([2, 3]),
+            n_resamples=3,
+            subsample_ratio=0.8,
+            estimator_param_grids=[(KMeans, {"n_clusters": [2, 3]})],
+            normalization_options=[],
+            dim_reduction_options=[],
+            random_state=0,
+            verbose=0,
+        ).fit(X)
+
+    def test_first_call_seeds_the_reference(self):
+        carve = self._fit()
+        assert carve.reference_labels is None
+        first = carve.get_labels(k=2)
+        np.testing.assert_array_equal(carve.reference_labels, first)
+
+    def test_a_different_k_replaces_the_reference(self):
+        carve = self._fit()
+        first = carve.get_labels(k=2)
+        carve.get_labels(k=3)
+        assert np.unique(carve.reference_labels).size == 3
+        again = carve.get_labels(k=2)
+        np.testing.assert_array_equal(again, first)
+        np.testing.assert_array_equal(carve.reference_labels, first)
+
+    def test_a_user_reference_with_matching_k_is_aligned_to(self):
+        carve = self._fit()
+        natural = carve.get_labels(k=3)
+        permuted = (natural + 1) % 3
+        carve.reference_labels = permuted
+        np.testing.assert_array_equal(carve.get_labels(k=3), permuted)
+
+    def test_a_user_reference_with_another_k_is_replaced(self):
+        # Current contract: the reference is not preserved across k. A user
+        # who passed a k=3 reference and cuts at k=2 gets a k=2 reference back.
+        carve = self._fit()
+        carve.reference_labels = (carve.get_labels(k=3) + 1) % 3
+        two = carve.get_labels(k=2)
+        np.testing.assert_array_equal(carve.reference_labels, two)
+
+
+class TestRefit:
+    @pytest.mark.filterwarnings(
+        "ignore:All points in a subsample were labelled as noise:UserWarning"
+    )
+    def test_second_fit_resets_the_per_run_state(self, X_res_blobs):
+        """An anchored min_cluster_size fit followed by an exact k-mode fit
+        on the same instance leaves nothing of the first behind."""
+        carve = CARVE(
+            sweep="min_cluster_size",
+            sweep_values=np.array([3, 5, 8]),
+            consensus_anchors=30,
+            n_resamples=3,
+            normalization_options=[],
+            dim_reduction_options=[],
+            n_jobs=1,
+            random_state=0,
+            verbose=0,
+        )
+        with pytest.warns(RuntimeWarning, match="anchored consensus"):
+            carve.fit(X_res_blobs, reference_labels=np.repeat([0, 1, 2], 40))
+        assert carve.consensus_anchors_ is not None
+        assert "min_cluster_size" in carve.estimator_results_.columns
+
+        carve.sweep = None
+        carve.sweep_values = None
+        carve.consensus_anchors = None
+        carve.n_clusters = np.array([2, 3])
+        carve.estimator_param_grids = [(KMeans, {"n_clusters": [2, 3]})]
+        carve.fit(X_res_blobs, reference_labels=np.repeat([1, 0, 2], 40))
+
+        assert carve.consensus_anchors_ is None
+        assert carve.sweep_.param == "n_clusters"
+        assert "min_cluster_size" not in carve.estimator_results_.columns
+        assert carve.preprocessing_results_ is None
+        assert carve.consensus_matrices_[0].shape == (120, 120)
+        np.testing.assert_array_equal(carve.reference_labels, np.repeat([1, 0, 2], 40))
+
+
 # ---------------------------------------------------------------------------
 # Error contracts on a fitted model
 # ---------------------------------------------------------------------------
@@ -572,6 +668,49 @@ class TestGetEstimator:
         est = fitted_carve_multi_k.get_estimator()
         assert isinstance(est, AgglomerativeClustering)
         assert est.n_clusters in [2, 3]
+
+
+@pytest.fixture(scope="module")
+def fitted_two_blobs_k23():
+    """Two planted blobs swept over k in {2, 3}: k=2 wins on stability, so
+    not_two has to change the answer."""
+    rng = np.random.RandomState(42)
+    X = np.vstack(
+        [rng.randn(30, 5) + [4, 0, 0, 0, 0], rng.randn(30, 5) + [0, 4, 0, 0, 0]]
+    )
+    carve = CARVE(
+        n_clusters=np.array([2, 3]),
+        n_resamples=3,
+        subsample_ratio=0.8,
+        estimator_param_grids=[
+            (AgglomerativeClustering, {"n_clusters": [2, 3], "linkage": ["ward"]})
+        ],
+        normalization_options=[],
+        dim_reduction_options=[],
+        n_jobs=1,
+        random_state=0,
+        verbose=0,
+    )
+    carve.fit(X)
+    return carve
+
+
+class TestNotTwo:
+    def test_two_wins_without_the_flag(self, fitted_two_blobs_k23):
+        assert fitted_two_blobs_k23.get_k() == 2
+
+    def test_get_k(self, fitted_two_blobs_k23):
+        assert fitted_two_blobs_k23.get_k(not_two=True) == 3
+
+    def test_get_labels(self, fitted_two_blobs_k23):
+        labels = fitted_two_blobs_k23.get_labels(not_two=True)
+        assert np.unique(labels).size == 3
+
+    def test_get_estimator(self, fitted_two_blobs_k23):
+        est = fitted_two_blobs_k23.get_estimator(not_two=True)
+        assert isinstance(est, AgglomerativeClustering)
+        assert est.n_clusters == 3
+        assert est.linkage == "ward"
 
 
 # ---------------------------------------------------------------------------
@@ -1080,6 +1219,26 @@ class TestMinClusterSizeMode:
         )
         with pytest.raises(TypeError, match="must be integers"):
             carve.fit(X_res_blobs)
+
+    def test_get_estimator_rebuilds_an_hdbscan(self, fitted_hdbscan):
+        est = fitted_hdbscan.get_estimator()
+        assert isinstance(est, HDBSCAN)
+        assert est.min_cluster_size == int(fitted_hdbscan.get_sweep_value())
+        assert est.cluster_selection_method == "eom"
+
+    def test_save_load_round_trips_the_inverted_sweep(self, fitted_hdbscan, tmp_path):
+        # min_cluster_size is the one registry axis whose rank runs
+        # backwards; a rank bug after reload would invert selection.
+        path = tmp_path / "hdbscan.carve"
+        fitted_hdbscan.save(path)
+        loaded = CARVE.load(path)
+        assert loaded.sweep_.param == "min_cluster_size"
+        assert loaded.sweep_.finer_is_larger is False
+        assert [loaded.sweep_.rank_of(v) for v in (3, 5, 8)] == [2, 1, 0]
+        assert loaded.get_sweep_value() == fitted_hdbscan.get_sweep_value()
+        pd.testing.assert_frame_equal(
+            loaded.estimator_results_, fitted_hdbscan.estimator_results_
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1665,3 +1824,71 @@ class TestExactPathUnchanged:
                 n_resamples=8,
                 random_state=11,
             ).fit(X)
+
+
+# ---------------------------------------------------------------------------
+# randomize_preprocessing and show_progress
+# ---------------------------------------------------------------------------
+
+
+class TestRandomizedPreprocessing:
+    """fit(randomize_preprocessing=True) samples a normalization and a
+    reduction per resample and summarizes them in preprocessing_results_.
+    Explicit option lists keep the defaults' t-SNE and UMAP out of the test.
+    """
+
+    def _make(self):
+        return CARVE(
+            n_clusters=np.array([2, 3]),
+            n_resamples=4,
+            estimator_param_grids=[(KMeans, {"n_clusters": [2, 3]})],
+            normalization_options=[(FunctionTransformer, {}), (StandardScaler, {})],
+            dim_reduction_options=[(FunctionTransformer, {}), (PCA, {"n_components": [2, 3]})],
+            random_state=0,
+            verbose=0,
+        )
+
+    def test_summary_groups_on_the_sweep_parameter(self, X_two_clusters):
+        carve = self._make().fit(X_two_clusters, randomize_preprocessing=True)
+        df = carve.preprocessing_results_
+        assert list(df.columns) == [
+            "norm__func",
+            "dr__method",
+            "n_clusters",
+            "ari_stability",
+            "ari_generalizability",
+        ]
+        assert set(df["norm__func"]) <= {"identity", "StandardScaler"}
+        assert set(df["dr__method"]) <= {"identity", "PCA"}
+        assert set(df["n_clusters"]) == {2, 3}
+        # More than one pipeline was actually drawn.
+        assert len(set(zip(df["norm__func"], df["dr__method"]))) > 1
+
+    def test_summary_is_reproducible_under_a_seed(self, X_two_clusters):
+        a = self._make().fit(X_two_clusters, randomize_preprocessing=True)
+        b = self._make().fit(X_two_clusters, randomize_preprocessing=True)
+        pd.testing.assert_frame_equal(a.preprocessing_results_, b.preprocessing_results_)
+
+    def test_summary_is_none_without_randomization(self, X_two_clusters):
+        assert self._make().fit(X_two_clusters).preprocessing_results_ is None
+
+
+class TestShowProgress:
+    def test_progress_bar_and_per_config_lines(self, X_two_clusters, capsys):
+        carve = CARVE(
+            n_clusters=2,
+            n_resamples=3,
+            subsample_ratio=0.8,
+            estimator_param_grids=[(KMeans, {"n_clusters": [2]})],
+            normalization_options=[],
+            dim_reduction_options=[],
+            random_state=0,
+            verbose=1,
+        )
+        carve.fit(X_two_clusters, show_progress=True)
+        captured = capsys.readouterr()
+        # tqdm writes the bar to stderr; the per-configuration line goes
+        # through pbar.write, which lands on stdout.
+        assert "Grid configs" in captured.err
+        assert "1/1" in captured.err
+        assert "[CARVE] [1/1] est=KMeans n_clusters=2" in captured.out
