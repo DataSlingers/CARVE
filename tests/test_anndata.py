@@ -61,8 +61,6 @@ class TestEnsure2dArraySparse:
 
     def test_1d_sparse_rejected(self):
         arr = sparse.csr_array(np.array([1.0, 0.0, 2.0]))
-        if arr.ndim == 2:  # older scipy keeps this 2D
-            pytest.skip("this scipy builds a 2D array from a 1D input")
         with pytest.raises(ValueError, match="must be 2D"):
             ensure_2d_array(arr)
 

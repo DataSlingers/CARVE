@@ -185,7 +185,6 @@ class TestPlottingFromDisk:
 
 class TestZarr:
     def test_zarr_round_trip(self, written, tmp_path):
-        pytest.importorskip("zarr")
         path = tmp_path / "carve.zarr"
         written.write_zarr(path)
         back = ad.read_zarr(path)

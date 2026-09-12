@@ -40,10 +40,11 @@ class TestTargets:
 
 
 class TestMeanOracleAri:
-    def test_returns_a_value_in_the_unit_interval(self, tiny_scenario):
+    def test_returns_a_value_in_the_ari_range(self, tiny_scenario):
         ari = mean_oracle_ari(
             tiny_scenario, "easy", {"cluster_scale": 0.5}, n_seeds=2, random_state=0
         )
+        # ARI is bounded below by -1, not 0; the oracle fit can land anywhere in it.
         assert -1.0 <= ari <= 1.0
 
     def test_tighter_clusters_score_higher(self, tiny_scenario):

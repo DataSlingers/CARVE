@@ -325,7 +325,7 @@ class TestDenseEstimatorGuard:
 
 
 class TestStudies:
-    def test_both_case_studies_are_registered(self):
+    def test_every_case_study_is_registered(self):
         assert set(STUDIES) == {"klein", "levine32", "cusanovich", "heca"}
 
     def test_each_study_has_a_loader_and_candidate_k(self):
@@ -528,9 +528,6 @@ class TestRegisteredStudiesCarryScales:
 
 
 class TestNewStudies:
-    def test_both_new_studies_are_registered(self):
-        assert {"cusanovich", "heca"} <= set(STUDIES)
-
     def test_cusanovich_sweeps_four_through_sixteen(self):
         # Centered near the 13 tissues; stops well short of the 30 clusters
         # and 40 cell labels the source reports.

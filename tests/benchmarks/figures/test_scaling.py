@@ -1,14 +1,12 @@
 """Tests for the two scaling figures."""
 
-import inspect
-
 import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 
 from benchmarks._artifacts import RUNTIME_SCHEMA, SCHEMA
-from benchmarks._theme import METRIC_COLORS
-from benchmarks.figures import _scaling, figure_scaling_ari, figure_scaling_runtime
+from benchmarks._theme import METRIC_COLORS, metric_linewidth
+from benchmarks.figures import figure_scaling_ari, figure_scaling_runtime
 
 METRICS = ("ari_stability_1se", "ari_generalizability_1se")
 
@@ -103,10 +101,27 @@ class TestFigureScalingAri:
         assert len(fig.legends[0].get_texts()) == len(METRICS)
         plt.close(fig)
 
-    def test_no_element_scale_fudge_is_applied_by_default(self, results):
-        """One theme means Fig 4 and this figure match without a fudge factor."""
-        source = inspect.getsource(_scaling)
-        assert "0.47" not in source
+    def test_marker_and_line_geometry_are_unscaled(self, results):
+        """One theme means Fig 4 and this figure match without a fudge factor.
+
+        The old test grepped the module source for a literal scale factor,
+        which any other literal would have satisfied. This reads the
+        errorbar data lines that were actually drawn: metric_lines multiplies
+        markersize 5.0 and the theme linewidth by element_scale, so any
+        scale other than 1.0 changes both.
+        """
+        fig = figure_scaling_ari(results, metrics=METRICS, save=False)
+        widths = {m: metric_linewidth(m) for m in METRICS}
+        drawn = [
+            container[0]
+            for ax in fig.get_axes()
+            for container in ax.containers
+        ]
+        assert len(drawn) == len(METRICS) * len(results)
+        for line in drawn:
+            assert line.get_markersize() == 5.0
+            assert line.get_linewidth() in widths.values()
+        plt.close(fig)
 
     def test_default_metrics_draw_the_oracle_baseline(self, results):
         # S2 Fig's caption: curves are shown "against the oracle-k* baseline".
