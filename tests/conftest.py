@@ -176,38 +176,6 @@ def adata_sparse(X_three_clusters):
     return adata
 
 
-@pytest.fixture(scope="module")
-def fitted_adata():
-    """A small AnnData carrying results from ``tl.carve``.
-
-    Module-scoped: fitting is the expensive part of these tests, and none of
-    the consumers mutate it.
-    """
-    import anndata as ad
-
-    import carve
-
-    rng = np.random.RandomState(0)
-    X = np.vstack(
-        [
-            rng.randn(30, 6) + 8,
-            rng.randn(30, 6) - 8,
-            rng.randn(30, 6) * 0.4,
-        ]
-    ).astype(np.float32)
-    adata = ad.AnnData(X)
-    adata.obsm["X_pca"] = X[:, :4]
-    adata.obsm["X_umap"] = X[:, :2]
-    carve.tl.carve(
-        adata,
-        use_rep="X_pca",
-        n_clusters=range(2, 5),
-        n_resamples=5,
-        random_state=0,
-    )
-    return adata
-
-
 @pytest.fixture(autouse=True)
 def _isolated_matplotlib_state():
     """Undo every rcParams change a test makes and close its figures.
