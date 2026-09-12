@@ -26,8 +26,9 @@ class TestComputeGeneralizabilityScores:
             (np.array([0, 1, 2, 3]), np.array([0, 0, 1, 1]), np.array([0, 1, 0, 1])),
         ]
         scores = compute_generalizability_scores(4, runs)
-        # After alignment, 2 of 4 wrong
-        assert np.any(scores < 1.0)
+        # Hungarian alignment maps the tie to the identity, so samples 0 and
+        # 3 are right and 1 and 2 are wrong.
+        np.testing.assert_array_equal(scores, [1.0, 0.0, 0.0, 1.0])
 
     def test_never_evaluated(self):
         """Samples never in any run get score 0."""

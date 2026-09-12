@@ -58,10 +58,6 @@ class TestResolveMode:
         with pytest.raises(ValueError, match="Unknown mode"):
             resolve_mode("invalid")
 
-    def test_invalid_mode_type(self):
-        with pytest.raises(ValueError, match="Unknown mode"):
-            resolve_mode("foo")
-
 
 def test_consensus_summary_is_frozen():
     s = ConsensusSummary(gini=np.zeros(3), ce=np.zeros(3), pac=0.5)

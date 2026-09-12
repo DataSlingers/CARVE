@@ -117,7 +117,7 @@ class TestFit:
 
     def test_generalizability_scores_populated(self, fitted_carve):
         assert fitted_carve.generalizability_scores_ is not None
-        assert fitted_carve.generalizability_scores_ is not None
+        assert fitted_carve.consensus_generalizability_matrices_ is not None
 
     def test_results_df_columns(self, fitted_carve):
         df = fitted_carve.estimator_results_
@@ -185,23 +185,39 @@ class TestFit:
 
         c1 = make_carve().fit(X_two_clusters)
         c2 = make_carve().fit(X_two_clusters)
-        assert (
-            c1.estimator_results_["ari_stability"].iloc[0]
-            == (c2.estimator_results_["ari_stability"].iloc[0])
+        pd.testing.assert_frame_equal(c1.estimator_results_, c2.estimator_results_)
+        np.testing.assert_array_equal(
+            c1.consensus_matrices_[0], c2.consensus_matrices_[0]
+        )
+        np.testing.assert_array_equal(
+            c1.consensus_generalizability_matrices_[0],
+            c2.consensus_generalizability_matrices_[0],
         )
 
     def test_per_call_random_state(self, X_two_clusters):
-        carve = CARVE(
-            n_clusters=2,
-            n_resamples=3,
-            subsample_ratio=0.8,
-            estimator_param_grids=[(KMeans, {"n_clusters": [2]})],
-            normalization_options=[],
-            dim_reduction_options=[],
-            verbose=0,
+        def make_carve():
+            return CARVE(
+                n_clusters=2,
+                n_resamples=3,
+                subsample_ratio=0.8,
+                estimator_param_grids=[(KMeans, {"n_clusters": [2]})],
+                normalization_options=[],
+                dim_reduction_options=[],
+                verbose=0,
+            )
+
+        a = make_carve().fit(X_two_clusters, random_state=99)
+        b = make_carve().fit(X_two_clusters, random_state=99)
+        c = make_carve().fit(X_two_clusters, random_state=0)
+        pd.testing.assert_frame_equal(a.estimator_results_, b.estimator_results_)
+        # The subsample draws differ between seeds, so the pairs that were
+        # ever co-sampled differ and the NaN pattern of the matrix with them.
+        assert np.array_equal(
+            a.consensus_matrices_[0], b.consensus_matrices_[0], equal_nan=True
         )
-        carve.fit(X_two_clusters, random_state=99)
-        assert carve.estimator_results_ is not None
+        assert not np.array_equal(
+            a.consensus_matrices_[0], c.consensus_matrices_[0], equal_nan=True
+        )
 
     def test_dataframe_input(self):
         rng = np.random.RandomState(0)
@@ -321,8 +337,8 @@ class TestGetLabels:
         labels = fitted_carve.get_labels(estimator=est)
         assert labels.shape == (60,)
 
-    def test_reference_labels_alignment(self, fitted_carve):
-        """Successive calls should produce consistent labels."""
+    def test_get_labels_is_idempotent(self, fitted_carve):
+        """Calling get_labels twice with the same arguments returns the same labels."""
         l1 = fitted_carve.get_labels()
         l2 = fitted_carve.get_labels()
         np.testing.assert_array_equal(l1, l2)

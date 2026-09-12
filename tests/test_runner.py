@@ -125,9 +125,6 @@ class TestResampleResult:
         assert r.n_clusters_train == 2
         assert r.noise_fraction == 0.0
 
-    def test_field_count(self):
-        assert len(ResampleResult._fields) == 17
-
 
 # -----------------------------------------------------------------------
 # _compute_stability_ari
@@ -145,7 +142,7 @@ class TestComputeStabilityAri:
             labels_2=np.array([0, 1, 0, 1]),
         )
         assert isinstance(ari, float)
-        assert -0.5 <= ari <= 1.0
+        assert ari == 1.0
 
     def test_perfect_overlap(self, default_policy):
         idx = np.array([0, 1, 2, 3])

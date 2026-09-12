@@ -109,28 +109,42 @@ class TestComputeConsensusMatrix:
 
 
 class TestReorderConsensusMatrix:
-    def test_basic(self):
+    def _interleaved(self):
+        # Two perfect blocks, {0, 2, 4} and {1, 3, 5}, interleaved by index.
         M = np.zeros((6, 6))
-        for i in [0, 2, 4]:
-            for j in [0, 2, 4]:
-                M[i, j] = 1.0
-        for i in [1, 3, 5]:
-            for j in [1, 3, 5]:
-                M[i, j] = 1.0
-        reordered, order = reorder_consensus_matrix(M)
-        assert reordered.shape == M.shape
-        assert set(order) == set(range(6))
+        for group in ([0, 2, 4], [1, 3, 5]):
+            for i in group:
+                for j in group:
+                    M[i, j] = 1.0
+        return M
 
-    def test_preserves_values(self):
-        M = np.array([[1.0, 0.5], [0.5, 1.0]])
+    def test_groups_the_interleaved_blocks(self):
+        reordered, order = reorder_consensus_matrix(self._interleaved())
+        assert sorted(order) == list(range(6))
+        # Each block ends up contiguous: the leaf order lists one group's
+        # three members, then the other's.
+        first, second = set(order[:3]), set(order[3:])
+        assert {first, second} == {frozenset({0, 2, 4}), frozenset({1, 3, 5})}
+        # And the reordered matrix is block diagonal.
+        np.testing.assert_array_equal(reordered[:3, :3], 1.0)
+        np.testing.assert_array_equal(reordered[3:, 3:], 1.0)
+        np.testing.assert_array_equal(reordered[:3, 3:], 0.0)
+
+    def test_reordering_is_a_permutation_of_the_input(self):
+        M = self._interleaved()
+        M[0, 2] = M[2, 0] = 0.7
         reordered, order = reorder_consensus_matrix(M)
-        assert reordered[0, 0] == 1.0
-        assert reordered[1, 1] == 1.0
+        np.testing.assert_array_equal(reordered, M[np.ix_(order, order)])
+        assert sorted(reordered.ravel()) == sorted(M.ravel())
 
     def test_nan_handling(self):
         M = np.array([[1.0, np.nan], [np.nan, 1.0]])
         reordered, order = reorder_consensus_matrix(M, fill_nan_for_order=0.0)
         assert reordered.shape == (2, 2)
+        assert sorted(order) == [0, 1]
+        # The NaN is passed through untouched; fill_nan_for_order only
+        # affects the ordering, not the returned values.
+        assert np.isnan(reordered[0, 1])
 
 
 # -----------------------------------------------------------------------

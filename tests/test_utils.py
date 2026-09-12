@@ -239,7 +239,7 @@ class TestEnsure2dArray:
         assert result.shape == (2, 2)
 
     def test_invalid_type(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Input must be a NumPy array"):
             ensure_2d_array("not an array")
 
 
@@ -493,9 +493,19 @@ class TestResolveAnchors:
         assert np.array_equal(a, b)
         assert not np.array_equal(a, c)
 
-    @pytest.mark.parametrize("bad", [0, 1, -5, 0.0, -0.2, 1.5])
-    def test_rejects_degenerate_counts(self, bad):
-        with pytest.raises(ValueError):
+    @pytest.mark.parametrize(
+        ("bad", "message"),
+        [
+            (0, "must be at least 2"),
+            (1, "must be at least 2"),
+            (-5, "must be at least 2"),
+            (0.0, r"must be in \(0, 1\]"),
+            (-0.2, r"must be in \(0, 1\]"),
+            (1.5, r"must be in \(0, 1\]"),
+        ],
+    )
+    def test_rejects_degenerate_counts(self, bad, message):
+        with pytest.raises(ValueError, match=message):
             resolve_anchors(
                 9000, consensus_anchors=bad, anchor_threshold=5000, random_state=0
             )

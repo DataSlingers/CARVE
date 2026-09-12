@@ -4,8 +4,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
+from matplotlib.collections import PolyCollection
 from matplotlib.legend import Legend
 from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
 
 from carve import CARVE
 from carve._plotting import (
@@ -244,7 +246,13 @@ class TestPlotMetricOverNClusters:
             measure="stability",
             legend=False,
         )
-        assert ax is not None
+        assert ax.get_legend() is None
+        assert (
+            plot_metric_over_n_clusters(
+                metric_results_df, measure="stability"
+            ).get_legend()
+            is not None
+        )
 
     def test_mixed_estimators_single_nan_group_col(self):
         """Regression: 2 estimators, one with an all-NaN param column.
@@ -343,10 +351,21 @@ class TestPlotConsensusMatrix:
             plot_consensus_matrix(np.eye(3), np.array([[0, 1, 2]]))
 
     def test_nan_handling(self):
+        # Never co-sampled pairs are drawn at 0.5, the value get_labels also
+        # substitutes; the diagonal is forced to 1.
         M = np.array([[1.0, np.nan], [np.nan, 1.0]])
         labels = np.array([0, 1])
         ax = plot_consensus_matrix(M, labels)
-        assert ax is not None
+        np.testing.assert_array_equal(
+            np.asarray(ax.images[0].get_array()), [[1.0, 0.5], [0.5, 1.0]]
+        )
+
+    def test_with_existing_ax(self):
+        fig, ax = plt.subplots()
+        M = np.eye(3)
+        labels = np.array([0, 1, 1])
+        assert plot_consensus_matrix(M, labels, ax=ax) is ax
+        assert len(ax.images) == 1
 
 
 # -----------------------------------------------------------------------
@@ -373,7 +392,8 @@ class TestPlotClusterBoxplot:
         scores = np.array([0.9, 0.8, 0.7, 0.6])
         labels = np.array([0, 0, 1, 1])
         ax = plot_cluster_boxplot(scores, labels, order=[1, 0])
-        assert ax is not None
+        # Tick labels are one-based cluster numbers, in the requested order.
+        assert [t.get_text() for t in ax.get_xticklabels()] == ["2", "1"]
 
 
 # -----------------------------------------------------------------------
@@ -438,11 +458,23 @@ class TestPlotClusterViolin:
                 assert y_vals.max() <= 1.0 + 1e-9
 
     def test_violin_no_clip_when_ylim_none(self):
-        """When ylim is None, violin bodies should not be clipped."""
+        """ylim=None with fit_ylim=False leaves the KDE bodies unclipped.
+
+        matplotlib evaluates the KDE on [min, max] of each group, so the top
+        vertex of the unclipped bodies is the data maximum; a ylim inside the
+        data range clips it.
+        """
         scores = np.array([0.95, 0.96, 0.97, 0.98, 0.99, 0.60, 0.61, 0.62])
         labels = np.array([0, 0, 0, 0, 0, 1, 1, 1])
-        ax = plot_cluster_violin(scores, labels, ylim=None)
-        assert ax is not None
+
+        def top(ax):
+            bodies = [c for c in ax.collections if isinstance(c, PolyCollection)]
+            return max(p.vertices[:, 1].max() for b in bodies for p in b.get_paths())
+
+        clipped = plot_cluster_violin(scores, labels, ylim=(0.0, 0.9), fit_ylim=False)
+        assert top(clipped) == pytest.approx(0.9)
+        free = plot_cluster_violin(scores, labels, ylim=None, fit_ylim=False)
+        assert top(free) == pytest.approx(0.99)
 
 
 # -----------------------------------------------------------------------
@@ -493,20 +525,18 @@ class TestPlotClusterScatter:
         X = np.random.RandomState(0).randn(20, 10)
         labels = np.array([0] * 10 + [1] * 10)
         scores = np.random.RandomState(0).rand(20)
-        ax = plot_cluster_scatter(X, labels, scores)
-        assert ax is not None
+        ax = plot_cluster_scatter(X, labels, scores, sort_order=False)
+        expected = PCA(n_components=2, random_state=0).fit_transform(X)
+        np.testing.assert_allclose(ax.collections[0].get_offsets(), expected)
 
     def test_alpha_range(self):
         X = np.random.RandomState(0).randn(20, 2)
         labels = np.array([0] * 10 + [1] * 10)
         scores = np.random.RandomState(0).rand(20)
-        ax = plot_cluster_scatter(
-            X,
-            labels,
-            scores,
-            alpha_range=(0.3, 0.9),
-        )
-        assert ax is not None
+        ax = plot_cluster_scatter(X, labels, scores, alpha_range=(0.3, 0.9))
+        alphas = ax.collections[0].get_facecolors()[:, 3]
+        assert alphas.min() == pytest.approx(0.3)
+        assert alphas.max() == pytest.approx(0.9)
 
     def test_box_annotation_preserves_right_margin_legend(self):
         X = np.random.RandomState(0).randn(30, 4)
@@ -582,9 +612,8 @@ def test_plot_consensus_matrix_under_anchoring():
         c.fit(X)
 
     ax = c.plot_consensus_matrix(k=2)
-    assert ax is not None
-    # The rendered image is the anchor block, not the full matrix.
-    assert c.consensus_matrices_[0].shape == (30, 30)
+    # The rendered image is the anchor block, not the full 60-by-60 matrix.
+    assert np.asarray(ax.images[0].get_array()).shape == (30, 30)
 
 
 def test_sample_level_plots_work_under_anchoring():

@@ -79,7 +79,7 @@ class TestSelectBestRow1se:
 
     def test_return_idx(self, results_df):
         idx = select_best_row_1se(results_df, measure="stability", return_idx=True)
-        assert isinstance(idx, (int, np.integer))
+        assert idx == 0
 
     def test_invalid_measure(self, results_df):
         with pytest.raises(ValueError, match="Invalid measure"):
@@ -125,7 +125,7 @@ class TestSelectBestRowQuantile:
             measure="stability",
             return_idx=True,
         )
-        assert isinstance(idx, (int, np.integer))
+        assert idx == 0
 
     def test_invalid_measure(self, results_df):
         with pytest.raises(ValueError, match="Invalid measure"):
@@ -161,11 +161,11 @@ class TestSelectBestRowByRule:
 
     def test_1se_rule(self, results_df):
         row = select_best_row_by_rule(results_df, measure="stability", rule="1se")
-        assert isinstance(row, pd.Series)
+        assert row["n_clusters"] == 2
 
     def test_quantile_rule(self, results_df):
         row = select_best_row_by_rule(results_df, measure="stability", rule="quantile")
-        assert isinstance(row, pd.Series)
+        assert row["n_clusters"] == 2
 
     def test_invalid_rule(self, results_df):
         with pytest.raises(ValueError, match="Unknown rule"):
@@ -191,7 +191,7 @@ class TestSelectBestRowByRule:
             rule="max",
             return_idx=True,
         )
-        assert isinstance(idx, (int, np.integer))
+        assert idx == 0
 
 
 # -----------------------------------------------------------------------
