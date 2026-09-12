@@ -17,6 +17,7 @@ from carve._plotting import (
     plot_cluster_scatter,
     plot_cluster_violin,
     plot_consensus_matrix,
+    plot_diagnostic_scatter,
     plot_metric_over_n_clusters,
 )
 from tests._helpers import with_sweep_cols
@@ -599,7 +600,123 @@ class TestPlotClusterScatter:
             plot_cluster_scatter(X, labels, scores)
 
 
-def test_plot_consensus_matrix_under_anchoring():
+# -----------------------------------------------------------------------
+# plot_diagnostic_scatter
+# -----------------------------------------------------------------------
+
+
+class TestPlotDiagnosticScatter:
+    def _data(self, n=30, p=4, k=3):
+        rng = np.random.RandomState(0)
+        return rng.randn(n, p), np.repeat(np.arange(k), n // k), rng.rand(n)
+
+    def test_one_collection_per_cluster(self):
+        X, labels, scores = self._data()
+        ax = plot_diagnostic_scatter(X, labels, scores)
+        assert len(ax.collections) == 3
+        assert sorted(c.get_offsets().shape[0] for c in ax.collections) == [10, 10, 10]
+
+    def test_markers_override_in_label_order(self):
+        X, labels, scores = self._data()
+        ax = plot_diagnostic_scatter(X, labels, scores, markers=["o", "s", "^"])
+        handles = ax.get_legend().legend_handles
+        assert [h.get_marker() for h in handles] == ["o", "s", "^"]
+
+    def test_more_clusters_than_markers_warns_and_cycles(self):
+        X, labels, scores = self._data()
+        with pytest.warns(UserWarning, match="Markers will cycle"):
+            ax = plot_diagnostic_scatter(X, labels, scores, markers=["o", "s"])
+        handles = ax.get_legend().legend_handles
+        assert [h.get_marker() for h in handles] == ["o", "s", "o"]
+
+    def test_colorbar_label_defaults_to_scores_name(self):
+        X, labels, scores = self._data()
+        fig, ax = plt.subplots()
+        plot_diagnostic_scatter(X, labels, scores, ax=ax, scores_name="Foo")
+        cbar_axes = [a for a in fig.axes if a is not ax]
+        assert len(cbar_axes) == 1
+        assert cbar_axes[0].get_xlabel() == "Foo"
+
+    def test_colorbar_label_override(self):
+        X, labels, scores = self._data()
+        fig, ax = plt.subplots()
+        plot_diagnostic_scatter(
+            X, labels, scores, ax=ax, scores_name="Foo", colorbar_label="Bar"
+        )
+        assert [a for a in fig.axes if a is not ax][0].get_xlabel() == "Bar"
+
+    def test_no_colorbar_adds_no_axes(self):
+        X, labels, scores = self._data()
+        fig, ax = plt.subplots()
+        plot_diagnostic_scatter(X, labels, scores, ax=ax, colorbar=False)
+        assert fig.axes == [ax]
+
+    def test_sort_order_draws_high_scores_first(self):
+        # alpha encodes the score: alpha_range=(alpha_high, alpha_low), so a
+        # high score is transparent. Drawing high scores first means the
+        # alphas within a cluster's collection are non-decreasing.
+        X, labels, scores = self._data()
+        ax = plot_diagnostic_scatter(X, labels, scores, sort_order=True)
+        for c in ax.collections:
+            assert np.all(np.diff(c.get_facecolors()[:, 3]) >= -1e-12)
+        unsorted = plot_diagnostic_scatter(X, labels, scores, sort_order=False)
+        assert any(
+            np.any(np.diff(c.get_facecolors()[:, 3]) < 0) for c in unsorted.collections
+        )
+
+    def test_alpha_range_bounds_the_facecolors(self):
+        X, labels, scores = self._data()
+        ax = plot_diagnostic_scatter(X, labels, scores, alpha_range=(0.4, 0.9))
+        alphas = np.vstack([c.get_facecolors() for c in ax.collections])[:, 3]
+        assert alphas.min() == pytest.approx(0.4)
+        assert alphas.max() == pytest.approx(0.9)
+
+    def test_nan_scores_are_drawn_gray(self):
+        X, labels, scores = self._data()
+        scores = scores.copy()
+        scores[0] = np.nan
+        ax = plot_diagnostic_scatter(X, labels, scores)
+        facecolors = np.vstack([c.get_facecolors() for c in ax.collections])
+        assert np.any(np.all(np.isclose(facecolors, (0.5, 0.5, 0.5, 0.2)), axis=1))
+
+    def test_legend_annotation_prefixes_the_title(self):
+        X, labels, scores = self._data()
+        ax = plot_diagnostic_scatter(
+            X, labels, scores, annotation="note", annotation_style="legend"
+        )
+        assert ax.get_legend().get_title().get_text() == "note\nCluster"
+
+    def test_box_annotation_keeps_the_cluster_legend(self):
+        X, labels, scores = self._data()
+        ax = plot_diagnostic_scatter(
+            X, labels, scores, annotation="note", annotation_style="box"
+        )
+        legends = [c for c in ax.get_children() if isinstance(c, Legend)]
+        assert any(
+            [t.get_text() for t in legend.get_texts()] == ["note"] for legend in legends
+        )
+        assert ax.get_legend().get_title().get_text() == "Cluster"
+
+    def test_save(self, tmp_path):
+        X, labels, scores = self._data()
+        path = tmp_path / "diagnostic.png"
+        assert plot_diagnostic_scatter(X, labels, scores, save=path) is None
+        assert path.exists()
+
+    def test_no_finite_scores_raises(self):
+        X, labels, _ = self._data()
+        with pytest.raises(ValueError, match="No finite scores"):
+            plot_diagnostic_scatter(X, labels, np.full(30, np.nan))
+
+    def test_mismatched_lengths_raise(self):
+        X, labels, scores = self._data()
+        with pytest.raises(ValueError, match="matching n_samples"):
+            plot_diagnostic_scatter(X, labels, scores[:-1])
+
+
+@pytest.fixture(scope="module")
+def anchored():
+    """Two blobs fitted under anchoring (threshold 30 of 60 samples)."""
     rng = np.random.default_rng(0)
     X = np.vstack([rng.normal(0, 1, (30, 4)), rng.normal(6, 1, (30, 4))])
     c = CARVE(
@@ -610,24 +727,18 @@ def test_plot_consensus_matrix_under_anchoring():
     )
     with pytest.warns(RuntimeWarning, match="anchored consensus"):
         c.fit(X)
+    return X, c
 
+
+def test_plot_consensus_matrix_under_anchoring(anchored):
+    _, c = anchored
     ax = c.plot_consensus_matrix(k=2)
     # The rendered image is the anchor block, not the full 60-by-60 matrix.
     assert np.asarray(ax.images[0].get_array()).shape == (30, 30)
 
 
-def test_sample_level_plots_work_under_anchoring():
-    rng = np.random.default_rng(0)
-    X = np.vstack([rng.normal(0, 1, (30, 4)), rng.normal(6, 1, (30, 4))])
-    c = CARVE(
-        estimator_param_grids=[(KMeans, {"n_clusters": [2, 3], "n_init": [10]})],
-        n_resamples=6,
-        random_state=0,
-        anchor_threshold=30,
-    )
-    with pytest.warns(RuntimeWarning, match="anchored consensus"):
-        c.fit(X)
-
+def test_sample_level_plots_work_under_anchoring(anchored):
+    X, c = anchored
     # The property the whole feature rests on: consensus matrices shrink to
     # the anchor block, but every per-sample array stays length n.
     assert c.stability_gini_scores_.shape[1] == X.shape[0]
