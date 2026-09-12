@@ -1,8 +1,8 @@
 """Anchored consensus measured against the exact answer.
 
 At n small enough for the exact path to run, both are computable, so the
-approximation is measured rather than asserted. The numbers this produces
-back the supplementary table described in the design document.
+approximation is measured rather than asserted. The assertions are the
+contract; the correlations are not printed.
 """
 
 import warnings
@@ -53,90 +53,70 @@ def _fit(X, *, anchors):
     return carve
 
 
+ANCHOR_COUNTS = (500, 1000, 2000)
+
+
 @pytest.fixture(scope="module")
 def exact():
     X, y = _data()
     return X, y, _fit(X, anchors=None)
 
 
+@pytest.fixture(scope="module")
+def anchored_fits(exact):
+    """One anchored fit per anchor count, on the exact fixture's data."""
+    X, _, _ = exact
+    return {m: _fit(X, anchors=m) for m in ANCHOR_COUNTS}
+
+
 def test_exact_fixture_sits_on_the_default_threshold_boundary(exact):
     # N is exactly the default anchor_threshold, so the exact fixture is a
     # real fit at the boundary rather than one held open by a raised
-    # threshold. Everything the table below reports is measured against it.
+    # threshold. Everything below is measured against it.
     _, _, exact_carve = exact
     assert exact_carve.anchor_threshold == N
     assert exact_carve.consensus_anchors_ is None
     assert exact_carve.consensus_matrices_[0].shape == (N, N)
 
 
-@pytest.mark.parametrize("m", [500, 1000, 2000])
-def test_anchored_tracks_exact(exact, m):
+@pytest.mark.parametrize("m", ANCHOR_COUNTS)
+def test_anchored_tracks_exact(exact, anchored_fits, m):
     X, y, exact_carve = exact
-    anchored = _fit(X, anchors=m)
-
-    print(f"m={m}: anchor count = {anchored.consensus_anchors_.size}")
+    anchored = anchored_fits[m]
 
     assert anchored.consensus_anchors_.size == m
 
     # Selected k agrees.
-    anchored_k = anchored.get_k(measure="stability", rule="1se")
-    exact_k = exact_carve.get_k(measure="stability", rule="1se")
-    print(f"m={m}: selected k (anchored) = {anchored_k}, selected k (exact) = {exact_k}")
-    assert anchored_k == exact_k
-
-    # Per-sample stability scores correlate with the exact ones.
-    corr = np.corrcoef(
-        anchored.stability_gini_scores_[0], exact_carve.stability_gini_scores_[0]
-    )[0, 1]
-    print(f"m={m}: gini correlation = {corr:.3f}")
-    assert corr > 0.8, f"gini correlation {corr:.3f} at m={m}"
-
-    # Same estimator family and 1/m variance argument as gini, so the same
-    # bound applies for the same reason.
-    ce_corr = np.corrcoef(
-        anchored.stability_ce_scores_[0], exact_carve.stability_ce_scores_[0]
-    )[0, 1]
-    print(f"m={m}: ce correlation = {ce_corr:.3f}")
-    assert ce_corr > 0.8, f"ce correlation {ce_corr:.3f} at m={m}"
-
-    # PAC, reported without an acceptance threshold: under anchoring PAC is
-    # computed over the m-by-m anchor block rather than over all pairs, so
-    # it is a legitimately different quantity from the exact PAC, and
-    # neither the plan nor the spec establishes how close the two should
-    # be.
-    exact_pac = exact_carve.estimator_results_.loc[
-        exact_carve.estimator_results_["config_id"] == 0, "consensus_pac_stability"
-    ].item()
-    anchored_pac = anchored.estimator_results_.loc[
-        anchored.estimator_results_["config_id"] == 0, "consensus_pac_stability"
-    ].item()
-    print(
-        f"m={m}: PAC (exact) = {exact_pac:.3f}, PAC (anchored) = {anchored_pac:.3f}, "
-        f"abs diff = {abs(exact_pac - anchored_pac):.3f}"
+    assert anchored.get_k(measure="stability", rule="1se") == exact_carve.get_k(
+        measure="stability", rule="1se"
     )
+
+    # Per-sample stability scores correlate with the exact ones. Same
+    # estimator family and 1/m variance argument for gini and ce, so the
+    # same bound applies to both.
+    for attr in ("stability_gini_scores_", "stability_ce_scores_"):
+        corr = np.corrcoef(getattr(anchored, attr)[0], getattr(exact_carve, attr)[0])[
+            0, 1
+        ]
+        assert corr > 0.8, f"{attr} correlation {corr:.3f} at m={m}"
+
+    # PAC is not compared: under anchoring it is computed over the m-by-m
+    # anchor block rather than over all pairs, so it is a different
+    # quantity from the exact PAC.
 
     # Labels agree with each other and both recover the planted structure.
-    both = adjusted_rand_score(
-        exact_carve.get_labels(k=3), anchored.get_labels(k=3)
-    )
-    print(f"m={m}: label ARI (anchored vs exact) = {both:.3f}")
+    both = adjusted_rand_score(exact_carve.get_labels(k=3), anchored.get_labels(k=3))
     assert both > 0.9, f"label ARI {both:.3f} at m={m}"
-    planted = adjusted_rand_score(y, anchored.get_labels(k=3))
-    print(f"m={m}: label ARI (anchored vs planted truth) = {planted:.3f}")
-    assert planted > 0.9
+    assert adjusted_rand_score(y, anchored.get_labels(k=3)) > 0.9
 
 
-def test_accuracy_improves_with_more_anchors(exact):
-    X, _, exact_carve = exact
+def test_accuracy_improves_with_more_anchors(exact, anchored_fits):
+    _, _, exact_carve = exact
     reference = exact_carve.stability_gini_scores_[0]
-
-    correlations = []
-    for m in (500, 2000):
-        anchored = _fit(X, anchors=m)
-        corr = np.corrcoef(anchored.stability_gini_scores_[0], reference)[0, 1]
-        print(f"m={m}: gini correlation = {corr:.3f}")
-        correlations.append(corr)
-
+    correlations = [
+        np.corrcoef(anchored_fits[m].stability_gini_scores_[0], reference)[0, 1]
+        for m in (500, 2000)
+    ]
     # Variance of the row-mean estimator falls as 1/m, so more anchors must
     # track the exact answer better. A flat result would mean the anchor
     # count is not actually being honored.
