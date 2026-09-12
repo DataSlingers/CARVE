@@ -123,7 +123,7 @@ class TestReorderConsensusMatrix:
         assert sorted(order) == list(range(6))
         # Each block ends up contiguous: the leaf order lists one group's
         # three members, then the other's.
-        first, second = set(order[:3]), set(order[3:])
+        first, second = frozenset(order[:3]), frozenset(order[3:])
         assert {first, second} == {frozenset({0, 2, 4}), frozenset({1, 3, 5})}
         # And the reordered matrix is block diagonal.
         np.testing.assert_array_equal(reordered[:3, :3], 1.0)
