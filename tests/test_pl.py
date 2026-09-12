@@ -7,7 +7,6 @@ layer, n_pcs, a pinned k) without refitting.
 """
 
 import anndata as ad
-import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 from matplotlib.legend import Legend
@@ -16,8 +15,6 @@ from sklearn.decomposition import PCA
 
 import carve
 from carve import CARVE
-
-N_OBS = 90
 
 
 def _X():
