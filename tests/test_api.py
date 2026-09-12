@@ -305,10 +305,22 @@ class TestGetLabels:
         with pytest.raises(RuntimeError, match="fit"):
             carve.get_labels()
 
-    def test_different_measures(self, fitted_carve):
-        for measure in ["stability", "generalizability", "pac", "gini", "ce"]:
-            labels = fitted_carve.get_labels(measure=measure)
-            assert labels.shape == (60,)
+    @pytest.mark.parametrize("measure", ["stability", "generalizability"])
+    def test_ari_measures_select_under_the_default_rule(self, fitted_carve, measure):
+        labels = fitted_carve.get_labels(measure=measure)
+        assert labels.shape == (60,)
+
+    @pytest.mark.parametrize("measure", ["pac", "gini", "ce"])
+    def test_consensus_measures_select_under_max(self, fitted_carve, measure):
+        # These columns carry no standard error, so the default "1se" rule
+        # cannot apply to them; "max" is the rule they support.
+        labels = fitted_carve.get_labels(measure=measure, rule="max")
+        assert labels.shape == (60,)
+
+    def test_consensus_measure_under_1se_warns_and_falls_back(self, fitted_carve):
+        with pytest.warns(RuntimeWarning, match="falling back to 'max' rule"):
+            labels = fitted_carve.get_labels(measure="pac")
+        assert labels.shape == (60,)
 
     def test_different_rules(self, fitted_carve):
         for rule in ["max", "1se", "quantile"]:
@@ -1218,7 +1230,7 @@ class TestAnchoredConsensus:
             random_state=0,
             anchor_threshold=30,
         )
-        with pytest.warns(RuntimeWarning):
+        with pytest.warns(RuntimeWarning, match="anchored consensus"):
             c.fit(X)
         assert c.stability_gini_scores_.shape[1] == 60
         assert c.stability_ce_scores_.shape[1] == 60
@@ -1267,7 +1279,7 @@ class TestAnchoredConsensus:
             random_state=0,
             anchor_threshold=30,
         )
-        with pytest.warns(RuntimeWarning):
+        with pytest.warns(RuntimeWarning, match="anchored consensus"):
             c.fit(X)
         n_rows = c.estimator_results_.shape[0]
         assert np.array_equal(
@@ -1289,7 +1301,7 @@ class TestAnchoredConsensus:
             random_state=0,
             anchor_threshold=30,
         )
-        with pytest.warns(RuntimeWarning):
+        with pytest.warns(RuntimeWarning, match="anchored consensus"):
             c.fit(X)
         assert c.consensus_anchors_.ndim == 1
         assert np.all(np.diff(c.consensus_anchors_) > 0)
@@ -1308,7 +1320,7 @@ class TestAnchoredLabels:
             random_state=0,
             anchor_threshold=threshold,
         )
-        with pytest.warns(RuntimeWarning):
+        with pytest.warns(RuntimeWarning, match="anchored consensus"):
             c.fit(X)
         return X, c
 
@@ -1367,7 +1379,7 @@ class TestAnchoredLabels:
             n_resamples=6,
             anchor_threshold=40,
         )
-        with pytest.warns(RuntimeWarning):
+        with pytest.warns(RuntimeWarning, match="anchored consensus"):
             c.fit(X)
         assert c.consensus_anchors_ is not None
 
@@ -1385,7 +1397,7 @@ class TestAnchoredLabels:
             n_resamples=6,
             anchor_threshold=30,
         )
-        with pytest.warns(RuntimeWarning):
+        with pytest.warns(RuntimeWarning, match="anchored consensus"):
             c.fit(X, random_state=7)
 
         c.classifier = _SeedSpy()
@@ -1411,7 +1423,7 @@ class TestAnchoredLabels:
             n_jobs=4,
             random_state=0,
         )
-        with pytest.warns(RuntimeWarning):
+        with pytest.warns(RuntimeWarning, match="anchored consensus"):
             c.fit(X)
 
         c.classifier = _NJobsSpy()

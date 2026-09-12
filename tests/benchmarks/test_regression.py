@@ -1,7 +1,7 @@
 """Regression: the rebuilt pipeline must reproduce the committed results.
 
-Marked slow and skipped unless CARVE_RUN_REGRESSION=1, because each scenario
-is a full 3 x 20 benchmark. Run one with:
+Skipped unless CARVE_RUN_REGRESSION=1, because each scenario is a full 3 x 20
+benchmark. Run one with:
 
     CARVE_RUN_REGRESSION=1 .venv/bin/pytest \
         tests/benchmarks/test_regression.py -k gaussians -v
@@ -122,7 +122,6 @@ def scenario_run(tmp_path_factory):
     return _run
 
 
-@pytest.mark.slow
 @pytest.mark.parametrize(("scenario_name", "stem"), sorted(UNAFFECTED.items()))
 def test_rebuilt_pipeline_reproduces_committed_results(scenario_name, stem, scenario_run):
     rd = scenario_run(scenario_name)
@@ -194,7 +193,6 @@ def test_rebuilt_pipeline_reproduces_committed_results(scenario_name, stem, scen
     )
 
 
-@pytest.mark.slow
 @pytest.mark.parametrize(("scenario_name", "stem"), sorted(UNAFFECTED.items()))
 def test_generalizability_ari_changed_as_the_fix_intended(scenario_name, stem, scenario_run):
     """The ari_at_k fix must actually change something, or it did nothing."""

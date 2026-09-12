@@ -59,7 +59,6 @@ def exact():
     return X, y, _fit(X, anchors=None)
 
 
-@pytest.mark.slow
 def test_exact_fixture_sits_on_the_default_threshold_boundary(exact):
     # N is exactly the default anchor_threshold, so the exact fixture is a
     # real fit at the boundary rather than one held open by a raised
@@ -70,7 +69,6 @@ def test_exact_fixture_sits_on_the_default_threshold_boundary(exact):
     assert exact_carve.consensus_matrices_[0].shape == (N, N)
 
 
-@pytest.mark.slow
 @pytest.mark.parametrize("m", [500, 1000, 2000])
 def test_anchored_tracks_exact(exact, m):
     X, y, exact_carve = exact
@@ -128,7 +126,6 @@ def test_anchored_tracks_exact(exact, m):
     assert planted > 0.9
 
 
-@pytest.mark.slow
 def test_accuracy_improves_with_more_anchors(exact):
     X, _, exact_carve = exact
     reference = exact_carve.stability_gini_scores_[0]

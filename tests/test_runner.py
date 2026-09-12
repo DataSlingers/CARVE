@@ -705,6 +705,9 @@ class TestRunValidationRecords:
         labels = {r["method_label"] for r in records}
         assert labels == {"AgglomerativeClustering, linkage=ward"}
 
+    @pytest.mark.filterwarnings(
+        "ignore:All points in a subsample were labelled as noise:UserWarning"
+    )
     def test_sweep_rank_inverted_for_min_cluster_size(self, X_two_clusters):
         records = self._records(
             X_two_clusters,

@@ -208,7 +208,16 @@ class TestFitOrLoadCarveFingerprint:
         fit_or_load_carve(X, y, cache_path=cache, model_grids=grids, n_resamples=3)
         for sidecar in tmp_path.glob("demo.carve.*"):
             sidecar.unlink()
-        with pytest.warns(UserWarning, match="fingerprint"):
+        # CARVE.load also hits joblib's shape-deprecation warning (see the
+        # pyproject.toml ignore for CARVE.save/load); pytest 8+ re-emits any
+        # warning a pytest.warns block did not name, and re-emission resolves
+        # the warning's module from its filename rather than the issuing
+        # frame, so the module-scoped ignore does not match on re-emission.
+        # Both warnings must be named here.
+        with (
+            pytest.warns(UserWarning, match="fingerprint"),
+            pytest.warns(DeprecationWarning, match="Setting the shape on a NumPy array"),
+        ):
             carve = fit_or_load_carve(
                 X, y, cache_path=cache, model_grids=grids, n_resamples=3
             )

@@ -590,7 +590,7 @@ def test_plot_consensus_matrix_under_anchoring():
         random_state=0,
         anchor_threshold=30,
     )
-    with pytest.warns(RuntimeWarning):
+    with pytest.warns(RuntimeWarning, match="anchored consensus"):
         c.fit(X)
 
     ax = c.plot_consensus_matrix(k=2)
@@ -608,7 +608,7 @@ def test_sample_level_plots_work_under_anchoring():
         random_state=0,
         anchor_threshold=30,
     )
-    with pytest.warns(RuntimeWarning):
+    with pytest.warns(RuntimeWarning, match="anchored consensus"):
         c.fit(X)
 
     # The property the whole feature rests on: consensus matrices shrink to

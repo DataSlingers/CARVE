@@ -139,13 +139,21 @@ class TestOptionalOutputs:
         stability metrics to select on, so pairing them is a user error rather
         than something tl.carve should paper over.
         """
-        _run(adata_three_clusters, mode=mode, measure=measure)
+        with pytest.warns(RuntimeWarning, match="Non-default mode is experimental"):
+            _run(adata_three_clusters, mode=mode, measure=measure)
         assert "carve" in adata_three_clusters.obs
         assert absent not in adata_three_clusters.obs
 
     def test_measure_without_matching_mode_raises(self, adata_three_clusters):
-        """Selecting on a metric the run never computed must fail loudly."""
-        with pytest.raises((ValueError, RuntimeError, KeyError)):
+        """Selecting on a metric the run never computed must fail loudly.
+
+        The error is pandas' idxmax refusing an all-NaN column: a
+        generalizability-only run leaves every stability metric NaN.
+        """
+        with (
+            pytest.warns(RuntimeWarning, match="Non-default mode is experimental"),
+            pytest.raises(ValueError, match="all NA values"),
+        ):
             _run(
                 adata_three_clusters,
                 mode="generalizability",
@@ -287,13 +295,19 @@ class TestAnchoringProvenance:
     def test_resolved_anchor_count_is_recorded_under_anchoring(
         self, adata_three_clusters
     ):
-        with pytest.warns(RuntimeWarning):
+        with (
+            pytest.warns(RuntimeWarning, match="anchored consensus"),
+            pytest.warns(UserWarning, match="Anchored consensus is active"),
+        ):
             _run(adata_three_clusters, anchor_threshold=40)
         params = adata_three_clusters.uns["carve"]["params"]
         assert params["n_consensus_anchors"] == 40
 
     def test_explicit_anchor_count_is_recorded(self, adata_three_clusters):
-        with pytest.warns(RuntimeWarning):
+        with (
+            pytest.warns(RuntimeWarning, match="anchored consensus"),
+            pytest.warns(UserWarning, match="Anchored consensus is active"),
+        ):
             _run(adata_three_clusters, consensus_anchors=25)
         params = adata_three_clusters.uns["carve"]["params"]
         assert params["n_consensus_anchors"] == 25
@@ -323,7 +337,10 @@ class TestAnchoredConsensusObspGuard:
         observations. The model was fitted on different data.") instead of
         completing with a warning.
         """
-        with pytest.warns(UserWarning, match="Anchored consensus is active"):
+        with (
+            pytest.warns(RuntimeWarning, match="anchored consensus"),
+            pytest.warns(UserWarning, match="Anchored consensus is active"),
+        ):
             _run(adata_three_clusters, anchor_threshold=40)
         assert "carve_consensus" not in adata_three_clusters.obsp
         # the rest of what store_consensus=True implies is unaffected by the

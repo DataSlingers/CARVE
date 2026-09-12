@@ -12,6 +12,15 @@ from benchmarks._registry import CARVE_METRICS_ALL, CVI_METRICS
 from benchmarks._run import run_cell, run_scenario
 from benchmarks._types import Axis, EstimatorSpec, Scenario
 
+# The tiny scenario's hard axis point leaves no configuration inside the
+# best score's quantile band for some seeds, so carve's quantile rule warns
+# and falls back to max. That is the rule working as documented, not a
+# defect in the runner, and it is data-dependent: pin the message, not the
+# category, so any other RuntimeWarning still fails the test.
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:No estimators within quantile thresholds:RuntimeWarning"
+)
+
 N_METRICS = len(CARVE_METRICS_ALL) + len(CVI_METRICS)
 
 
