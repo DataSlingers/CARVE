@@ -82,7 +82,9 @@ notebooks = [
   "glasbey>=0.3.0",
 ]
 benchmarks = [
-  "pyarrow>=17",
+  # 17.0.0 wheels ship a stray top-level "benchmarks" package (pyarrow's
+  # own asv suite) that shadows src/benchmarks on sys.path. Fixed in 18.
+  "pyarrow>=18",
   "scanpy>=1.11.4",
 ]
 
