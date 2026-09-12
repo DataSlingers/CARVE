@@ -345,6 +345,132 @@ class TestGetLabels:
 
 
 # ---------------------------------------------------------------------------
+# Error contracts on a fitted model
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def split_mode_fits():
+    """The same small fit under mode="stability" and mode="generalizability".
+
+    Module-scoped, so it builds its own data rather than taking the
+    function-scoped X_two_clusters fixture.
+    """
+    rng = np.random.RandomState(42)
+    X = np.vstack(
+        [rng.randn(30, 5) + [4, 0, 0, 0, 0], rng.randn(30, 5) + [0, 4, 0, 0, 0]]
+    )
+
+    def make():
+        return CARVE(
+            n_clusters=2,
+            n_resamples=3,
+            subsample_ratio=0.8,
+            estimator_param_grids=[(KMeans, {"n_clusters": [2]})],
+            normalization_options=[],
+            dim_reduction_options=[],
+            random_state=0,
+            verbose=0,
+        )
+
+    with pytest.warns(RuntimeWarning, match="experimental"):
+        stability_only = make().fit(X, mode="stability")
+    with pytest.warns(RuntimeWarning, match="experimental"):
+        generalizability_only = make().fit(X, mode="generalizability")
+    return stability_only, generalizability_only
+
+
+SCORE_PLOTS = [
+    "plot_cluster_boxplot",
+    "plot_cluster_violin",
+    "plot_cluster_scatter",
+    "plot_diagnostic_scatter",
+]
+
+
+class TestErrorContracts:
+    def test_unknown_grid_preset(self, X_two_clusters):
+        carve = CARVE(estimator_param_grids="nope", n_resamples=2, verbose=0)
+        with pytest.raises(
+            ValueError, match="Unknown estimator_param_grids preset 'nope'"
+        ):
+            carve.fit(X_two_clusters)
+
+    def test_cannot_cut_below_two_clusters(self, fitted_carve):
+        with pytest.raises(
+            ValueError, match="Cannot cut the consensus matrix at 1 cluster"
+        ):
+            fitted_carve.get_labels(consensus_k=1)
+
+    def test_get_labels_rejects_an_unknown_mode(self, fitted_carve):
+        with pytest.raises(ValueError, match="Unknown mode"):
+            fitted_carve.get_labels(mode="nope")
+
+    def test_get_labels_names_the_missing_consensus_matrix(self, split_mode_fits):
+        stability_only, generalizability_only = split_mode_fits
+        with pytest.raises(
+            RuntimeError,
+            match="Consensus matrix not available for mode='generalizability'",
+        ):
+            stability_only.get_labels(mode="generalizability")
+        with pytest.raises(
+            RuntimeError, match="Consensus matrix not available for mode='default'"
+        ):
+            generalizability_only.get_labels(measure="generalizability", rule="max")
+
+    def test_plot_consensus_matrix_split_modes(self, split_mode_fits):
+        stability_only, generalizability_only = split_mode_fits
+        with pytest.raises(ValueError, match="mode must be one of"):
+            stability_only.plot_consensus_matrix(mode="nope")
+        with pytest.raises(
+            RuntimeError,
+            match="Selected consensus matrix is not available for mode='default'",
+        ):
+            generalizability_only.plot_consensus_matrix(
+                measure="generalizability", rule="max"
+            )
+        with pytest.raises(
+            RuntimeError,
+            match="Selected consensus matrix is not available for "
+            "mode='generalizability'",
+        ):
+            stability_only.plot_consensus_matrix(mode="generalizability")
+
+    @pytest.mark.parametrize("method", SCORE_PLOTS)
+    def test_source_and_mode_are_validated(self, fitted_carve, method):
+        with pytest.raises(ValueError, match="source must be one of"):
+            getattr(fitted_carve, method)(source="nope")
+        with pytest.raises(ValueError, match="mode must be one of"):
+            getattr(fitted_carve, method)(mode="nope")
+
+    @pytest.mark.parametrize("method", SCORE_PLOTS)
+    def test_stability_scores_are_reported_missing_after_a_generalizability_fit(
+        self, split_mode_fits, method
+    ):
+        _, generalizability_only = split_mode_fits
+        kwargs = dict(measure="generalizability", rule="max", mode="generalizability")
+        with pytest.raises(
+            RuntimeError, match="Gini stability scores are not available"
+        ):
+            getattr(generalizability_only, method)(source="gini", **kwargs)
+        with pytest.raises(RuntimeError, match="CE stability scores are not available"):
+            getattr(generalizability_only, method)(source="ce", **kwargs)
+
+    @pytest.mark.parametrize("method", SCORE_PLOTS)
+    def test_generalizability_scores_are_reported_missing_after_a_stability_fit(
+        self, split_mode_fits, method
+    ):
+        # A stability-only fit leaves generalizability_scores_ as a list of
+        # None, one per configuration, not as None. The guard has to look
+        # inside the list.
+        stability_only, _ = split_mode_fits
+        with pytest.raises(
+            RuntimeError, match="Generalizability scores are not available"
+        ):
+            getattr(stability_only, method)(source="accuracy")
+
+
+# ---------------------------------------------------------------------------
 # get_k()
 # ---------------------------------------------------------------------------
 

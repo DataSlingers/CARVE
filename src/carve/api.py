@@ -1350,7 +1350,10 @@ class CARVE(BaseEstimator):
             default_ylabel = "Cluster Stability (CE)"
 
         elif source == "accuracy":
-            if self.generalizability_scores_ is None:
+            if (
+                self.generalizability_scores_ is None
+                or self.generalizability_scores_[config_id] is None
+            ):
                 raise RuntimeError(
                     "Generalizability scores are not available for this run."
                 )
@@ -1549,7 +1552,10 @@ class CARVE(BaseEstimator):
             default_ylabel = "Cluster Stability (CE)"
 
         elif source == "accuracy":
-            if self.generalizability_scores_ is None:
+            if (
+                self.generalizability_scores_ is None
+                or self.generalizability_scores_[config_id] is None
+            ):
                 raise RuntimeError(
                     "Generalizability scores are not available for this run."
                 )
@@ -1757,7 +1763,10 @@ class CARVE(BaseEstimator):
             scores = np.asarray(self.stability_ce_scores_[config_id], dtype=float)
             scores_name = "CE Stability"
         elif source == "accuracy":
-            if self.generalizability_scores_ is None:
+            if (
+                self.generalizability_scores_ is None
+                or self.generalizability_scores_[config_id] is None
+            ):
                 raise RuntimeError(
                     "Generalizability scores are not available for this run."
                 )
@@ -1986,7 +1995,10 @@ class CARVE(BaseEstimator):
             scores = np.asarray(self.stability_ce_scores_[config_id], dtype=float)
             scores_name = "CE Stability"
         elif source == "accuracy":
-            if self.generalizability_scores_ is None:
+            if (
+                self.generalizability_scores_ is None
+                or self.generalizability_scores_[config_id] is None
+            ):
                 raise RuntimeError(
                     "Generalizability scores are not available for this run."
                 )
