@@ -9,6 +9,7 @@ layer, n_pcs, a pinned k) without refitting.
 import anndata as ad
 import numpy as np
 import pytest
+from matplotlib.collections import PolyCollection
 from matplotlib.legend import Legend
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
@@ -115,6 +116,14 @@ class TestMatchesTheModelMethods:
         a = carve.pl.cluster_violin(written)
         b = model.plot_cluster_violin()
         assert len(a.collections) == len(b.collections) > 0
+        pairs_compared = 0
+        for ca, cb in zip(a.collections, b.collections):
+            if isinstance(ca, PolyCollection) and isinstance(cb, PolyCollection):
+                np.testing.assert_allclose(
+                    ca.get_paths()[0].vertices, cb.get_paths()[0].vertices
+                )
+                pairs_compared += 1
+        assert pairs_compared >= 2
 
     def test_scatter_offsets(self, written, model):
         a = carve.pl.cluster_scatter(written)

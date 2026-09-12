@@ -48,7 +48,15 @@ def _fit(X, *, anchors):
         estimator_param_grids=GRIDS, n_resamples=25, random_state=0, **kwargs
     )
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
+        # warnings.filterwarnings matches from the start of the message, and
+        # the message here leads with the reason, not "anchored consensus"
+        # (which only appears mid-sentence) -- anchor the pattern on the
+        # actual leading text this test always triggers.
+        warnings.filterwarnings(
+            "ignore",
+            message=r"consensus_anchors=\d+ opts this run in regardless of anchor_threshold",
+            category=RuntimeWarning,
+        )
         carve.fit(X)
     return carve
 

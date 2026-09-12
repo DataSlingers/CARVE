@@ -45,7 +45,7 @@ class StubCarve:
         self._labels = labels
         self.get_labels_calls: list[dict] = []
 
-    def _select_row(self, *, measure="stability", rule="1se", not_two=False):
+    def _select_row(self, *, measure, rule, not_two=False):
         method_id, k = self._select(measure, not_two)
         results = self.estimator_results_
         row = results.loc[

@@ -19,6 +19,27 @@ from carve._selection import (
 )
 from tests._helpers import with_sweep_cols
 
+
+@pytest.fixture
+def wide_bounds_df():
+    """Three k's where max, 1se and quantile each pick a different row."""
+    return with_sweep_cols(
+        pd.DataFrame(
+            {
+                "estimator": ["KMeans"] * 3,
+                "n_clusters": [2, 3, 4],
+                "ari_stability": [0.85, 0.83, 0.80],
+                "ari_stability_se": [0.03, 0.03, 0.03],
+                "ari_stability_upper": [0.90, 0.88, 0.85],
+                "ari_stability_lower": [0.80, 0.78, 0.75],
+            }
+        ),
+        param="n_clusters",
+        method_label="KMeans",
+        observed=[2.0, 3.0, 4.0],
+    )
+
+
 # -----------------------------------------------------------------------
 # select_best_row_max
 # -----------------------------------------------------------------------
@@ -98,23 +119,8 @@ class TestSelectBestRowQuantile:
         # k=2 (0.9) is within [0.88, 0.92], k=3 (0.85) < 0.88
         assert row["n_clusters"] == 2
 
-    def test_wider_bounds(self):
-        df = with_sweep_cols(
-            pd.DataFrame(
-                {
-                    "estimator": ["KMeans"] * 3,
-                    "n_clusters": [2, 3, 4],
-                    "ari_stability": [0.85, 0.83, 0.80],
-                    "ari_stability_se": [0.03, 0.03, 0.03],
-                    "ari_stability_upper": [0.90, 0.88, 0.85],
-                    "ari_stability_lower": [0.80, 0.78, 0.75],
-                }
-            ),
-            param="n_clusters",
-            method_label="KMeans",
-            observed=[2.0, 3.0, 4.0],
-        )
-        row = select_best_row_quantile(df, measure="stability")
+    def test_wider_bounds(self, wide_bounds_df):
+        row = select_best_row_quantile(wide_bounds_df, measure="stability")
         # Best at k=2: bounds [0.80, 0.90]; k=3 (0.83) and k=4 (0.80)
         # are within bounds => largest k is 4
         assert row["n_clusters"] == 4
@@ -155,17 +161,19 @@ class TestSelectBestRowQuantile:
 
 
 class TestSelectBestRowByRule:
-    def test_max_rule(self, results_df):
-        row = select_best_row_by_rule(results_df, measure="stability", rule="max")
-        assert row["n_clusters"] == 2
+    def test_max_rule(self, wide_bounds_df):
+        row = select_best_row_by_rule(wide_bounds_df, measure="stability", rule="max")
+        assert row["n_clusters"] == 2  # highest ari_stability
 
-    def test_1se_rule(self, results_df):
-        row = select_best_row_by_rule(results_df, measure="stability", rule="1se")
-        assert row["n_clusters"] == 2
+    def test_1se_rule(self, wide_bounds_df):
+        row = select_best_row_by_rule(wide_bounds_df, measure="stability", rule="1se")
+        assert row["n_clusters"] == 3  # threshold 0.85-0.03=0.82 admits k=3 (0.83), excludes k=4 (0.80)
 
-    def test_quantile_rule(self, results_df):
-        row = select_best_row_by_rule(results_df, measure="stability", rule="quantile")
-        assert row["n_clusters"] == 2
+    def test_quantile_rule(self, wide_bounds_df):
+        row = select_best_row_by_rule(
+            wide_bounds_df, measure="stability", rule="quantile"
+        )
+        assert row["n_clusters"] == 4  # bounds [0.80, 0.90] admit every row
 
     def test_invalid_rule(self, results_df):
         with pytest.raises(ValueError, match="Unknown rule"):

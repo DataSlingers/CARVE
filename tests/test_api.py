@@ -462,24 +462,39 @@ class TestRefit:
     @pytest.mark.filterwarnings(
         "ignore:All points in a subsample were labelled as noise:UserWarning"
     )
+    @pytest.mark.filterwarnings(
+        "ignore:HDBSCAN with.*produced 0 cluster\\(s\\) on a subsample:UserWarning"
+    )
     def test_second_fit_resets_the_per_run_state(self, X_res_blobs):
         """An anchored min_cluster_size fit followed by an exact k-mode fit
-        on the same instance leaves nothing of the first behind."""
+        on the same instance leaves nothing of the first behind.
+
+        The first fit turns on randomize_preprocessing so that
+        preprocessing_results_ is actually populated (see below); at
+        min_cluster_size=8 a randomly sampled preprocessing pipeline
+        occasionally degenerates to zero HDBSCAN clusters on a subsample,
+        which is expected here and not the behavior under test.
+        """
         carve = CARVE(
             sweep="min_cluster_size",
             sweep_values=np.array([3, 5, 8]),
             consensus_anchors=30,
             n_resamples=3,
-            normalization_options=[],
-            dim_reduction_options=[],
+            normalization_options=[(FunctionTransformer, {}), (StandardScaler, {})],
+            dim_reduction_options=[(FunctionTransformer, {})],
             n_jobs=1,
             random_state=0,
             verbose=0,
         )
         with pytest.warns(RuntimeWarning, match="anchored consensus"):
-            carve.fit(X_res_blobs, reference_labels=np.repeat([0, 1, 2], 40))
+            carve.fit(
+                X_res_blobs,
+                reference_labels=np.repeat([0, 1, 2], 40),
+                randomize_preprocessing=True,
+            )
         assert carve.consensus_anchors_ is not None
         assert "min_cluster_size" in carve.estimator_results_.columns
+        assert carve.preprocessing_results_ is not None
 
         carve.sweep = None
         carve.sweep_values = None
@@ -1182,6 +1197,9 @@ class TestMinClusterSizeMode:
             **kwargs,
         ).fit(X)
 
+    @pytest.mark.filterwarnings(
+        "ignore:All points in a subsample were labelled as noise:UserWarning"
+    )
     def test_all_noise_resample_does_not_crash(self, X_res_blobs):
         """Regression: a held-out split labelled entirely as noise.
 
@@ -1189,19 +1207,18 @@ class TestMinClusterSizeMode:
         labels at all. Those resamples must be skipped when aggregating,
         not passed on to the consensus and accuracy machinery.
         """
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            carve = self._fit(X_res_blobs)
+        carve = self._fit(X_res_blobs)
         assert carve.estimator_results_.shape[0] == 3
         assert carve.consensus_matrices_[0] is not None
 
+    @pytest.mark.filterwarnings(
+        "ignore:All points in a subsample were labelled as noise:UserWarning"
+    )
     def test_noise_fraction_agrees_across_policies(self, X_res_blobs):
         """noise_fraction is measured before the policy is applied."""
         fractions = {}
         for policy in ("drop", "as_cluster", "singleton"):
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                carve = self._fit(X_res_blobs, noise_policy=policy)
+            carve = self._fit(X_res_blobs, noise_policy=policy)
             fractions[policy] = carve.estimator_results_["noise_fraction"].tolist()
 
         assert fractions["drop"] == pytest.approx(fractions["as_cluster"])
