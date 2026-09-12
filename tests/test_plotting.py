@@ -1,10 +1,9 @@
 """Tests for carve._plotting module."""
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
-
-import matplotlib.pyplot as plt
 from matplotlib.legend import Legend
 from sklearn.cluster import KMeans
 
@@ -18,7 +17,6 @@ from carve._plotting import (
     plot_consensus_matrix,
     plot_metric_over_n_clusters,
 )
-
 from tests._helpers import with_sweep_cols
 
 

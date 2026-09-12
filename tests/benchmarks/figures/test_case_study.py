@@ -9,13 +9,11 @@ import pytest
 from sklearn.decomposition import PCA
 
 from benchmarks.figures import (
+    _klein_results,
+    _levine_results,
     figure_klein_results,
     figure_levine_results,
     prepare_composite,
-)
-from benchmarks.figures import (
-    _klein_results,
-    _levine_results,
 )
 from benchmarks.figures._case_study import (
     CompositeInputs,

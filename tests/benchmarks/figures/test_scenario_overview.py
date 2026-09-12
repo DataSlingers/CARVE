@@ -12,8 +12,7 @@ import pytest
 
 from benchmarks._artifacts import SCHEMA
 from benchmarks._registry import PUBLISHED_RANDOM_STATE, SCENARIOS
-from benchmarks.figures import figure_scenario_overview
-from benchmarks.figures import _benchmarking_examples
+from benchmarks.figures import _benchmarking_examples, figure_scenario_overview
 
 METRICS = ("baseline_oracle", "ari_stability_1se", "silhouette")
 

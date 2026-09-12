@@ -6,8 +6,7 @@ import matplotlib.pyplot as plt
 
 from benchmarks._registry import PUBLISHED_RANDOM_STATE
 from benchmarks._registry import SCENARIOS as REGISTRY
-from benchmarks.figures import figure_benchmarking_examples
-from benchmarks.figures import _benchmarking_examples
+from benchmarks.figures import _benchmarking_examples, figure_benchmarking_examples
 
 SCENARIOS = ("gaussians", "moons")
 

@@ -5,8 +5,6 @@ import pandas as pd
 import pytest
 from sklearn.cluster import AgglomerativeClustering, KMeans
 
-from carve.cluster import SpectralClustering
-
 from benchmarks._estimators import param_grids
 from benchmarks._studies import (
     CVI_SWEEP_METRICS,
@@ -24,6 +22,7 @@ from benchmarks._studies import (
     study_scaling_sweep,
 )
 from benchmarks._types import EstimatorSpec, Study
+from carve.cluster import LeidenClustering, SpectralClustering
 from tests.benchmarks._helpers import make_carve_spy
 
 
@@ -542,24 +541,17 @@ class TestNewStudies:
 
     def test_cusanovich_pairs_kmeans_with_spectral(self):
         grids = study_model_grids(STUDIES["cusanovich"])
-        from carve.cluster import SpectralClustering
-        from sklearn.cluster import KMeans
 
         assert {cls for cls, _ in grids} == {KMeans, SpectralClustering}
 
     def test_heca_uses_estimators_that_can_run_at_scale(self):
         # Spectral builds a dense n-by-n affinity and Ward is quadratic in
         # memory, so neither may appear in the large-scale study.
-        from carve.cluster import SpectralClustering
-        from sklearn.cluster import AgglomerativeClustering
-
         classes = {cls for cls, _ in study_model_grids(STUDIES["heca"])}
         assert SpectralClustering not in classes
         assert AgglomerativeClustering not in classes
 
     def test_heca_declares_a_resolution_sweep(self):
-        from carve.cluster import LeidenClustering
-
         grids = study_resolution_grids(STUDIES["heca"])
         assert len(grids) == 1
         cls, grid = grids[0]

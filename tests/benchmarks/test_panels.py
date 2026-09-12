@@ -6,8 +6,8 @@ is asserted directly rather than left to convention.
 
 import inspect
 
-import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
@@ -16,6 +16,7 @@ from matplotlib.patches import PathPatch, Rectangle
 from matplotlib.path import Path
 
 from benchmarks import _panels
+from benchmarks._artifacts import SCHEMA
 from benchmarks._panels import (
     _display,
     _legend_groups,
@@ -23,8 +24,8 @@ from benchmarks._panels import (
     aligned_color_maps,
     alluvial,
     ari_lollipop,
-    carve_lines,
     axis_arrows,
+    carve_lines,
     cluster_color_map,
     cvi_lines,
     grouped_legend,
@@ -34,8 +35,7 @@ from benchmarks._panels import (
     runtime_lines,
     scatter_clusters,
 )
-from benchmarks._artifacts import SCHEMA
-from benchmarks._theme import FOREGROUND_COLOR, cluster_colors, metric_color
+from benchmarks._theme import FONT_SIZES, FOREGROUND_COLOR, cluster_colors, metric_color
 from tests.benchmarks._helpers import StubCarve
 
 
@@ -1051,6 +1051,8 @@ class TestMetricLegend:
         fig, axes = self._figure(metrics)
         legend = metric_legend(fig, axes, metrics)
         labels = [t.get_text() for t in legend.get_texts()]
+        # Legend._ncols is private; it was _ncol before matplotlib 3.6 and the
+        # matplotlib>=3.9.4 floor makes the current name safe.
         rows = len(labels) // legend._ncols
         columns = [labels[i * rows : (i + 1) * rows] for i in range(legend._ncols)]
         blank = [index for index, c in enumerate(columns) if not any(c)]
@@ -1105,7 +1107,5 @@ class TestPanelLetter:
         assert [t.get_text() for t in ax.texts] == ["A"]
 
     def test_uses_the_theme_font_size(self, ax):
-        from benchmarks._theme import FONT_SIZES
-
         panel_letter(ax, "B")
         assert ax.texts[0].get_fontsize() == FONT_SIZES["panel_letter"]

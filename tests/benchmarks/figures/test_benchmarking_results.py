@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from benchmarks._artifacts import SCHEMA
+from benchmarks._theme import METRIC_COLORS
 from benchmarks.figures import figure_benchmarking_results
 from benchmarks.figures._benchmarking_results import DEFAULT_METRICS
 
@@ -129,6 +130,8 @@ class TestFigureBenchmarkingResults:
         fig = figure_benchmarking_results(full_results, save=False)
         legend = fig.legends[0]
         labels = [t.get_text() for t in legend.get_texts()]
+        # Legend._ncols is private; it was _ncol before matplotlib 3.6 and the
+        # matplotlib>=3.9.4 floor makes the current name safe.
         rows = len(labels) // legend._ncols
         columns = [labels[i * rows : (i + 1) * rows] for i in range(legend._ncols)]
         drawn = [c for c in columns if any(c)]
@@ -151,8 +154,6 @@ class TestFigureBenchmarkingResults:
 
     def test_only_the_carve_series_are_solid(self, full_results):
         """CARVE solid, oracle and every classical index dashed."""
-        from benchmarks._theme import METRIC_COLORS
-
         fig = figure_benchmarking_results(full_results, save=False)
         # An errorbar draws cap and bar Line2Ds alongside the data line, and
         # those carry linestyle "None". container[0] is the data line.
@@ -174,8 +175,6 @@ class TestFigureBenchmarkingResults:
         plt.close(fig)
 
     def test_carve_stability_is_drawn_in_the_theme_green(self, results):
-        from benchmarks._theme import METRIC_COLORS
-
         fig = figure_benchmarking_results(
             results, metrics=("ari_stability_1se",), save=False
         )
@@ -230,8 +229,6 @@ class TestFigureBenchmarkingResults:
         # Fig 4's caption: "The grey line shows the oracle ARI(k*=5)". Every
         # frame here carries oracle_ari, so the default metrics (used when
         # no explicit metrics= is passed) must include the baseline series.
-        from benchmarks._theme import METRIC_COLORS
-
         fig = figure_benchmarking_results(full_results, save=False)
         colors = {ln.get_color() for ax in fig.get_axes() for ln in ax.lines}
         assert METRIC_COLORS["baseline_oracle"] in colors

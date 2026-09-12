@@ -19,6 +19,7 @@ guard against the restructure's most likely regression: swapping the two
 measures between those panels.
 """
 
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -26,8 +27,6 @@ import pytest
 from matplotlib.collections import PathCollection, PolyCollection
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
-
-import matplotlib.colors as mcolors
 
 from benchmarks._theme import cluster_colors
 from benchmarks.figures import figure_carve_output_klein, figure_carve_output_levine

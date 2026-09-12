@@ -1,11 +1,13 @@
 """Tests for artifact writing, content addressing, and promotion."""
 
+import dataclasses
 import json
 
 import pandas as pd
 import pytest
 
 from benchmarks._artifacts import (
+    RUNTIME_SCHEMA,
     SCHEMA,
     build_manifest,
     completed_cells,
@@ -13,9 +15,11 @@ from benchmarks._artifacts import (
     peak_rss_bytes,
     promote,
     read_run,
+    read_runtimes,
     run_dir,
     write_checkpoint,
     write_manifest,
+    write_runtime_checkpoint,
 )
 from benchmarks._registry import SCENARIOS
 
@@ -74,13 +78,7 @@ class TestConfigHash:
         s = SCENARIOS["gaussians"]
         anchors = {k: dict(v) for k, v in s.anchors.items()}
         anchors["easy"] = {**anchors["easy"], "corr_strength": 0.999}
-        changed = type(s)(
-            name=s.name,
-            axis=s.axis,
-            anchors=anchors,
-            shared=s.shared,
-            estimator=s.estimator,
-        )
+        changed = dataclasses.replace(s, anchors=anchors)
         assert config_hash(s, n_seeds=20, n_resamples=100, random_state=42) != config_hash(
             changed, n_seeds=20, n_resamples=100, random_state=42
         )
@@ -254,13 +252,6 @@ class TestPromote:
         write_checkpoint(rd, "easy", 0, [_row()])
         with pytest.raises(FileNotFoundError, match="manifest"):
             promote(rd, tmp_path / "published")
-
-
-from benchmarks._artifacts import (
-    RUNTIME_SCHEMA,
-    read_runtimes,
-    write_runtime_checkpoint,
-)
 
 
 def _runtime_row(**overrides):

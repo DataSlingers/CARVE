@@ -8,11 +8,10 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, StandardScaler
 
 from carve._pipeline import (
+    _choose_preprocessor,
     build_preprocessing_pipeline,
     sample_preprocessing_pipeline,
-    _choose_preprocessor,
 )
-
 
 # -----------------------------------------------------------------------
 # build_preprocessing_pipeline

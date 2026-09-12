@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.cluster import KMeans, AgglomerativeClustering
+from sklearn.cluster import AgglomerativeClustering, KMeans
 
 from carve._selection import (
     MEASURE_MAP,
@@ -17,9 +17,7 @@ from carve._selection import (
     select_best_row_max,
     select_best_row_quantile,
 )
-
 from tests._helpers import with_sweep_cols
-
 
 # -----------------------------------------------------------------------
 # select_best_row_max

@@ -5,6 +5,8 @@ approximation is measured rather than asserted. The numbers this produces
 back the supplementary table described in the design document.
 """
 
+import warnings
+
 import numpy as np
 import pytest
 from sklearn.cluster import KMeans
@@ -45,10 +47,8 @@ def _fit(X, *, anchors):
     carve = CARVE(
         estimator_param_grids=GRIDS, n_resamples=25, random_state=0, **kwargs
     )
-    import warnings as _w
-
-    with _w.catch_warnings():
-        _w.simplefilter("ignore", RuntimeWarning)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
         carve.fit(X)
     return carve
 

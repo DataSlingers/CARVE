@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.cluster import KMeans, AgglomerativeClustering
+from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
@@ -11,7 +11,6 @@ from sklearn.neighbors import KNeighborsClassifier
 import carve._utils as carve_utils
 from carve._runner import ResampleResult
 from carve._utils import (
-    split_subsample_indices,
     _coerce_n_clusters,
     _summarize_ari_scores,
     align_cluster_labels,
@@ -22,9 +21,9 @@ from carve._utils import (
     ensure_2d_array,
     resolve_anchors,
     resolve_core_budget,
+    split_subsample_indices,
     summarize_preprocessing_records,
 )
-
 
 # -----------------------------------------------------------------------
 # split_subsample_indices

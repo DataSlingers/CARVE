@@ -2,7 +2,6 @@
 
 import numpy as np
 import pytest
-
 from matplotlib.colors import to_rgba
 
 from benchmarks._panels import aligned_color_maps

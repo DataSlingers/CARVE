@@ -1,8 +1,16 @@
 """Tests for the leaf dataclasses in benchmarks._types."""
 
+import numpy as np
 import pytest
 
-from benchmarks._types import KNOWN_ESTIMATORS, Axis, EstimatorSpec
+from benchmarks._types import (
+    KNOWN_ESTIMATORS,
+    Axis,
+    EstimatorSpec,
+    Manifest,
+    Scenario,
+    Study,
+)
 
 
 class TestAxis:
@@ -44,9 +52,6 @@ class TestEstimatorSpec:
     def test_error_lists_the_valid_names(self):
         with pytest.raises(ValueError, match="kmeans"):
             EstimatorSpec(name="nope")
-
-
-from benchmarks._types import Scenario
 
 
 def _axis():
@@ -135,11 +140,6 @@ class TestScenario:
         assert "difficulty_level" not in scenario.sim_kwargs(axis_value=0, axis_label="easy")
 
 
-import numpy as np
-
-from benchmarks._types import Manifest, Study
-
-
 class TestStudy:
     def test_holds_a_loader_and_an_estimator(self):
         def loader(subsample):
@@ -220,11 +220,6 @@ def test_graph_and_minibatch_estimators_are_known():
     assert "minibatch_kmeans" in KNOWN_ESTIMATORS
     assert EstimatorSpec(name="leiden").name == "leiden"
     assert EstimatorSpec(name="minibatch_kmeans").name == "minibatch_kmeans"
-
-
-def test_unknown_estimator_still_raises():
-    with pytest.raises(ValueError, match="Unknown estimator"):
-        EstimatorSpec(name="kmenas")
 
 
 def test_study_requires_its_default_scale_to_exist():

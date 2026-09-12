@@ -1,16 +1,14 @@
 """Tests for CARVE public API (fit, get_labels, get_k, get_estimator, plotting, persistence)."""
 
+import warnings
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.cluster import KMeans, AgglomerativeClustering
+from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.dummy import DummyClassifier
 from sklearn.metrics import adjusted_rand_score
-
-import matplotlib.pyplot as plt
-
-import warnings
-import warnings as _w
 
 import carve._runner as carve_runner
 import carve._utils as carve_utils
@@ -18,7 +16,6 @@ import carve.api as carve_api
 from carve import CARVE, LeidenClustering, LouvainClustering
 from carve._utils import resolve_anchors
 from tests._helpers import make_njobs_spy, make_seed_spy
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -1463,8 +1460,8 @@ class TestExactPathUnchanged:
 
     def test_no_warning_on_the_exact_path(self):
         X = _blobs(80, seed=3)
-        with _w.catch_warnings():
-            _w.simplefilter("error", RuntimeWarning)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
             CARVE(
                 estimator_param_grids=_grids(),
                 n_resamples=8,

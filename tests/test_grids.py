@@ -4,19 +4,18 @@ import importlib.util
 
 import numpy as np
 import pytest
-from sklearn.cluster import HDBSCAN, KMeans, AgglomerativeClustering
+from sklearn.cluster import HDBSCAN, AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
 from sklearn.model_selection import ParameterGrid
 from sklearn.preprocessing import FunctionTransformer, StandardScaler
 
-from carve.cluster import LeidenClustering, LouvainClustering, SpectralClustering
-from carve._sweep import resolve_sweep
 from carve._grids import (
+    default_dim_reduction_options,
     default_estimator_grids,
     default_normalization_options,
-    default_dim_reduction_options,
 )
-
+from carve._sweep import resolve_sweep
+from carve.cluster import LeidenClustering, LouvainClustering, SpectralClustering
 
 # -----------------------------------------------------------------------
 # default_estimator_grids
@@ -80,8 +79,6 @@ class TestDefaultEstimatorGrids:
 
     def test_param_grids_are_valid(self):
         """Verify each grid can be expanded by ParameterGrid."""
-        from sklearn.model_selection import ParameterGrid
-
         X = np.random.RandomState(0).randn(50, 5)
         grids = default_estimator_grids(X, n_clusters=np.array([2, 3]))
         for cls, grid in grids:

@@ -5,7 +5,7 @@ from collections import Counter
 
 import numpy as np
 import pytest
-from sklearn.base import BaseEstimator, ClassifierMixin, ClusterMixin
+from sklearn.base import BaseEstimator, ClusterMixin
 from sklearn.cluster import HDBSCAN, AgglomerativeClustering, KMeans
 
 import carve._runner as carve_runner
