@@ -340,13 +340,25 @@ class CARVE(BaseEstimator):
             they mix more than one sweep parameter (k-based and
             resolution-based estimators cannot be compared in one run). Also
             if ``use_rep``, ``layer`` or ``n_pcs`` is given for a non-AnnData
-            ``X``.
+            ``X``. Also if ``subsample_ratio`` is outside (0, 1),
+            ``n_resamples`` is below 1, or ``n_trees`` is below 1 without a
+            custom classifier.
 
         See Also
         --------
         carve.tl.carve : AnnData-native entry point that also writes the
             results back into the object.
         """
+        if not 0.0 < float(self.subsample_ratio) < 1.0:
+            raise ValueError(
+                f"subsample_ratio must be in (0, 1), got {self.subsample_ratio}. "
+                "Each resample needs both a training and a held-out split."
+            )
+        if int(self.n_resamples) < 1:
+            raise ValueError(f"n_resamples must be at least 1, got {self.n_resamples}.")
+        if self.classifier is None and int(self.n_trees) < 1:
+            raise ValueError(f"n_trees must be at least 1, got {self.n_trees}.")
+
         policy = resolve_mode(mode)
         if policy.mode != "default":
             warnings.warn(

@@ -273,6 +273,62 @@ class TestFit:
         carve.fit(X_two_clusters, reference_labels=ref)
         assert np.issubdtype(carve.reference_labels.dtype, np.integer)
 
+    @pytest.mark.parametrize("ratio", [0.0, 1.0, -0.5, 1.5])
+    def test_subsample_ratio_must_be_strictly_between_zero_and_one(
+        self, X_two_clusters, ratio
+    ):
+        carve = CARVE(
+            n_clusters=2,
+            n_resamples=3,
+            subsample_ratio=ratio,
+            estimator_param_grids=[(KMeans, {"n_clusters": [2]})],
+            verbose=0,
+        )
+        with pytest.raises(
+            ValueError, match=rf"subsample_ratio must be in \(0, 1\), got {ratio}"
+        ):
+            carve.fit(X_two_clusters)
+
+    @pytest.mark.parametrize("n", [0, -1])
+    def test_n_resamples_must_be_positive(self, X_two_clusters, n):
+        carve = CARVE(
+            n_clusters=2,
+            n_resamples=n,
+            estimator_param_grids=[(KMeans, {"n_clusters": [2]})],
+            verbose=0,
+        )
+        with pytest.raises(ValueError, match=f"n_resamples must be at least 1, got {n}"):
+            carve.fit(X_two_clusters)
+
+    @pytest.mark.parametrize("n", [0, -3])
+    def test_n_trees_must_be_positive(self, X_two_clusters, n):
+        carve = CARVE(
+            n_clusters=2,
+            n_resamples=3,
+            n_trees=n,
+            estimator_param_grids=[(KMeans, {"n_clusters": [2]})],
+            verbose=0,
+        )
+        with pytest.raises(ValueError, match=f"n_trees must be at least 1, got {n}"):
+            carve.fit(X_two_clusters)
+
+    def test_n_trees_is_not_validated_when_a_classifier_is_given(self, X_two_clusters):
+        # n_trees is ignored with a custom classifier (fit() already warns
+        # about that), so a nonsensical value must not block the fit.
+        carve = CARVE(
+            n_clusters=2,
+            n_resamples=3,
+            n_trees=0,
+            classifier=DummyClassifier(strategy="most_frequent"),
+            estimator_param_grids=[(KMeans, {"n_clusters": [2]})],
+            normalization_options=[],
+            dim_reduction_options=[],
+            verbose=0,
+        )
+        with pytest.warns(RuntimeWarning, match="n_trees is ignored"):
+            carve.fit(X_two_clusters)
+        assert carve.estimator_results_ is not None
+
 
 # ---------------------------------------------------------------------------
 # get_labels()
