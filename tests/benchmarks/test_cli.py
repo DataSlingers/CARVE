@@ -1,7 +1,28 @@
 """Tests for the benchmarks command-line entry point."""
 
+import pytest
+
 from benchmarks._registry import PUBLISHED_RANDOM_STATE
 from benchmarks.run import _parser, main
+
+
+@pytest.fixture(scope="module")
+def gaussians_run(tmp_path_factory):
+    """One reduced gaussians run through the CLI: (exit code, root)."""
+    root = tmp_path_factory.mktemp("cli")
+    code = main(
+        [
+            "--scenario",
+            "gaussians",
+            "--root",
+            str(root),
+            "--n-seeds",
+            "1",
+            "--n-resamples",
+            "20",
+        ]
+    )
+    return code, root
 
 
 class TestCli:
@@ -23,36 +44,14 @@ class TestCli:
         args = _parser().parse_args(["--scenario", "gaussians"])
         assert args.random_state == PUBLISHED_RANDOM_STATE == 42
 
-    def test_runs_a_scenario_end_to_end(self, tmp_path):
-        code = main(
-            [
-                "--scenario",
-                "gaussians",
-                "--root",
-                str(tmp_path),
-                "--n-seeds",
-                "1",
-                "--n-resamples",
-                "20",
-            ]
-        )
+    def test_runs_a_scenario_end_to_end(self, gaussians_run):
+        code, root = gaussians_run
         assert code == 0
-        assert list(tmp_path.glob("gaussians/*/manifest.json"))
+        assert list(root.glob("gaussians/*/manifest.json"))
 
-    def test_promote_publishes_a_finished_run(self, tmp_path):
-        main(
-            [
-                "--scenario",
-                "gaussians",
-                "--root",
-                str(tmp_path / "runs"),
-                "--n-seeds",
-                "1",
-                "--n-resamples",
-                "20",
-            ]
-        )
-        rd = next((tmp_path / "runs" / "gaussians").iterdir())
+    def test_promote_publishes_a_finished_run(self, gaussians_run, tmp_path):
+        _, root = gaussians_run
+        rd = next((root / "gaussians").iterdir())
         code = main(["--promote", str(rd), "--published-root", str(tmp_path / "pub")])
         assert code == 0
         assert (tmp_path / "pub" / "gaussians" / "results.csv").exists()
