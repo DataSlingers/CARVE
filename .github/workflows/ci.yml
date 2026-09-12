@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  PYTHON_VERSION: "3.13"
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -14,7 +17,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ env.PYTHON_VERSION }}
 
       # Installs the pinned ruff from the dev extra, so the linter version
       # lives in one place (pyproject.toml) rather than drifting here.
@@ -26,52 +29,34 @@ jobs:
       - name: Ruff format check
         run: ruff format --check src/
 
+  # The carve suite and the benchmarks suite are separate jobs so they run
+  # concurrently: each is fit-heavy, and together they take about half an
+  # hour on one runner. Coverage is measured on carve only, so it stays with
+  # the carve job.
+  #
+  # [graph] pulls igraph + leidenalg. Without it the Leiden/Louvain and
+  # resolution-sweep tests skip, leaving that mode uncovered in CI.
+  # [benchmarks] pulls pyarrow (parquet checkpoints) and scanpy (the hECA
+  # and Klein loaders); tests/benchmarks/ fails at import without them.
   test:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.12", "3.13"]
-        resolution: [highest]
-        include:
-          # Oldest supported dependency set. This leg is not redundant: the
-          # h5ad writer rejects the object-dtype columns a heterogeneous
-          # estimator grid produces under pandas 2.3, while pandas 3's str
-          # dtype hides the same bug entirely. Only this leg catches it.
-          - python-version: "3.12"
-            resolution: lowest-direct
-    name: test (py${{ matrix.python-version }}, ${{ matrix.resolution }} deps)
     steps:
       - uses: actions/checkout@v5
 
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      # [graph] pulls igraph + leidenalg. Without it the Leiden/Louvain and
-      # resolution-sweep tests skip, leaving that mode uncovered in CI.
-      # [benchmarks] pulls pyarrow (parquet checkpoints) and scanpy (the
-      # hECA and Klein loaders). tests/benchmarks/ runs here alongside the
-      # carve suite and fails at import without them.
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
-        run: >
-          uv pip install --system
-          --resolution ${{ matrix.resolution }}
-          -e ".[dev,graph,benchmarks]"
+        run: uv pip install --system -e ".[dev,graph,umap]"
 
-      # umap-learn is an optional extra and its wheels lag new Python
-      # releases, so only exercise the UMAP code path where it installs
-      # cleanly. The suite skips those assertions when it is absent.
-      - name: Install umap extra
-        if: matrix.python-version == '3.12' && matrix.resolution == 'highest'
-        run: uv pip install --system -e ".[umap]"
-
-      - name: Run tests
+      - name: Run carve tests
         run: >
-          pytest -v --tb=short
+          pytest tests --ignore=tests/benchmarks
+          -v --tb=short
           --cov=carve --cov-report=term-missing
           --cov-fail-under=75
           --junitxml=report.xml
@@ -80,5 +65,33 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-report-py${{ matrix.python-version }}-${{ matrix.resolution }}
+          name: test-report-carve
+          path: report.xml
+
+  test-benchmarks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv pip install --system -e ".[dev,graph,benchmarks]"
+
+      - name: Run benchmarks tests
+        run: >
+          pytest tests/benchmarks
+          -v --tb=short
+          --junitxml=report.xml
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-benchmarks
           path: report.xml

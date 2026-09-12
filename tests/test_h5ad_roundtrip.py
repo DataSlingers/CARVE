@@ -7,7 +7,8 @@ dependency floor, since anndata 0.13 requires pandas >= 2.3 -- those columns
 land in object dtype mixing ``str`` with ``float('nan')``, and anndata's
 variable-length string writer rejects them with ``TypeError``. Under pandas 3
 the new ``str`` dtype hides the problem entirely, so this file is only a real
-regression test on the floor; CI runs a ``lowest-direct`` leg for that reason.
+regression test on the floor. CI installs the newest releases only, so a
+regression here would surface in a local environment on pandas 2.3, not in CI.
 """
 
 import anndata as ad
