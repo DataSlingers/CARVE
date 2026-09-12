@@ -150,3 +150,18 @@ class TestTablesCli:
 
         messages = [str(w.message) for w in recwarn.list]
         assert not any("run directories found" in m for m in messages)
+
+    def test_uses_the_lexicographically_last_run_directory(self, tmp_path):
+        # The chosen frame's k_star is written into the caption, so two runs
+        # with different k_star reveal which one was read.
+        root = tmp_path / "runs"
+        _write_run_dir(root, "gaussians", "aaaaaaaa", _frame("gaussians").assign(k_star=5))
+        _write_run_dir(root, "gaussians", "bbbbbbbb", _frame("gaussians").assign(k_star=7))
+        out = tmp_path / "tables"
+
+        with pytest.warns(UserWarning, match="using .*bbbbbbbb"):
+            main(["--tables", str(out), "--root", str(root)])
+
+        fragment = (out / f"{TABLE_NAMES['gaussians']}.tex").read_text()
+        assert "k^\\star = 7" in fragment
+        assert "k^\\star = 5" not in fragment

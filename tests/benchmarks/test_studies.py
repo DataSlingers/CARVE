@@ -258,6 +258,19 @@ class TestConsensusAnchorsForwarding:
 
         assert "consensus_anchors" not in spy.captured_kwargs
 
+    def test_study_scaling_sweep_forwards_consensus_anchors(self, blobs, monkeypatch):
+        X, y = blobs
+        grids = param_grids(EstimatorSpec(name="kmeans"), (2, 3))
+        spy = make_carve_spy()
+        monkeypatch.setattr("benchmarks._studies.CARVE", spy)
+
+        frame = study_scaling_sweep(
+            X, y, sizes=[len(X)], model_grids=grids, n_resamples=3, consensus_anchors=77
+        )
+
+        assert spy.captured_kwargs["consensus_anchors"] == 77
+        assert list(frame["n"]) == [len(X)]
+
 
 class TestDenseEstimatorGuard:
     """cvi_sweep, fit_or_load_carve, and study_scaling_sweep all bring X and

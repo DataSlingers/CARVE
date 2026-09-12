@@ -30,6 +30,8 @@ NOTEBOOKS = {
     "motivation": REPO_ROOT / "notebooks" / "case_studies" / "Motivation.ipynb",
     "cusanovich": REPO_ROOT / "notebooks" / "case_studies" / "Cusanovich.ipynb",
     "heca": REPO_ROOT / "notebooks" / "case_studies" / "hECA.ipynb",
+    "tutorial": REPO_ROOT / "notebooks" / "Tutorial.ipynb",
+    "resolution_tutorial": REPO_ROOT / "notebooks" / "Resolution_Tutorial.ipynb",
 }
 
 
