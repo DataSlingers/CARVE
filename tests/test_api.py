@@ -3,7 +3,6 @@
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.dummy import DummyClassifier
 from sklearn.metrics import adjusted_rand_score
@@ -18,6 +17,7 @@ import carve._utils as carve_utils
 import carve.api as carve_api
 from carve import CARVE, LeidenClustering, LouvainClustering
 from carve._utils import resolve_anchors
+from tests._helpers import make_njobs_spy, make_seed_spy
 
 
 # ---------------------------------------------------------------------------
@@ -1000,7 +1000,7 @@ class TestRowIdentity:
         assert int(selected.index[0]) != config_id
 
     def test_select_row_joins_on_config_id_not_index_label(
-        self, fitted_identity_single
+        self, fitted_identity_single, monkeypatch
     ):
         """The regression this whole change exists for.
 
@@ -1011,52 +1011,52 @@ class TestRowIdentity:
         _, before_id, _, _ = fitted_identity_single._select_row(
             measure="stability", rule="1se"
         )
-        original = fitted_identity_single.estimator_results_
-        try:
-            fitted_identity_single.estimator_results_ = self._reindexed(original)
-            row, after_id, _, _ = fitted_identity_single._select_row(
-                measure="stability", rule="1se"
-            )
-            assert after_id == before_id
-            # The label moved; the join key did not.
-            assert int(row.name) != after_id
-        finally:
-            fitted_identity_single.estimator_results_ = original
+        monkeypatch.setattr(
+            fitted_identity_single,
+            "estimator_results_",
+            self._reindexed(fitted_identity_single.estimator_results_),
+        )
+        row, after_id, _, _ = fitted_identity_single._select_row(
+            measure="stability", rule="1se"
+        )
+        assert after_id == before_id
+        # The label moved; the join key did not.
+        assert int(row.name) != after_id
 
-    def test_consensus_matrix_survives_reindexing(self, fitted_identity_single):
+    def test_consensus_matrix_survives_reindexing(
+        self, fitted_identity_single, monkeypatch
+    ):
         before = fitted_identity_single.plot_consensus_matrix()
         before_data = before.images[0].get_array().copy()
         plt.close("all")
 
-        original = fitted_identity_single.estimator_results_
-        try:
-            fitted_identity_single.estimator_results_ = self._reindexed(original)
-            after = fitted_identity_single.plot_consensus_matrix()
-            np.testing.assert_array_equal(after.images[0].get_array(), before_data)
-        finally:
-            fitted_identity_single.estimator_results_ = original
-            plt.close("all")
+        monkeypatch.setattr(
+            fitted_identity_single,
+            "estimator_results_",
+            self._reindexed(fitted_identity_single.estimator_results_),
+        )
+        after = fitted_identity_single.plot_consensus_matrix()
+        np.testing.assert_array_equal(after.images[0].get_array(), before_data)
+        plt.close("all")
 
-    def test_labels_survive_reindexing(self, fitted_identity_single):
+    def test_labels_survive_reindexing(self, fitted_identity_single, monkeypatch):
         before = fitted_identity_single.get_labels()
-        original = fitted_identity_single.estimator_results_
-        try:
-            fitted_identity_single.estimator_results_ = self._reindexed(original)
-            np.testing.assert_array_equal(fitted_identity_single.get_labels(), before)
-        finally:
-            fitted_identity_single.estimator_results_ = original
+        monkeypatch.setattr(
+            fitted_identity_single,
+            "estimator_results_",
+            self._reindexed(fitted_identity_single.estimator_results_),
+        )
+        np.testing.assert_array_equal(fitted_identity_single.get_labels(), before)
 
-    def test_labels_survive_row_reordering(self, fitted_identity_single):
+    def test_labels_survive_row_reordering(self, fitted_identity_single, monkeypatch):
         """Reordering without relabelling must also be safe."""
         before = fitted_identity_single.get_labels()
-        original = fitted_identity_single.estimator_results_
-        try:
-            fitted_identity_single.estimator_results_ = original.sample(
-                frac=1, random_state=0
-            )
-            np.testing.assert_array_equal(fitted_identity_single.get_labels(), before)
-        finally:
-            fitted_identity_single.estimator_results_ = original
+        monkeypatch.setattr(
+            fitted_identity_single,
+            "estimator_results_",
+            fitted_identity_single.estimator_results_.sample(frac=1, random_state=0),
+        )
+        np.testing.assert_array_equal(fitted_identity_single.get_labels(), before)
 
     def test_get_estimator_ignores_identity_columns(self, fitted_identity_single):
         """row_to_estimator_params must filter the bookkeeping columns out."""
@@ -1074,16 +1074,16 @@ class TestRowIdentity:
         ):
             assert column not in params
 
-    def test_get_estimator_survives_a_shuffle(self, fitted_identity_single):
+    def test_get_estimator_survives_a_shuffle(
+        self, fitted_identity_single, monkeypatch
+    ):
         before = fitted_identity_single.get_estimator().get_params()
-        original = fitted_identity_single.estimator_results_
-        try:
-            fitted_identity_single.estimator_results_ = original.sample(
-                frac=1, random_state=1
-            )
-            assert fitted_identity_single.get_estimator().get_params() == before
-        finally:
-            fitted_identity_single.estimator_results_ = original
+        monkeypatch.setattr(
+            fitted_identity_single,
+            "estimator_results_",
+            fitted_identity_single.estimator_results_.sample(frac=1, random_state=1),
+        )
+        assert fitted_identity_single.get_estimator().get_params() == before
 
     def test_one_method_id_per_curve(self, fitted_identity):
         sizes = fitted_identity.estimator_results_.groupby("method_id")[
@@ -1099,7 +1099,7 @@ class TestRowIdentity:
         ].drop_duplicates()
         assert len(pairs) == pairs["method_id"].nunique()
 
-    def test_misaligned_config_id_raises(self, X_two_clusters):
+    def test_misaligned_config_id_raises(self, X_two_clusters, monkeypatch):
         """The fit()-time guard is the last line of defence."""
         carve = CARVE(
             n_clusters=np.array([2, 3]),
@@ -1119,14 +1119,10 @@ class TestRowIdentity:
                 record["config_id"] = 0
             return (records, *rest)
 
-        carve_runner.run_validation = _corrupt
-        carve_api.run_validation = _corrupt
-        try:
-            with pytest.raises(RuntimeError, match="config_id is misaligned"):
-                carve.fit(X_two_clusters)
-        finally:
-            carve_runner.run_validation = original
-            carve_api.run_validation = original
+        monkeypatch.setattr(carve_runner, "run_validation", _corrupt)
+        monkeypatch.setattr(carve_api, "run_validation", _corrupt)
+        with pytest.raises(RuntimeError, match="config_id is misaligned"):
+            carve.fit(X_two_clusters)
 
 
 def _blobs(n, seed=0, p=4):
@@ -1148,40 +1144,6 @@ def _overlapping_blobs(n, seed=0, p=4, sep=1.2):
     rng = np.random.default_rng(seed)
     half = n // 2
     return np.vstack([rng.normal(0, 1, (half, p)), rng.normal(sep, 1, (n - half, p))])
-
-
-class _SeedSpy(BaseEstimator, ClassifierMixin):
-    """Records the ``random_state`` CARVE injects, then predicts a constant."""
-
-    seen: list = []
-
-    def __init__(self, random_state=None):
-        self.random_state = random_state
-
-    def fit(self, X, y):
-        type(self).seen.append(self.random_state)
-        self.classes_ = np.unique(y)
-        return self
-
-    def predict(self, X):
-        return np.full(X.shape[0], self.classes_[0])
-
-
-class _NJobsSpy(BaseEstimator, ClassifierMixin):
-    """Records the ``n_jobs`` CARVE injects, then predicts a constant."""
-
-    seen: list = []
-
-    def __init__(self, n_jobs=None):
-        self.n_jobs = n_jobs
-
-    def fit(self, X, y):
-        type(self).seen.append(self.n_jobs)
-        self.classes_ = np.unique(y)
-        return self
-
-    def predict(self, X):
-        return np.full(X.shape[0], self.classes_[0])
 
 
 class TestAnchoredConsensus:
@@ -1388,15 +1350,10 @@ class TestAnchoredLabels:
         with pytest.warns(RuntimeWarning, match="anchored consensus"):
             c.fit(X, random_state=7)
 
-        c.classifier = _SeedSpy()
-        _SeedSpy.seen.clear()
-        try:
-            c._extend_anchor_labels(np.arange(c.consensus_anchors_.size) % 2)
-        finally:
-            recorded = list(_SeedSpy.seen)
-            _SeedSpy.seen.clear()
-
-        assert recorded == [7]
+        spy = make_seed_spy()
+        c.classifier = spy()
+        c._extend_anchor_labels(np.arange(c.consensus_anchors_.size) % 2)
+        assert spy.seen == [7]
 
     def test_extension_fit_receives_the_whole_core_budget(self, monkeypatch):
         # fit() spreads n_jobs=4 over 4 workers x 2 threads on 11 cores. The
@@ -1414,15 +1371,10 @@ class TestAnchoredLabels:
         with pytest.warns(RuntimeWarning, match="anchored consensus"):
             c.fit(X)
 
-        c.classifier = _NJobsSpy()
-        _NJobsSpy.seen.clear()
-        try:
-            c._extend_anchor_labels(np.arange(c.consensus_anchors_.size) % 2)
-        finally:
-            recorded = list(_NJobsSpy.seen)
-            _NJobsSpy.seen.clear()
-
-        assert recorded == [8]
+        spy = make_njobs_spy()
+        c.classifier = spy()
+        c._extend_anchor_labels(np.arange(c.consensus_anchors_.size) % 2)
+        assert spy.seen == [8]
 
     def test_default_save_leaves_an_anchored_model_unable_to_label(self, tmp_path):
         # save() drops X_ by default, and the extension needs it. The exact

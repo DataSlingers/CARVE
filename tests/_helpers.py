@@ -4,7 +4,9 @@ Not a conftest: conftest.py holds fixtures and hooks, and pytest discourages
 importing it as a module. Anything a test file imports by name lives here.
 """
 
+import numpy as np
 import pandas as pd
+from sklearn.base import BaseEstimator, ClassifierMixin
 
 from carve._sweep import resolve_sweep
 
@@ -73,3 +75,63 @@ def with_sweep_cols(
     )
     df["noise_fraction"] = [0.0] * n if noise_fraction is None else list(noise_fraction)
     return df
+
+
+def make_njobs_spy() -> type:
+    """A classifier class that records the n_jobs CARVE injects at fit time.
+
+    A new class per call: sklearn.clone rebuilds estimators from get_params
+    and deep-copies any list passed to the constructor, so the record has to
+    live on the class, and a fresh class keeps tests from sharing it.
+    """
+
+    class NJobsSpy(BaseEstimator, ClassifierMixin):
+        seen: list = []
+
+        def __init__(self, n_jobs=None):
+            self.n_jobs = n_jobs
+
+        def fit(self, X, y):
+            type(self).seen.append(self.n_jobs)
+            self.classes_ = np.unique(y)
+            return self
+
+        def predict(self, X):
+            return np.full(X.shape[0], self.classes_[0])
+
+    return NJobsSpy
+
+
+def make_seed_spy() -> type:
+    """A classifier class that records the random_state CARVE injects."""
+
+    class SeedSpy(BaseEstimator, ClassifierMixin):
+        seen: list = []
+
+        def __init__(self, random_state=None):
+            self.random_state = random_state
+
+        def fit(self, X, y):
+            type(self).seen.append(self.random_state)
+            self.classes_ = np.unique(y)
+            return self
+
+        def predict(self, X):
+            return np.full(X.shape[0], self.classes_[0])
+
+    return SeedSpy
+
+
+def make_parallel_spy() -> type:
+    """A stand-in for joblib.Parallel: records n_jobs, runs the tasks inline."""
+
+    class ParallelSpy:
+        seen: list = []
+
+        def __init__(self, n_jobs=None, **kwargs):
+            type(self).seen.append(n_jobs)
+
+        def __call__(self, tasks):
+            return [func(*args, **kwargs) for func, args, kwargs in tasks]
+
+    return ParallelSpy

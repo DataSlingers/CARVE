@@ -22,14 +22,13 @@ from benchmarks.figures._case_study import (
     _estimator_spec_from_model_label,
     composite_color_maps,
 )
+from tests.benchmarks._helpers import StubCarve
 
 
-class _StubCarve:
-    """Minimal stand-in for a fitted CARVE, so figure tests need no fit.
+def _two_method_results(ks):
+    """estimator_results_ for two method_ids swept over the same ks.
 
-    estimator_results_ carries two method_ids ("m0"/KMeans and
-    "m1"/Agglomerative), each swept over the same k values -- mirroring a
-    real case study that sweeps two estimators (Klein sweeps Ward
+    Mirrors a real case study that sweeps two estimators (Klein sweeps Ward
     agglomerative clustering and spectral clustering), the shape that
     exposed carve_lines' original interleaving bug: a single line drawn
     from every row, not just the selected configuration's own sweep.
@@ -38,63 +37,37 @@ class _StubCarve:
     method_label -- since carve_lines reads exactly those names. An earlier
     alias ("stability" without the "ari_" prefix) was tried elsewhere in
     this plan and was a latent KeyError.
-
-    _select_row always resolves to "m0" (KMeans), varying only the selected
-    k with not_two -- enough to let a test tell whether not_two was
-    actually forwarded, without needing to fit real selection logic.
-
-    get_labels is only needed by prepare_composite's tests -- the figure
-    tests build CompositeInputs directly and never call it, so it stays
-    unset (None) unless a test supplies labels explicitly. Each call to
-    get_labels records the keyword arguments it received on
-    self.get_labels_calls, so a test can assert prepare_composite forwarded
-    measure/rule/not_two under their own names rather than, say, transposed.
     """
+    ks = list(ks)
+    return pd.DataFrame(
+        {
+            "n_clusters": ks + ks,
+            "method_id": ["m0"] * len(ks) + ["m1"] * len(ks),
+            "method_label": ["KMeans"] * len(ks)
+            + ["AgglomerativeClustering, linkage=ward"] * len(ks),
+            "ari_stability": list(np.linspace(0.5, 0.9, len(ks)))
+            + list(np.linspace(0.3, 0.6, len(ks))),
+            "ari_generalizability": list(np.linspace(0.4, 0.85, len(ks)))
+            + list(np.linspace(0.35, 0.7, len(ks))),
+            "ari_stability_se": [0.02] * (2 * len(ks)),
+            "ari_generalizability_se": [0.03] * (2 * len(ks)),
+        }
+    )
 
-    def __init__(self, ks, labels=None):
-        ks = list(ks)
-        self.estimator_results_ = pd.DataFrame(
-            {
-                "n_clusters": ks + ks,
-                "method_id": ["m0"] * len(ks) + ["m1"] * len(ks),
-                "method_label": ["KMeans"] * len(ks)
-                + ["AgglomerativeClustering, linkage=ward"] * len(ks),
-                "ari_stability": list(np.linspace(0.5, 0.9, len(ks)))
-                + list(np.linspace(0.3, 0.6, len(ks))),
-                "ari_generalizability": list(np.linspace(0.4, 0.85, len(ks)))
-                + list(np.linspace(0.35, 0.7, len(ks))),
-                "ari_stability_se": [0.02] * (2 * len(ks)),
-                "ari_generalizability_se": [0.03] * (2 * len(ks)),
-            }
-        )
-        self._ks = ks
-        self._labels = labels
-        self.get_labels_calls = []
 
-    def _resolve_k(self, not_two):
-        candidates = self._ks[1:] if not_two else self._ks
-        return candidates[len(candidates) // 2]
+def _stub(ks, labels=None):
+    """A StubCarve resolving to "m0" (KMeans), varying k with not_two.
 
-    def _select_row(self, *, measure, rule="1se", not_two=False):
-        k = self._resolve_k(not_two)
-        results = self.estimator_results_
-        row = results.loc[
-            (results["method_id"] == "m0") & (results["n_clusters"] == k)
-        ].iloc[0]
-        return row, 0, k, False
+    Enough to let a test tell whether not_two was actually forwarded,
+    without needing to fit real selection logic.
+    """
+    ks = list(ks)
 
-    def get_k(self, *, measure="stability", rule="1se", not_two=False):
-        return self._resolve_k(not_two)
+    def select(measure, not_two):
+        candidates = ks[1:] if not_two else ks
+        return "m0", candidates[len(candidates) // 2]
 
-    def get_labels(self, *, measure="stability", rule="1se", not_two=False):
-        self.get_labels_calls.append(
-            {"measure": measure, "rule": rule, "not_two": not_two}
-        )
-        if self._labels is None:
-            raise AssertionError(
-                "get_labels called on a _StubCarve built without labels"
-            )
-        return self._labels
+    return StubCarve(_two_method_results(ks), select=select, labels=labels)
 
 
 @pytest.fixture
@@ -128,7 +101,7 @@ def inputs():
         X=X,
         y=y.to_numpy(),
         Z=Z,
-        carve=_StubCarve([3, 4, 5]),
+        carve=_stub([3, 4, 5]),
         carve_labels=carve_labels,
         comparison_labels=comparison_labels,
         comparison_name="Silhouette",
@@ -173,7 +146,7 @@ class TestKleinFigure:
         return next(ax for ax in fig.get_axes() if ax.get_ylabel() == "ARI")
 
     def test_panel_d_lines_use_one_configurations_k_values_not_both(self, inputs):
-        # inputs.carve (a _StubCarve) carries two method_ids swept over the
+        # inputs.carve (a StubCarve) carries two method_ids swept over the
         # same k values -- the shape that exposed carve_lines' original
         # interleaving bug. Panel D must show one estimator's own sweep per
         # measure, not both method_ids' rows concatenated.
@@ -181,8 +154,11 @@ class TestKleinFigure:
         panel_d = self._panel_d(fig)
         data_lines = [ln for ln in panel_d.lines if ln.get_marker() == "o"]
         assert len(data_lines) == 2  # one per measure
+        n_ks = int(
+            (inputs.carve.estimator_results_["method_id"] == "m0").sum()
+        )
         for line in data_lines:
-            assert len(line.get_xdata()) == len(inputs.carve._ks)
+            assert len(line.get_xdata()) == n_ks
         plt.close(fig)
 
     def test_panel_d_selected_k_marker_moves_with_not_two(self, inputs):
@@ -275,7 +251,7 @@ class TestPrepareComposite:
         n = 40
         X = rng.normal(size=(n, 5))
         y = rng.choice(["a", "b"], size=n)
-        carve = _StubCarve([2, 3], labels=rng.integers(0, 2, size=n))
+        carve = _stub([2, 3], labels=rng.integers(0, 2, size=n))
         curves = pd.DataFrame(
             {
                 "metric": ["gap"],
@@ -321,7 +297,7 @@ class TestPrepareComposite:
         permuted = np.array([0] * (n // 2) + [1] * (n // 2))
         rng = np.random.default_rng(3)
         X = rng.normal(size=(n, 5)) + permuted[:, None]
-        carve = _StubCarve([2, 3], labels=permuted)
+        carve = _stub([2, 3], labels=permuted)
         frame = pd.DataFrame(
             {
                 "metric": ["silhouette"],
@@ -353,7 +329,7 @@ class TestPrepareComposite:
         n = 30
         X = rng.normal(size=(n, 5))
         y = rng.choice(["a", "b"], size=n)
-        carve = _StubCarve([2, 3], labels=rng.integers(0, 2, size=n))
+        carve = _stub([2, 3], labels=rng.integers(0, 2, size=n))
         curves = pd.DataFrame(
             {
                 "metric": ["silhouette"],
@@ -389,7 +365,7 @@ class TestPrepareComposite:
         n = 50
         X = rng.normal(size=(n, 5))
         y = rng.choice(["a", "b", "c"], size=n)
-        carve = _StubCarve([2, 3, 4], labels=rng.integers(0, 3, size=n))
+        carve = _stub([2, 3, 4], labels=rng.integers(0, 3, size=n))
         curves = pd.DataFrame(
             {
                 "metric": ["silhouette"],
@@ -444,7 +420,7 @@ class TestPrepareComposite:
         n = 40
         X = rng.normal(size=(n, 5))
         y = rng.choice(["a", "b"], size=n)
-        carve = _StubCarve([2, 3], labels=rng.integers(0, 2, size=n))
+        carve = _stub([2, 3], labels=rng.integers(0, 2, size=n))
         best = pd.DataFrame(
             {
                 "metric": ["silhouette"],
@@ -468,7 +444,7 @@ class TestPrepareComposite:
         n = 20
         X = rng.normal(size=(n, 5))
         y = rng.choice(["a", "b"], size=n)
-        carve = _StubCarve([2, 3], labels=rng.integers(0, 2, size=n))
+        carve = _stub([2, 3], labels=rng.integers(0, 2, size=n))
         curves = pd.DataFrame(
             {
                 "metric": ["silhouette"],

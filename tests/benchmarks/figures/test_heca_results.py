@@ -7,6 +7,7 @@ from sklearn.metrics import adjusted_rand_score
 
 from benchmarks.figures import figure_heca_results
 from benchmarks.figures._heca_results import AXIS_LABELS, subsample_inputs
+from tests.benchmarks._helpers import StubCarve, simple_results
 
 
 @pytest.fixture
@@ -35,35 +36,13 @@ def inputs():
         }
     )
 
-    class _Carve:
-        # composite_figure's panel D draws through _panels.carve_lines,
-        # which reads estimator_results_/_select_row/get_k -- not a
-        # plot_metric_over_n_clusters method. Mirrors the _StubCarve in
-        # tests/benchmarks/figures/test_case_study.py.
-        def __init__(self):
-            ks = [3, 4, 5]
-            self.estimator_results_ = pd.DataFrame(
-                {
-                    "n_clusters": ks,
-                    "method_id": ["m0"] * len(ks),
-                    "method_label": ["MiniBatchKMeans"] * len(ks),
-                    "ari_stability": [0.1, 0.2, 0.3],
-                    "ari_generalizability": [0.15, 0.25, 0.35],
-                }
-            )
-
-        def _select_row(self, *, measure, rule="1se", not_two=False):
-            row = self.estimator_results_.iloc[1]
-            return row, 0, int(row["n_clusters"]), False
-
-        def get_k(self, *, measure="stability", rule="1se", not_two=False):
-            return 4
-
     return CompositeInputs(
         X=rng.normal(size=(n, 5)),
         y=y,
         Z=rng.normal(size=(n, 2)),
-        carve=_Carve(),
+        carve=StubCarve(
+            simple_results([3, 4, 5], "MiniBatchKMeans"), select=lambda m, nt: ("m0", 4)
+        ),
         carve_labels=rng.integers(0, 3, n),
         comparison_labels=rng.integers(0, 3, n),
         comparison_name="Silhouette",
@@ -142,34 +121,6 @@ def test_figure_does_not_write_when_save_is_false(inputs, tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
-class _CarveForAriPanel:
-    """Minimal stand-in for panel D; irrelevant to panel F's ARI value.
-
-    See TestSubsampleInputs._Carve/the fixture above for the same shape --
-    duplicated rather than shared because these two test files predate this
-    one (a Minor finding already deferred to final review).
-    """
-
-    def __init__(self):
-        ks = [3, 4, 5]
-        self.estimator_results_ = pd.DataFrame(
-            {
-                "n_clusters": ks,
-                "method_id": ["m0"] * len(ks),
-                "method_label": ["MiniBatchKMeans"] * len(ks),
-                "ari_stability": [0.1, 0.2, 0.3],
-                "ari_generalizability": [0.15, 0.25, 0.35],
-            }
-        )
-
-    def _select_row(self, *, measure, rule="1se", not_two=False):
-        row = self.estimator_results_.iloc[1]
-        return row, 0, int(row["n_clusters"]), False
-
-    def get_k(self, *, measure="stability", rule="1se", not_two=False):
-        return 4
-
-
 def _plotted_ari_by_method(fig):
     """Read panel F's actual plotted (method -> ARI) values off its axes.
 
@@ -231,7 +182,10 @@ class TestPanelFUsesTheFullPopulation:
             X=rng.normal(size=(n, 5)),
             y=y,
             Z=rng.normal(size=(n, 2)),
-            carve=_CarveForAriPanel(),
+            carve=StubCarve(
+                simple_results([3, 4, 5], "MiniBatchKMeans"),
+                select=lambda m, nt: ("m0", 4),
+            ),
             carve_labels=carve_labels,
             comparison_labels=rng.integers(0, 2, n),
             comparison_name="Silhouette",

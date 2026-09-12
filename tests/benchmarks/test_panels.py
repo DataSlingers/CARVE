@@ -36,6 +36,7 @@ from benchmarks._panels import (
 )
 from benchmarks._artifacts import SCHEMA
 from benchmarks._theme import FOREGROUND_COLOR, cluster_colors, metric_color
+from tests.benchmarks._helpers import StubCarve
 
 
 @pytest.fixture
@@ -355,43 +356,6 @@ def _curves_and_best():
     return curves, best
 
 
-class _StubCarve:
-    """Minimal stand-in for a fitted CARVE object.
-
-    carve_lines calls _select_row() (to resolve which estimator
-    configuration a measure selects) and get_k() (to place the selected-k
-    marker), so the stub implements exactly those two members instead of
-    fitting a real model. estimator_results_ carries two method_ids, each
-    swept over the same four k values -- mirroring a real case study that
-    sweeps two estimators, the shape that exposed the original interleaving
-    bug (see _curves_and_best's docstring for the cvi_lines analogue).
-
-    Column names are the canonical estimator_results_ names a real fitted
-    CARVE object uses (see carve._selection.MEASURE_MAP and carve._output,
-    which reads record["ari_stability"] / record["ari_stability_se"]) --
-    "stability" and "generalizability" are only measure aliases, never
-    column names. A stub that named its columns after the aliases would let
-    carve_lines index the alias directly and still pass, which is exactly
-    the bug this is guarding against.
-    """
-
-    def __init__(self, results: pd.DataFrame, selection: dict):
-        self.estimator_results_ = results
-        self._selection = selection  # measure -> {"method_id", "n_clusters"}
-
-    def _select_row(self, *, measure, rule="1se", not_two=False):
-        choice = self._selection[measure]
-        results = self.estimator_results_
-        row = results.loc[
-            (results["method_id"] == choice["method_id"])
-            & (results["n_clusters"] == choice["n_clusters"])
-        ].iloc[0]
-        return row, 0, choice["n_clusters"], False
-
-    def get_k(self, *, measure, rule="1se", not_two=False):
-        return self._selection[measure]["n_clusters"]
-
-
 def _carve_obj():
     results = pd.DataFrame(
         {
@@ -405,12 +369,16 @@ def _carve_obj():
             "ari_generalizability_se": [0.06, 0.05, 0.05, 0.04, 0.06, 0.05, 0.05, 0.04],
         }
     )
-    return _StubCarve(
+    selection = {
+        "stability": {"method_id": "m0", "n_clusters": 4},
+        "generalizability": {"method_id": "m1", "n_clusters": 5},
+    }
+    return StubCarve(
         results,
-        {
-            "stability": {"method_id": "m0", "n_clusters": 4},
-            "generalizability": {"method_id": "m1", "n_clusters": 5},
-        },
+        select=lambda measure, not_two: (
+            selection[measure]["method_id"],
+            selection[measure]["n_clusters"],
+        ),
     )
 
 

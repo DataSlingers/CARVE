@@ -4,6 +4,7 @@ import pytest
 
 from benchmarks.figures import figure_cusanovich_results
 from benchmarks.figures._cusanovich_results import AXIS_LABELS, MARKER_SIZE
+from tests.benchmarks._helpers import StubCarve, simple_results
 
 
 @pytest.fixture
@@ -33,35 +34,13 @@ def inputs():
         }
     )
 
-    class _Carve:
-        # composite_figure's panel D draws through _panels.carve_lines,
-        # which reads estimator_results_/_select_row/get_k -- not a
-        # plot_metric_over_n_clusters method. Mirrors the _StubCarve in
-        # tests/benchmarks/figures/test_case_study.py.
-        def __init__(self):
-            ks = [4, 5, 6]
-            self.estimator_results_ = pd.DataFrame(
-                {
-                    "n_clusters": ks,
-                    "method_id": ["m0"] * len(ks),
-                    "method_label": ["KMeans"] * len(ks),
-                    "ari_stability": [0.1, 0.2, 0.3],
-                    "ari_generalizability": [0.15, 0.25, 0.35],
-                }
-            )
-
-        def _select_row(self, *, measure, rule="1se", not_two=False):
-            row = self.estimator_results_.iloc[1]
-            return row, 0, int(row["n_clusters"]), False
-
-        def get_k(self, *, measure="stability", rule="1se", not_two=False):
-            return 5
-
     return CompositeInputs(
         X=rng.normal(size=(n, 5)),
         y=y,
         Z=Z,
-        carve=_Carve(),
+        carve=StubCarve(
+            simple_results([4, 5, 6], "KMeans"), select=lambda m, nt: ("m0", 5)
+        ),
         carve_labels=rng.integers(0, 3, n),
         comparison_labels=rng.integers(0, 3, n),
         comparison_name="Silhouette",
