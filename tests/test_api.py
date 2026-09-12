@@ -8,9 +8,6 @@ from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.dummy import DummyClassifier
 from sklearn.metrics import adjusted_rand_score
 
-import matplotlib
-
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 import warnings
@@ -83,13 +80,6 @@ def fitted_carve_multi_k():
     )
     carve.fit(X)
     return carve
-
-
-@pytest.fixture(autouse=True)
-def close_figures():
-    """Close all matplotlib figures after each test."""
-    yield
-    plt.close("all")
 
 
 # ---------------------------------------------------------------------------

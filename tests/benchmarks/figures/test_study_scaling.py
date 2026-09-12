@@ -1,8 +1,5 @@
-import matplotlib
 import pandas as pd
 import pytest
-
-matplotlib.use("Agg")
 
 from benchmarks.figures import figure_study_scaling
 

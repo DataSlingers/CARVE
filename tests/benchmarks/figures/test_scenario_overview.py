@@ -6,10 +6,6 @@ example row and the ARI panel have to describe the same family on the same
 axis, and the axis has to be labeled for the sweep it actually is.
 """
 
-import matplotlib
-
-matplotlib.use("Agg")
-
 import matplotlib.pyplot as plt
 import pandas as pd
 import pytest

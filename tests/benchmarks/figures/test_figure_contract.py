@@ -2,10 +2,6 @@
 
 import inspect
 
-import matplotlib
-
-matplotlib.use("Agg")
-
 import pytest
 from matplotlib.figure import Figure
 

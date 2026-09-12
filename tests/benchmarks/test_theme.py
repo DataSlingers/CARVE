@@ -1,16 +1,11 @@
 """Tests for the single source of figure styling."""
 
-import matplotlib
-
-matplotlib.use("Agg")
-
 import matplotlib.pyplot as plt
 import pytest
 from matplotlib.colors import to_hex
 
 from benchmarks._registry import CARVE_METRICS_ALL, CVI_METRICS, METRIC_DISPLAY_NAMES
 from benchmarks._theme import (
-    CLUSTER_CMAP_NAME,
     CLUSTER_PALETTE,
     FONT_SIZES,
     METRIC_COLORS,
@@ -197,6 +192,15 @@ class TestRcParams:
         plt.rcParams["pdf.fonttype"] = 3
         with theme_context():
             assert plt.rcParams["pdf.fonttype"] == 42
+        assert plt.rcParams["pdf.fonttype"] == 3
+
+    def test_apply_theme_does_not_leak_into_the_next_test(self):
+        # Runs after test_apply_theme_actually_mutates_rcparams in file
+        # order. apply_theme sets axes.spines.top to False for the whole
+        # process; the autouse rc_context fixture in tests/conftest.py must
+        # have undone that before this test started. Before that fixture
+        # existed this assertion failed.
+        assert plt.rcParams["axes.spines.top"] is True
         assert plt.rcParams["pdf.fonttype"] == 3
 
 

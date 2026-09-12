@@ -1,10 +1,7 @@
 """figure_reference_scatter: the case-study overview of the reference labels."""
 
-import matplotlib
 import numpy as np
 import pytest
-
-matplotlib.use("Agg")
 
 from matplotlib.colors import to_rgba
 

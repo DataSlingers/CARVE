@@ -6,10 +6,6 @@ is asserted directly rather than left to convention.
 
 import inspect
 
-import matplotlib
-
-matplotlib.use("Agg")
-
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import numpy as np
@@ -40,6 +36,14 @@ from benchmarks._panels import (
 )
 from benchmarks._artifacts import SCHEMA
 from benchmarks._theme import FOREGROUND_COLOR, cluster_colors, metric_color
+
+
+@pytest.fixture
+def ax():
+    """A fresh Axes; the conftest fixture closes every figure afterwards."""
+    _, ax = plt.subplots()
+    return ax
+
 
 AX_FIRST_FUNCTIONS = (
     "scatter_clusters",
@@ -103,30 +107,23 @@ def _results_frame():
 
 
 class TestScatterClusters:
-    def test_returns_the_same_axes(self):
-        fig, ax = plt.subplots()
+    def test_returns_the_same_axes(self, ax):
         Z = np.random.default_rng(0).normal(size=(30, 2))
         labels = np.repeat([0, 1, 2], 10)
         assert scatter_clusters(ax, Z, labels) is ax
-        plt.close(fig)
 
-    def test_draws_one_collection_per_label(self):
-        fig, ax = plt.subplots()
+    def test_draws_one_collection_per_label(self, ax):
         Z = np.random.default_rng(0).normal(size=(30, 2))
         labels = np.repeat([0, 1, 2], 10)
         scatter_clusters(ax, Z, labels)
         assert len(ax.collections) == 3
-        plt.close(fig)
 
-    def test_hides_axes_when_asked(self):
-        fig, ax = plt.subplots()
+    def test_hides_axes_when_asked(self, ax):
         Z = np.random.default_rng(0).normal(size=(10, 2))
         scatter_clusters(ax, Z, np.zeros(10, dtype=int), hide_axes=True)
         assert list(ax.get_xticks()) == []
-        plt.close(fig)
 
-    def test_uses_cluster_color_map(self):
-        fig, ax = plt.subplots()
+    def test_uses_cluster_color_map(self, ax):
         Z = np.random.default_rng(0).normal(size=(30, 2))
         labels = np.repeat([0, 1, 2], 10)
         expected_cmap = cluster_color_map(labels)
@@ -142,29 +139,23 @@ class TestScatterClusters:
             assert np.allclose(actual_rgb, expected_rgb), (
                 f"Label {label}: expected {expected_rgb}, got {actual_rgb}"
             )
-        plt.close(fig)
 
-    def test_markers_carry_a_thin_outline(self):
+    def test_markers_carry_a_thin_outline(self, ax):
         # The outline is what keeps overlapping points readable where two
         # clusters meet; without it a dense scatter merges into one mass.
-        fig, ax = plt.subplots()
         Z = np.random.default_rng(0).normal(size=(10, 2))
         scatter_clusters(ax, Z, np.zeros(10, dtype=int))
         edges = ax.collections[0].get_edgecolor()
         assert len(edges) == 1
         assert np.allclose(edges[0][:3], mcolors.to_rgba(FOREGROUND_COLOR)[:3])
         assert ax.collections[0].get_linewidth()[0] > 0
-        plt.close(fig)
 
-    def test_outline_can_be_turned_off(self):
-        fig, ax = plt.subplots()
+    def test_outline_can_be_turned_off(self, ax):
         Z = np.random.default_rng(0).normal(size=(10, 2))
         scatter_clusters(ax, Z, np.zeros(10, dtype=int), edgecolor="none")
         assert len(ax.collections[0].get_edgecolor()) == 0
-        plt.close(fig)
 
-    def test_uses_fallback_for_missing_color(self):
-        fig, ax = plt.subplots()
+    def test_uses_fallback_for_missing_color(self, ax):
         Z = np.random.default_rng(0).normal(size=(30, 2))
         labels = np.repeat([0, 1, 2], 10)
         # Provide a color map that does not include label 2
@@ -180,7 +171,6 @@ class TestScatterClusters:
         assert np.allclose(actual_rgb, expected_rgb), (
             f"Expected fallback {expected_rgb}, got {actual_rgb}"
         )
-        plt.close(fig)
 
 
 class TestClusterColorMap:
@@ -191,33 +181,24 @@ class TestClusterColorMap:
 
 
 class TestMetricLines:
-    def test_returns_the_same_axes(self):
-        fig, ax = plt.subplots()
+    def test_returns_the_same_axes(self, ax):
         assert metric_lines(ax, _results_frame(), metrics=("silhouette",)) is ax
-        plt.close(fig)
 
-    def test_draws_one_series_per_requested_metric(self):
-        fig, ax = plt.subplots()
+    def test_draws_one_series_per_requested_metric(self, ax):
         metric_lines(ax, _results_frame(), metrics=("ari_stability_1se", "silhouette"))
         assert len(ax.get_legend().get_texts()) == 2
-        plt.close(fig)
 
-    def test_uses_only_selected_rows(self):
-        fig, ax = plt.subplots()
+    def test_uses_only_selected_rows(self, ax):
         metric_lines(ax, _results_frame(), metrics=("silhouette",), show_legend=False)
         line = ax.lines[0]
         # three axis values, one point each, drawn from the k=5 rows only
         assert len(line.get_xdata()) == 3
-        plt.close(fig)
 
-    def test_skips_a_metric_with_no_rows(self):
-        fig, ax = plt.subplots()
+    def test_skips_a_metric_with_no_rows(self, ax):
         metric_lines(ax, _results_frame(), metrics=("gap",), show_legend=False)
         assert len(ax.lines) == 0
-        plt.close(fig)
 
-    def test_lines_use_metric_colors(self):
-        fig, ax = plt.subplots()
+    def test_lines_use_metric_colors(self, ax):
         metrics = ("ari_stability_1se", "silhouette")
         metric_lines(ax, _results_frame(), metrics=metrics, show_legend=False)
         # Get data lines (those with marker 'o')
@@ -229,10 +210,8 @@ class TestMetricLines:
             assert actual_color == expected_color, (
                 f"Metric {expected_metric}: expected {expected_color}, got {actual_color}"
             )
-        plt.close(fig)
 
-    def test_draws_the_oracle_baseline_from_oracle_ari_not_ari_at_k(self):
-        fig, ax = plt.subplots()
+    def test_draws_the_oracle_baseline_from_oracle_ari_not_ari_at_k(self, ax):
         metric_lines(
             ax, _results_frame(), metrics=("baseline_oracle",), show_legend=False
         )
@@ -243,26 +222,22 @@ class TestMetricLines:
         # varies with axis_value) -- if the baseline branch mistakenly read
         # ari_at_k this would come out as [0.9, 0.8, 0.7] instead.
         np.testing.assert_allclose(baseline_lines[0].get_ydata(), 0.96)
-        plt.close(fig)
 
-    def test_oracle_baseline_uses_the_theme_color_and_is_dashed(self):
-        fig, ax = plt.subplots()
+    def test_oracle_baseline_uses_the_theme_color_and_is_dashed(self, ax):
         metric_lines(
             ax, _results_frame(), metrics=("baseline_oracle",), show_legend=False
         )
         line = ax.lines[0]
         assert line.get_color() == metric_color("baseline_oracle")
         assert line.get_linestyle() == "--"
-        plt.close(fig)
 
-    def test_oracle_baseline_error_bars_reflect_seed_level_spread(self):
+    def test_oracle_baseline_error_bars_reflect_seed_level_spread(self, ax):
         # oracle_ari repeats each seed's value across every (metric, k) row
         # within a cell (four rows per seed here). A baseline branch that
         # grouped those raw rows instead of deduplicating by (axis_value,
         # seed) first would compute its standard error over an artificially
         # inflated sample -- the mean would still come out right, but the
         # error bar would be too tight.
-        fig, ax = plt.subplots()
         df = _results_frame()
         metric_lines(ax, df, metrics=("baseline_oracle",), show_legend=False)
 
@@ -277,7 +252,6 @@ class TestMetricLines:
             .sem()
         )
         assert drawn_yerr == pytest.approx(float(seed_level_sem.iloc[0]), rel=1e-6)
-        plt.close(fig)
 
 
 def _runtime_frame():
@@ -292,53 +266,40 @@ def _runtime_frame():
 
 
 class TestRuntimeLines:
-    def test_returns_the_same_axes_and_uses_a_log_scale(self):
-        fig, ax = plt.subplots()
+    def test_returns_the_same_axes_and_uses_a_log_scale(self, ax):
         assert runtime_lines(ax, _runtime_frame()) is ax
         assert ax.get_yscale() == "log"
-        plt.close(fig)
 
-    def test_draws_both_mode_curves_by_default(self):
-        fig, ax = plt.subplots()
+    def test_draws_both_mode_curves_by_default(self, ax):
         runtime_lines(ax, _runtime_frame())
         labels = [t.get_text() for t in ax.get_legend().get_texts()]
         assert labels == ["CARVE Stability", "CARVE Generalizability"]
-        plt.close(fig)
 
-    def test_the_two_curves_are_dodged_apart(self):
-        fig, ax = plt.subplots()
+    def test_the_two_curves_are_dodged_apart(self, ax):
         runtime_lines(ax, _runtime_frame())
         # errorbar creates multiple lines per call; find the main data lines (with markers)
         data_lines = [line for line in ax.lines if line.get_marker() == "o"]
         assert len(data_lines) >= 2
         first, second = data_lines[0].get_xdata(), data_lines[1].get_xdata()
         assert not np.allclose(first, second)
-        plt.close(fig)
 
-    def test_skips_a_column_that_is_all_nan(self):
+    def test_skips_a_column_that_is_all_nan(self, ax):
         """Untimed cells record nan, and an untimed series must not be drawn."""
-        fig, ax = plt.subplots()
         df = _runtime_frame()
         df["t_generalizability_s"] = np.nan
         runtime_lines(ax, df)
         labels = [t.get_text() for t in ax.get_legend().get_texts()]
         assert labels == ["CARVE Stability"]
-        plt.close(fig)
 
-    def test_skips_a_column_that_is_absent(self):
-        fig, ax = plt.subplots()
+    def test_skips_a_column_that_is_absent(self, ax):
         runtime_lines(ax, _runtime_frame()[["axis_value", "t_stability_s"]])
         assert len(ax.lines) >= 1
-        plt.close(fig)
 
-    def test_rejects_mismatched_columns_and_labels(self):
-        fig, ax = plt.subplots()
+    def test_rejects_mismatched_columns_and_labels(self, ax):
         with pytest.raises(ValueError, match="same length"):
             runtime_lines(ax, _runtime_frame(), runtime_cols=("t_stability_s",))
-        plt.close(fig)
 
-    def test_lines_use_correct_mode_colors(self):
-        fig, ax = plt.subplots()
+    def test_lines_use_correct_mode_colors(self, ax):
         runtime_lines(ax, _runtime_frame())
         # Get data lines (those with marker 'o')
         data_lines = [line for line in ax.lines if line.get_marker() == "o"]
@@ -351,7 +312,6 @@ class TestRuntimeLines:
             assert actual_color == expected_color, (
                 f"Mode metric {expected_metric}: expected {expected_color}, got {actual_color}"
             )
-        plt.close(fig)
 
 
 def _curves_and_best():
@@ -455,26 +415,21 @@ def _carve_obj():
 
 
 class TestCarveLines:
-    def test_returns_the_same_axes(self):
-        fig, ax = plt.subplots()
+    def test_returns_the_same_axes(self, ax):
         assert carve_lines(ax, _carve_obj()) is ax
-        plt.close(fig)
 
-    def test_draws_one_line_per_requested_measure(self):
+    def test_draws_one_line_per_requested_measure(self, ax):
         # A non-default, single-element tuple: if the measures argument were
         # ignored in favor of the ("stability", "generalizability") default,
         # this would draw two lines instead of one.
-        fig, ax = plt.subplots()
         carve_lines(ax, _carve_obj(), measures=("generalizability",))
         data_lines = [ln for ln in ax.lines if ln.get_marker() == "o"]
         assert len(data_lines) == 1
-        plt.close(fig)
 
-    def test_lines_use_measure_specific_colors(self):
+    def test_lines_use_measure_specific_colors(self, ax):
         # Measures are requested in the opposite order from the default
         # tuple. A regression that fell back to the default order rather
         # than the caller's order would draw the colors in the wrong slots.
-        fig, ax = plt.subplots()
         carve_lines(ax, _carve_obj(), measures=("generalizability", "stability"))
         data_lines = [ln for ln in ax.lines if ln.get_marker() == "o"]
         assert len(data_lines) == 2
@@ -484,41 +439,33 @@ class TestCarveLines:
         ]
         for line, expected in zip(data_lines, expected_colors):
             assert line.get_color() == expected
-        plt.close(fig)
 
-    def test_shows_the_selected_k_by_default(self):
-        fig, ax = plt.subplots()
+    def test_shows_the_selected_k_by_default(self, ax):
         carve_lines(ax, _carve_obj(), measures=("stability",))
         marker_lines = [ln for ln in ax.lines if ln.get_marker() == "o"]
         other_lines = [ln for ln in ax.lines if ln.get_marker() != "o"]
         assert len(marker_lines) == 1
         assert len(other_lines) == 1
         assert other_lines[0].get_xdata()[0] == 4
-        plt.close(fig)
 
-    def test_omits_the_selected_k_marker_when_asked(self):
-        fig, ax = plt.subplots()
+    def test_omits_the_selected_k_marker_when_asked(self, ax):
         carve_lines(ax, _carve_obj(), measures=("stability",), show_selected_k=False)
         assert len(ax.lines) == 1
-        plt.close(fig)
 
-    def test_line_length_matches_one_configurations_k_values_not_every_row(self):
+    def test_line_length_matches_one_configurations_k_values_not_every_row(self, ax):
         # _carve_obj's estimator_results_ carries eight rows -- two method
         # ids swept over four k values each. A line that read every row
         # instead of filtering to the selected method_id would be eight
         # points long, not four.
-        fig, ax = plt.subplots()
         carve_lines(ax, _carve_obj(), measures=("stability",), show_selected_k=False)
         line = ax.lines[0]
         assert len(line.get_xdata()) == 4
-        plt.close(fig)
 
-    def test_line_x_values_are_monotonic(self):
+    def test_line_x_values_are_monotonic(self, ax):
         # Concatenating both method_ids' k ranges end to end (the
         # interleaving bug) draws k = 3, 4, 5, 6, 3, 4, 5, 6 -- a line that
         # runs up and then jumps back down. A single configuration's own
         # sweep is strictly increasing.
-        fig, ax = plt.subplots()
         carve_lines(
             ax,
             _carve_obj(),
@@ -530,30 +477,24 @@ class TestCarveLines:
         for line in data_lines:
             x = line.get_xdata()
             assert np.all(np.diff(x) > 0)
-        plt.close(fig)
 
 
 class TestCviLines:
-    def test_returns_the_same_axes(self):
-        fig, ax = plt.subplots()
+    def test_returns_the_same_axes(self, ax):
         curves, best = _curves_and_best()
         assert cvi_lines(ax, curves, best) is ax
-        plt.close(fig)
 
-    def test_draws_one_line_per_metric(self):
-        fig, ax = plt.subplots()
+    def test_draws_one_line_per_metric(self, ax):
         curves, best = _curves_and_best()
         cvi_lines(ax, curves, best)
         assert len([ln for ln in ax.lines if ln.get_label() != "_nolegend_"]) >= 2
-        plt.close(fig)
 
-    def test_marks_the_selected_k_for_each_metric(self):
+    def test_marks_the_selected_k_for_each_metric(self, ax):
         """One dashed rule per metric, standing at its own selected k.
 
         The ring these replace sat on the curve at (k, score), so it read as
         another data point and disappeared wherever two indices crossed.
         """
-        fig, ax = plt.subplots()
         curves, best = _curves_and_best()
         cvi_lines(ax, curves, best)
         rules = [ln for ln in ax.lines if ln.get_linestyle() == "--"]
@@ -561,32 +502,26 @@ class TestCviLines:
         assert {float(ln.get_xdata()[0]) for ln in rules} == set(
             best["k"].astype(float)
         )
-        plt.close(fig)
 
-    def test_selection_rules_take_their_own_metric_color(self):
+    def test_selection_rules_take_their_own_metric_color(self, ax):
         # silhouette selects k=4 and gap k=5 (see _curves_and_best), so a
         # rule drawn in the other metric's color would be caught here.
-        fig, ax = plt.subplots()
         curves, best = _curves_and_best()
         cvi_lines(ax, curves, best)
         rules = [ln for ln in ax.lines if ln.get_linestyle() == "--"]
         color_at_k = {float(ln.get_xdata()[0]): ln.get_color() for ln in rules}
         for _, row in best.iterrows():
             assert color_at_k[float(row["k"])] == metric_color(str(row["metric"]))
-        plt.close(fig)
 
-    def test_no_ring_markers_are_drawn_on_the_curves(self):
+    def test_no_ring_markers_are_drawn_on_the_curves(self, ax):
         # The rings were scatter collections; nothing should draw them now.
-        fig, ax = plt.subplots()
         curves, best = _curves_and_best()
         cvi_lines(ax, curves, best)
         assert list(ax.collections) == []
-        plt.close(fig)
 
-    def test_lines_use_metric_specific_colors(self):
+    def test_lines_use_metric_specific_colors(self, ax):
         # silhouette and gap map to different theme colors, so a bug that
         # mixed up which curve gets which color would be caught here.
-        fig, ax = plt.subplots()
         curves, best = _curves_and_best()
         cvi_lines(ax, curves, best)
         data_lines = [ln for ln in ax.lines if ln.get_marker() == "o"]
@@ -594,38 +529,32 @@ class TestCviLines:
         expected_colors = [metric_color("silhouette"), metric_color("gap")]
         for line, expected in zip(data_lines, expected_colors):
             assert line.get_color() == expected
-        plt.close(fig)
 
-    def test_line_names_the_winning_model_in_its_label(self):
+    def test_line_names_the_winning_model_in_its_label(self, ax):
         # silhouette's winner is Agglomerative, gap's is KMeans (see
         # _curves_and_best) -- the legend must say which, not just the
         # metric name.
-        fig, ax = plt.subplots()
         curves, best = _curves_and_best()
         cvi_lines(ax, curves, best)
         labels = [ln.get_label() for ln in ax.lines if ln.get_marker() == "o"]
         assert any("Agglomerative" in label for label in labels)
         assert any("KMeans" in label for label in labels)
-        plt.close(fig)
 
-    def test_line_length_matches_one_models_k_values_not_every_row(self):
+    def test_line_length_matches_one_models_k_values_not_every_row(self, ax):
         # Each metric has six rows in curves_df (two models x three k's). A
         # line drawn from every row for that metric, instead of only the
         # winning model's three, would be six points long.
-        fig, ax = plt.subplots()
         curves, best = _curves_and_best()
         cvi_lines(ax, curves, best)
         data_lines = [ln for ln in ax.lines if ln.get_marker() == "o"]
         assert len(data_lines) == 2
         for line in data_lines:
             assert len(line.get_xdata()) == 3
-        plt.close(fig)
 
-    def test_line_x_values_are_monotonic(self):
+    def test_line_x_values_are_monotonic(self, ax):
         # Grouping by metric alone and sorting by k (the interleaving bug)
         # produces k = 3, 3, 4, 4, 5, 5 -- ties, not a strictly increasing
         # sweep. One model's own k values are strictly increasing.
-        fig, ax = plt.subplots()
         curves, best = _curves_and_best()
         cvi_lines(ax, curves, best)
         data_lines = [ln for ln in ax.lines if ln.get_marker() == "o"]
@@ -633,11 +562,9 @@ class TestCviLines:
         for line in data_lines:
             x = line.get_xdata()
             assert np.all(np.diff(x) > 0)
-        plt.close(fig)
 
 class TestAlluvial:
-    def test_returns_the_same_axes(self):
-        fig, ax = plt.subplots()
+    def test_returns_the_same_axes(self, ax):
         y_true = np.repeat([0, 1], 20)
         left = np.repeat([0, 1], 20)
         right = np.repeat([1, 0], 20)
@@ -654,10 +581,8 @@ class TestAlluvial:
             true_title="Reported",
         )
         assert result is ax
-        plt.close(fig)
 
-    def test_draws_the_three_column_titles(self):
-        fig, ax = plt.subplots()
+    def test_draws_the_three_column_titles(self, ax):
         y_true = np.repeat([0, 1], 20)
         alluvial(
             ax,
@@ -673,13 +598,11 @@ class TestAlluvial:
         )
         texts = [t.get_text() for t in ax.texts]
         assert "CARVE" in texts and "CVI" in texts and "Reported" in texts
-        plt.close(fig)
 
-    def test_column_bars_use_the_supplied_colormaps(self):
+    def test_column_bars_use_the_supplied_colormaps(self, ax):
         # left and right deliberately assign different colors to the same
         # category (0/1), so a bug that reused one column's cmap for
         # another's bars would be caught here.
-        fig, ax = plt.subplots()
         y_true = np.repeat([0, 1], 20)
         left = np.repeat([0, 1], 20)
         right = np.repeat([1, 0], 20)
@@ -716,9 +639,8 @@ class TestAlluvial:
             actual_rgb = mcolors.to_rgba(rect.get_facecolor())[:3]
             expected_rgb = mcolors.to_rgba(expected_color)[:3]
             assert np.allclose(actual_rgb, expected_rgb)
-        plt.close(fig)
 
-    def test_flow_count_and_color_match_the_transition_structure(self):
+    def test_flow_count_and_color_match_the_transition_structure(self, ax):
         # left equals y_true (no left/true mixing: 2 non-zero transitions),
         # right is the flip of y_true (2 non-zero transitions the other
         # way). A bug that drew every category pair regardless of overlap
@@ -728,7 +650,6 @@ class TestAlluvial:
         # the truth column -- that is what lets one reported class be
         # followed across the whole panel -- so neither left_cmap nor
         # right_cmap may appear among the ribbons, only true_cmap.
-        fig, ax = plt.subplots()
         y_true = np.array([0, 0, 1, 1])
         # left is the *flip* of y_true, not a copy: with a copy, colouring a
         # ribbon by its source cluster and by its target label give the same
@@ -759,9 +680,8 @@ class TestAlluvial:
             tuple(np.round(mcolors.to_rgba(true_cmap[c])[:3], 3)) for c in (0, 1, 0, 1)
         ]
         assert drawn == expected
-        plt.close(fig)
 
-    def test_ribbons_are_curved_not_straight(self):
+    def test_ribbons_are_curved_not_straight(self, ax):
         """Panel F reads as flow, which is the Bezier control points.
 
         A straight-edged band -- what this replaces -- is a four-vertex
@@ -769,7 +689,6 @@ class TestAlluvial:
         cubic curves. Asserting the curve codes rather than the vertex
         count alone means a path that merely gained vertices would not pass.
         """
-        fig, ax = plt.subplots()
         y_true = np.repeat([0, 1], 10)
         alluvial(
             ax,
@@ -787,12 +706,10 @@ class TestAlluvial:
         assert ribbons
         for ribbon in ribbons:
             assert (ribbon.get_path().codes == Path.CURVE4).sum() == 6
-        plt.close(fig)
 
-    def test_cluster_bars_are_named_and_carry_purity(self):
+    def test_cluster_bars_are_named_and_carry_purity(self, ax):
         # left cluster 0 is pure (all y_true 0); cluster 1 splits 3/1, so
         # its purity is 75%. Names are one-based, so id 0 reads "C1".
-        fig, ax = plt.subplots()
         y_true = np.array([0, 0, 0, 0, 1, 1, 1, 0])
         left = np.array([0, 0, 0, 0, 1, 1, 1, 1])
         alluvial(
@@ -810,10 +727,8 @@ class TestAlluvial:
         texts = [t.get_text() for t in ax.texts]
         assert "C1  100%" in texts
         assert "C2  75%" in texts
-        plt.close(fig)
 
-    def test_reported_labels_are_named_inside_their_own_bars(self):
-        fig, ax = plt.subplots()
+    def test_reported_labels_are_named_inside_their_own_bars(self, ax):
         y_true = np.array(["d0"] * 10 + ["d7"] * 10)
         left = np.repeat([0, 1], 10)
         alluvial(
@@ -830,16 +745,14 @@ class TestAlluvial:
         )
         centered = [t.get_text() for t in ax.texts if t.get_ha() == "center"]
         assert "d0" in centered and "d7" in centered
-        plt.close(fig)
 
-    def test_truth_column_is_stacked_more_loosely_than_the_cluster_columns(self):
+    def test_truth_column_is_stacked_more_loosely_than_the_cluster_columns(self, ax):
         """The middle column is the anchor and is set apart by its gaps.
 
         Equal sizes everywhere, so any difference in bar height comes from
         the gap fraction alone: the truth column gives up more of its
         height to gaps, so each of its bars is shorter.
         """
-        fig, ax = plt.subplots()
         y_true = np.repeat([0, 1, 2], 10)
         alluvial(
             ax,
@@ -857,9 +770,8 @@ class TestAlluvial:
         left_heights = [b.get_height() for b in bars[:3]]
         true_heights = [b.get_height() for b in bars[3:6]]
         assert max(true_heights) < min(left_heights)
-        plt.close(fig)
 
-    def test_clusters_are_ordered_against_the_reported_column(self):
+    def test_clusters_are_ordered_against_the_reported_column(self, ax):
         """A cluster is stacked where its mass sits in the truth column.
 
         Cluster ids here run opposite to the truth column's order, so
@@ -867,7 +779,6 @@ class TestAlluvial:
         across the full height of the panel. The bars must come out in
         reverse id order instead.
         """
-        fig, ax = plt.subplots()
         y_true = np.repeat([0, 1], 10)
         left = np.repeat([1, 0], 10)
         left_cmap = {0: "#111111", 1: "#222222"}
@@ -889,7 +800,6 @@ class TestAlluvial:
             mcolors.to_rgba(top_left_bar.get_facecolor())[:3],
             mcolors.to_rgba(left_cmap[1])[:3],
         )
-        plt.close(fig)
 
 
 class TestStackSegments:
@@ -944,39 +854,30 @@ class TestAlignedColorMaps:
 
 
 class TestAxisArrows:
-    def test_returns_the_same_axes(self):
-        fig, ax = plt.subplots()
+    def test_returns_the_same_axes(self, ax):
         assert axis_arrows(ax) is ax
-        plt.close(fig)
 
-    def test_labels_the_two_directions(self):
-        fig, ax = plt.subplots()
+    def test_labels_the_two_directions(self, ax):
         axis_arrows(ax, ("t-SNE 1", "t-SNE 2"))
         texts = [t.get_text() for t in ax.texts]
         assert "t-SNE 1" in texts and "t-SNE 2" in texts
-        plt.close(fig)
 
-    def test_draws_two_arrows(self):
-        fig, ax = plt.subplots()
+    def test_draws_two_arrows(self, ax):
         axis_arrows(ax)
         arrows = [t for t in ax.texts if t.arrow_patch is not None]
         assert len(arrows) == 2
-        plt.close(fig)
 
-    def test_position_is_in_axes_fractions_not_data_units(self):
+    def test_position_is_in_axes_fractions_not_data_units(self, ax):
         # The marker has to stay put whatever the data limits are, which is
         # what xycoords="axes fraction" buys.
-        fig, ax = plt.subplots()
         axis_arrows(ax)
         assert all(
             t.xycoords == "axes fraction" for t in ax.texts if t.arrow_patch is not None
         )
-        plt.close(fig)
 
 
 class TestAriLollipop:
-    def test_returns_the_same_axes(self):
-        fig, ax = plt.subplots()
+    def test_returns_the_same_axes(self, ax):
         df = pd.DataFrame(
             {
                 "method": ["CARVE (stab)", "Silhouette"],
@@ -985,29 +886,23 @@ class TestAriLollipop:
             }
         )
         assert ari_lollipop(ax, df) is ax
-        plt.close(fig)
 
-    def test_draws_one_marker_per_method(self):
-        fig, ax = plt.subplots()
+    def test_draws_one_marker_per_method(self, ax):
         df = pd.DataFrame(
             {"method": ["a", "b", "c"], "ari": [0.1, 0.2, 0.3], "k": [3, 4, 5]}
         )
         ari_lollipop(ax, df, annotate_k=False)
         assert len(ax.collections) >= 1
-        plt.close(fig)
 
-    def test_annotates_k_when_asked(self):
-        fig, ax = plt.subplots()
+    def test_annotates_k_when_asked(self, ax):
         df = pd.DataFrame({"method": ["a"], "ari": [0.5], "k": [9]})
         ari_lollipop(ax, df, annotate_k=True)
         assert any("9" in t.get_text() for t in ax.texts)
-        plt.close(fig)
 
-    def test_hlines_and_markers_use_metric_colors_in_sorted_order(self):
+    def test_hlines_and_markers_use_metric_colors_in_sorted_order(self, ax):
         # method and metric disagree on which name maps to a recognized
         # theme color here, so matching colors correctly proves they come
         # from "metric", not "method", when both columns are present.
-        fig, ax = plt.subplots()
         df = pd.DataFrame(
             {
                 "method": ["CARVE (stab)", "Silhouette", "Gap Stat"],
@@ -1031,10 +926,8 @@ class TestAriLollipop:
             expected_rgb = mcolors.to_rgba(expected_color)[:3]
             assert np.allclose(hline_colors[i][:3], expected_rgb)
             assert np.allclose(marker_colors[i][:3], expected_rgb)
-        plt.close(fig)
 
-    def test_hlines_and_markers_fall_back_to_method_colors_when_metric_absent(self):
-        fig, ax = plt.subplots()
+    def test_hlines_and_markers_fall_back_to_method_colors_when_metric_absent(self, ax):
         df = pd.DataFrame(
             {"method": ["gap", "silhouette"], "ari": [0.5, 0.3], "k": [6, 4]}
         )
@@ -1048,21 +941,18 @@ class TestAriLollipop:
             expected_rgb = mcolors.to_rgba(expected_color)[:3]
             assert np.allclose(hline_colors[i][:3], expected_rgb)
             assert np.allclose(marker_colors[i][:3], expected_rgb)
-        plt.close(fig)
 
-    def test_a_metric_only_frame_fails_after_drawing_not_before(self):
+    def test_a_metric_only_frame_fails_after_drawing_not_before(self, ax):
         # "method" is still required later for the y-tick labels, so this
         # frame can never fully succeed -- but the KeyError must come from
         # that line, not from eagerly evaluating ordered["method"] as the
         # unused default for .get("metric", ...) before hlines/scatter
         # ever run. Under the old eager-default bug this raised before
         # either collection existed; both existing here proves the fix.
-        fig, ax = plt.subplots()
         df = pd.DataFrame({"metric": ["silhouette", "gap"], "ari": [0.3, 0.5]})
         with pytest.raises(KeyError, match="method"):
             ari_lollipop(ax, df, annotate_k=False)
         assert len(ax.collections) == 2
-        plt.close(fig)
 
 
 class TestGroupedLegend:
@@ -1072,7 +962,6 @@ class TestGroupedLegend:
             ax.plot([0, 1], [0, 1], label="CARVE Stability (1SE)")
         legend = grouped_legend(fig, axes)
         assert isinstance(legend, Legend)
-        plt.close(fig)
 
     def test_deduplicates_repeated_labels(self):
         fig, axes = plt.subplots(1, 3, squeeze=False)
@@ -1080,7 +969,6 @@ class TestGroupedLegend:
             ax.plot([0, 1], [0, 1], label="Silhouette")
         legend = grouped_legend(fig, axes)
         assert len(legend.get_texts()) == 1
-        plt.close(fig)
 
 
 class TestLegendGroups:
@@ -1202,14 +1090,12 @@ class TestMetricLegend:
         assert blank == [1, 3]
         assert columns[4] == ["Silhouette", "Davies-Bouldin"]
         assert columns[5] == ["Calinski-Harabasz", "Gap Statistic"]
-        plt.close(fig)
 
     def test_the_gutter_stays_narrow_so_the_empty_column_does_the_separating(self):
         metrics = ("ari_stability_1se", "silhouette", "gap")
         fig, axes = self._figure(metrics)
         legend = metric_legend(fig, axes, metrics)
         assert legend.columnspacing < 2.0
-        plt.close(fig)
 
     def test_pads_short_columns_so_each_family_starts_its_own(self):
         metrics = (
@@ -1226,7 +1112,6 @@ class TestMetricLegend:
         assert legend._ncols == 5
         assert labels[0] == _display("baseline_oracle")
         assert labels[1] == ""
-        plt.close(fig)
 
     def test_skips_metrics_that_were_never_drawn(self):
         """A frame missing a metric must not put a dead entry in the legend."""
@@ -1234,32 +1119,25 @@ class TestMetricLegend:
         legend = metric_legend(fig, axes, ("ari_stability_1se", "silhouette"))
         labelled = [t.get_text() for t in legend.get_texts() if t.get_text()]
         assert labelled == [_display("ari_stability_1se")]
-        plt.close(fig)
 
     def test_a_family_with_nothing_drawn_leaves_no_stray_empty_column(self):
         fig, axes = self._figure(("ari_stability_1se",))
         legend = metric_legend(fig, axes, ("ari_stability_1se", "silhouette"))
         assert legend._ncols == 1
-        plt.close(fig)
 
     def test_raises_when_nothing_requested_was_drawn(self):
         fig, axes = plt.subplots(1, 1, squeeze=False)
         with pytest.raises(ValueError, match="None of the requested metrics"):
             metric_legend(fig, axes, ("silhouette",))
-        plt.close(fig)
 
 
 class TestPanelLetter:
-    def test_adds_one_text_artist(self):
-        fig, ax = plt.subplots()
+    def test_adds_one_text_artist(self, ax):
         panel_letter(ax, "A")
         assert [t.get_text() for t in ax.texts] == ["A"]
-        plt.close(fig)
 
-    def test_uses_the_theme_font_size(self):
+    def test_uses_the_theme_font_size(self, ax):
         from benchmarks._theme import FONT_SIZES
 
-        fig, ax = plt.subplots()
         panel_letter(ax, "B")
         assert ax.texts[0].get_fontsize() == FONT_SIZES["panel_letter"]
-        plt.close(fig)

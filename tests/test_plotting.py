@@ -4,9 +4,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import matplotlib
-
-matplotlib.use("Agg")  # non-interactive backend for tests
 import matplotlib.pyplot as plt
 from matplotlib.legend import Legend
 from sklearn.cluster import KMeans
@@ -89,13 +86,6 @@ def _two_method_df():
         "SpectralClustering, affinity=self_tuning"
     ] * 3
     return df
-
-
-@pytest.fixture(autouse=True)
-def close_figures():
-    """Close all matplotlib figures after each test."""
-    yield
-    plt.close("all")
 
 
 # -----------------------------------------------------------------------

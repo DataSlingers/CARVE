@@ -1,9 +1,6 @@
-import matplotlib
 import numpy as np
 import pandas as pd
 import pytest
-
-matplotlib.use("Agg")
 
 from matplotlib.collections import PathCollection
 from sklearn.metrics import adjusted_rand_score

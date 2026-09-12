@@ -2,11 +2,16 @@
 
 import importlib.util
 
+import matplotlib
 import numpy as np
 import pandas as pd
 import pytest
 
 from tests._helpers import with_sweep_cols
+
+# Select the file-backed backend once, before any test module imports
+# pyplot. conftest.py is imported before collection reaches any test file.
+matplotlib.use("Agg", force=True)
 
 # Leiden and Louvain live behind the optional [graph] extra. Tests that need
 # them carry @pytest.mark.requires_graph; the hook below skips them when the
@@ -204,11 +209,15 @@ def fitted_adata():
 
 
 @pytest.fixture(autouse=True)
-def _headless_matplotlib():
-    """Render to a file-backed canvas and never leak figures between tests."""
-    import matplotlib
+def _isolated_matplotlib_state():
+    """Undo every rcParams change a test makes and close its figures.
+
+    rc_context restores each rcParam changed inside the block on exit, so a
+    test that calls apply_theme() or assigns plt.rcParams[...] cannot leak
+    into the next test.
+    """
     import matplotlib.pyplot as plt
 
-    matplotlib.use("Agg", force=True)
-    yield
+    with matplotlib.rc_context():
+        yield
     plt.close("all")

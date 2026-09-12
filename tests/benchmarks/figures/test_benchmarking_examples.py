@@ -2,10 +2,6 @@
 
 import inspect
 
-import matplotlib
-
-matplotlib.use("Agg")
-
 import matplotlib.pyplot as plt
 
 from benchmarks._registry import PUBLISHED_RANDOM_STATE

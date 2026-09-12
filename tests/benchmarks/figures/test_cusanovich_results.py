@@ -1,9 +1,6 @@
-import matplotlib
 import numpy as np
 import pandas as pd
 import pytest
-
-matplotlib.use("Agg")
 
 from benchmarks.figures import figure_cusanovich_results
 from benchmarks.figures._cusanovich_results import AXIS_LABELS, MARKER_SIZE
