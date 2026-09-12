@@ -2,7 +2,9 @@
 
 import dataclasses
 import json
+import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -24,7 +26,7 @@ pytestmark = pytest.mark.filterwarnings(
 N_METRICS = len(CARVE_METRICS_ALL) + len(CVI_METRICS)
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def tiny_scenario():
     """A scenario small enough to fit and score in a couple of seconds."""
     return Scenario(
@@ -38,77 +40,86 @@ def tiny_scenario():
     )
 
 
+CELL_KWARGS = dict(
+    axis_idx=0, axis_value=0, axis_label="easy", seed=0, run_id="r1", random_state=0
+)
+
+
+@pytest.fixture(scope="module")
+def cell(tiny_scenario):
+    """One easy-axis cell at n_resamples=20; every TestRunCell test reads it."""
+    return run_cell(tiny_scenario, n_resamples=20, **CELL_KWARGS)
+
+
+@pytest.fixture(scope="module")
+def completed(tiny_scenario, tmp_path_factory):
+    """A finished run_scenario at n_resamples=20: (root, run directory).
+
+    Shared read-only. Tests that delete checkpoints or corrupt the manifest
+    take run_copy instead.
+    """
+    root = tmp_path_factory.mktemp("completed")
+    rd = run_scenario(tiny_scenario, root=root, n_resamples=20)
+    return root, rd
+
+
+@pytest.fixture
+def run_copy(completed, tmp_path):
+    """A private copy of the completed run under this test's tmp_path."""
+    root, rd = completed
+    new_root = tmp_path / "runs"
+    shutil.copytree(root, new_root)
+    return new_root, new_root / rd.relative_to(root)
+
+
+@pytest.fixture
+def recording_carve(monkeypatch):
+    """Patch benchmarks._run.CARVE with a subclass that records constructor
+    kwargs and get_labels calls, then delegates to the real class."""
+    import benchmarks._run as run_module
+
+    original = run_module.CARVE
+    record = SimpleNamespace(init_kwargs=[], label_calls=[])
+
+    class RecordingCarve(original):
+        def __init__(self, *args, **kwargs):
+            record.init_kwargs.append(kwargs)
+            super().__init__(*args, **kwargs)
+
+        def get_labels(self, **kwargs):
+            record.label_calls.append(kwargs)
+            return super().get_labels(**kwargs)
+
+    monkeypatch.setattr(run_module, "CARVE", RecordingCarve)
+    return record
+
+
 class TestRunCell:
-    def test_emits_one_row_per_metric_and_k(self, tiny_scenario):
-        rows, _ = run_cell(
-            tiny_scenario,
-            axis_idx=0,
-            axis_value=0,
-            axis_label="easy",
-            seed=0,
-            run_id="r1",
-            random_state=0,
-            n_resamples=20,
-        )
+    def test_emits_one_row_per_metric_and_k(self, tiny_scenario, cell):
+        rows, _ = cell
         assert len(rows) == N_METRICS * len(tiny_scenario.candidate_k)
 
-    def test_rows_carry_exactly_the_schema(self, tiny_scenario):
-        rows, _ = run_cell(
-            tiny_scenario,
-            axis_idx=0,
-            axis_value=0,
-            axis_label="easy",
-            seed=0,
-            run_id="r1",
-            random_state=0,
-            n_resamples=20,
-        )
+    def test_rows_carry_exactly_the_schema(self, cell):
+        rows, _ = cell
         assert set(rows[0]) == set(SCHEMA)
 
-    def test_exactly_one_k_is_selected_per_metric(self, tiny_scenario):
-        rows, _ = run_cell(
-            tiny_scenario,
-            axis_idx=0,
-            axis_value=0,
-            axis_label="easy",
-            seed=0,
-            run_id="r1",
-            random_state=0,
-            n_resamples=20,
-        )
+    def test_exactly_one_k_is_selected_per_metric(self, cell):
+        rows, _ = cell
         for metric in CARVE_METRICS_ALL + CVI_METRICS:
             selected = [r for r in rows if r["metric_name"] == metric and r["is_selected"]]
             assert len(selected) == 1, metric
 
-    def test_selects_true_k_marks_k_star(self, tiny_scenario):
-        rows, _ = run_cell(
-            tiny_scenario,
-            axis_idx=0,
-            axis_value=0,
-            axis_label="easy",
-            seed=0,
-            run_id="r1",
-            random_state=0,
-            n_resamples=20,
-        )
+    def test_selects_true_k_marks_k_star(self, tiny_scenario, cell):
+        rows, _ = cell
         for row in rows:
             assert row["selects_true_k"] == (row["k"] == tiny_scenario.k_star)
 
-    def test_oracle_ari_is_constant_within_a_cell(self, tiny_scenario):
-        rows, _ = run_cell(
-            tiny_scenario,
-            axis_idx=0,
-            axis_value=0,
-            axis_label="easy",
-            seed=0,
-            run_id="r1",
-            random_state=0,
-            n_resamples=20,
-        )
+    def test_oracle_ari_is_constant_within_a_cell(self, cell):
+        rows, _ = cell
         assert len({row["oracle_ari"] for row in rows}) == 1
 
     def test_generalizability_metrics_use_the_generalizability_matrix(
-        self, tiny_scenario, monkeypatch
+        self, tiny_scenario, recording_carve
     ):
         """The old runner never passed mode=, so every metric got stability.
 
@@ -117,27 +128,8 @@ class TestRunCell:
         What must hold is that generalizability metrics are cut from the
         generalizability matrix at all.
         """
-        import benchmarks._run as run_module
-
-        seen_modes = []
-        original = run_module.CARVE
-
-        class RecordingCarve(original):
-            def get_labels(self, **kwargs):
-                seen_modes.append(kwargs.get("mode", "default"))
-                return super().get_labels(**kwargs)
-
-        monkeypatch.setattr(run_module, "CARVE", RecordingCarve)
-        run_cell(
-            tiny_scenario,
-            axis_idx=0,
-            axis_value=0,
-            axis_label="easy",
-            seed=0,
-            run_id="r1",
-            random_state=0,
-            n_resamples=20,
-        )
+        run_cell(tiny_scenario, n_resamples=20, **CELL_KWARGS)
+        seen_modes = [c.get("mode", "default") for c in recording_carve.label_calls]
         assert "generalizability" in seen_modes
         assert "default" in seen_modes
 
@@ -150,72 +142,31 @@ class TestRunCell:
         for metric in GENERALIZABILITY_METRICS:
             assert _labels_mode(metric) == "generalizability"
 
-    def test_is_deterministic_for_a_fixed_seed(self, tiny_scenario):
-        kwargs = dict(
-            axis_idx=0,
-            axis_value=0,
-            axis_label="easy",
-            seed=0,
-            run_id="r1",
-            random_state=0,
-            n_resamples=20,
-        )
-        first, _ = run_cell(tiny_scenario, **kwargs)
-        second, _ = run_cell(tiny_scenario, **kwargs)
+    def test_is_deterministic_for_a_fixed_seed(self, tiny_scenario, cell):
+        first, _ = cell
+        second, _ = run_cell(tiny_scenario, n_resamples=20, **CELL_KWARGS)
         assert [r["metric_value"] for r in first] == [r["metric_value"] for r in second]
 
-    def test_carve_receives_the_scenario_n_trees(self, tiny_scenario, monkeypatch):
+    def test_carve_receives_the_scenario_n_trees(self, tiny_scenario, recording_carve):
         """n_trees=100 is also Scenario's dataclass default, so a regression
         that hardcoded n_trees=100 in run_cell instead of threading
         scenario.n_trees through would pass every other test in this file.
         Built a scenario at n_trees=500 -- the published value for
         circles/moons/swiss_rolls -- and checked CARVE actually received it.
         """
-        import benchmarks._run as run_module
-
         scenario = dataclasses.replace(tiny_scenario, n_trees=500)
+        run_cell(scenario, n_resamples=20, **CELL_KWARGS)
+        assert [k.get("n_trees") for k in recording_carve.init_kwargs] == [500]
 
-        seen_n_trees = []
-        original = run_module.CARVE
-
-        class RecordingCarve(original):
-            def __init__(self, *args, **kwargs):
-                seen_n_trees.append(kwargs.get("n_trees"))
-                super().__init__(*args, **kwargs)
-
-        monkeypatch.setattr(run_module, "CARVE", RecordingCarve)
-        run_cell(
-            scenario,
-            axis_idx=0,
-            axis_value=0,
-            axis_label="easy",
-            seed=0,
-            run_id="r1",
-            random_state=0,
-            n_resamples=20,
-        )
-        assert seen_n_trees == [500]
-
-    def test_provenance_columns_record_the_actual_estimator(self, tiny_scenario):
-        rows, _ = run_cell(
-            tiny_scenario,
-            axis_idx=0,
-            axis_value=0,
-            axis_label="easy",
-            seed=0,
-            run_id="r1",
-            random_state=0,
-            n_resamples=20,
-        )
+    def test_provenance_columns_record_the_actual_estimator(self, cell):
+        rows, _ = cell
         assert {row["estimator"] for row in rows} == {"kmeans"}
         assert {row["axis_label"] for row in rows} == {"easy"}
 
 
 class TestRunScenario:
-    def test_writes_a_complete_run(self, tiny_scenario, tmp_path):
-        rd = run_scenario(
-            tiny_scenario, root=tmp_path, n_jobs=1, random_state=0, n_resamples=20
-        )
+    def test_writes_a_complete_run(self, tiny_scenario, completed):
+        _, rd = completed
         df = read_run(rd)
         expected = (
             len(tiny_scenario.axis)
@@ -225,50 +176,45 @@ class TestRunScenario:
         )
         assert len(df) == expected
 
-    def test_writes_a_manifest(self, tiny_scenario, tmp_path):
-        rd = run_scenario(tiny_scenario, root=tmp_path, n_resamples=20)
+    def test_writes_a_manifest(self, completed):
+        _, rd = completed
         assert (rd / "manifest.json").exists()
 
-    def test_resumes_without_recomputing_completed_cells(self, tiny_scenario, tmp_path):
-        rd = run_scenario(tiny_scenario, root=tmp_path, n_resamples=20)
+    def test_resumes_without_recomputing_completed_cells(self, tiny_scenario, run_copy):
+        root, rd = run_copy
         before = {p: p.stat().st_mtime_ns for p in rd.glob("cell__*.parquet")}
-        run_scenario(tiny_scenario, root=tmp_path, n_resamples=20, resume=True)
+        run_scenario(tiny_scenario, root=root, n_resamples=20, resume=True)
         after = {p: p.stat().st_mtime_ns for p in rd.glob("cell__*.parquet")}
         assert before == after
 
-    def test_the_same_config_reuses_one_directory(self, tiny_scenario, tmp_path):
-        first = run_scenario(tiny_scenario, root=tmp_path, n_resamples=20)
-        second = run_scenario(tiny_scenario, root=tmp_path, n_resamples=20)
-        assert first == second
+    def test_the_same_config_reuses_one_directory(self, tiny_scenario, run_copy):
+        root, rd = run_copy
+        assert run_scenario(tiny_scenario, root=root, n_resamples=20) == rd
 
-    def test_a_changed_config_gets_a_new_directory(self, tiny_scenario, tmp_path):
-        first = run_scenario(tiny_scenario, root=tmp_path, n_resamples=20)
-        second = run_scenario(tiny_scenario, root=tmp_path, n_resamples=21)
-        assert first != second
+    def test_a_changed_config_gets_a_new_directory(self, tiny_scenario, run_copy):
+        root, rd = run_copy
+        other = run_scenario(tiny_scenario, root=root, n_seeds=1, n_resamples=21)
+        assert other != rd
 
     def test_n_seeds_override_shortens_the_run(self, tiny_scenario, tmp_path):
         rd = run_scenario(tiny_scenario, root=tmp_path, n_seeds=1, n_resamples=20)
         assert len(read_run(rd)["seed"].unique()) == 1
 
-    def test_resuming_a_partial_run_keeps_one_run_id(self, tiny_scenario, tmp_path):
+    def test_resuming_a_partial_run_keeps_one_run_id(self, tiny_scenario, run_copy):
         """Simulates an interrupted run by deleting one cell's checkpoint
         after a complete run, then resuming. Every row on disk -- whether
         recomputed by the resume or left over from the first invocation --
         must carry the same run_id the manifest records, not a mix of the
         original invocation's run_id and a freshly minted one.
         """
-        rd = run_scenario(tiny_scenario, root=tmp_path, n_resamples=20)
-        checkpoints = sorted(rd.glob("cell__*.parquet"))
-        checkpoints[0].unlink()
-
-        run_scenario(tiny_scenario, root=tmp_path, n_resamples=20, resume=True)
-
+        root, rd = run_copy
+        sorted(rd.glob("cell__*.parquet"))[0].unlink()
+        run_scenario(tiny_scenario, root=root, n_resamples=20, resume=True)
         manifest = json.loads((rd / "manifest.json").read_text())
-        df = read_run(rd)
-        assert set(df["run_id"].unique()) == {manifest["run_id"]}
+        assert set(read_run(rd)["run_id"].unique()) == {manifest["run_id"]}
 
     def test_resume_with_a_corrupt_manifest_warns_and_completes(
-        self, tiny_scenario, tmp_path
+        self, tiny_scenario, run_copy
     ):
         """A truncated or otherwise unparseable manifest.json must not be
         fatal. Corrupts the manifest of a real, fully completed run -- so
@@ -278,30 +224,24 @@ class TestRunScenario:
         json.JSONDecodeError, so a run can still resume unattended after a
         process was killed mid-write of the manifest.
         """
-        rd = run_scenario(tiny_scenario, root=tmp_path, n_resamples=20)
+        root, rd = run_copy
         (rd / "manifest.json").write_text("{not valid json")
-
         with pytest.warns(UserWarning, match="manifest"):
-            run_scenario(tiny_scenario, root=tmp_path, n_resamples=20, resume=True)
+            run_scenario(tiny_scenario, root=root, n_resamples=20, resume=True)
+        assert "run_id" in json.loads((rd / "manifest.json").read_text())
 
-        manifest = json.loads((rd / "manifest.json").read_text())
-        assert "run_id" in manifest
-
-    def test_wall_clock_accumulates_across_a_resume(self, tiny_scenario, tmp_path):
+    def test_wall_clock_accumulates_across_a_resume(self, tiny_scenario, run_copy):
         """wall_clock_s must represent total work across resumed
         invocations, not only the most recent increment, so a resume that
         recomputes one missing cell should not report less wall-clock time
         than the original complete run already recorded.
         """
-        rd = run_scenario(tiny_scenario, root=tmp_path, n_resamples=20)
-        first_manifest = json.loads((rd / "manifest.json").read_text())
-
-        checkpoints = sorted(rd.glob("cell__*.parquet"))
-        checkpoints[0].unlink()
-        run_scenario(tiny_scenario, root=tmp_path, n_resamples=20, resume=True)
-
-        second_manifest = json.loads((rd / "manifest.json").read_text())
-        assert second_manifest["wall_clock_s"] >= first_manifest["wall_clock_s"]
+        root, rd = run_copy
+        first = json.loads((rd / "manifest.json").read_text())
+        sorted(rd.glob("cell__*.parquet"))[0].unlink()
+        run_scenario(tiny_scenario, root=root, n_resamples=20, resume=True)
+        second = json.loads((rd / "manifest.json").read_text())
+        assert second["wall_clock_s"] >= first["wall_clock_s"]
 
 
 def test_compute_modules_do_not_import_matplotlib_directly():
@@ -382,29 +322,39 @@ def _cell(scenario, **overrides):
     return run_cell(scenario, **kwargs)
 
 
+@pytest.fixture(scope="module")
+def cell10(tiny_scenario):
+    return _cell(tiny_scenario)
+
+
+@pytest.fixture(scope="module")
+def cell10_timed(tiny_scenario):
+    return _cell(tiny_scenario, timing_fits=True)
+
+
 class TestRuntimeCapture:
-    def test_run_cell_returns_metric_rows_and_a_runtime_row(self, tiny_scenario):
-        rows, runtime = _cell(tiny_scenario)
+    def test_run_cell_returns_metric_rows_and_a_runtime_row(self, cell10):
+        rows, runtime = cell10
         assert isinstance(rows, list)
         assert isinstance(runtime, dict)
         assert runtime["t_default_s"] > 0.0
 
-    def test_runtime_records_the_actual_data_shape(self, tiny_scenario):
-        _, runtime = _cell(tiny_scenario)
+    def test_runtime_records_the_actual_data_shape(self, cell10):
+        _, runtime = cell10
         assert runtime["n_samples"] == 120
         assert runtime["n_features"] == 4
 
-    def test_timing_fits_are_off_by_default(self, tiny_scenario):
-        _, runtime = _cell(tiny_scenario)
+    def test_timing_fits_are_off_by_default(self, cell10):
+        _, runtime = cell10
         assert np.isnan(runtime["t_stability_s"])
         assert np.isnan(runtime["t_generalizability_s"])
 
-    def test_timing_fits_populate_both_modes_when_requested(self, tiny_scenario):
-        _, runtime = _cell(tiny_scenario, timing_fits=True)
+    def test_timing_fits_populate_both_modes_when_requested(self, cell10_timed):
+        _, runtime = cell10_timed
         assert runtime["t_stability_s"] > 0.0
         assert runtime["t_generalizability_s"] > 0.0
 
-    def test_timed_fits_receive_the_scenario_n_trees(self, tiny_scenario, monkeypatch):
+    def test_timed_fits_receive_the_scenario_n_trees(self, tiny_scenario, recording_carve):
         """The mode-specific timed fits must use the scenario's forest size,
         not CARVE's dataclass default of 100 -- otherwise t_stability_s and
         t_generalizability_s are timed against a different-sized random
@@ -413,26 +363,14 @@ class TestRuntimeCapture:
         test_carve_receives_the_scenario_n_trees, but with timing_fits=True
         so it actually reaches the timed-fit branch.
         """
-        import benchmarks._run as run_module
-
         scenario = dataclasses.replace(tiny_scenario, n_trees=500)
-
-        seen_n_trees = []
-        original = run_module.CARVE
-
-        class RecordingCarve(original):
-            def __init__(self, *args, **kwargs):
-                seen_n_trees.append(kwargs.get("n_trees"))
-                super().__init__(*args, **kwargs)
-
-        monkeypatch.setattr(run_module, "CARVE", RecordingCarve)
         _cell(scenario, timing_fits=True)
 
         # One CARVE for the default-mode fit, plus one per timed mode.
-        assert seen_n_trees == [500, 500, 500]
+        assert [k.get("n_trees") for k in recording_carve.init_kwargs] == [500, 500, 500]
 
-    def test_per_k_runtimes_divide_by_the_candidate_count(self, tiny_scenario):
-        _, runtime = _cell(tiny_scenario, timing_fits=True)
+    def test_per_k_runtimes_divide_by_the_candidate_count(self, tiny_scenario, cell10_timed):
+        _, runtime = cell10_timed
         n_k = len(tiny_scenario.candidate_k)
         assert runtime["t_per_k_stability_s"] == pytest.approx(
             runtime["t_stability_s"] / n_k
@@ -441,10 +379,10 @@ class TestRuntimeCapture:
             runtime["t_generalizability_s"] / n_k
         )
 
-    def test_timing_fits_do_not_change_the_metric_rows(self, tiny_scenario):
+    def test_timing_fits_do_not_change_the_metric_rows(self, cell10, cell10_timed):
         """The timed fits are discarded; only the default fit feeds metrics."""
-        without, _ = _cell(tiny_scenario)
-        with_timing, _ = _cell(tiny_scenario, timing_fits=True)
+        without, _ = cell10
+        with_timing, _ = cell10_timed
         assert [r["metric_value"] for r in without] == [
             r["metric_value"] for r in with_timing
         ]
@@ -457,13 +395,10 @@ class TestRuntimeCapture:
         messages = [str(w.message) for w in recwarn]
         assert not any("Non-default mode is experimental" in m for m in messages)
 
-    def test_run_scenario_writes_a_runtime_row_per_cell(self, tiny_scenario, tmp_path):
+    def test_run_scenario_writes_a_runtime_row_per_cell(self, tiny_scenario, completed):
         from benchmarks._artifacts import read_runtimes
 
-        # See the comment in _cell: below roughly 7 resamples,
-        # consensus_gini_stability/consensus_ce_stability come back all-NaN
-        # and CARVE.get_k raises.
-        rd = run_scenario(tiny_scenario, root=tmp_path, n_resamples=10)
+        _, rd = completed
         runtimes = read_runtimes(rd)
         assert len(runtimes) == len(tiny_scenario.axis) * tiny_scenario.n_seeds
 
