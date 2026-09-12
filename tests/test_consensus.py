@@ -1,10 +1,13 @@
 """Tests for carve._consensus module."""
 
+import warnings
+
 import numpy as np
 import pytest
 
 from carve._consensus import (
     _default_anchor_chunk_size,
+    _row_nanmean,
     compute_consensus_matrix,
     compute_consensus_metrics,
     compute_consensus_pac,
@@ -132,6 +135,30 @@ class TestReorderConsensusMatrix:
 
 
 # -----------------------------------------------------------------------
+# _row_nanmean
+# -----------------------------------------------------------------------
+
+
+class TestRowNanmean:
+    def test_matches_nanmean_wherever_nanmean_is_defined(self):
+        rng = np.random.RandomState(0)
+        a = rng.rand(50, 40)
+        a[rng.rand(50, 40) < 0.3] = np.nan
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            expected = np.nanmean(a, axis=1)
+        np.testing.assert_array_equal(_row_nanmean(a), expected)
+
+    def test_all_nan_row_is_nan_and_does_not_warn(self):
+        a = np.array([[0.2, np.nan, 0.6], [np.nan, np.nan, np.nan]])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            out = _row_nanmean(a)
+        assert out[0] == pytest.approx(0.4)
+        assert np.isnan(out[1])
+
+
+# -----------------------------------------------------------------------
 # stability_from_consensus
 # -----------------------------------------------------------------------
 
@@ -176,6 +203,25 @@ class TestStabilityFromConsensus:
         gini, ce = stability_from_consensus(M)
         assert gini.shape == (3,)
         assert not np.any(np.isnan(gini))
+
+    def test_isolated_sample_scores_nan_without_warning(self):
+        # Sample 2 was never co-sampled with anyone: its off-diagonal row is
+        # all NaN, so it has no partners to average over. NaN is the right
+        # score; the old nanmean call warned "Mean of empty slice" here.
+        M = np.array(
+            [
+                [1.0, 0.8, np.nan],
+                [0.8, 1.0, np.nan],
+                [np.nan, np.nan, 1.0],
+            ]
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            gini, ce = stability_from_consensus(M)
+        assert np.isfinite(gini[:2]).all()
+        assert np.isfinite(ce[:2]).all()
+        assert np.isnan(gini[2])
+        assert np.isnan(ce[2])
 
 
 # -----------------------------------------------------------------------
@@ -448,3 +494,20 @@ class TestStabilityFromRunsAnchored:
 
         assert np.allclose(shuffled_gini, sorted_gini, equal_nan=True)
         assert np.allclose(shuffled_ce, sorted_ce, equal_nan=True)
+
+    def test_sample_never_cosampled_with_an_anchor_is_nan_without_warning(self):
+        # Every run draws from the first 29 samples, so sample 29 shares no
+        # run with any anchor and its n-by-m row is entirely NaN.
+        n = 30
+        rng = np.random.default_rng(0)
+        runs = []
+        for _ in range(6):
+            idx = np.sort(rng.choice(n - 1, size=18, replace=False))
+            runs.append((idx, rng.integers(0, 3, idx.size)))
+        anchors = np.arange(10)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            gini, ce = stability_from_runs_anchored(n, runs, anchors)
+        assert np.isnan(gini[n - 1])
+        assert np.isnan(ce[n - 1])
+        assert np.isfinite(gini[:10]).all()

@@ -106,6 +106,23 @@ def reorder_consensus_matrix(
     return consensus_matrix[np.ix_(order, order)], order
 
 
+def _row_nanmean(a: np.ndarray) -> np.ndarray:
+    """Mean of each row ignoring NaN, and NaN for a row with no finite entry.
+
+    Returns exactly what ``np.nanmean(a, axis=1)`` returns, without the
+    ``Mean of empty slice`` warning nanmean emits on every all-NaN row. Such
+    rows are routine at small ``n_resamples``: a sample that was never
+    co-sampled with any partner has nothing to average, and NaN is its score.
+    """
+    valid = ~np.isnan(a)
+    count = valid.sum(axis=1)
+    total = np.where(valid, a, 0.0).sum(axis=1)
+    out = np.full(a.shape[0], np.nan, dtype=float)
+    has_partner = count > 0
+    out[has_partner] = total[has_partner] / count[has_partner]
+    return out
+
+
 def compute_consensus_metrics(
     consensus_matrices: list[np.ndarray],
 ) -> tuple[list[np.ndarray], list[np.ndarray], list[float]]:
@@ -166,8 +183,8 @@ def stability_from_consensus(
     entropy = -(clipped * np.log(clipped) + (1.0 - clipped) * np.log(1.0 - clipped))
 
     # Gini uncertainty in [0, 0.5]; CE uncertainty in [0, log2]
-    uncertainty_gini = 2.0 * np.nanmean(term, axis=1)
-    uncertainty_ce = np.nanmean(entropy, axis=1)
+    uncertainty_gini = 2.0 * _row_nanmean(term)
+    uncertainty_ce = _row_nanmean(entropy)
 
     # Rescale to [0, 1] stability scores
     stability_gini = 1.0 - np.clip(2.0 * uncertainty_gini, 0.0, 1.0)
@@ -372,8 +389,8 @@ def stability_from_runs_anchored(
         clipped = np.clip(probs, 1e-12, 1.0 - 1e-12)
         entropy = -(clipped * np.log(clipped) + (1.0 - clipped) * np.log(1.0 - clipped))
 
-        uncertainty_gini = 2.0 * np.nanmean(term, axis=1)
-        uncertainty_ce = np.nanmean(entropy, axis=1)
+        uncertainty_gini = 2.0 * _row_nanmean(term)
+        uncertainty_ce = _row_nanmean(entropy)
 
         stability_gini[lo:hi] = 1.0 - np.clip(2.0 * uncertainty_gini, 0.0, 1.0)
         stability_ce[lo:hi] = 1.0 - np.clip(uncertainty_ce / np.log(2.0), 0.0, 1.0)
