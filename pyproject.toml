@@ -120,6 +120,9 @@ filterwarnings = [
   # Hit by CARVE.save and CARVE.load. Drop once joblib stops doing it.
   "ignore:Setting the shape on a NumPy array:DeprecationWarning:joblib",
 ]
+markers = [
+  "requires_graph: needs the [graph] extra (igraph + leidenalg); skipped without it",
+]
 
 [tool.coverage.run]
 source = ["carve"]

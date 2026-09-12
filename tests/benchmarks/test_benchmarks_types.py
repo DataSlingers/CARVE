@@ -1,11 +1,4 @@
-"""Tests for the leaf dataclasses in benchmarks._types.
-
-Named test_benchmarks_types.py rather than test_types.py to keep the basename
-unique against tests/test_types.py: pytest's default prepend import mode
-aborts the whole suite with an "import file mismatch" error when two test
-modules share a basename and neither tests/ nor tests/benchmarks/ is a
-package.
-"""
+"""Tests for the leaf dataclasses in benchmarks._types."""
 
 import pytest
 

@@ -22,8 +22,6 @@ import carve.api as carve_api
 from carve import CARVE, LeidenClustering, LouvainClustering
 from carve._utils import resolve_anchors
 
-from conftest import requires_graph
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -646,7 +644,7 @@ def fitted_resolution(X_res_blobs):
     return carve
 
 
-@requires_graph
+@pytest.mark.requires_graph
 class TestResolutionMode:
     def test_sweep_spec_recorded(self, fitted_resolution):
         sweep = fitted_resolution.sweep_

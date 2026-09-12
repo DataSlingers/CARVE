@@ -14,8 +14,6 @@ from carve.cluster import (
     build_knn_graph,
 )
 
-from conftest import requires_graph
-
 
 @pytest.fixture()
 def X_blobs():
@@ -261,7 +259,7 @@ class TestNonConvex:
 # -----------------------------------------------------------------------
 
 
-@requires_graph
+@pytest.mark.requires_graph
 class TestBuildKnnGraph:
     def test_vertex_count(self, X_blobs):
         graph = build_knn_graph(X_blobs, n_neighbors=10)
@@ -306,7 +304,7 @@ class TestBuildKnnGraph:
 # -----------------------------------------------------------------------
 
 
-@requires_graph
+@pytest.mark.requires_graph
 class TestLeidenClustering:
     def test_interface(self):
         est = LeidenClustering()
@@ -401,7 +399,7 @@ class TestLeidenClustering:
 # -----------------------------------------------------------------------
 
 
-@requires_graph
+@pytest.mark.requires_graph
 class TestLouvainClustering:
     def test_interface(self):
         est = LouvainClustering()

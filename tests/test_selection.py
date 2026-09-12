@@ -18,7 +18,7 @@ from carve._selection import (
     select_best_row_quantile,
 )
 
-from conftest import with_sweep_cols
+from tests._helpers import with_sweep_cols
 
 
 # -----------------------------------------------------------------------

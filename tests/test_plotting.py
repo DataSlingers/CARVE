@@ -22,7 +22,7 @@ from carve._plotting import (
     plot_metric_over_n_clusters,
 )
 
-from conftest import with_sweep_cols
+from tests._helpers import with_sweep_cols
 
 
 @pytest.fixture()
