@@ -198,6 +198,13 @@ class TestFitOrLoadCarveFingerprint:
         fit_or_load_carve(X + 1.0, y, cache_path=cache, model_grids=grids, n_resamples=3)
         assert cache.stat().st_mtime_ns == mtime
 
+    # CARVE.load here also hits joblib's shape-deprecation warning (the one
+    # pyproject.toml ignores for CARVE.save/load), but pytest.warns always
+    # re-emits an unmatched warning under a fixed module of "warnings", not
+    # the issuing frame, so that module-scoped ignore can never match here.
+    @pytest.mark.filterwarnings(
+        "ignore:Setting the shape on a NumPy array:DeprecationWarning"
+    )
     def test_a_cache_without_a_fingerprint_warns_and_loads(self, blobs, tmp_path):
         # Fits cached before the fingerprint existed have no record to
         # check against; refusing them would throw away hours of compute,
@@ -208,16 +215,7 @@ class TestFitOrLoadCarveFingerprint:
         fit_or_load_carve(X, y, cache_path=cache, model_grids=grids, n_resamples=3)
         for sidecar in tmp_path.glob("demo.carve.*"):
             sidecar.unlink()
-        # CARVE.load also hits joblib's shape-deprecation warning (see the
-        # pyproject.toml ignore for CARVE.save/load); pytest 8+ re-emits any
-        # warning a pytest.warns block did not name, and re-emission resolves
-        # the warning's module from its filename rather than the issuing
-        # frame, so the module-scoped ignore does not match on re-emission.
-        # Both warnings must be named here.
-        with (
-            pytest.warns(UserWarning, match="fingerprint"),
-            pytest.warns(DeprecationWarning, match="Setting the shape on a NumPy array"),
-        ):
+        with pytest.warns(UserWarning, match="fingerprint"):
             carve = fit_or_load_carve(
                 X, y, cache_path=cache, model_grids=grids, n_resamples=3
             )
