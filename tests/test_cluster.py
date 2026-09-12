@@ -253,6 +253,31 @@ class TestNonConvex:
         ari = adjusted_rand_score(y_true, labels)
         assert ari > 0.90
 
+    def test_sparse_path_is_reproducible_for_a_fixed_seed(self):
+        """n=1000 is the first size that takes the eigsh branch.
+
+        test_regression.py records that ARPACK draws its start vector from
+        the global NumPy RNG, so two fits could disagree. Under scipy 1.16
+        they do not; if this ever fails, mark it xfail(strict=True) with the
+        scipy version in the reason rather than loosening it.
+        """
+        X, _ = make_moons(1000, noise=0.05, random_state=0)
+        first = SpectralClustering(n_clusters=2, random_state=0).fit_predict(X)
+        second = SpectralClustering(n_clusters=2, random_state=0).fit_predict(X)
+        np.testing.assert_array_equal(first, second)
+
+    def test_sparse_path_recovers_moons(self):
+        X, y_true = make_moons(1000, noise=0.05, random_state=0)
+        labels = SpectralClustering(n_clusters=2, random_state=0).fit_predict(X)
+        assert adjusted_rand_score(y_true, labels) > 0.9
+
+    def test_dense_path_just_below_the_sparse_threshold(self):
+        # The boundary is n < 1000 dense, n >= 1000 sparse; both must agree
+        # on the planted structure so the switch is invisible to a caller.
+        X, y_true = make_moons(999, noise=0.05, random_state=0)
+        labels = SpectralClustering(n_clusters=2, random_state=0).fit_predict(X)
+        assert adjusted_rand_score(y_true, labels) > 0.9
+
 
 # -----------------------------------------------------------------------
 # build_knn_graph
