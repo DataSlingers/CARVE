@@ -1984,6 +1984,14 @@ class TestRandomizedPreprocessing:
         assert len(carve.estimator_results_) == 2
         assert carve.get_labels().shape == (80,)
 
+    def test_verbose_header_names_the_resolved_options(self, X_two_clusters, capsys):
+        self.make(n_resamples=2, verbose=2).fit(
+            X_two_clusters, randomize_preprocessing=True
+        )
+        out = capsys.readouterr().out
+        assert "[CARVE] normalization      : identity, StandardScaler\n" in out
+        assert "[CARVE] dim_reduction      : identity, PCA\n" in out
+
     def test_none_without_randomization(self, X_two_clusters):
         carve = self.make().fit(X_two_clusters)
         assert carve.preprocessing_results_ is None

@@ -8,8 +8,9 @@ from sklearn.base import ClusterMixin
 from sklearn.model_selection import ParameterGrid
 from tqdm.auto import tqdm
 
+from ._pipeline import option_label
 from ._sweep import SweepSpec
-from ._types import EstimatorRecord, GridSpec
+from ._types import EstimatorRecord, GridSpec, PreprocOption
 
 
 def _print_run_header(
@@ -22,6 +23,8 @@ def _print_run_header(
     randomize_preprocessing: bool,
     random_state: int | None,
     verbose: int,
+    normalization_options: list[PreprocOption] | None = None,
+    dim_reduction_options: list[PreprocOption] | None = None,
 ) -> None:
     """Print a standard header describing the validation configuration.
 
@@ -45,6 +48,10 @@ def _print_run_header(
         Random seed.
     verbose : int
         Verbosity level; prints only if >= 2.
+    normalization_options : list, optional
+        Normalization options of a randomized fit, listed by name.
+    dim_reduction_options : list, optional
+        Dimensionality reduction options of a randomized fit, listed by name.
     """
     if verbose < 2:
         return
@@ -63,6 +70,11 @@ def _print_run_header(
     print(f"[CARVE] n_jobs             : {n_jobs}")
     print(f"[CARVE] total configs      : {total_configs}")
     print(f"[CARVE] randomize_preproc  : {randomize_preprocessing}")
+    if randomize_preprocessing:
+        norm_names = ", ".join(option_label(o) for o in normalization_options or [])
+        dr_names = ", ".join(option_label(o) for o in dim_reduction_options or [])
+        print(f"[CARVE] normalization      : {norm_names}")
+        print(f"[CARVE] dim_reduction      : {dr_names}")
     print(f"[CARVE] random_state       : {random_state}")
     print(f"[CARVE] {line}")
     print("\n[CARVE] Starting validation ...\n")

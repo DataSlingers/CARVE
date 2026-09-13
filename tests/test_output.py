@@ -3,6 +3,9 @@
 import numpy as np
 import pandas as pd
 from sklearn.cluster import KMeans
+from sklearn.preprocessing import FunctionTransformer, StandardScaler
+from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
 
 from carve._output import _log_config_progress, _print_run_footer, _print_run_header
 from carve._sweep import resolve_sweep
@@ -72,6 +75,48 @@ class TestPrintRunHeader:
         assert "sweep parameter" in out
         assert "resolution" in out
         assert "n_clusters" not in out
+
+    def test_randomized_header_names_the_options(self, capsys):
+        _print_run_header(
+            X=np.zeros((10, 3)),
+            sweep=resolve_sweep(n_clusters=np.array([2, 3])),
+            n_resamples=5,
+            subsample_ratio=0.8,
+            estimator_grids=[(KMeans, {"n_clusters": [2, 3]})],
+            n_jobs=1,
+            randomize_preprocessing=True,
+            random_state=0,
+            verbose=2,
+            normalization_options=[
+                (FunctionTransformer, {}),
+                (FunctionTransformer, {"func": [np.log1p]}),
+            ],
+            dim_reduction_options=[
+                (PCA, {"n_components": [2]}),
+                (TSNE, "tsne", {"perplexity": [30]}),
+            ],
+        )
+        out = capsys.readouterr().out
+        assert "[CARVE] normalization      : identity, log1p\n" in out
+        assert "[CARVE] dim_reduction      : PCA, tsne\n" in out
+
+    def test_header_lists_no_options_without_randomization(self, capsys):
+        _print_run_header(
+            X=np.zeros((10, 3)),
+            sweep=resolve_sweep(n_clusters=np.array([2, 3])),
+            n_resamples=5,
+            subsample_ratio=0.8,
+            estimator_grids=[(KMeans, {"n_clusters": [2, 3]})],
+            n_jobs=1,
+            randomize_preprocessing=False,
+            random_state=0,
+            verbose=2,
+            normalization_options=[(StandardScaler, {})],
+            dim_reduction_options=[(PCA, {"n_components": [2]})],
+        )
+        out = capsys.readouterr().out
+        assert "normalization" not in out
+        assert "dim_reduction" not in out
 
 
 class TestPrintRunFooter:

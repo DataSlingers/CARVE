@@ -224,6 +224,13 @@ class CARVE(BaseEstimator):
     measures stability (intra-subsample ARI and consensus-matrix metrics)
     and generalizability (held-out prediction via a random forest).
 
+    Under ``fit(randomize_preprocessing=True)`` each resample's pipeline is
+    fit separately on each subsample, and the generalizability classifier
+    trains on raw features. The S1 Text submitted with the manuscript
+    describes an earlier version that fit the pipeline once on all of X and
+    trained the classifier on the embedding, and names the per-pipeline
+    table ``pipeline_df_``; the table is ``preprocessing_results_``.
+
     See Also
     --------
     SpectralClustering : Custom spectral clustering variant included
@@ -338,9 +345,33 @@ class CARVE(BaseEstimator):
             Reference labels used for generalizability metrics.
             Overrides the ``reference_labels`` passed at __init__ if given.
         randomize_preprocessing : bool, default=False
-            Whether to randomize preprocessing pipelines. When True, a
-            random normalization and dimensionality reduction combination
-            is sampled independently for each resample iteration.
+            Draw a preprocessing pipeline per resample, so that stability and
+            generalizability reflect preprocessing choice as well as
+            sampling. Pipelines are allocated evenly: each (normalization,
+            dimensionality reduction) option pair is used in floor or ceil
+            of ``n_resamples / n_pairs`` resamples, in a seeded random order,
+            with hyperparameters drawn per resample. A resample's pipeline is
+            fit separately on each of its subsamples, the two clustered
+            subsamples and the held-out set, so an embedding that does not
+            reproduce across independent fits lowers both criteria. Each
+            pipeline is fit once per resample, not once per configuration.
+
+            The generalizability classifier trains on the raw features of
+            the first subsample, with the labels clustered from its
+            embedding, and predicts the raw held-out features. A cluster
+            that exists only in an embedding therefore does not generalize,
+            and transformers without a ``transform`` method, such as t-SNE,
+            can take part. A user-supplied ``classifier`` sees unnormalized
+            features, which matters if it is not invariant to feature
+            scaling; the default random forest is.
+
+            Every embedding is held in memory for the duration of the fit,
+            about ``8 * n_resamples * (n_1 + n_2 + n_test) * d`` bytes, where
+            the n are the subsample sizes and d is the embedded dimension:
+            roughly 320 MB at n=5,000 with ``n_resamples=100``,
+            ``subsample_ratio=0.618`` and a 50-dimensional identity pipeline,
+            negligible for 2-D embeddings. Results are in
+            ``preprocessing_results_`` and ``preprocessing_pipelines_``.
         show_progress : bool, default=False
             Display a tqdm progress bar over grid configurations.
         mode : {"default", "stability", "generalizability"}, default="default"
@@ -522,6 +553,8 @@ class CARVE(BaseEstimator):
             randomize_preprocessing=randomize_preprocessing,
             random_state=self._random_state_,
             verbose=self.verbose,
+            normalization_options=norm_options,
+            dim_reduction_options=dr_options,
         )
 
         # --- Run validation loop ---
