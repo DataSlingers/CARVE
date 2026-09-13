@@ -285,59 +285,99 @@ def cluster_labels(
 def summarize_preprocessing_records(
     pipeline_records: list[dict[str, Any]],
     sweep_param: str = "n_clusters",
-) -> pd.DataFrame:
-    """Summarize randomized preprocessing records.
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Summarize a randomized run per configuration, pipeline and sweep value.
 
     Parameters
     ----------
     pipeline_records : list of dict
-        Records from randomized preprocessing runs.
+        One record per configuration, as ``_runner.run_validation`` returns
+        them: ``method_id``, ``method_label``, ``sweep_value``,
+        ``sweep_rank`` and ``results``, the configuration's per-resample
+        results, each carrying the ``pipeline`` it used.
     sweep_param : str, default="n_clusters"
-        Name of the swept hyperparameter used as the grouping key.
+        Name of the swept hyperparameter, used to name the sweep column.
 
     Returns
     -------
     summary : pandas.DataFrame
-        Mean ARI metrics grouped by normalization, DR, and the sweep value.
+        One row per (configuration, pipeline, sweep value), sorted by
+        ``method_id``, ``pipeline`` and sweep value. Means and standard
+        errors are over the resamples that used the row's pipeline at the
+        row's configuration only, and ``n_resamples`` counts them.
+    pipelines : dict
+        The pipeline specs, keyed by the ``pipeline`` column.
     """
-    rows = []
+    columns = [
+        "method_id",
+        "method_label",
+        "pipeline",
+        "normalization",
+        "dim_reduction",
+        sweep_param,
+        "n_resamples",
+        "ari_stability",
+        "ari_stability_se",
+        "ari_generalizability",
+        "ari_generalizability_se",
+        "n_clusters_observed",
+        "sweep_param",
+        "sweep_value",
+        "sweep_rank",
+    ]
+    rows: list[dict[str, Any]] = []
+    pipelines: dict[str, Any] = {}
+
     for record in pipeline_records:
-        params = record["params"]
-        sweep_value = params[sweep_param]
+        # Group the configuration's resamples by pipeline. The spec is
+        # duck-typed on .label: _utils is a leaf and cannot import _pipeline.
+        by_pipeline: dict[str, list[Any]] = {}
+        for result in record["results"]:
+            label = result.pipeline.label
+            pipelines.setdefault(label, result.pipeline)
+            by_pipeline.setdefault(label, []).append(result)
 
-        for r in record["results"]:
-            ari_s = r.ari_stability
-            ari_g = r.ari_generalizability
-            norm_p = r.normalization_params
-            dr_p = r.dim_reduction_params
-            norm_name = r.normalization_name
-            dr_name = r.dim_reduction_name
-
-            if norm_name != "FunctionTransformer":
-                norm_label = norm_name
-            else:
-                func = norm_p.get("func", None)
-                norm_label = func.__name__ if func is not None else "identity"
-
-            if dr_name != "FunctionTransformer":
-                dr_label = dr_name
-            else:
-                func = dr_p.get("func", None)
-                dr_label = func.__name__ if func is not None else "identity"
-
+        for label, runs in by_pipeline.items():
+            spec = pipelines[label]
+            stab_mean, stab_se, _, _ = _summarize_ari_scores(
+                [r.ari_stability for r in runs], len(runs)
+            )
+            gen_mean, gen_se, _, _ = _summarize_ari_scores(
+                [r.ari_generalizability for r in runs], len(runs)
+            )
             rows.append(
                 {
-                    sweep_param: sweep_value,
-                    "norm__func": norm_label,
-                    "dr__method": dr_label,
-                    "ari_stability": ari_s,
-                    "ari_generalizability": ari_g,
+                    "method_id": record["method_id"],
+                    "method_label": record["method_label"],
+                    "pipeline": label,
+                    "normalization": spec.normalization.label,
+                    "dim_reduction": spec.dim_reduction.label,
+                    sweep_param: record["sweep_value"],
+                    "n_resamples": len(runs),
+                    "ari_stability": stab_mean,
+                    "ari_stability_se": stab_se,
+                    "ari_generalizability": gen_mean,
+                    "ari_generalizability_se": gen_se,
+                    "n_clusters_observed": float(
+                        np.mean([r.n_clusters_train for r in runs])
+                    ),
+                    "sweep_param": sweep_param,
+                    "sweep_value": record["sweep_value"],
+                    "sweep_rank": record["sweep_rank"],
                 }
             )
 
-    dfp = pd.DataFrame(rows)
+    summary = pd.DataFrame(rows, columns=columns)
+    if summary.empty:
+        return summary, pipelines
 
-    return dfp.groupby(["norm__func", "dr__method", sweep_param], as_index=False).mean()
+    # method_id is "m<n>"; sort on n so that m10 follows m9.
+    summary = summary.sort_values(
+        ["method_id", "pipeline", "sweep_value"],
+        key=lambda col: col.str[1:].astype(int) if col.name == "method_id" else col,
+        kind="stable",
+    ).reset_index(drop=True)
+    return summary, pipelines
 
 
 def align_cluster_labels(

@@ -9,6 +9,7 @@ import pytest
 from sklearn.cluster import HDBSCAN, AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
 from sklearn.dummy import DummyClassifier
+from sklearn.manifold import TSNE
 from sklearn.metrics import adjusted_rand_score
 from sklearn.preprocessing import FunctionTransformer, StandardScaler
 
@@ -16,8 +17,9 @@ import carve._runner as carve_runner
 import carve._utils as carve_utils
 import carve.api as carve_api
 from carve import CARVE, LeidenClustering, LouvainClustering
+from carve._pipeline import PipelineSpec, pipeline_from_spec
 from carve._utils import resolve_anchors
-from tests._helpers import make_njobs_spy, make_seed_spy
+from tests._helpers import make_njobs_spy, make_noise_embedding, make_seed_spy
 from tests.fixtures.nonrandomized_gate import (
     GATE_KEYS,
     GATE_PATH,
@@ -503,6 +505,7 @@ class TestRefit:
         assert carve.consensus_anchors_ is not None
         assert "min_cluster_size" in carve.estimator_results_.columns
         assert carve.preprocessing_results_ is not None
+        assert carve.preprocessing_pipelines_ is not None
 
         carve.sweep = None
         carve.sweep_values = None
@@ -515,6 +518,7 @@ class TestRefit:
         assert carve.sweep_.param == "n_clusters"
         assert "min_cluster_size" not in carve.estimator_results_.columns
         assert carve.preprocessing_results_ is None
+        assert carve.preprocessing_pipelines_ is None
         assert carve.consensus_matrices_[0].shape == (120, 120)
         np.testing.assert_array_equal(carve.reference_labels, np.repeat([1, 0, 2], 40))
 
@@ -1856,46 +1860,144 @@ class TestExactPathUnchanged:
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(scope="module")
+def randomized_fit():
+    """A randomized fit over two estimators, two k and four pipelines."""
+    rng = np.random.RandomState(1)
+    X = np.vstack([rng.randn(30, 5) + [4, 0, 0, 0, 0], rng.randn(30, 5) + [0, 4, 0, 0, 0]])
+    return X, TestRandomizedPreprocessing.make().fit(X, randomize_preprocessing=True)
+
+
 class TestRandomizedPreprocessing:
-    """fit(randomize_preprocessing=True) samples a normalization and a
-    reduction per resample and summarizes them in preprocessing_results_.
-    Explicit option lists keep the defaults' t-SNE and UMAP out of the test.
+    """fit(randomize_preprocessing=True) allocates one pipeline per resample,
+    fits it on each subsample, and reports metrics per pipeline. Explicit
+    option lists keep the defaults' t-SNE and UMAP out of most tests.
     """
 
-    def _make(self):
-        return CARVE(
+    @staticmethod
+    def make(**kwargs):
+        options = dict(
             n_clusters=np.array([2, 3]),
-            n_resamples=4,
-            estimator_param_grids=[(KMeans, {"n_clusters": [2, 3]})],
+            n_resamples=8,
+            estimator_param_grids=[
+                (KMeans, {"n_clusters": [2, 3], "n_init": [3]}),
+                (AgglomerativeClustering, {"n_clusters": [2, 3], "linkage": ["ward"]}),
+            ],
             normalization_options=[(FunctionTransformer, {}), (StandardScaler, {})],
-            dim_reduction_options=[(FunctionTransformer, {}), (PCA, {"n_components": [2, 3]})],
+            dim_reduction_options=[
+                (FunctionTransformer, {}),
+                (PCA, {"n_components": [2, 3]}),
+            ],
             random_state=0,
             verbose=0,
         )
+        options.update(kwargs)
+        return CARVE(**options)
 
-    def test_summary_groups_on_the_sweep_parameter(self, X_two_clusters):
-        carve = self._make().fit(X_two_clusters, randomize_preprocessing=True)
+    def test_results_schema(self, randomized_fit):
+        _, carve = randomized_fit
         df = carve.preprocessing_results_
         assert list(df.columns) == [
-            "norm__func",
-            "dr__method",
+            "method_id",
+            "method_label",
+            "pipeline",
+            "normalization",
+            "dim_reduction",
             "n_clusters",
+            "n_resamples",
             "ari_stability",
+            "ari_stability_se",
             "ari_generalizability",
+            "ari_generalizability_se",
+            "n_clusters_observed",
+            "sweep_param",
+            "sweep_value",
+            "sweep_rank",
         ]
-        assert set(df["norm__func"]) <= {"identity", "StandardScaler"}
-        assert set(df["dr__method"]) <= {"identity", "PCA"}
-        assert set(df["n_clusters"]) == {2, 3}
-        # More than one pipeline was actually drawn.
-        assert len(set(zip(df["norm__func"], df["dr__method"]))) > 1
+        # Every configuration is covered, and within one the per-pipeline
+        # counts add up to the run's resamples.
+        totals = df.groupby(["method_id", "n_clusters"])["n_resamples"].sum()
+        assert len(totals) == len(carve.estimator_results_)
+        assert (totals == 8).all()
+        assert df.groupby(["method_id", "n_clusters"])["pipeline"].nunique().min() > 1
+        # Joins to estimator_results_ on method_id and the sweep column.
+        keys = carve.estimator_results_[["method_id", "n_clusters", "config_id"]]
+        joined = df.merge(
+            keys, on=["method_id", "n_clusters"], how="left", validate="many_to_one"
+        )
+        assert joined["config_id"].notna().all()
 
-    def test_summary_is_reproducible_under_a_seed(self, X_two_clusters):
-        a = self._make().fit(X_two_clusters, randomize_preprocessing=True)
-        b = self._make().fit(X_two_clusters, randomize_preprocessing=True)
-        pd.testing.assert_frame_equal(a.preprocessing_results_, b.preprocessing_results_)
+    def test_rows_split_on_hyperparameters(self, randomized_fit):
+        _, carve = randomized_fit
+        reductions = set(carve.preprocessing_results_["dim_reduction"])
+        assert {"PCA(n_components=2)", "PCA(n_components=3)"} <= reductions
 
-    def test_summary_is_none_without_randomization(self, X_two_clusters):
-        assert self._make().fit(X_two_clusters).preprocessing_results_ is None
+    def test_pipelines_registry_matches_the_table(self, randomized_fit):
+        X, carve = randomized_fit
+        registry = carve.preprocessing_pipelines_
+        assert set(registry) == set(carve.preprocessing_results_["pipeline"])
+        for label, spec in registry.items():
+            assert isinstance(spec, PipelineSpec)
+            assert spec.label == label
+            embedded = pipeline_from_spec(spec, random_state=0).fit_transform(X)
+            assert embedded.shape[0] == X.shape[0]
+
+    def test_same_seed_reproduces_and_another_seed_does_not(self, X_two_clusters):
+        noise = make_noise_embedding()
+
+        def fit(seed):
+            model = self.make(
+                normalization_options=[(FunctionTransformer, {})],
+                dim_reduction_options=[(noise, {})],
+                random_state=seed,
+            )
+            model.fit(X_two_clusters, randomize_preprocessing=True)
+            return model.preprocessing_results_
+
+        a, b, c = fit(0), fit(0), fit(1)
+        pd.testing.assert_frame_equal(a, b)
+        assert not np.allclose(a["ari_stability"], c["ari_stability"])
+
+    def test_tsne_runs_end_to_end(self):
+        """t-SNE has no transform method; the per-subsample fit and the
+        raw-feature classifier are what let it take part at all."""
+        assert not hasattr(TSNE, "transform")
+        rng = np.random.RandomState(0)
+        X = np.vstack([rng.randn(40, 5) + [5, 0, 0, 0, 0], rng.randn(40, 5)])
+        carve = CARVE(
+            n_clusters=np.array([2, 3]),
+            n_resamples=4,
+            estimator_param_grids=[(KMeans, {"n_clusters": [2, 3], "n_init": [3]})],
+            normalization_options=[(FunctionTransformer, {})],
+            dim_reduction_options=[
+                (FunctionTransformer, {}),
+                (TSNE, {"n_components": [2], "perplexity": [15]}),
+            ],
+            random_state=0,
+        ).fit(X, randomize_preprocessing=True)
+        tsne = "identity | TSNE(n_components=2, perplexity=15)"
+        assert set(carve.preprocessing_results_["pipeline"]) == {
+            "identity | identity",
+            tsne,
+        }
+        assert tsne in carve.preprocessing_pipelines_
+        assert len(carve.estimator_results_) == 2
+        assert carve.get_labels().shape == (80,)
+
+    def test_none_without_randomization(self, X_two_clusters):
+        carve = self.make().fit(X_two_clusters)
+        assert carve.preprocessing_results_ is None
+        assert carve.preprocessing_pipelines_ is None
+
+    def test_registry_survives_save_and_load(self, randomized_fit, tmp_path):
+        _, carve = randomized_fit
+        path = tmp_path / "randomized.carve"
+        carve.save(path)
+        loaded = CARVE.load(path)
+        assert loaded.preprocessing_pipelines_ == carve.preprocessing_pipelines_
+        pd.testing.assert_frame_equal(
+            loaded.preprocessing_results_, carve.preprocessing_results_
+        )
 
 
 class TestShowProgress:

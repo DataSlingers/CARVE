@@ -19,6 +19,7 @@ from ._grids import (
     default_normalization_options,
 )
 from ._output import _print_run_footer, _print_run_header
+from ._pipeline import PipelineSpec
 from ._plotting import (
     _get_annotation,
 )
@@ -177,7 +178,23 @@ class CARVE(BaseEstimator):
     estimator_param_grids_ : list of tuple
         Resolved estimator grids used during fitting.
     preprocessing_results_ : pandas.DataFrame or None
-        Preprocessing summary when ``randomize_preprocessing=True``.
+        Per-pipeline metrics when ``randomize_preprocessing=True``, else None.
+        One row per (estimator configuration, pipeline, sweep value); joins to
+        ``estimator_results_`` on ``method_id`` and the sweep column. Columns:
+        ``method_id`` and ``method_label``; ``pipeline``, the key into
+        ``preprocessing_pipelines_``; ``normalization`` and ``dim_reduction``,
+        the step labels with their hyperparameters; the sweep column
+        (``n_clusters``, ``resolution``, ...); ``n_resamples``, the resamples
+        this pipeline received at this configuration; ``ari_stability``,
+        ``ari_generalizability`` and their ``_se`` columns, over those
+        resamples only; ``n_clusters_observed``; and the ``sweep_param``,
+        ``sweep_value`` and ``sweep_rank`` bookkeeping columns. The criterion
+        a non-default ``mode`` skips is NaN.
+    preprocessing_pipelines_ : dict of str to PipelineSpec, or None
+        The pipelines behind ``preprocessing_results_``, keyed by its
+        ``pipeline`` column, else None. ``carve._pipeline.pipeline_from_spec
+        (spec, random_state)`` rebuilds one as a scikit-learn ``Pipeline``,
+        for example to embed the full data with the best-rated pipeline.
     sweep_ : SweepSpec or None
         The resolved sweep axis used during fitting.
     consensus_matrices_ : list of ndarray
@@ -260,6 +277,9 @@ class CARVE(BaseEstimator):
     estimator_results_: pd.DataFrame | None = field(init=False, default=None)
     estimator_param_grids_: list[GridSpec] | None = field(init=False, default=None)
     preprocessing_results_: pd.DataFrame | None = field(init=False, default=None)
+    preprocessing_pipelines_: dict[str, PipelineSpec] | None = field(
+        init=False, default=None
+    )
     sweep_: SweepSpec | None = field(init=False, default=None)
 
     # --- Consensus matrices ---
@@ -474,7 +494,7 @@ class CARVE(BaseEstimator):
 
         # --- Resolve preprocessing options ---
         # The default option lists are only consumed when a random pipeline is
-        # sampled per resample (see _pipeline.build_preprocessing_pipeline), so
+        # allocated per resample (see _runner.run_validation), so
         # resolving them otherwise would import UMAP for nothing.
         norm_options = self.normalization_options or default_normalization_options()
         if self.dim_reduction_options is not None:
@@ -527,13 +547,15 @@ class CARVE(BaseEstimator):
 
         self.estimator_results_ = pd.DataFrame.from_records(estimator_records)
 
-        self.preprocessing_results_ = (
-            None
-            if not randomize_preprocessing
-            else summarize_preprocessing_records(
-                pipeline_records, sweep_param=sweep_spec.param
+        if randomize_preprocessing:
+            self.preprocessing_results_, self.preprocessing_pipelines_ = (
+                summarize_preprocessing_records(
+                    pipeline_records, sweep_param=sweep_spec.param
+                )
             )
-        )
+        else:
+            self.preprocessing_results_ = None
+            self.preprocessing_pipelines_ = None
 
         n_rows = int(self.estimator_results_.shape[0])
 

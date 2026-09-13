@@ -7,20 +7,31 @@ import numpy as np
 import pytest
 from sklearn.base import BaseEstimator, ClusterMixin
 from sklearn.cluster import HDBSCAN, AgglomerativeClustering, KMeans
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import FunctionTransformer
 
 import carve._runner as carve_runner
 import carve._utils as carve_utils
 from carve._consensus import compute_consensus_metrics
+from carve._pipeline import allocate_pipelines
 from carve._runner import (
     ResampleResult,
     _compute_generalizability_ari,
     _compute_stability_ari,
+    _resample_indices,
+    embed_resample,
     run_validation,
     validation_iter,
 )
 from carve._sweep import resolve_sweep
-from carve._types import ConsensusSummary, ModePolicy
-from tests._helpers import make_njobs_spy, make_parallel_spy
+from carve._types import ConsensusSummary, ModePolicy, resolve_mode
+from tests._helpers import (
+    make_fit_input_spy,
+    make_fit_recorder,
+    make_noise_embedding,
+    make_njobs_spy,
+    make_parallel_spy,
+)
 
 
 class _LabelStub(BaseEstimator, ClusterMixin):
@@ -110,10 +121,7 @@ class TestResampleResult:
             train_indices=np.array([0, 1]),
             test_indices=np.array([2, 3]),
             stability_indices=np.array([4, 5]),
-            normalization_params={},
-            dim_reduction_params={},
-            normalization_name="Identity",
-            dim_reduction_name="Identity",
+            pipeline=None,
             n_clusters_train=2,
             n_clusters_test=2,
             n_clusters_stability=2,
@@ -121,7 +129,7 @@ class TestResampleResult:
         )
         assert r.ari_stability == 0.8
         assert r.ari_generalizability == 0.7
-        assert r.normalization_name == "Identity"
+        assert r.pipeline is None
         assert r.n_clusters_train == 2
         assert r.noise_fraction == 0.0
 
@@ -244,13 +252,11 @@ class TestValidationIter:
             subsample_ratio=0.8,
             n_resamples=3,
             seed=0,
-            normalization_options=[],
-            dim_reduction_options=[],
-            randomize_preprocessing=False,
             mode="default",
             random_state=0,
         )
         assert isinstance(result, ResampleResult)
+        assert result.pipeline is None
         assert result.labels_train.shape[0] > 0
         assert result.train_indices.shape[0] > 0
         assert not np.isnan(result.ari_stability)
@@ -264,9 +270,6 @@ class TestValidationIter:
             subsample_ratio=0.8,
             n_resamples=3,
             seed=0,
-            normalization_options=[],
-            dim_reduction_options=[],
-            randomize_preprocessing=False,
             mode="stability",
             random_state=0,
         )
@@ -282,9 +285,6 @@ class TestValidationIter:
             subsample_ratio=0.8,
             n_resamples=3,
             seed=0,
-            normalization_options=[],
-            dim_reduction_options=[],
-            randomize_preprocessing=False,
             mode="generalizability",
             random_state=0,
         )
@@ -301,10 +301,7 @@ class TestValidationIter:
             subsample_ratio=0.8,
             n_resamples=3,
             seed=0,
-            normalization_options=[],
-            dim_reduction_options=[],
             classifier=spy(),
-            randomize_preprocessing=False,
             mode="default",
             random_state=0,
             classifier_n_jobs=5,
@@ -476,6 +473,24 @@ class TestRunValidationCoreBudget:
         assert self.parallel_spy.seen == [4]
         assert self.njobs_spy.seen == [2] * 6
 
+    def test_precompute_pass_uses_the_same_worker_count(self, X_two_clusters):
+        run_validation(
+            X=X_two_clusters,
+            estimator_grids=[(KMeans, {"n_clusters": [2, 3]})],
+            n_resamples=6,
+            subsample_ratio=0.8,
+            normalization_options=[(FunctionTransformer, {})],
+            dim_reduction_options=[(FunctionTransformer, {})],
+            classifier=self.njobs_spy(),
+            randomize_preprocessing=True,
+            n_jobs=4,
+            random_state=0,
+            verbose=0,
+        )
+        # One Parallel for the precompute pass, then one per configuration.
+        assert self.parallel_spy.seen == [4, 4, 4]
+        assert self.njobs_spy.seen == [2] * 12
+
     def test_budget_is_resolved_once_per_run(self, X_two_clusters):
         # Two configurations, one Parallel call each, the same split for both.
         self._run(X_two_clusters, n_jobs=4, n_clusters=(2, 3))
@@ -499,9 +514,6 @@ class TestValidationIterSweepMode:
             subsample_ratio=0.8,
             n_resamples=3,
             seed=0,
-            normalization_options=[],
-            dim_reduction_options=[],
-            randomize_preprocessing=False,
             mode="default",
             random_state=0,
             **kwargs,
@@ -752,3 +764,257 @@ class TestRunValidationAnchors:
             assert np.allclose(summary.gini, gini)
             assert np.allclose(summary.ce, ce)
             assert np.isclose(summary.pac, pac)
+
+
+# -----------------------------------------------------------------------
+# Randomized preprocessing: fit scope, precompute, classifier features
+# -----------------------------------------------------------------------
+
+
+def _indexed(X):
+    """X with each row's own index in column 0, so a recorder reads back
+    exactly which samples a matrix holds."""
+    X = np.array(X, dtype=float)
+    X[:, 0] = np.arange(X.shape[0])
+    return X
+
+
+class TestRandomizedFitScope:
+    """One pipeline per resample, fit separately on each subsample, once per
+    resample rather than once per configuration, with the classifier on raw
+    features.
+    """
+
+    N_RESAMPLES = 4
+    RATIO = 0.7
+
+    def _run(self, X, dr_class, *, n_clusters=(2,), mode="default", **kwargs):
+        kwargs.setdefault("random_state", 0)
+        return run_validation(
+            X=X,
+            estimator_grids=[
+                (KMeans, {"n_clusters": list(n_clusters), "n_init": [3]})
+            ],
+            n_resamples=self.N_RESAMPLES,
+            subsample_ratio=self.RATIO,
+            normalization_options=[(FunctionTransformer, {})],
+            dim_reduction_options=[(dr_class, {})],
+            randomize_preprocessing=True,
+            n_jobs=1,
+            mode=mode,
+            verbose=0,
+            **kwargs,
+        )
+
+    def _subsets(self, n, mode="default"):
+        """Every subset a run draws, in (P_1, P_2, P_test) order per resample,
+        skipping the ones the mode does not use."""
+        policy = resolve_mode(mode)
+        subsets = []
+        for b in range(self.N_RESAMPLES):
+            P_1, P_test, P_2 = _resample_indices(
+                n,
+                seed=b,
+                n_resamples=self.N_RESAMPLES,
+                subsample_ratio=self.RATIO,
+                random_state=0,
+                run_stability=policy.run_stability,
+            )
+            subsets.append(tuple(P_1))
+            if policy.run_stability:
+                subsets.append(tuple(P_2))
+            if policy.run_generalizability:
+                subsets.append(tuple(P_test))
+        return subsets
+
+    @pytest.mark.parametrize("mode", ["default", "stability", "generalizability"])
+    def test_each_subsample_is_fit_separately(self, X_two_clusters, mode):
+        recorder = make_fit_recorder()
+        X = _indexed(X_two_clusters)
+        self._run(X, recorder, mode=mode)
+        assert Counter(recorder.seen) == Counter(self._subsets(X.shape[0], mode))
+        assert X.shape[0] not in {len(rows) for rows in recorder.seen}
+
+    def test_once_per_resample_not_per_configuration(self, X_two_clusters):
+        recorder = make_fit_recorder()
+        self._run(_indexed(X_two_clusters), recorder, n_clusters=(2, 3))
+        assert len(recorder.seen) == self.N_RESAMPLES * 3
+
+    def test_classifier_fits_and_predicts_on_raw_features(self, X_two_clusters):
+        spy = make_fit_input_spy()
+        X = _indexed(X_two_clusters)
+        records, *_ = self._run(X, make_noise_embedding(), classifier=spy())
+
+        # The embedding is two columns of noise; the classifier must see the
+        # raw rows, all p columns, of P_1 when fitting and P_test when predicting.
+        assert [m.shape[1] for m in spy.fitted] == [X.shape[1]] * self.N_RESAMPLES
+        for m in spy.fitted + spy.predicted:
+            np.testing.assert_array_equal(m, X[m[:, 0].astype(int)])
+        subsets = self._subsets(X.shape[0], "generalizability")
+        assert Counter(tuple(m[:, 0].astype(int)) for m in spy.fitted) == Counter(
+            subsets[0::2]
+        )
+        assert Counter(tuple(m[:, 0].astype(int)) for m in spy.predicted) == Counter(
+            subsets[1::2]
+        )
+        assert np.isfinite(records[0]["ari_generalizability"])
+
+    def test_each_subset_gets_its_own_derived_seed(self, X_two_clusters):
+        noise = make_noise_embedding()
+        self._run(X_two_clusters, noise, random_state=10)
+        B = self.N_RESAMPLES
+        expected = [10 + b + offset for b in range(B) for offset in (0, B, 2 * B)]
+        assert sorted(noise.seen) == sorted(expected)
+
+    def test_records_carry_join_keys_and_the_allocated_pipelines(
+        self, X_two_clusters
+    ):
+        norm = [(FunctionTransformer, {})]
+        dr = [(FunctionTransformer, {}), (PCA, {"n_components": [2, 3]})]
+        records, pipeline_records, *_ = run_validation(
+            X=X_two_clusters,
+            estimator_grids=[(KMeans, {"n_clusters": [2, 3], "n_init": [3]})],
+            n_resamples=6,
+            subsample_ratio=0.7,
+            normalization_options=norm,
+            dim_reduction_options=dr,
+            randomize_preprocessing=True,
+            n_jobs=1,
+            random_state=3,
+            verbose=0,
+        )
+        allocated = allocate_pipelines(norm, dr, 6, 3)
+        assert len(pipeline_records) == len(records) == 2
+        for record, pipeline_record in zip(records, pipeline_records):
+            for key in ("method_id", "method_label", "sweep_value", "sweep_rank"):
+                assert pipeline_record[key] == record[key]
+            assert [r.pipeline for r in pipeline_record["results"]] == allocated
+
+    def test_no_pipeline_records_without_randomization(self, X_two_clusters):
+        out = run_validation(
+            X=X_two_clusters,
+            estimator_grids=[(KMeans, {"n_clusters": [2]})],
+            n_resamples=3,
+            subsample_ratio=0.8,
+            normalization_options=[(FunctionTransformer, {})],
+            dim_reduction_options=[(FunctionTransformer, {})],
+            n_jobs=1,
+            random_state=0,
+            verbose=0,
+        )
+        assert out[1] == []
+
+
+class TestEmbedResample:
+    def _spec(self):
+        return allocate_pipelines(
+            [(FunctionTransformer, {})], [(FunctionTransformer, {})], 3, 0
+        )[0]
+
+    def test_identity_embeddings_reproduce_the_raw_path(self, X_two_clusters):
+        kwargs = dict(
+            X=X_two_clusters,
+            est_class=KMeans,
+            params={"n_clusters": 2},
+            subsample_ratio=0.8,
+            n_resamples=3,
+            seed=1,
+            random_state=0,
+        )
+        spec = self._spec()
+        embeddings = embed_resample(
+            X_two_clusters,
+            spec,
+            seed=1,
+            n_resamples=3,
+            subsample_ratio=0.8,
+            random_state=0,
+        )
+        raw = validation_iter(**kwargs)
+        embedded = validation_iter(**kwargs, embeddings=embeddings)
+        assert embedded.ari_stability == raw.ari_stability
+        assert embedded.ari_generalizability == raw.ari_generalizability
+        np.testing.assert_array_equal(embedded.labels_train, raw.labels_train)
+        np.testing.assert_array_equal(embedded.labels_predicted, raw.labels_predicted)
+        assert embedded.pipeline == spec
+        assert raw.pipeline is None
+
+    def test_mode_skips_the_unused_subsets(self, X_two_clusters):
+        common = dict(seed=0, n_resamples=3, subsample_ratio=0.8, random_state=0)
+        stab = embed_resample(X_two_clusters, self._spec(), mode="stability", **common)
+        gen = embed_resample(
+            X_two_clusters, self._spec(), mode="generalizability", **common
+        )
+        assert stab.X_test is None and stab.X_2.shape == (48, 5)
+        assert gen.X_2 is None and gen.X_test.shape == (12, 5)
+
+    def test_seeded_umap_fits_without_its_parallelism_warning(self):
+        # filterwarnings = error turns umap-learn's warning that the seed
+        # disables its parallelism into a failure unless embed_resample
+        # filters it.
+        umap = pytest.importorskip("umap")
+        X = np.random.RandomState(0).randn(100, 5)
+        spec = allocate_pipelines(
+            [(FunctionTransformer, {})],
+            [(umap.UMAP, {"n_components": [2], "n_neighbors": [15]})],
+            1,
+            0,
+        )[0]
+        embeddings = embed_resample(
+            X, spec, seed=0, n_resamples=1, subsample_ratio=0.7, random_state=0
+        )
+        assert embeddings.X_1.shape == (70, 2)
+        assert embeddings.X_2.shape == (70, 2)
+        assert embeddings.X_test.shape == (30, 2)
+
+    def test_mismatched_embeddings_raise(self, X_two_clusters):
+        good = embed_resample(
+            X_two_clusters,
+            self._spec(),
+            seed=0,
+            n_resamples=3,
+            subsample_ratio=0.8,
+            random_state=0,
+        )
+        with pytest.raises(RuntimeError, match="X_test has 11 rows but .* has 12"):
+            validation_iter(
+                X=X_two_clusters,
+                est_class=KMeans,
+                params={"n_clusters": 2},
+                subsample_ratio=0.8,
+                n_resamples=3,
+                seed=0,
+                random_state=0,
+                embeddings=good._replace(X_test=good.X_test[:-1]),
+            )
+
+
+class TestRandomizedProgress:
+    def _run(self, X, randomize):
+        run_validation(
+            X=X,
+            estimator_grids=[(KMeans, {"n_clusters": [2]})],
+            n_resamples=3,
+            subsample_ratio=0.8,
+            normalization_options=[(FunctionTransformer, {})],
+            dim_reduction_options=[(FunctionTransformer, {})],
+            randomize_preprocessing=randomize,
+            n_jobs=1,
+            random_state=0,
+            show_progress=True,
+            verbose=0,
+        )
+
+    def test_preprocessing_bar_precedes_the_configuration_bar(
+        self, X_two_clusters, capsys
+    ):
+        self._run(X_two_clusters, randomize=True)
+        err = capsys.readouterr().err
+        assert "Preprocessing" in err
+        assert err.index("Preprocessing") < err.index("Grid configs")
+
+    def test_no_preprocessing_bar_without_randomization(self, X_two_clusters, capsys):
+        self._run(X_two_clusters, randomize=False)
+        err = capsys.readouterr().err
+        assert "Grid configs" in err
+        assert "Preprocessing" not in err

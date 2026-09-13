@@ -4,11 +4,14 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.cluster import AgglomerativeClustering, KMeans
+from sklearn.decomposition import PCA
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.preprocessing import FunctionTransformer
 
 import carve._utils as carve_utils
+from carve._pipeline import PipelineSpec, PipelineStep
 from carve._runner import ResampleResult
 from carve._utils import (
     _coerce_n_clusters,
@@ -365,8 +368,16 @@ class TestApplyNoisePolicy:
 # -----------------------------------------------------------------------
 
 
-def _pipeline_record(sweep_param, sweep_value):
-    """One randomized-preprocessing record with two identity-pipeline runs."""
+def _spec(dr_step):
+    return PipelineSpec(PipelineStep(FunctionTransformer, {}, None), dr_step)
+
+
+PCA2 = _spec(PipelineStep(PCA, {"n_components": 2}, None))
+PCA3 = _spec(PipelineStep(PCA, {"n_components": 3}, None))
+
+
+def _result(stability, generalizability, spec, k=3):
+    """One ResampleResult carrying only what the summary reads."""
     blank = dict.fromkeys(
         (
             "labels_train",
@@ -379,52 +390,161 @@ def _pipeline_record(sweep_param, sweep_value):
         ),
         None,
     )
-    results = [
-        ResampleResult(
-            ari_stability=s,
-            ari_generalizability=g,
-            normalization_params={},
-            dim_reduction_params={},
-            normalization_name="StandardScaler",
-            dim_reduction_name="PCA",
-            n_clusters_train=3,
-            n_clusters_test=3,
-            n_clusters_stability=3,
-            noise_fraction=0.0,
-            **blank,
-        )
-        for s, g in [(0.8, 0.7), (0.6, 0.5)]
-    ]
+    return ResampleResult(
+        ari_stability=stability,
+        ari_generalizability=generalizability,
+        pipeline=spec,
+        n_clusters_train=k,
+        n_clusters_test=k,
+        n_clusters_stability=k,
+        noise_fraction=0.0,
+        **blank,
+    )
+
+
+def _record(method_id, sweep_value, results, sweep_rank=0):
+    """One configuration's record, shaped as run_validation returns it."""
     return {
-        "estimator": "KMeans",
-        "params": {sweep_param: sweep_value},
+        "method_id": method_id,
+        "method_label": f"KMeans {method_id}",
+        "sweep_value": sweep_value,
+        "sweep_rank": sweep_rank,
         "results": results,
     }
 
 
 class TestSummarizePreprocessingRecords:
-    def test_groups_on_n_clusters_by_default(self):
-        records = [_pipeline_record("n_clusters", 2), _pipeline_record("n_clusters", 3)]
-        out = summarize_preprocessing_records(records)
-        assert "n_clusters" in out.columns
-        assert set(out["n_clusters"]) == {2, 3}
-        assert set(out["norm__func"]) == {"StandardScaler"}
-        assert set(out["dr__method"]) == {"PCA"}
-
-    def test_averages_within_a_group(self):
-        out = summarize_preprocessing_records([_pipeline_record("n_clusters", 2)])
-        assert out["ari_stability"].iloc[0] == pytest.approx(0.7)
-        assert out["ari_generalizability"].iloc[0] == pytest.approx(0.6)
-
-    def test_groups_on_sweep_param(self):
-        records = [
-            _pipeline_record("resolution", 0.5),
-            _pipeline_record("resolution", 1.0),
+    def test_columns(self):
+        out, _ = summarize_preprocessing_records(
+            [_record("m0", 2, [_result(0.8, 0.7, PCA2)])]
+        )
+        assert list(out.columns) == [
+            "method_id",
+            "method_label",
+            "pipeline",
+            "normalization",
+            "dim_reduction",
+            "n_clusters",
+            "n_resamples",
+            "ari_stability",
+            "ari_stability_se",
+            "ari_generalizability",
+            "ari_generalizability_se",
+            "n_clusters_observed",
+            "sweep_param",
+            "sweep_value",
+            "sweep_rank",
         ]
-        out = summarize_preprocessing_records(records, sweep_param="resolution")
+
+    def test_hyperparameters_split_rows(self):
+        out, pipelines = summarize_preprocessing_records(
+            [_record("m0", 2, [_result(0.8, 0.7, PCA2), _result(0.4, 0.3, PCA3)])]
+        )
+        assert list(out["pipeline"]) == [
+            "identity | PCA(n_components=2)",
+            "identity | PCA(n_components=3)",
+        ]
+        assert list(out["normalization"]) == ["identity", "identity"]
+        assert list(out["dim_reduction"]) == [
+            "PCA(n_components=2)",
+            "PCA(n_components=3)",
+        ]
+        assert pipelines == {PCA2.label: PCA2, PCA3.label: PCA3}
+
+    def test_estimators_split_rows_and_sort_numerically(self):
+        records = [
+            _record("m10", 2, [_result(0.5, 0.5, PCA2)]),
+            _record("m2", 2, [_result(0.9, 0.9, PCA2)]),
+        ]
+        out, _ = summarize_preprocessing_records(records)
+        assert list(out["method_id"]) == ["m2", "m10"]
+        assert list(out["ari_stability"]) == [0.9, 0.5]
+
+    def test_counts_sum_to_the_run_within_each_configuration(self):
+        records = [
+            _record(
+                "m0",
+                2,
+                [_result(0.8, 0.7, PCA2), _result(0.6, 0.5, PCA2), _result(0.4, 0.3, PCA3)],
+            ),
+            _record(
+                "m0",
+                3,
+                [_result(0.8, 0.7, PCA3), _result(0.6, 0.5, PCA2), _result(0.4, 0.3, PCA3)],
+                sweep_rank=1,
+            ),
+        ]
+        out, _ = summarize_preprocessing_records(records)
+        assert out.groupby("n_clusters")["n_resamples"].sum().to_dict() == {2: 3, 3: 3}
+        # Sorted by pipeline, then sweep value.
+        assert list(out["n_resamples"]) == [2, 1, 1, 2]
+
+    def test_standard_error_uses_only_the_rows_resamples(self):
+        out, _ = summarize_preprocessing_records(
+            [
+                _record(
+                    "m0",
+                    2,
+                    [
+                        _result(0.8, 0.7, PCA2),
+                        _result(0.6, 0.5, PCA2),
+                        _result(0.1, 0.0, PCA3),
+                        _result(0.3, 0.2, PCA3),
+                    ],
+                )
+            ]
+        )
+        pca2, pca3 = out.iloc[0], out.iloc[1]
+        assert pca2["ari_stability"] == pytest.approx(0.7)
+        assert pca2["ari_stability_se"] == pytest.approx(0.1)
+        assert pca2["ari_generalizability_se"] == pytest.approx(0.1)
+        assert pca3["ari_stability"] == pytest.approx(0.2)
+        assert pca3["ari_stability_se"] == pytest.approx(0.1)
+
+    def test_single_resample_has_no_standard_error(self):
+        out, _ = summarize_preprocessing_records(
+            [_record("m0", 2, [_result(0.8, 0.7, PCA2)])]
+        )
+        assert np.isnan(out.loc[0, "ari_stability_se"])
+
+    def test_skipped_criterion_is_nan(self):
+        out, _ = summarize_preprocessing_records(
+            [_record("m0", 2, [_result(0.8, np.nan, PCA2), _result(0.6, np.nan, PCA2)])]
+        )
+        assert out.loc[0, "ari_stability"] == pytest.approx(0.7)
+        assert np.isnan(out.loc[0, "ari_generalizability"])
+        assert np.isnan(out.loc[0, "ari_generalizability_se"])
+
+    def test_observed_cluster_count_is_the_rows_mean(self):
+        out, _ = summarize_preprocessing_records(
+            [
+                _record(
+                    "m0",
+                    2,
+                    [
+                        _result(0.8, 0.7, PCA2, k=2),
+                        _result(0.6, 0.5, PCA2, k=3),
+                        _result(0.4, 0.3, PCA3, k=5),
+                    ],
+                )
+            ]
+        )
+        assert list(out["n_clusters_observed"]) == [2.5, 5.0]
+
+    def test_sweep_column_follows_the_sweep_param(self):
+        out, _ = summarize_preprocessing_records(
+            [_record("m0", 0.5, [_result(0.8, 0.7, PCA2)])], sweep_param="resolution"
+        )
         assert "resolution" in out.columns
         assert "n_clusters" not in out.columns
-        assert set(out["resolution"]) == {0.5, 1.0}
+        assert out.loc[0, "resolution"] == 0.5
+        assert out.loc[0, "sweep_param"] == "resolution"
+
+    def test_empty(self):
+        out, pipelines = summarize_preprocessing_records([])
+        assert out.empty
+        assert "pipeline" in out.columns
+        assert pipelines == {}
 
 
 # -----------------------------------------------------------------------

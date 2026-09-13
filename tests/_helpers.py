@@ -163,3 +163,42 @@ def make_noise_embedding() -> type:
             return rng.standard_normal((np.asarray(X).shape[0], 2))
 
     return NoiseEmbedding
+
+
+def make_fit_recorder() -> type:
+    """An identity transformer class that records which rows each fit sees.
+
+    Rows are read from column 0, so a test that stores each row's own index
+    there gets back exactly the samples a fit received, as a tuple.
+    """
+
+    class FitRecorder(BaseEstimator, TransformerMixin):
+        seen: list = []
+
+        def fit(self, X, y=None):
+            type(self).seen.append(tuple(np.asarray(X)[:, 0].astype(int)))
+            return self
+
+        def transform(self, X):
+            return np.asarray(X)
+
+    return FitRecorder
+
+
+def make_fit_input_spy() -> type:
+    """A classifier class that records every matrix it fits and predicts on."""
+
+    class FitInputSpy(BaseEstimator, ClassifierMixin):
+        fitted: list = []
+        predicted: list = []
+
+        def fit(self, X, y):
+            type(self).fitted.append(np.array(X))
+            self.classes_ = np.unique(y)
+            return self
+
+        def predict(self, X):
+            type(self).predicted.append(np.array(X))
+            return np.full(X.shape[0], self.classes_[0])
+
+    return FitInputSpy

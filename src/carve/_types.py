@@ -27,7 +27,7 @@ PreprocOption = PreprocSpec | PreprocSpecWithName
 # Per-configuration result dictionary
 EstimatorRecord = dict[str, Any]
 
-# Per-resample preprocessing record
+# Per-configuration record of a randomized-preprocessing run
 PipelineRecord = dict[str, Any]
 
 # Accepted metric name aliases
