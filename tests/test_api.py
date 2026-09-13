@@ -2055,6 +2055,27 @@ class TestDefaultPreprocessingOptions:
             "StandardScaler | identity",
         }
 
+    def test_verbose_header_names_the_resolved_defaults(
+        self, X_two_clusters, monkeypatch, capsys
+    ):
+        """The header prints the lists fit resolved, not the constructor's
+        None; the display names below can come from nowhere else.
+        """
+        monkeypatch.setattr(
+            carve_api,
+            "default_normalization_options",
+            lambda X: [(StandardScaler, "resolved_norm", {})],
+        )
+        monkeypatch.setattr(
+            carve_api,
+            "default_dim_reduction_options",
+            lambda X, subsample_ratio: [(PCA, "resolved_dr", {"n_components": [2]})],
+        )
+        self._model(verbose=2).fit(X_two_clusters, randomize_preprocessing=True)
+        out = capsys.readouterr().out
+        assert "[CARVE] normalization      : resolved_norm\n" in out
+        assert "[CARVE] dim_reduction      : resolved_dr\n" in out
+
 
 class TestShowProgress:
     def test_progress_bar_and_per_config_lines(self, X_two_clusters, capsys):
