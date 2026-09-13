@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from sklearn.cluster import HDBSCAN, AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
 from sklearn.model_selection import ParameterGrid
 from sklearn.preprocessing import FunctionTransformer, StandardScaler
 
@@ -121,35 +122,38 @@ class TestFullPreset:
 
 
 class TestDefaultNormalizationOptions:
-    def test_structure(self):
-        options = default_normalization_options()
-        assert isinstance(options, list)
-        assert len(options) == 3  # identity, StandardScaler, log1p
+    def test_nonnegative_input_offers_log1p(self):
+        X = np.abs(np.random.RandomState(0).randn(20, 3))
+        assert default_normalization_options(X) == [
+            (FunctionTransformer, {}),
+            (StandardScaler, {}),
+            (FunctionTransformer, {"func": [np.log1p]}),
+        ]
 
-    def test_contains_identity(self):
-        options = default_normalization_options()
-        has_identity = any(
-            cls is FunctionTransformer and params == {} for cls, params in options
-        )
-        assert has_identity
+    def test_zero_minimum_still_offers_log1p(self):
+        X = np.zeros((5, 2))
+        X[0, 0] = 3.0
+        options = default_normalization_options(X)
+        assert (FunctionTransformer, {"func": [np.log1p]}) in options
 
-    def test_contains_standard_scaler(self):
-        options = default_normalization_options()
-        has_scaler = any(cls is StandardScaler for cls, params in options)
-        assert has_scaler
-
-    def test_contains_log1p(self):
-        options = default_normalization_options()
-        has_log = any(
-            cls is FunctionTransformer and params.get("func") == [np.log1p]
-            for cls, params in options
-        )
-        assert has_log
+    def test_negative_input_omits_log1p_with_a_warning(self):
+        X = np.random.RandomState(0).randn(20, 3)
+        with pytest.warns(
+            UserWarning, match=r"negative values \(minimum -[0-9.]+\), so log1p is omitted"
+        ):
+            options = default_normalization_options(X)
+        assert options == [(FunctionTransformer, {}), (StandardScaler, {})]
 
 
 # -----------------------------------------------------------------------
 # default_dim_reduction_options
 # -----------------------------------------------------------------------
+
+
+@pytest.fixture()
+def no_umap(monkeypatch):
+    """Make umap-learn look absent, so the grids do not depend on the extra."""
+    monkeypatch.setattr("carve._grids.importlib.util.find_spec", lambda name: None)
 
 
 class TestDefaultDimReductionOptions:
@@ -169,14 +173,80 @@ class TestDefaultDimReductionOptions:
         options = default_dim_reduction_options(X)
         assert any(cls is UMAP for cls, _ in options)
 
-    def test_warns_when_umap_missing(self, monkeypatch):
-        monkeypatch.setattr(
-            "carve._grids.importlib.util.find_spec", lambda name: None
-        )
+    def test_warns_when_umap_missing(self, no_umap):
         X = np.random.RandomState(0).randn(100, 10)
         with pytest.warns(UserWarning, match="umap-learn is not installed"):
             options = default_dim_reduction_options(X)
         assert len(options) == 3
+
+    def test_grids_are_discrete_and_filtered(self, no_umap):
+        # n=60 at ratio 0.618: 37 training rows and 23 held out, so n_min=23
+        # and the PCA limit is min(23, p=10) = 10.
+        X = np.random.RandomState(0).randn(60, 10)
+        with pytest.warns(UserWarning, match="umap-learn is not installed"):
+            options = default_dim_reduction_options(X, subsample_ratio=0.618)
+        assert options == [
+            (FunctionTransformer, {}),
+            (PCA, {"n_components": [2, 5]}),
+            (TSNE, {"n_components": [2], "perplexity": [15]}),
+        ]
+
+    def test_wide_margin_keeps_every_candidate(self, no_umap):
+        # n=400 at ratio 0.618: n_min=153, p=60.
+        X = np.random.RandomState(0).randn(400, 60)
+        with pytest.warns(UserWarning, match="umap-learn is not installed"):
+            grids = dict(default_dim_reduction_options(X, subsample_ratio=0.618))
+        assert grids[PCA] == {"n_components": [2, 5, 10, 20, 50]}
+        assert grids[TSNE] == {"n_components": [2], "perplexity": [15, 30, 50]}
+
+    def test_limit_is_the_smaller_subsample_at_low_ratios(self, no_umap):
+        # Ratio 0.3 on n=100: 30 training rows and 70 held out, so the limit
+        # is 30, not the held-out 70.
+        X = np.random.RandomState(0).randn(100, 60)
+        with pytest.warns(UserWarning, match="umap-learn is not installed"):
+            grids = dict(default_dim_reduction_options(X, subsample_ratio=0.3))
+        assert grids[PCA] == {"n_components": [2, 5, 10, 20]}
+        assert grids[TSNE]["perplexity"] == [15]
+
+    def test_umap_grid_is_filtered(self):
+        pytest.importorskip("umap")
+        from umap import UMAP
+
+        X = np.random.RandomState(0).randn(60, 10)
+        grids = dict(default_dim_reduction_options(X, subsample_ratio=0.618))
+        assert grids[UMAP] == {
+            "n_components": [2],
+            "n_neighbors": [15],
+            "min_dist": [0.1],
+        }
+
+    def test_tsne_with_an_empty_grid_is_omitted_with_a_warning(self, no_umap):
+        # n=30 at ratio 0.618: 18 training rows and 12 held out; no candidate
+        # perplexity is below 12.
+        X = np.random.RandomState(0).randn(30, 10)
+        with pytest.warns(UserWarning) as record:
+            options = default_dim_reduction_options(X, subsample_ratio=0.618)
+        messages = [str(w.message) for w in record]
+        assert any(
+            "TSNE is omitted" in m and "no candidate perplexity is below 12" in m
+            for m in messages
+        )
+        assert [cls for cls, _ in options] == [FunctionTransformer, PCA]
+
+    def test_pca_with_an_empty_grid_is_omitted_with_a_warning(self, no_umap):
+        X = np.random.RandomState(0).randn(100, 2)
+        with pytest.warns(UserWarning) as record:
+            options = default_dim_reduction_options(X, subsample_ratio=0.618)
+        assert any("PCA is omitted" in str(w.message) for w in record)
+        assert [cls for cls, _ in options] == [FunctionTransformer, TSNE]
+
+    def test_umap_with_an_empty_grid_is_omitted_with_a_warning(self):
+        pytest.importorskip("umap")
+        X = np.random.RandomState(0).randn(30, 10)
+        with pytest.warns(UserWarning) as record:
+            options = default_dim_reduction_options(X, subsample_ratio=0.618)
+        assert any("UMAP is omitted" in str(w.message) for w in record)
+        assert [cls for cls, _ in options] == [FunctionTransformer, PCA]
 
     def test_contains_identity(self):
         X = np.random.RandomState(0).randn(100, 10)
@@ -186,18 +256,11 @@ class TestDefaultDimReductionOptions:
         )
         assert has_identity
 
-    def test_contains_pca(self):
-        X = np.random.RandomState(0).randn(100, 10)
-        options = default_dim_reduction_options(X)
-        has_pca = any(cls is PCA for cls, params in options)
-        assert has_pca
-
     def test_pca_components_respect_data(self):
         X = np.random.RandomState(0).randn(50, 5)
         options = default_dim_reduction_options(X, subsample_ratio=0.6)
         pca_option = next((cls, params) for cls, params in options if cls is PCA)
         n_components = pca_option[1]["n_components"]
-        # Should respect min(min_n, p) where min_n = round(50 * 0.4) - 1
         assert all(c >= 2 for c in n_components)
         assert max(n_components) < 5  # p = 5
 

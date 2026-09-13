@@ -207,19 +207,59 @@ def _default_min_cluster_size_grids(
     return grids
 
 
-def default_normalization_options() -> list[PreprocSpec]:
-    """Return default normalization preprocessing options.
+#: Candidate values for the default dimensionality reduction grids, before
+#: filtering to what the smallest subsample supports.
+_PCA_COMPONENTS = (2, 5, 10, 20, 50)
+_TSNE_PERPLEXITIES = (15, 30, 50)
+_UMAP_NEIGHBORS = (15, 30)
+
+
+def default_normalization_options(X: np.ndarray) -> list[PreprocSpec]:
+    """Return default normalization preprocessing options for X.
+
+    Identity and standardization are always offered. ``log1p`` is offered
+    only when X has no negative values: it is NaN below -1, and an input
+    with negatives (an LSI, a z-scored matrix) is not the count-like data it
+    is meant for. The omission is announced with a warning.
+
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        Input data.
 
     Returns
     -------
     options : list of tuple
         List of (TransformerClass, param_grid) pairs.
     """
-    return [
+    options: list[PreprocSpec] = [
         (FunctionTransformer, {}),
         (StandardScaler, {}),
-        (FunctionTransformer, {"func": [np.log1p]}),
     ]
+
+    x_min = float(np.min(X))
+    if x_min >= 0:
+        options.append((FunctionTransformer, {"func": [np.log1p]}))
+    else:
+        warnings.warn(
+            f"X has negative values (minimum {x_min:.3g}), so log1p is omitted "
+            "from the default normalization options.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    return options
+
+
+def _warn_omitted(name: str, param: str, limit: int) -> None:
+    """Warn that a default option was dropped because its grid filtered empty."""
+    warnings.warn(
+        f"{name} is omitted from the default dimensionality reduction options: "
+        f"no candidate {param} is below {limit}, the limit the smallest "
+        "subsample sets.",
+        UserWarning,
+        stacklevel=3,
+    )
 
 
 def default_dim_reduction_options(
@@ -227,6 +267,19 @@ def default_dim_reduction_options(
     subsample_ratio: float = 0.6,
 ) -> list[PreprocSpec]:
     """Return default dimensionality reduction options.
+
+    Discrete grids, each filtered to what the smallest subsample a pipeline
+    is fitted on can support:
+
+    - identity
+    - PCA, ``n_components`` in {2, 5, 10, 20, 50}, below ``min(n_min, p)``
+    - t-SNE, two components, ``perplexity`` in {15, 30, 50}, below ``n_min``
+    - UMAP when umap-learn is installed, two components, ``n_neighbors`` in
+      {15, 30} below ``n_min``, ``min_dist`` 0.1
+
+    ``n_min`` is the size of the smaller of a resample's training subsample
+    and held-out set, which is the held-out set at any ratio above 0.5. An
+    option whose filtered grid is empty is omitted with a warning.
 
     Parameters
     ----------
@@ -241,28 +294,26 @@ def default_dim_reduction_options(
         List of (TransformerClass, param_grid) pairs.
     """
     n_samples, p = X.shape
-    min_n = int(round(n_samples * (1 - subsample_ratio))) - 1
+    # Same arithmetic split_subsample_indices uses for the training size.
+    n_train = int(np.float64(subsample_ratio * n_samples))
+    n_min = min(n_train, n_samples - n_train)
 
-    options: list[PreprocSpec] = [
-        (FunctionTransformer, {}),
-        (PCA, {"n_components": list(range(2, min(min_n, p)))}),
-        (TSNE, {"n_components": [2], "perplexity": list(range(5, min(min_n, 51)))}),
-    ]
+    options: list[PreprocSpec] = [(FunctionTransformer, {})]
 
-    if importlib.util.find_spec("umap") is not None:
-        from umap import UMAP
-
-        options.append(
-            (
-                UMAP,
-                {
-                    "n_components": list(range(2, min(min_n, p))),
-                    "n_neighbors": list(range(5, 51)),
-                    "min_dist": [0.1],
-                },
-            )
-        )
+    pca_limit = min(n_min, p)
+    components = [c for c in _PCA_COMPONENTS if c < pca_limit]
+    if components:
+        options.append((PCA, {"n_components": components}))
     else:
+        _warn_omitted("PCA", "n_components", pca_limit)
+
+    perplexities = [x for x in _TSNE_PERPLEXITIES if x < n_min]
+    if perplexities:
+        options.append((TSNE, {"n_components": [2], "perplexity": perplexities}))
+    else:
+        _warn_omitted("TSNE", "perplexity", n_min)
+
+    if importlib.util.find_spec("umap") is None:
         warnings.warn(
             "umap-learn is not installed; UMAP is omitted from the default "
             "dimensionality reduction options. Install it with "
@@ -270,5 +321,19 @@ def default_dim_reduction_options(
             UserWarning,
             stacklevel=2,
         )
+        return options
 
+    neighbors = [x for x in _UMAP_NEIGHBORS if x < n_min]
+    if not neighbors:
+        _warn_omitted("UMAP", "n_neighbors", n_min)
+        return options
+
+    from umap import UMAP
+
+    options.append(
+        (
+            UMAP,
+            {"n_components": [2], "n_neighbors": neighbors, "min_dist": [0.1]},
+        )
+    )
     return options

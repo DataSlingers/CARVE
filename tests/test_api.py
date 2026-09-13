@@ -2000,6 +2000,54 @@ class TestRandomizedPreprocessing:
         )
 
 
+class TestDefaultPreprocessingOptions:
+    """fit resolves the default option lists only when it will use them."""
+
+    def _model(self, **kwargs):
+        return CARVE(
+            n_clusters=np.array([2]),
+            n_resamples=4,
+            subsample_ratio=0.7,
+            estimator_param_grids=[(KMeans, {"n_clusters": [2], "n_init": [3]})],
+            random_state=0,
+            **kwargs,
+        )
+
+    def test_not_resolved_without_randomization(self, X_two_clusters, monkeypatch):
+        def fail(*args, **kwargs):
+            raise AssertionError("defaults resolved for a non-randomized fit")
+
+        monkeypatch.setattr(carve_api, "default_normalization_options", fail)
+        monkeypatch.setattr(carve_api, "default_dim_reduction_options", fail)
+        self._model().fit(X_two_clusters)
+
+    def test_randomized_fit_resolves_both_from_X(self, X_two_clusters, monkeypatch):
+        seen = {}
+
+        def norm(X):
+            seen["norm"] = X.shape
+            return [(FunctionTransformer, {})]
+
+        def dr(X, subsample_ratio):
+            seen["dr"] = (X.shape, subsample_ratio)
+            return [(FunctionTransformer, {})]
+
+        monkeypatch.setattr(carve_api, "default_normalization_options", norm)
+        monkeypatch.setattr(carve_api, "default_dim_reduction_options", dr)
+        model = self._model().fit(X_two_clusters, randomize_preprocessing=True)
+        assert seen == {"norm": (60, 5), "dr": ((60, 5), 0.7)}
+        assert set(model.preprocessing_pipelines_) == {"identity | identity"}
+
+    def test_negative_input_drops_log1p(self, X_two_clusters):
+        model = self._model(dim_reduction_options=[(FunctionTransformer, {})])
+        with pytest.warns(UserWarning, match="so log1p is omitted"):
+            model.fit(X_two_clusters, randomize_preprocessing=True)
+        assert set(model.preprocessing_pipelines_) == {
+            "identity | identity",
+            "StandardScaler | identity",
+        }
+
+
 class TestShowProgress:
     def test_progress_bar_and_per_config_lines(self, X_two_clusters, capsys):
         carve = CARVE(

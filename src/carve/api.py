@@ -127,11 +127,14 @@ class CARVE(BaseEstimator):
         agglomerative and RBF-kernel spectral clustering. A custom list
         of (EstimatorClass, param_grid) tuples may also be passed.
     normalization_options : list of preprocessing specs, optional
-        Normalization preprocessing options. If None, defaults include
-        identity, StandardScaler, and log1p.
+        Normalization options for ``fit(randomize_preprocessing=True)``. If
+        None, a randomized fit uses identity, StandardScaler, and log1p when
+        X has no negative values (``_grids.default_normalization_options``).
     dim_reduction_options : list of dimensionality reduction specs, optional
-        Dimensionality reduction preprocessing options. If None, defaults
-        include identity, PCA, t-SNE, and UMAP.
+        Dimensionality reduction options for a randomized fit. If None, it
+        uses identity, PCA, t-SNE, and UMAP when installed, over discrete
+        grids filtered to the subsample sizes
+        (``_grids.default_dim_reduction_options``).
     classifier : sklearn classifier instance, optional
         Classifier used to score generalizability. If None (default), a
         ``RandomForestClassifier`` is built with ``n_trees`` trees. Must
@@ -493,16 +496,20 @@ class CARVE(BaseEstimator):
         self.sweep_ = sweep_spec
 
         # --- Resolve preprocessing options ---
-        # The default option lists are only consumed when a random pipeline is
-        # allocated per resample (see _runner.run_validation), so
-        # resolving them otherwise would import UMAP for nothing.
-        norm_options = self.normalization_options or default_normalization_options()
-        if self.dim_reduction_options is not None:
-            dr_options = self.dim_reduction_options
-        elif randomize_preprocessing:
-            dr_options = default_dim_reduction_options(X, self.subsample_ratio)
+        # Only a randomized fit consumes them. Resolving the defaults otherwise
+        # would import UMAP for nothing and warn about log1p on any input with
+        # negative values.
+        if randomize_preprocessing:
+            norm_options = self.normalization_options or default_normalization_options(
+                X
+            )
+            if self.dim_reduction_options is not None:
+                dr_options = self.dim_reduction_options
+            else:
+                dr_options = default_dim_reduction_options(X, self.subsample_ratio)
         else:
-            dr_options = []
+            norm_options = self.normalization_options or []
+            dr_options = self.dim_reduction_options or []
 
         # --- Print run header ---
         _print_run_header(
