@@ -6,7 +6,7 @@ importing it as a module. Anything a test file imports by name lives here.
 
 import numpy as np
 import pandas as pd
-from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.base import BaseEstimator, ClassifierMixin, TransformerMixin
 
 from carve._sweep import resolve_sweep
 
@@ -135,3 +135,31 @@ def make_parallel_spy() -> type:
             return [func(*args, **kwargs) for func, args, kwargs in tasks]
 
     return ParallelSpy
+
+
+def make_noise_embedding() -> type:
+    """A transformer whose output is noise drawn from its random_state.
+
+    The embedding carries no information about X, so labels clustered on it
+    cannot be predicted from X, which is what the raw-feature classifier
+    tests rely on. It is only reproducible when CARVE seeds it, which is
+    what the seeding tests rely on; an unseeded fit draws fresh entropy.
+    fit() records the random_state it ran with on the class, so a test can
+    read the seeds CARVE derived.
+    """
+
+    class NoiseEmbedding(BaseEstimator, TransformerMixin):
+        seen: list = []
+
+        def __init__(self, random_state=None):
+            self.random_state = random_state
+
+        def fit(self, X, y=None):
+            type(self).seen.append(self.random_state)
+            return self
+
+        def transform(self, X):
+            rng = np.random.default_rng(self.random_state)
+            return rng.standard_normal((np.asarray(X).shape[0], 2))
+
+    return NoiseEmbedding
