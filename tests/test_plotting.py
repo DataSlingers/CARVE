@@ -10,6 +10,7 @@ from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 
 from carve import CARVE
+import carve._plotting as carve_plotting
 from carve._plotting import (
     _build_estimator_label,
     _prepare_cluster_score_groups,
@@ -18,6 +19,7 @@ from carve._plotting import (
     plot_cluster_violin,
     plot_consensus_matrix,
     plot_diagnostic_scatter,
+    plot_metric_by_pipeline,
     plot_metric_over_n_clusters,
 )
 from tests._helpers import with_sweep_cols
@@ -315,6 +317,151 @@ class TestPlotMetricOverNClusters:
         assert ax.get_title() == "My Title"
         assert ax.get_xlabel() == "k"
         assert ax.get_ylabel() == "Score"
+
+
+# -----------------------------------------------------------------------
+# plot_metric_by_pipeline
+# -----------------------------------------------------------------------
+
+
+def _pipeline_results_df():
+    """A preprocessing_results_ table over two configurations.
+
+    m0 has two pipelines whose values peak at k=3. m1 has a third pipeline,
+    a decoy peaking at k=4 above anything in m0, so a plot or a selection
+    that reads the whole table instead of m0's rows is visibly wrong.
+    """
+    curves = {
+        ("m0", "identity | identity"): [0.70, 0.90, 0.60],
+        ("m0", "identity | PCA(n_components=2)"): [0.65, 0.80, 0.50],
+        ("m1", "StandardScaler | identity"): [0.20, 0.30, 0.99],
+    }
+    rows = []
+    for (method_id, pipeline), values in curves.items():
+        normalization, dim_reduction = pipeline.split(" | ")
+        for rank, (k, value) in enumerate(zip((2, 3, 4), values)):
+            rows.append(
+                {
+                    "method_id": method_id,
+                    "method_label": f"KMeans {method_id}",
+                    "pipeline": pipeline,
+                    "normalization": normalization,
+                    "dim_reduction": dim_reduction,
+                    "n_clusters": k,
+                    "n_resamples": 5,
+                    "ari_stability": value,
+                    "ari_stability_se": 0.01,
+                    "ari_generalizability": value - 0.1,
+                    "ari_generalizability_se": 0.02,
+                    "n_clusters_observed": float(k),
+                    "sweep_param": "n_clusters",
+                    "sweep_value": k,
+                    "sweep_rank": rank,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _curves(ax):
+    """Each errorbar's data line, keyed by its legend label."""
+    return {container.get_label(): container[0] for container in ax.containers}
+
+
+class TestPlotMetricByPipeline:
+    def test_one_line_per_pipeline_of_the_configuration(self):
+        ax = plot_metric_by_pipeline(_pipeline_results_df(), method_id="m0")
+        assert set(_curves(ax)) == {
+            "identity | identity",
+            "identity | PCA(n_components=2)",
+        }
+
+    def test_lines_carry_the_rows_values(self):
+        ax = plot_metric_by_pipeline(
+            _pipeline_results_df(), method_id="m0", measure="generalizability"
+        )
+        curves = _curves(ax)
+        np.testing.assert_allclose(
+            curves["identity | identity"].get_ydata(), [0.60, 0.80, 0.50]
+        )
+        np.testing.assert_allclose(
+            curves["identity | PCA(n_components=2)"].get_ydata(), [0.55, 0.70, 0.40]
+        )
+        np.testing.assert_allclose(curves["identity | identity"].get_xdata(), [2, 3, 4])
+
+    def test_selected_value_comes_from_the_plotted_configuration(self):
+        # Over the whole table the best stability is m1 at k=4; within m0, k=3.
+        ax = plot_metric_by_pipeline(_pipeline_results_df(), method_id="m0", rule="max")
+        dashed = [line for line in ax.get_lines() if line.get_linestyle() == "--"]
+        assert len(dashed) == 1
+        assert list(dashed[0].get_xdata()) == [3.0, 3.0]
+
+    def test_legend_and_axis_labels(self):
+        ax = plot_metric_by_pipeline(_pipeline_results_df(), method_id="m0")
+        assert ax.get_legend().get_title().get_text() == "Pipelines"
+        assert ax.get_xlabel() == "Number of Clusters (k)"
+        assert ax.get_ylabel() == "ARI Stability"
+
+    def test_resolution_axis(self):
+        df = _pipeline_results_df().rename(columns={"n_clusters": "resolution"})
+        df["sweep_param"] = "resolution"
+        df["sweep_value"] = df["sweep_value"] / 4
+        ax = plot_metric_by_pipeline(df, method_id="m0")
+        assert ax.get_xlabel() == "Resolution"
+        np.testing.assert_allclose(ax.get_xticks(), [0.5, 0.75, 1.0])
+
+    def test_colors_come_from_the_palette(self):
+        ax = plot_metric_by_pipeline(
+            _pipeline_results_df(), method_id="m0", palette="viridis"
+        )
+        drawn = [tuple(c[0].get_color()) for c in ax.containers]
+        expected = [tuple(rgba) for rgba in plt.get_cmap("viridis")(np.linspace(0, 1, 2))]
+        assert drawn == expected
+
+    def test_kwargs_reach_the_errorbar(self):
+        ax = plot_metric_by_pipeline(
+            _pipeline_results_df(), method_id="m0", linestyle=":"
+        )
+        assert [c[0].get_linestyle() for c in ax.containers] == [":", ":"]
+
+    def test_save_writes_the_file_and_returns_none(self, tmp_path):
+        path = tmp_path / "pipelines.png"
+        result = plot_metric_by_pipeline(
+            _pipeline_results_df(), method_id="m0", save=path
+        )
+        assert result is None
+        assert path.exists()
+
+    def test_none_table_names_the_cause(self):
+        with pytest.raises(RuntimeError, match="the fit was not randomized"):
+            plot_metric_by_pipeline(None, method_id="m0")
+
+    def test_empty_table(self):
+        with pytest.raises(RuntimeError, match="empty"):
+            plot_metric_by_pipeline(_pipeline_results_df().iloc[0:0], method_id="m0")
+
+    def test_unknown_method_id(self):
+        with pytest.raises(ValueError, match=r"method_id 'm9' not found.*\['m0', 'm1'\]"):
+            plot_metric_by_pipeline(_pipeline_results_df(), method_id="m9")
+
+    def test_measure_the_table_does_not_carry(self):
+        with pytest.raises(ValueError, match="consensus_pac_stability"):
+            plot_metric_by_pipeline(_pipeline_results_df(), method_id="m0", measure="pac")
+
+
+class TestSharedMetricDrawing:
+    def test_both_metric_plots_draw_through_one_helper(
+        self, monkeypatch, metric_results_df
+    ):
+        calls = []
+
+        def spy(df, **kwargs):
+            calls.append((kwargs["group_col"], kwargs["legend_title"], len(df)))
+            return "drawn"
+
+        monkeypatch.setattr(carve_plotting, "_draw_metric_lines", spy)
+        assert plot_metric_over_n_clusters(metric_results_df) == "drawn"
+        assert plot_metric_by_pipeline(_pipeline_results_df(), method_id="m0") == "drawn"
+        assert calls == [("method_id", "Estimators", 3), ("pipeline", "Pipelines", 6)]
 
 
 # -----------------------------------------------------------------------

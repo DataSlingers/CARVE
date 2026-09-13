@@ -5,6 +5,7 @@ following the conventions of scanpy and other scientific Python packages.
 """
 
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
@@ -150,6 +151,185 @@ def plot_metric_over_n_clusters(
     if results_df.empty:
         raise RuntimeError("Results DataFrame is empty.")
 
+    return _draw_metric_lines(
+        results_df,
+        group_col="method_id",
+        label_of=_build_estimator_label,
+        legend_title="Estimators",
+        measure=measure,
+        rule=rule,
+        not_two=not_two,
+        ax=ax,
+        figsize=figsize,
+        title=title,
+        xlabel=xlabel,
+        ylabel=ylabel,
+        legend=legend,
+        legend_loc=legend_loc,
+        palette=palette,
+        show=show,
+        save=save,
+        dpi=dpi,
+        **kwargs,
+    )
+
+
+def plot_metric_by_pipeline(
+    preprocessing_df: pd.DataFrame | None,
+    *,
+    method_id: str,
+    measure: str = "stability",
+    rule: str = "1se",
+    not_two: bool = False,
+    ax: Axes | None = None,
+    figsize: tuple | None = None,
+    title: str | None = None,
+    xlabel: str | None = None,
+    ylabel: str | None = None,
+    legend: bool = True,
+    legend_loc: str = "best",
+    palette: str = "Accent",
+    show: bool = False,
+    save: str | Path | None = None,
+    dpi: int = 300,
+    **kwargs,
+) -> Axes | None:
+    """Plot a metric across the sweep axis, one line per preprocessing pipeline.
+
+    The per-pipeline companion to :func:`plot_metric_over_n_clusters`, drawn
+    by the same code. It reads ``preprocessing_results_`` instead of
+    ``estimator_results_`` and draws one line per ``pipeline`` within one
+    estimator configuration, ``method_id``, instead of one line per
+    configuration. The dashed line marks the sweep value ``rule`` selects
+    among the plotted rows; it can differ from the selection over
+    ``estimator_results_``, which pools every pipeline. The table has no
+    quantile columns, so ``rule="quantile"`` falls back to ``"max"`` with a
+    warning.
+
+    Parameters
+    ----------
+    preprocessing_df : pandas.DataFrame or None
+        ``CARVE.preprocessing_results_``. None means the fit was not
+        randomized.
+    method_id : str
+        The estimator configuration whose pipelines are drawn, a value of
+        the ``method_id`` column.
+    measure : str, default="stability"
+        ``"stability"`` or ``"generalizability"``, or an alias of either. The
+        table carries no consensus or accuracy columns.
+    rule : str, default="1se"
+        Selection rule for the marked sweep value: "max", "1se", "quantile".
+    not_two : bool, default=False
+        Exclude two-cluster rows when selecting the marked sweep value.
+    ax : matplotlib.axes.Axes, optional
+        Axes object to plot on. If None, creates a new figure.
+    figsize : tuple, optional
+        Figure size (width, height) in inches. Default is (9, 5.5).
+    title : str, optional
+        Figure title.
+    xlabel : str, optional
+        X-axis label. Default is derived from the sweep parameter.
+    ylabel : str, optional
+        Y-axis label. If None, auto-generated from measure name.
+    legend : bool, default=True
+        Whether to display a legend naming the pipelines.
+    legend_loc : str, default="best"
+        Legend location (passed to ax.legend).
+    palette : str, default="Accent"
+        Matplotlib colormap name for line colors.
+    show : bool, default=False
+        Whether to call plt.show() before returning.
+    save : str or Path, optional
+        Path to save the figure. If provided, the figure is saved and None
+        is returned instead of the Axes object.
+    dpi : int, default=300
+        Dots per inch for saved figures.
+    **kwargs
+        Additional keyword arguments passed to ax.errorbar().
+
+    Returns
+    -------
+    ax : matplotlib.axes.Axes or None
+        The Axes drawn on, or None if save is used.
+
+    Raises
+    ------
+    RuntimeError
+        If ``preprocessing_df`` is None (the fit was not randomized) or
+        empty.
+    ValueError
+        If ``method_id`` is not in the table, or ``measure`` names a column
+        the table does not carry.
+    """
+    if preprocessing_df is None:
+        raise RuntimeError(
+            "There is no preprocessing table to plot: the fit was not "
+            "randomized. Fit with randomize_preprocessing=True."
+        )
+    if preprocessing_df.empty:
+        raise RuntimeError("Preprocessing DataFrame is empty.")
+
+    method_ids = preprocessing_df["method_id"].astype(str)
+    rows = preprocessing_df[method_ids == str(method_id)]
+    if rows.empty:
+        raise ValueError(
+            f"method_id {method_id!r} not found in the preprocessing table. "
+            f"Available: {sorted(method_ids.unique())}."
+        )
+
+    return _draw_metric_lines(
+        rows,
+        group_col="pipeline",
+        label_of=lambda row: str(row["pipeline"]),
+        legend_title="Pipelines",
+        measure=measure,
+        rule=rule,
+        not_two=not_two,
+        ax=ax,
+        figsize=figsize,
+        title=title,
+        xlabel=xlabel,
+        ylabel=ylabel,
+        legend=legend,
+        legend_loc=legend_loc,
+        palette=palette,
+        show=show,
+        save=save,
+        dpi=dpi,
+        **kwargs,
+    )
+
+
+def _draw_metric_lines(
+    results_df: pd.DataFrame,
+    *,
+    group_col: str,
+    label_of: Callable[[pd.Series], str],
+    legend_title: str,
+    measure: str,
+    rule: str,
+    not_two: bool,
+    ax: Axes | None,
+    figsize: tuple | None,
+    title: str | None,
+    xlabel: str | None,
+    ylabel: str | None,
+    legend: bool,
+    legend_loc: str,
+    palette: str,
+    show: bool,
+    save: str | Path | None,
+    dpi: int,
+    **kwargs,
+) -> Axes | None:
+    """Draw one metric line per group across the sweep axis.
+
+    The drawing behind both :func:`plot_metric_over_n_clusters` (grouped on
+    ``method_id``) and :func:`plot_metric_by_pipeline` (grouped on
+    ``pipeline``), so the two plots cannot drift apart. ``results_df`` is
+    non-empty and carries ``sweep_param``, ``sweep_value``, ``sweep_rank``,
+    ``n_clusters_observed`` and the measure's column.
+    """
     if measure not in MEASURE_MAP:
         raise ValueError(
             f"Measure {measure!r} not found. Valid options: {list(MEASURE_MAP.keys())}"
@@ -173,17 +353,14 @@ def plot_metric_over_n_clusters(
     x_col = "sweep_value"
     param = sweep_param_name(results_df)
 
-    group_cols = ["method_id"]
     results_df = results_df.copy()
-    grouped = results_df.groupby(group_cols)
+    grouped = results_df.groupby([group_col])
 
     colors = plt.get_cmap(palette)(np.linspace(0, 1, len(grouped)))
 
-    # --- Plot each estimator configuration ---
+    # --- Plot each group ---
     for color_idx, (group_key, group_df) in enumerate(grouped):
-        label_row = group_df.iloc[0]
-
-        label = _build_estimator_label(label_row)
+        label = label_of(group_df.iloc[0])
         group_df_sorted = group_df.sort_values(x_col)
 
         x = group_df_sorted[x_col].values
@@ -249,7 +426,7 @@ def plot_metric_over_n_clusters(
             frameon=True,
             framealpha=0.95,
             fontsize=10,
-            title="Estimators" if rule else None,
+            title=legend_title if rule else None,
         )
 
     ax.grid(True, alpha=0.3, linestyle="-", linewidth=0.5)
