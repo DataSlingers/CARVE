@@ -133,7 +133,7 @@ class TestAllocatePipelines:
     def test_two_pipelines_with_one_label_raise(self):
         # Both normalization options are named "x", so two different
         # pipelines would share a key in preprocessing_pipelines_.
-        with pytest.raises(ValueError, match="render as the same label 'x | identity'"):
+        with pytest.raises(ValueError, match=r"render as the same label 'x \| identity'"):
             allocate_pipelines(
                 [(StandardScaler, "x", {}), (FunctionTransformer, "x", {})],
                 [(FunctionTransformer, {})],
@@ -259,6 +259,7 @@ class TestParseOption:
     def test_dict_missing_cls(self):
         with pytest.raises(ValueError, match="Dict option must contain"):
             _parse_option({"params": {}})
+
 
 # -----------------------------------------------------------------------
 # build_preprocessing_pipeline
