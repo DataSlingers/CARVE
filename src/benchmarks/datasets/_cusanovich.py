@@ -158,8 +158,29 @@ def load_cusanovich(
             f"Available: {sorted(metadata.columns)}."
         )
 
-    metadata = metadata.set_index("cell").reindex(cells)
+    # The matrix columns are in cell_metadata.txt row order. The release's
+    # .cells.txt holds the same barcodes in a different order and is not the
+    # column order: reindexing the metadata by it kept tissue blocks roughly
+    # intact but gave every cell another cell's label, cluster and t-SNE
+    # position within its tissue. Verified on the released atlas (2026-09):
+    # in the loader's own LSI, 15-nearest-neighbor purity by the source's
+    # cell_label is 0.83 under metadata order and 0.29 under .cells.txt
+    # order, and within-tissue cell-type classification is 0.89-1.00 versus
+    # the permuted-label baseline. The cells file is still checked, as the
+    # one independent record of which barcodes the matrix holds.
     n_cells_full = int(matrix.shape[1])
+    if (
+        len(cells) != n_cells_full
+        or len(metadata) != n_cells_full
+        or set(cells) != set(metadata["cell"])
+    ):
+        raise ValueError(
+            "atac_matrix.binary.qc_filtered.cells.txt and cell_metadata.txt do "
+            f"not describe the same {n_cells_full} matrix columns "
+            f"({len(cells)} cell ids, {len(metadata)} metadata rows, "
+            f"{len(set(cells) & set(metadata['cell']))} in common)."
+        )
+    metadata = metadata.set_index("cell")
 
     # UNKNOWN_LABEL is not a rare edge case: in the source cell_metadata.txt
     # it covers 10,029 of 81,173 cells, about 12 percent. Dropping it here,

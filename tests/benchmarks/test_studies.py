@@ -39,6 +39,34 @@ def blobs():
 
 
 class TestCviSweep:
+    def test_gap_reference_fits_use_the_cells_own_linkage(self, blobs, monkeypatch):
+        """A grid sweeping linkage over ward and single produces two model
+        labels, and the gap statistic must refit its reference datasets with
+        the same linkage the cell used. Mapping the class alone back to a
+        spec sent every AgglomerativeClustering cell to the ward defaults.
+        """
+        import benchmarks._cvi as cvi_module
+
+        X, y = blobs
+        seen = set()
+        original = cvi_module.build_estimator
+
+        def spy(spec, **kwargs):
+            seen.add(spec.name)
+            return original(spec, **kwargs)
+
+        monkeypatch.setattr(cvi_module, "build_estimator", spy)
+        grids = [
+            (AgglomerativeClustering, {"n_clusters": [2, 3], "linkage": ["ward", "single"]})
+        ]
+        curves, _ = cvi_sweep(X, y, model_grids=grids, candidate_k=(2, 3), n_jobs=1)
+
+        assert set(curves["model"]) == {
+            "AgglomerativeClustering (linkage=ward)",
+            "AgglomerativeClustering (linkage=single)",
+        }
+        assert seen == {"agglomerative", "agglomerative_single"}
+
     def test_returns_curves_and_best(self, blobs):
         X, y = blobs
         grids = param_grids(EstimatorSpec(name="kmeans"), (2, 3, 4))
@@ -378,6 +406,31 @@ class TestStudyModelGrids:
         assert classes == {KMeans, SpectralClustering}
         assert AgglomerativeClustering not in classes
 
+    def test_grid_reads_partners_from_the_study(self):
+        # The partner estimators are declared on the Study, not chosen by a
+        # branch on study.name inside study_model_grids.
+        def _unused_loader(subsample):
+            raise AssertionError("the loader must not run for this test")
+
+        study = Study(
+            name="probe",
+            loader=_unused_loader,
+            estimator=EstimatorSpec(name="agglomerative"),
+            candidate_k=(2, 3),
+            scales={"dev": 100},
+            default_scale="dev",
+            partners=(
+                EstimatorSpec(name="kmeans"),
+                EstimatorSpec(name="agglomerative_single"),
+            ),
+        )
+        grid = study_model_grids(study)
+        assert [(cls, params.get("linkage")) for cls, params in grid] == [
+            (AgglomerativeClustering, ["ward"]),
+            (KMeans, None),
+            (AgglomerativeClustering, ["single"]),
+        ]
+
     def test_grid_varies_with_study_estimator_not_study_name(self):
         """Two Study objects differing only in estimator must produce
         different grids. This is stronger than checking the two live STUDIES
@@ -546,13 +599,19 @@ class TestNewStudies:
         # and 40 cell labels the source reports.
         assert STUDIES["cusanovich"].candidate_k == tuple(range(4, 17))
 
-    def test_heca_sweeps_three_through_fifteen(self):
-        assert STUDIES["heca"].candidate_k == tuple(range(3, 16))
+    def test_heca_sweeps_four_through_fifteen(self):
+        # Five pooled organs; the sweep starts just below that count.
+        assert STUDIES["heca"].candidate_k == tuple(range(4, 16))
 
-    def test_cusanovich_pairs_kmeans_with_spectral(self):
+    def test_cusanovich_sweeps_kmeans_spectral_ward_and_single_linkage(self):
         grids = study_model_grids(STUDIES["cusanovich"])
 
-        assert {cls for cls, _ in grids} == {KMeans, SpectralClustering}
+        assert [(cls, params.get("linkage")) for cls, params in grids] == [
+            (KMeans, None),
+            (SpectralClustering, None),
+            (AgglomerativeClustering, ["ward"]),
+            (AgglomerativeClustering, ["single"]),
+        ]
 
     def test_heca_uses_estimators_that_can_run_at_scale(self):
         # Spectral builds a dense n-by-n affinity and Ward is quadratic in

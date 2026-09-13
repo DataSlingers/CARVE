@@ -126,6 +126,16 @@ def test_cusanovich_notebook_reads_its_config_from_studies():
     assert "consensus_anchors=study.consensus_anchors" in source
 
 
+def test_cusanovich_notebook_draws_carve_output_before_the_composite():
+    # Mirrors Klein: CARVE's own six-panel diagnostic figure, then the
+    # composite, both from the one prepare_composite call.
+    source = _code(NOTEBOOKS["cusanovich"])
+    assert "figure_carve_output_cusanovich(inputs" in source
+    assert source.index("figure_carve_output_cusanovich(inputs") < source.index(
+        "figure_cusanovich_results(inputs"
+    )
+
+
 def test_heca_notebook_reads_its_config_from_studies():
     source = _code(NOTEBOOKS["heca"])
     assert 'STUDIES["heca"]' in source

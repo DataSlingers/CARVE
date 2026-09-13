@@ -19,6 +19,7 @@ ESTIMATOR_CLASSES: dict[str, type[ClusterMixin]] = {
     "kmeans": KMeans,
     "minibatch_kmeans": MiniBatchKMeans,
     "agglomerative": AgglomerativeClustering,
+    "agglomerative_single": AgglomerativeClustering,
     "spectral": SpectralClustering,
     "leiden": LeidenClustering,
 }
@@ -29,6 +30,7 @@ ESTIMATOR_DEFAULTS: dict[str, dict[str, Any]] = {
     "kmeans": {"n_init": 10},
     "minibatch_kmeans": {"n_init": 10},
     "agglomerative": {"linkage": "ward"},
+    "agglomerative_single": {"linkage": "single"},
     "spectral": {"affinity": "self_tuning"},
     # 15 neighbors is the scanpy convention practitioners will recognize;
     # modularity is Leiden's default objective. The two objective functions
@@ -44,9 +46,13 @@ RESOLUTION_ESTIMATORS: frozenset[str] = frozenset({"leiden"})
 # Estimators that build a dense n-by-n affinity or distance matrix, so their
 # memory cost is quadratic in the sample count regardless of k or resolution.
 # SpectralClustering computes a full affinity matrix; AgglomerativeClustering
-# with ward linkage is likewise quadratic. See _studies._check_dense_fit,
-# which is where this matters: at n=50,000 a single such matrix is 20 GB.
-DENSE_PAIRWISE_ESTIMATORS: frozenset[str] = frozenset({"spectral", "agglomerative"})
+# is likewise quadratic under ward and single linkage alike (single linkage
+# builds the full pairwise distance matrix without a connectivity graph).
+# See _studies._check_dense_fit, which is where this matters: at n=50,000 a
+# single such matrix is 20 GB.
+DENSE_PAIRWISE_ESTIMATORS: frozenset[str] = frozenset(
+    {"spectral", "agglomerative", "agglomerative_single"}
+)
 
 
 def apply_random_state(

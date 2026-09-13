@@ -67,21 +67,25 @@ def _estimator_spec_from_model_label(model: str) -> EstimatorSpec:
     """Map a cvi_sweep ``model`` label back to the estimator it names.
 
     ``curves_df``/``best_df`` carry the estimator only as the human-readable
-    string ``_studies._model_label`` renders (``"KMeans"``, or
-    ``"AgglomerativeClustering (linkage=ward)"`` once a fixed parameter is
-    present) -- there is no separate machine-usable column, and the sweep
-    never varies a parameter beyond one estimator's ``ESTIMATOR_DEFAULTS``,
-    so matching the label's leading class name back to the registered
-    estimator is exact, not a guess.
+    string ``_studies._model_label`` renders (``"KMeans (n_init=10)"``,
+    ``"AgglomerativeClustering (linkage=ward)"``) -- there is no separate
+    machine-usable column. Every registered estimator renders to exactly one
+    such label from its ``ESTIMATOR_DEFAULTS``, so the match is on the whole
+    label; a class-name prefix would send ``linkage=single`` to the Ward
+    spec.
     """
-    from .._estimators import ESTIMATOR_CLASSES
+    from .._estimators import ESTIMATOR_CLASSES, ESTIMATOR_DEFAULTS
+    from .._studies import _model_label
 
-    for name, cls in ESTIMATOR_CLASSES.items():
-        if model == cls.__name__ or model.startswith(f"{cls.__name__} ("):
-            return EstimatorSpec(name=name)
+    labels = {
+        _model_label(cls, ESTIMATOR_DEFAULTS[name]): name
+        for name, cls in ESTIMATOR_CLASSES.items()
+    }
+    if model in labels:
+        return EstimatorSpec(name=labels[model])
     raise ValueError(
         f"Cannot map model label {model!r} to a known estimator; expected "
-        f"one of {sorted(cls.__name__ for cls in ESTIMATOR_CLASSES.values())}."
+        f"one of {sorted(labels)}."
     )
 
 

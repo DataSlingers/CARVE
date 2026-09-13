@@ -14,7 +14,11 @@ composites it precedes.
 
 from ._benchmarking_examples import figure_benchmarking_examples
 from ._benchmarking_results import figure_benchmarking_results
-from ._carve_output import figure_carve_output_klein, figure_carve_output_levine
+from ._carve_output import (
+    figure_carve_output_cusanovich,
+    figure_carve_output_klein,
+    figure_carve_output_levine,
+)
 from ._case_study import CompositeInputs, composite_figure, prepare_composite
 from ._cusanovich_results import figure_cusanovich_results
 from ._heca_results import figure_heca_results
@@ -34,6 +38,7 @@ __all__ = [
     "composite_figure",
     "figure_benchmarking_examples",
     "figure_benchmarking_results",
+    "figure_carve_output_cusanovich",
     "figure_carve_output_klein",
     "figure_carve_output_levine",
     "figure_cusanovich_results",

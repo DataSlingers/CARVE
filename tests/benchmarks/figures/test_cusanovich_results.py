@@ -74,3 +74,14 @@ def test_figure_has_six_panels_and_does_not_write_when_save_is_false(inputs, tmp
 def test_figure_writes_under_its_manuscript_name(inputs, tmp_path):
     figure_cusanovich_results(inputs, save=True, out_dir=tmp_path)
     assert (tmp_path / "cusanovich_results.png").is_file()
+
+
+def test_bottom_panel_is_the_ari_lollipop_not_an_alluvial(inputs):
+    # The notebook's section heading and summary both describe panel F as
+    # the ARI comparison against the reported tissue labels; the alluvial
+    # the module first shipped did not report that number anywhere.
+    fig = figure_cusanovich_results(inputs, save=False)
+    labels = [ax.get_xlabel() for ax in fig.get_axes()]
+    assert any("ARI" in label for label in labels)
+    titles = [ax.get_title() for ax in fig.get_axes()]
+    assert not any("Reported Tissue" in title for title in titles)

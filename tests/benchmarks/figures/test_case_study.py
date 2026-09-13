@@ -80,7 +80,7 @@ def inputs():
     curves = pd.DataFrame(
         {
             "metric": ["silhouette"] * 3 + ["gap"] * 3,
-            "model": ["KMeans"] * 6,
+            "model": ["KMeans (n_init=10)"] * 6,
             "k": [3, 4, 5] * 2,
             "score": [0.4, 0.6, 0.5, 0.2, 0.3, 0.35],
             "ari": [0.5] * 6,
@@ -89,7 +89,7 @@ def inputs():
     best = pd.DataFrame(
         {
             "metric": ["silhouette", "gap"],
-            "model": ["KMeans", "KMeans"],
+            "model": ["KMeans (n_init=10)"] * 2,
             "k": [4, 5],
             "score": [0.6, 0.35],
             "ari": [0.5, 0.5],
@@ -219,8 +219,15 @@ class TestSharedComposite:
 
 
 class TestEstimatorSpecFromModelLabel:
-    def test_maps_a_bare_class_name(self):
-        assert _estimator_spec_from_model_label("KMeans").name == "kmeans"
+    def test_maps_the_label_the_sweep_renders(self):
+        assert _estimator_spec_from_model_label("KMeans (n_init=10)").name == "kmeans"
+
+    def test_rejects_a_bare_class_name(self):
+        # cvi_sweep never renders one: every registered estimator has fixed
+        # defaults, so its label always carries them. Accepting a prefix
+        # here is what let ward and single linkage collapse into one spec.
+        with pytest.raises(ValueError, match="Cannot map model label"):
+            _estimator_spec_from_model_label("AgglomerativeClustering")
 
     def test_maps_a_class_name_with_fixed_parameters(self):
         assert (
@@ -238,6 +245,14 @@ class TestEstimatorSpecFromModelLabel:
             == "spectral"
         )
 
+    def test_distinguishes_single_from_ward_linkage(self):
+        # A class-name prefix match sent both linkages to the ward spec, so a
+        # single-linkage CVI winner would have been refit with Ward in panel C.
+        assert (
+            _estimator_spec_from_model_label("AgglomerativeClustering (linkage=single)").name
+            == "agglomerative_single"
+        )
+
     def test_raises_on_an_unknown_label(self):
         with pytest.raises(ValueError, match="Cannot map model label"):
             _estimator_spec_from_model_label("SomeOtherEstimator")
@@ -253,7 +268,7 @@ class TestPrepareComposite:
         curves = pd.DataFrame(
             {
                 "metric": ["gap"],
-                "model": ["KMeans"],
+                "model": ["KMeans (n_init=10)"],
                 "k": [3],
                 "score": [0.5],
                 "ari": [0.5],
@@ -262,7 +277,7 @@ class TestPrepareComposite:
         best = pd.DataFrame(
             {
                 "metric": ["gap"],
-                "model": ["KMeans"],
+                "model": ["KMeans (n_init=10)"],
                 "k": [3],
                 "score": [0.5],
                 "ari": [0.5],
@@ -299,7 +314,7 @@ class TestPrepareComposite:
         frame = pd.DataFrame(
             {
                 "metric": ["silhouette"],
-                "model": ["KMeans"],
+                "model": ["KMeans (n_init=10)"],
                 "k": [2],
                 "score": [0.5],
                 "ari": [0.5],
@@ -331,7 +346,7 @@ class TestPrepareComposite:
         curves = pd.DataFrame(
             {
                 "metric": ["silhouette"],
-                "model": ["KMeans"],
+                "model": ["KMeans (n_init=10)"],
                 "k": [3],
                 "score": [0.5],
                 "ari": [0.5],
@@ -340,7 +355,7 @@ class TestPrepareComposite:
         best = pd.DataFrame(
             {
                 "metric": ["silhouette"],
-                "model": ["KMeans"],
+                "model": ["KMeans (n_init=10)"],
                 "k": [3],
                 "score": [0.5],
                 "ari": [0.5],
@@ -367,7 +382,7 @@ class TestPrepareComposite:
         curves = pd.DataFrame(
             {
                 "metric": ["silhouette"],
-                "model": ["KMeans"],
+                "model": ["KMeans (n_init=10)"],
                 "k": [3],
                 "score": [0.5],
                 "ari": [0.5],
@@ -376,7 +391,7 @@ class TestPrepareComposite:
         best = pd.DataFrame(
             {
                 "metric": ["silhouette"],
-                "model": ["KMeans"],
+                "model": ["KMeans (n_init=10)"],
                 "k": [3],
                 "score": [0.5],
                 "ari": [0.5],
@@ -446,7 +461,7 @@ class TestPrepareComposite:
         curves = pd.DataFrame(
             {
                 "metric": ["silhouette"],
-                "model": ["KMeans"],
+                "model": ["KMeans (n_init=10)"],
                 "k": [3],
                 "score": [0.5],
                 "ari": [0.5],
@@ -455,7 +470,7 @@ class TestPrepareComposite:
         best = pd.DataFrame(
             {
                 "metric": ["silhouette"],
-                "model": ["KMeans"],
+                "model": ["KMeans (n_init=10)"],
                 "k": [3],
                 "score": [0.5],
                 "ari": [0.5],

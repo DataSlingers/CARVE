@@ -9,7 +9,14 @@ from dataclasses import dataclass
 from typing import Any
 
 KNOWN_ESTIMATORS: frozenset[str] = frozenset(
-    {"kmeans", "minibatch_kmeans", "agglomerative", "spectral", "leiden"}
+    {
+        "kmeans",
+        "minibatch_kmeans",
+        "agglomerative",
+        "agglomerative_single",
+        "spectral",
+        "leiden",
+    }
 )
 
 
@@ -158,6 +165,11 @@ class Study:
     that development runs cheaply against a subsample and the publication run
     uses the whole dataset, with both sizes declared here rather than chosen
     at a call site.
+
+    partners are the estimators swept alongside the study's own, in the
+    order study_model_grids emits them. Declared here so the set of
+    estimators a case study compares is part of its configuration rather
+    than a branch on its name.
     """
 
     name: str
@@ -166,6 +178,7 @@ class Study:
     candidate_k: tuple[int, ...]
     scales: Mapping[str, int | float | None]
     default_scale: str
+    partners: tuple[EstimatorSpec, ...] = (EstimatorSpec(name="spectral"),)
     resolutions: tuple[float, ...] = ()
     consensus_anchors: int | None = None
     k_star: int | None = None

@@ -1,40 +1,22 @@
 """The Cusanovich mouse sci-ATAC case-study composite.
 
-Panel F is an alluvial linking the CARVE clustering, the reported labels and
-the CVI clustering, the same shape the Klein figure uses. Panels A to C draw
-the source publication's own t-SNE coordinates, which cell_metadata.txt ships
-and the loader carries through as meta["source_tsne"], with 8-point markers
-because the study is Levine sized rather than Klein sized.
+Panel F is the ARI comparison the Levine and hECA figures use: the number
+this case study exists to report is CARVE's agreement with the reported
+tissue labels against each CVI's, and an alluvial does not state it. Panels
+A to C draw the source publication's own t-SNE coordinates, which
+cell_metadata.txt ships and the loader carries through as
+meta["source_tsne"], with 8-point markers because the study is Levine sized
+rather than Klein sized.
 """
 
 from pathlib import Path
 
-from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
-from .._panels import alluvial
-from ._case_study import CompositeInputs, composite_color_maps, composite_figure
+from ._case_study import CompositeInputs, ari_panel, composite_figure
 
 MARKER_SIZE = 8.0
 AXIS_LABELS = ("t-SNE 1", "t-SNE 2")
-
-
-def _alluvial_panel(ax: Axes, inputs: CompositeInputs) -> Axes:
-    # The same three maps the scatter panels use, so a cluster keeps one
-    # color down the whole figure.
-    true_cmap, carve_cmap, comparison_cmap = composite_color_maps(inputs)
-    return alluvial(
-        ax,
-        inputs.y,
-        inputs.carve_labels,
-        inputs.comparison_labels,
-        left_cmap=carve_cmap,
-        right_cmap=comparison_cmap,
-        true_cmap=true_cmap,
-        left_title="CARVE",
-        right_title=f"CVI ({inputs.comparison_name})",
-        true_title="Reported Tissue",
-    )
 
 
 def figure_cusanovich_results(
@@ -43,7 +25,7 @@ def figure_cusanovich_results(
     """Build the Cusanovich case-study figure."""
     return composite_figure(
         inputs,
-        bottom_panel=_alluvial_panel,
+        bottom_panel=ari_panel,
         marker_size=MARKER_SIZE,
         axis_labels=AXIS_LABELS,
         save_name="cusanovich_results.png",

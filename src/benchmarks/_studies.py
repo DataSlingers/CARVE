@@ -87,14 +87,26 @@ def _model_label(estimator_cls: type[ClusterMixin], params: dict[str, Any]) -> s
     return f"{estimator_cls.__name__} ({rendered})"
 
 
-def _spec_for(estimator_cls: type[ClusterMixin]) -> EstimatorSpec:
-    """Map an estimator class back to its spec, for the gap statistic."""
-    from ._estimators import ESTIMATOR_CLASSES
+def _spec_for(
+    estimator_cls: type[ClusterMixin], fixed_params: dict[str, Any]
+) -> EstimatorSpec:
+    """Map an estimator class and its fixed parameters back to a spec.
+
+    Used by the gap statistic to refit reference datasets. One class can be
+    registered under more than one name (AgglomerativeClustering as
+    "agglomerative" and "agglomerative_single"), so the fixed parameters
+    are part of the match; matching the class alone would refit every
+    single-linkage cell's references with Ward.
+    """
+    from ._estimators import ESTIMATOR_CLASSES, ESTIMATOR_DEFAULTS
 
     for name, cls in ESTIMATOR_CLASSES.items():
-        if cls is estimator_cls:
+        if cls is estimator_cls and ESTIMATOR_DEFAULTS[name] == fixed_params:
             return EstimatorSpec(name=name)
-    raise ValueError(f"No EstimatorSpec is registered for {estimator_cls.__name__}.")
+    raise ValueError(
+        f"No EstimatorSpec is registered for {estimator_cls.__name__} with "
+        f"parameters {fixed_params!r}."
+    )
 
 
 def _sweep_cell(
@@ -112,7 +124,7 @@ def _sweep_cell(
 
     labels = np.asarray(estimator_cls(**params).fit_predict(X), dtype=np.int32)
     ari = float(adjusted_rand_score(y, labels)) if y is not None else float("nan")
-    spec = _spec_for(estimator_cls)
+    spec = _spec_for(estimator_cls, fixed_params)
 
     rows = []
     for metric in CVI_SWEEP_METRICS:
@@ -395,6 +407,7 @@ STUDIES: dict[str, Study] = {
         candidate_k=tuple(range(2, 11)),
         scales={"dev": 400, "publication": 0.5},
         default_scale="publication",
+        partners=(EstimatorSpec(name="spectral"),),
     ),
     "levine32": Study(
         name="levine32",
@@ -403,6 +416,7 @@ STUDIES: dict[str, Study] = {
         candidate_k=tuple(range(7, 18)),
         scales={"dev": 800, "publication": 5000},
         default_scale="publication",
+        partners=(EstimatorSpec(name="spectral"),),
     ),
     "cusanovich": Study(
         name="cusanovich",
@@ -411,6 +425,16 @@ STUDIES: dict[str, Study] = {
         candidate_k=tuple(range(4, 17)),
         scales={"dev": 1500, "publication": 5000, "atlas": None},
         default_scale="dev",
+        # Spectral as in the other case studies, plus Ward and single-linkage
+        # agglomerative clustering. Single linkage is included deliberately:
+        # on an LSI it tends to peel off outliers one at a time, a partition
+        # that is near-identical across resamples and so scores as highly
+        # stable while saying little, which is worth showing.
+        partners=(
+            EstimatorSpec(name="spectral"),
+            EstimatorSpec(name="agglomerative"),
+            EstimatorSpec(name="agglomerative_single"),
+        ),
         # The atlas scale runs every annotated cell (the loader always drops
         # cell_label=="Unknown", about 12 percent of the atlas), where
         # spectral and Ward cannot run, so that pass sweeps Leiden resolution
@@ -440,9 +464,12 @@ STUDIES: dict[str, Study] = {
         name="heca",
         loader=_heca_loader,
         estimator=EstimatorSpec(name="minibatch_kmeans"),
-        candidate_k=tuple(range(3, 16)),
+        candidate_k=tuple(range(4, 16)),
         scales={"dev": 25_000, "publication": None},
         default_scale="dev",
+        # Spectral builds a dense n-by-n affinity and cannot run at this
+        # scale, so the partner is KMeans.
+        partners=(EstimatorSpec(name="kmeans"),),
         resolutions=tuple(round(0.1 * i, 1) for i in range(1, 21)),
         # See the cusanovich entry above for the arithmetic: both
         # consensus_matrices_ and consensus_generalizability_matrices_ are
@@ -458,12 +485,12 @@ STUDIES: dict[str, Study] = {
 def study_model_grids(
     study: Study,
 ) -> list[tuple[type[ClusterMixin], dict[str, list[Any]]]]:
-    """The study's own estimator plus a second one, over candidate_k.
+    """The study's own estimator plus its declared partners, over candidate_k.
 
     Klein sweeps Ward agglomerative and spectral; Levine sweeps KMeans and
-    spectral; Cusanovich sweeps KMeans and spectral at case-study scale. The
-    hECA study cannot use spectral, which builds a dense n-by-n affinity, so
-    it pairs MiniBatchKMeans with KMeans instead.
+    spectral; Cusanovich sweeps KMeans, spectral, Ward and single linkage at
+    case-study scale; hECA pairs MiniBatchKMeans with KMeans. Each study
+    declares this on Study.partners.
     """
     if study.estimator.name in RESOLUTION_ESTIMATORS:
         raise ValueError(
@@ -471,14 +498,10 @@ def study_model_grids(
             "study_resolution_grids."
         )
 
-    partner = (
-        EstimatorSpec(name="kmeans")
-        if study.name == "heca"
-        else EstimatorSpec(name="spectral")
-    )
-    return param_grids(study.estimator, study.candidate_k) + param_grids(
-        partner, study.candidate_k
-    )
+    grids = param_grids(study.estimator, study.candidate_k)
+    for partner in study.partners:
+        grids += param_grids(partner, study.candidate_k)
+    return grids
 
 
 def study_resolution_grids(

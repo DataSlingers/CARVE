@@ -29,13 +29,18 @@ from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
 
 from benchmarks._theme import cluster_colors
-from benchmarks.figures import figure_carve_output_klein, figure_carve_output_levine
+from benchmarks.figures import (
+    figure_carve_output_cusanovich,
+    figure_carve_output_klein,
+    figure_carve_output_levine,
+)
 from benchmarks.figures._case_study import (
     CompositeInputs,
     _align_to_reference,
     carve_labels_aligned,
     reference_codes,
 )
+from benchmarks.figures._cusanovich_results import AXIS_LABELS, MARKER_SIZE
 from carve import CARVE
 
 
@@ -170,6 +175,16 @@ class TestCarveOutputFigures:
 
     def test_levine_save_false_writes_nothing(self, inputs, tmp_path):
         fig = figure_carve_output_levine(inputs, save=False, out_dir=tmp_path)
+        assert list(tmp_path.iterdir()) == []
+        plt.close(fig)
+
+    def test_cusanovich_saves_under_the_manuscript_filename(self, inputs, tmp_path):
+        fig = figure_carve_output_cusanovich(inputs, save=True, out_dir=tmp_path)
+        assert (tmp_path / "CARVE_output_cusanovich.png").exists()
+        plt.close(fig)
+
+    def test_cusanovich_save_false_writes_nothing(self, inputs, tmp_path):
+        fig = figure_carve_output_cusanovich(inputs, save=False, out_dir=tmp_path)
         assert list(tmp_path.iterdir()) == []
         plt.close(fig)
 
@@ -459,6 +474,27 @@ class TestCarveOutputFigures:
         np.testing.assert_allclose(levine_sizes, 8.0)
         plt.close(klein_fig)
         plt.close(levine_fig)
+
+
+    def test_cusanovich_matches_its_composite_embedding_and_marker_size(
+        self, inputs
+    ):
+        # The two Cusanovich figures draw the same source t-SNE at the same
+        # dot size, read from the composite module's constants rather than
+        # restated, so the pair cannot drift apart.
+        fig = figure_carve_output_cusanovich(inputs, save=False)
+        panels = _panel_by_letter(fig)
+        ax_e = panels["E"]
+        assert (ax_e.get_xlabel(), ax_e.get_ylabel()) == AXIS_LABELS
+        sizes = np.concatenate(
+            [
+                c.get_sizes()
+                for c in panels["F"].collections
+                if isinstance(c, PathCollection)
+            ]
+        )
+        np.testing.assert_allclose(sizes, MARKER_SIZE)
+        plt.close(fig)
 
 
 class TestClusterIdsAgreeWithTheComposite:

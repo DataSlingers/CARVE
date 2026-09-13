@@ -39,6 +39,20 @@ class TestBuildEstimator:
         est = build_estimator(EstimatorSpec(name="agglomerative"), n_clusters=3, random_state=0)
         assert est.linkage == "ward"
 
+    def test_agglomerative_single_uses_single_linkage(self):
+        est = build_estimator(
+            EstimatorSpec(name="agglomerative_single"), n_clusters=3, random_state=0
+        )
+        assert isinstance(est, AgglomerativeClustering)
+        assert est.linkage == "single"
+
+    def test_single_linkage_is_a_dense_pairwise_estimator(self):
+        # sklearn's single linkage builds the full pairwise distance matrix
+        # without a connectivity graph, so it is quadratic like Ward.
+        from benchmarks._estimators import DENSE_PAIRWISE_ESTIMATORS
+
+        assert "agglomerative_single" in DENSE_PAIRWISE_ESTIMATORS
+
     def test_spectral_uses_self_tuning_affinity(self):
         est = build_estimator(EstimatorSpec(name="spectral"), n_clusters=3, random_state=0)
         assert est.affinity == "self_tuning"

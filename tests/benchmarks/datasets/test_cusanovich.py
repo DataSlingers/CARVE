@@ -46,8 +46,13 @@ def atlas(tmp_path):
     path.unlink()
 
     cells = [f"cell{i:04d}" for i in range(N_CELLS)]
+    # The release's .cells.txt holds the same barcodes as cell_metadata.txt
+    # but in a different order, and it is the metadata's row order, not the
+    # cells file, that matches the matrix columns. Write the cells file
+    # shuffled so a loader that reindexes by it scrambles the labels here
+    # the way it does on the real atlas.
     (d / "matrices" / "atac_matrix.binary.qc_filtered.cells.txt").write_text(
-        "\n".join(cells) + "\n"
+        "\n".join(cells[i] for i in rng.permutation(N_CELLS)) + "\n"
     )
     (d / "matrices" / "atac_matrix.binary.qc_filtered.peaks.txt").write_text(
         "\n".join(f"chr1_{i}_{i + 100}" for i in range(N_PEAKS)) + "\n"
@@ -55,10 +60,7 @@ def atlas(tmp_path):
     # The source's own t-SNE coordinates. tsne_1 encodes the cell's column
     # in the matrix and tsne_2 its tissue, so a test can check which cell a
     # coordinate row belongs to after the loader has filtered and
-    # subsampled. Rows are written in a shuffled order because the real
-    # cell_metadata.txt does not follow the matrix's cell order either; the
-    # loader reindexes by cell id.
-    order = rng.permutation(N_CELLS)
+    # subsampled. Rows are in matrix column order, as in the real release.
     pd.DataFrame(
         {
             "cell": cells,
@@ -68,7 +70,7 @@ def atlas(tmp_path):
             "tsne_2": np.array([TISSUE_CODE[t] for t in tissues], dtype=float),
             "cell_label": np.where(rng.random(N_CELLS) < 0.15, "Unknown", tissues),
         }
-    ).iloc[order].to_csv(d / "metadata" / "cell_metadata.txt", sep="\t", index=False)
+    ).to_csv(d / "metadata" / "cell_metadata.txt", sep="\t", index=False)
     return root
 
 
@@ -123,6 +125,33 @@ class TestLoadCusanovich:
         assert "skipped" in chain
         assert "TruncatedSVD(n_components=10);" not in chain
         assert "TF-IDF: per-cell term frequency" not in chain
+
+    def test_labels_follow_the_metadata_row_order_not_the_cells_file(self, atlas):
+        # On the released atlas the matrix columns are in cell_metadata.txt
+        # row order; .cells.txt lists the same barcodes in another order.
+        # Reindexing by the cells file kept tissue blocks roughly intact but
+        # gave every cell another cell's label, cluster and t-SNE position
+        # within its tissue. Row i of y must be metadata row i.
+        _, y, meta = load_cusanovich(root=atlas, n_components=10)
+        metadata = pd.read_csv(
+            atlas / "Cusanovich" / "metadata" / "cell_metadata.txt", sep="\t"
+        )
+        annotated = metadata.loc[metadata["cell_label"] != "Unknown"]
+        np.testing.assert_array_equal(y.to_numpy(), annotated["tissue"].to_numpy())
+        np.testing.assert_array_equal(
+            meta["source_tsne"][:, 0], annotated["tsne_1"].to_numpy()
+        )
+
+    def test_cells_file_disagreeing_with_the_metadata_raises(self, atlas):
+        # The cells file is still read: it is the only independent record of
+        # which barcodes the matrix holds, so a mismatch with the metadata
+        # means the two files are not from the same release.
+        path = atlas / "Cusanovich" / "matrices" / "atac_matrix.binary.qc_filtered.cells.txt"
+        lines = path.read_text().split()
+        lines[0] = "not_a_cell"
+        path.write_text("\n".join(lines) + "\n")
+        with pytest.raises(ValueError, match="cells.txt"):
+            load_cusanovich(root=atlas, n_components=10)
 
     def test_embedding_separates_the_planted_tissues(self, atlas):
         # A loader that returned noise would satisfy every shape assertion

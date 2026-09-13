@@ -1,4 +1,4 @@
-"""Fig 3 and S4 Fig: CARVE's own diagnostic output on a case study.
+"""Fig 3, S4 Fig and the Cusanovich figure: CARVE's own output on a case study.
 
 Six panels, and every one of them is a plot CARVE already ships as a method
 on the fitted object: (A) stability ARI over k, (B) the consensus matrix for
@@ -20,6 +20,8 @@ from matplotlib.figure import Figure
 from .._panels import panel_letter
 from .._theme import CLUSTER_CMAP_NAME, cluster_cmap, save_figure, theme_context
 from ._case_study import CompositeInputs, carve_labels_aligned
+from ._cusanovich_results import AXIS_LABELS as CUSANOVICH_AXIS_LABELS
+from ._cusanovich_results import MARKER_SIZE as CUSANOVICH_MARKER_SIZE
 from ._paths import CASE_STUDY_DIR, figure_path
 
 # Panel A is always the stability overview and panel C always the
@@ -187,6 +189,25 @@ def figure_carve_output_levine(
         marker_size=8.0,
         axis_labels=("t-SNE 1", "t-SNE 2"),
         save_name="CARVE_output_levine.png",
+        save=save,
+        out_dir=out_dir,
+    )
+
+
+def figure_carve_output_cusanovich(
+    inputs: CompositeInputs, *, save: bool = True, out_dir: Path | None = None
+) -> Figure:
+    """Build the CARVE output figure for the Cusanovich sci-ATAC case study.
+
+    Marker size and axis labels come from the composite module rather than
+    being restated here, so the two Cusanovich figures draw the same source
+    t-SNE at the same dot size by construction.
+    """
+    return carve_output_figure(
+        inputs,
+        marker_size=CUSANOVICH_MARKER_SIZE,
+        axis_labels=CUSANOVICH_AXIS_LABELS,
+        save_name="CARVE_output_cusanovich.png",
         save=save,
         out_dir=out_dir,
     )
