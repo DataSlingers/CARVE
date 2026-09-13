@@ -18,6 +18,14 @@ import carve.api as carve_api
 from carve import CARVE, LeidenClustering, LouvainClustering
 from carve._utils import resolve_anchors
 from tests._helpers import make_njobs_spy, make_seed_spy
+from tests.fixtures.nonrandomized_gate import (
+    GATE_KEYS,
+    GATE_PATH,
+    fit_gate,
+    gate_arrays,
+    gate_dataset,
+    gate_model,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -1909,3 +1917,37 @@ class TestShowProgress:
         assert "Grid configs" in captured.err
         assert "1/1" in captured.err
         assert "[CARVE] [1/1] est=KMeans n_clusters=2" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# Regression gate: the non-randomized path is pinned to a captured fixture
+# ---------------------------------------------------------------------------
+
+
+class TestNonRandomizedRegressionGate:
+    """The non-randomized path must compute exactly what it did before the
+    randomized path was redesigned. The fixture was captured from the start
+    commit of that work; see tests/fixtures/nonrandomized_gate.py.
+    """
+
+    def test_matches_the_captured_fixture(self):
+        before = np.load(GATE_PATH)
+        after = fit_gate()
+        assert list(before["columns"]) == list(after["columns"])
+        assert list(before["method_labels"]) == list(after["method_labels"])
+        for key in GATE_KEYS:
+            np.testing.assert_allclose(
+                after[key], before[key], rtol=1e-6, atol=1e-8, err_msg=key
+            )
+
+    def test_gate_can_detect_the_randomized_path(self):
+        """A randomized fit that standardizes and projects each subsample
+        must not reproduce the fixture, or the gate above proves nothing.
+        """
+        model = gate_model(
+            normalization_options=[(StandardScaler, {})],
+            dim_reduction_options=[(PCA, {"n_components": [2]})],
+        )
+        randomized = gate_arrays(model.fit(gate_dataset(), randomize_preprocessing=True))
+        before = np.load(GATE_PATH)
+        assert not np.allclose(randomized["results"], before["results"], equal_nan=True)
