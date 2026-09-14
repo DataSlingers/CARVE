@@ -78,6 +78,20 @@ def _resolve_option(key: str, grid: Any) -> ResolvedOption:
     )
 
 
+def preprocessing_fingerprint(spec: PreprocessingSpec | None) -> str:
+    """A stable text form of a spec and the defaults it binds, for cache keys.
+
+    Two specs that resolve to different transformers differ here, including
+    when only PREPROCESSOR_DEFAULTS changed, which the spec alone would not
+    show. Nothing is imported, so computing a cache path never needs
+    umap-learn.
+    """
+    if spec is None:
+        return repr(None)
+    keys = [key for key, _ in (*spec.normalization, *spec.dim_reduction)]
+    return repr((spec, {key: PREPROCESSOR_DEFAULTS[key] for key in keys}))
+
+
 def resolve_preprocessing(spec: PreprocessingSpec) -> dict[str, list[ResolvedOption]]:
     """The option lists CARVE takes, built from a spec.
 

@@ -5,7 +5,8 @@ import pandas as pd
 import pytest
 from sklearn.cluster import AgglomerativeClustering, KMeans
 
-from benchmarks._estimators import param_grids
+from benchmarks._estimators import param_grids, resolution_grids
+from benchmarks._preprocessing import PREPROCESSOR_DEFAULTS, resolve_preprocessing
 from benchmarks._studies import (
     CVI_SWEEP_METRICS,
     STUDIES,
@@ -22,7 +23,7 @@ from benchmarks._studies import (
     study_resolution_grids,
     study_scaling_sweep,
 )
-from benchmarks._types import EstimatorSpec, Study
+from benchmarks._types import EstimatorSpec, PreprocessingSpec, Study
 from carve.cluster import LeidenClustering, SpectralClustering
 from tests.benchmarks._helpers import make_carve_spy
 
@@ -299,6 +300,95 @@ class TestConsensusAnchorsForwarding:
 
         assert spy.captured_kwargs["consensus_anchors"] == 77
         assert list(frame["n"]) == [len(X)]
+
+
+_TSNE_SPEC = PreprocessingSpec(
+    normalization=(("identity", {}),),
+    dim_reduction=(("identity", {}), ("tsne", {"perplexity": [5]})),
+)
+
+
+class TestPreprocessingForwarding:
+    def test_forwards_the_preprocessing_arguments(self, blobs, tmp_path, monkeypatch):
+        X, y = blobs
+        spy = make_carve_spy()
+        monkeypatch.setattr("benchmarks._studies.CARVE", spy)
+        normalization = [("normalization sentinel",)]
+        dim_reduction = [("dim_reduction sentinel",)]
+
+        fit_or_load_carve(
+            X,
+            y,
+            cache_path=tmp_path / "demo.carve",
+            model_grids=param_grids(EstimatorSpec(name="kmeans"), (2, 3)),
+            n_resamples=3,
+            randomize_preprocessing=True,
+            normalization_options=normalization,
+            dim_reduction_options=dim_reduction,
+        )
+
+        assert spy.captured_kwargs["normalization_options"] is normalization
+        assert spy.captured_kwargs["dim_reduction_options"] is dim_reduction
+        assert spy.captured_fit_kwargs["randomize_preprocessing"] is True
+
+    def test_omits_the_preprocessing_arguments_when_unset(
+        self, blobs, tmp_path, monkeypatch
+    ):
+        X, y = blobs
+        spy = make_carve_spy()
+        monkeypatch.setattr("benchmarks._studies.CARVE", spy)
+
+        fit_or_load_carve(
+            X,
+            y,
+            cache_path=tmp_path / "demo.carve",
+            model_grids=param_grids(EstimatorSpec(name="kmeans"), (2, 3)),
+            n_resamples=3,
+        )
+
+        assert "normalization_options" not in spy.captured_kwargs
+        assert "dim_reduction_options" not in spy.captured_kwargs
+        assert "randomize_preprocessing" not in spy.captured_fit_kwargs
+
+    def test_options_without_randomize_preprocessing_raise(self, blobs, tmp_path):
+        # CARVE ignores the option lists on a non-randomized fit, so passing
+        # them there is a misconfiguration, not a no-op.
+        X, y = blobs
+        with pytest.raises(ValueError, match="randomize_preprocessing=True"):
+            fit_or_load_carve(
+                X,
+                y,
+                cache_path=tmp_path / "demo.carve",
+                model_grids=param_grids(EstimatorSpec(name="kmeans"), (2, 3)),
+                n_resamples=3,
+                dim_reduction_options=[],
+            )
+        assert not (tmp_path / "demo.carve").exists()
+
+    def test_a_randomized_fit_survives_the_cache(self, blobs, tmp_path):
+        # resolve_preprocessing binds t-SNE's defaults with functools.partial;
+        # the cached fit must pickle and reload it with the per-pipeline
+        # table and the pipeline registry intact.
+        X, y = blobs
+        kwargs = dict(
+            cache_path=tmp_path / "demo.carve",
+            model_grids=param_grids(EstimatorSpec(name="kmeans"), (2, 3)),
+            n_resamples=4,
+            randomize_preprocessing=True,
+            **resolve_preprocessing(_TSNE_SPEC),
+        )
+        fitted = fit_or_load_carve(X, y, **kwargs)
+        mtime = kwargs["cache_path"].stat().st_mtime_ns
+        loaded = fit_or_load_carve(X, y, **kwargs)
+
+        assert kwargs["cache_path"].stat().st_mtime_ns == mtime
+        pd.testing.assert_frame_equal(
+            loaded.preprocessing_results_, fitted.preprocessing_results_
+        )
+        assert set(loaded.preprocessing_pipelines_) == {
+            "identity | identity",
+            "identity | TSNE(perplexity=5)",
+        }
 
 
 class TestDenseEstimatorGuard:
@@ -597,6 +687,71 @@ class TestCarveCachePath:
         a = carve_cache_path(_study(), scale="publication", root=tmp_path)
         b = carve_cache_path(_study(), scale="publication", root=tmp_path)
         assert a == b
+
+    def test_default_runs_keep_their_existing_filenames(self, tmp_path):
+        # The Klein and Levine publication caches are hours of compute each
+        # and were written before run keys existed, so their default runs
+        # must resolve to the same names as before, byte for byte.
+        klein = carve_cache_path(STUDIES["klein"], root=tmp_path)
+        levine = carve_cache_path(STUDIES["levine32"], root=tmp_path)
+        heca = carve_cache_path(STUDIES["heca"], root=tmp_path)
+        assert klein.name == "carve_klein_publication_1b390cd5.carve"
+        assert levine.name == "carve_levine32_publication_f8237d89.carve"
+        assert heca.name == "carve_heca_dev_8314e95d.carve"
+
+    def test_passing_the_default_run_explicitly_changes_nothing(self, tmp_path):
+        study = _study()
+        explicit = carve_cache_path(
+            study,
+            scale="dev",
+            root=tmp_path,
+            model_grids=study_model_grids(study),
+            n_resamples=100,
+            preprocessing=None,
+        )
+        assert explicit == carve_cache_path(study, scale="dev", root=tmp_path)
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            {"model_grids": resolution_grids(EstimatorSpec(name="leiden"), (0.5, 1.0))},
+            {"preprocessing": _TSNE_SPEC},
+            {"n_resamples": 150},
+        ],
+        ids=["resolution-grid", "preprocessing", "n_resamples"],
+    )
+    def test_any_other_run_gets_its_own_filename(self, tmp_path, change):
+        default = carve_cache_path(_study(), scale="dev", root=tmp_path)
+        path = carve_cache_path(_study(), scale="dev", root=tmp_path, **change)
+        assert path != default
+        assert path.name.startswith(default.stem + "_")
+        assert path.suffix == ".carve"
+
+    def test_different_preprocessing_gets_a_different_filename(self, tmp_path):
+        other = PreprocessingSpec(
+            normalization=(("identity", {}),),
+            dim_reduction=(("identity", {}), ("tsne", {"perplexity": [15]})),
+        )
+        a = carve_cache_path(_study(), scale="dev", root=tmp_path, preprocessing=_TSNE_SPEC)
+        b = carve_cache_path(_study(), scale="dev", root=tmp_path, preprocessing=other)
+        assert a != b
+
+    def test_editing_the_bound_defaults_changes_the_filename(self, tmp_path, monkeypatch):
+        before = carve_cache_path(
+            _study(), scale="dev", root=tmp_path, preprocessing=_TSNE_SPEC
+        )
+        monkeypatch.setitem(PREPROCESSOR_DEFAULTS, "tsne", {"n_components": 3})
+        after = carve_cache_path(
+            _study(), scale="dev", root=tmp_path, preprocessing=_TSNE_SPEC
+        )
+        assert before != after
+
+    def test_a_study_without_a_k_grid_must_name_its_grid(self, tmp_path):
+        study = _study(
+            estimator=EstimatorSpec(name="leiden"), candidate_k=(), resolutions=(0.5, 1.0)
+        )
+        with pytest.raises(ValueError, match="model_grids"):
+            carve_cache_path(study, scale="dev", root=tmp_path)
 
 
 class TestRegisteredStudiesCarryScales:

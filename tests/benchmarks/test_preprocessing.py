@@ -13,6 +13,7 @@ from benchmarks._preprocessing import (
     PREPROCESSOR_CLASSES,
     PREPROCESSOR_DEFAULTS,
     PREPROCESSOR_NAMES,
+    preprocessing_fingerprint,
     preprocessor_class,
     resolve_preprocessing,
 )
@@ -111,6 +112,21 @@ def test_every_registry_key_resolves_to_an_option_carve_fits(role, key, grid, wi
         )
         Z = pipeline_from_spec(pipeline, random_state=0).fit_transform(X)
     assert Z.shape == (40, width)
+
+
+def test_the_fingerprint_names_the_bound_defaults(monkeypatch):
+    spec = _spec(dim_reduction=(("tsne", {"perplexity": [30]}),))
+    before = preprocessing_fingerprint(spec)
+    monkeypatch.setitem(PREPROCESSOR_DEFAULTS, "tsne", {"n_components": 3})
+    assert preprocessing_fingerprint(spec) != before
+
+
+def test_the_fingerprint_imports_nothing(monkeypatch):
+    # A cache path is computed before any fit, including where umap-learn is
+    # not installed.
+    monkeypatch.setitem(sys.modules, "umap", None)
+    spec = _spec(dim_reduction=(("umap", {"n_neighbors": [15]}),))
+    assert "min_dist" in preprocessing_fingerprint(spec)
 
 
 def test_bound_defaults_come_from_the_registry(monkeypatch):

@@ -81,7 +81,7 @@ def simple_results(ks, method_label: str) -> pd.DataFrame:
 
 
 def make_carve_spy() -> type:
-    """A CARVE stand-in class that records its constructor kwargs.
+    """A CARVE stand-in class that records its constructor and fit kwargs.
 
     Used where a test needs to see what a call site passed to CARVE(...)
     without paying for a fit. A new class per call keeps the record private
@@ -91,6 +91,7 @@ def make_carve_spy() -> type:
 
     class SpyCARVE:
         captured_kwargs: dict | None = None
+        captured_fit_kwargs: dict | None = None
 
         def __init__(self, **kwargs):
             type(self).captured_kwargs = kwargs
@@ -98,6 +99,7 @@ def make_carve_spy() -> type:
             self._n = 0
 
         def fit(self, X, *args, **kwargs):
+            type(self).captured_fit_kwargs = kwargs
             self._n = int(np.asarray(X).shape[0])
             return self
 

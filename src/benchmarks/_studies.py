@@ -8,6 +8,7 @@ could not be reused without also drawing it.
 import hashlib
 import warnings
 from collections.abc import Sequence
+from dataclasses import fields
 from itertools import product
 from pathlib import Path
 from typing import Any
@@ -29,7 +30,8 @@ from ._estimators import (
     param_grids,
     resolution_grids,
 )
-from ._types import EstimatorSpec, Study
+from ._preprocessing import preprocessing_fingerprint
+from ._types import EstimatorSpec, PreprocessingSpec, Study
 
 CVI_SWEEP_METRICS: tuple[str, ...] = (
     "silhouette",
@@ -44,6 +46,12 @@ CVI_SWEEP_METRICS: tuple[str, ...] = (
 # default, which draws the same "an exact n-by-n matrix stops being
 # tractable here" line for the consensus matrix.
 DENSE_ESTIMATOR_SAFE_N = 5_000
+
+#: CARVE's own default resample count. A study's k-based run at this count
+#: keeps the cache filename it had before carve_cache_path added run keys.
+PACKAGE_N_RESAMPLES: int = next(
+    field.default for field in fields(CARVE) if field.name == "n_resamples"
+)
 
 _DENSE_ESTIMATOR_CLASSES: frozenset[type[ClusterMixin]] = frozenset(
     cls for name, cls in ESTIMATOR_CLASSES.items() if name in DENSE_PAIRWISE_ESTIMATORS
@@ -260,11 +268,14 @@ def fit_or_load_carve(
     *,
     cache_path: Path,
     model_grids: list[tuple[type[ClusterMixin], dict[str, list[Any]]]],
-    n_resamples: int = 100,
+    n_resamples: int = PACKAGE_N_RESAMPLES,
     n_jobs: int = 1,
     random_state: int = 42,
     force: bool = False,
     consensus_anchors: int | None = None,
+    randomize_preprocessing: bool = False,
+    normalization_options: list[Any] | None = None,
+    dim_reduction_options: list[Any] | None = None,
 ) -> CARVE:
     """Fit CARVE on a case study, caching the fitted state to disk.
 
@@ -272,14 +283,32 @@ def fit_or_load_carve(
     practical. The saved state does not carry the data matrix, so X_ is
     restored after loading, matching the notebook this replaces.
 
+    The cache is found by path alone. A caller that changes the grid, the
+    resample count or the preprocessing must pass the same to
+    carve_cache_path, which keys the filename on them.
+
     consensus_anchors : int or None, default=None
         Forwarded to CARVE only when not None, so studies that leave it at
         the package default (an exact, unanchored run) are unaffected. hECA
         sets this at case-study scale, where an exact consensus matrix does
         not fit.
+    randomize_preprocessing : bool, default=False
+        Forwarded to CARVE.fit only when True.
+    normalization_options, dim_reduction_options : list or None
+        Forwarded to CARVE only when not None, in the option syntax CARVE
+        takes; _preprocessing.resolve_preprocessing builds both from a
+        Study's preprocessing. Passing either without randomize_preprocessing
+        raises, since CARVE would ignore it.
     """
     cache_path = Path(cache_path)
     _check_dense_fit(np.asarray(X).shape[0], model_grids)
+    if not randomize_preprocessing and (
+        normalization_options is not None or dim_reduction_options is not None
+    ):
+        raise ValueError(
+            "normalization_options and dim_reduction_options only apply to a "
+            "fit with randomize_preprocessing=True; CARVE would ignore them."
+        )
 
     if cache_path.is_file() and not force:
         _check_fingerprint(cache_path, X)
@@ -287,19 +316,28 @@ def fit_or_load_carve(
         carve.X_ = np.asarray(X)
         return carve
 
+    optional = {
+        name: value
+        for name, value in (
+            ("consensus_anchors", consensus_anchors),
+            ("normalization_options", normalization_options),
+            ("dim_reduction_options", dim_reduction_options),
+        )
+        if value is not None
+    }
     carve = CARVE(
         estimator_param_grids=model_grids,
         n_resamples=n_resamples,
         n_jobs=n_jobs,
         random_state=random_state,
-        **(
-            {}
-            if consensus_anchors is None
-            else {"consensus_anchors": consensus_anchors}
-        ),
+        **optional,
     )
     reference = None if y is None else np.asarray(y)
-    carve.fit(np.asarray(X), reference_labels=reference)
+    carve.fit(
+        np.asarray(X),
+        reference_labels=reference,
+        **({"randomize_preprocessing": True} if randomize_preprocessing else {}),
+    )
 
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     carve.save(str(cache_path))
@@ -380,8 +418,51 @@ def load_study(
     return X, y, meta
 
 
-def carve_cache_path(study: Study, *, scale: str | None = None, root: Path) -> Path:
-    """Where a study's fitted CARVE state is cached, per scale.
+def _run_key(
+    study: Study,
+    *,
+    model_grids: list[tuple[type[ClusterMixin], dict[str, list[Any]]]] | None,
+    n_resamples: int,
+    preprocessing: PreprocessingSpec | None,
+) -> str | None:
+    """A short hash of what a fit runs, or None for the study's default run.
+
+    The default run is the study's own k-based grid (study_model_grids), no
+    randomized preprocessing, and the package's resample count. Anything
+    else hashes the grid, whose keys name the swept parameter, the
+    preprocessing spec with the defaults it binds, and n_resamples.
+    """
+    default_grids = (
+        study_model_grids(study)
+        if study.candidate_k and study.estimator.name not in RESOLUTION_ESTIMATORS
+        else None
+    )
+    grids = default_grids if model_grids is None else model_grids
+    if grids is None:
+        raise ValueError(
+            f"Study {study.name!r} has no k-based grid to default to; pass the "
+            "model_grids its fit runs."
+        )
+    if (
+        grids == default_grids
+        and preprocessing is None
+        and n_resamples == PACKAGE_N_RESAMPLES
+    ):
+        return None
+    payload = repr((grids, preprocessing_fingerprint(preprocessing), n_resamples))
+    return hashlib.sha1(payload.encode()).hexdigest()[:8]
+
+
+def carve_cache_path(
+    study: Study,
+    *,
+    scale: str | None = None,
+    root: Path,
+    model_grids: list[tuple[type[ClusterMixin], dict[str, list[Any]]]] | None = None,
+    n_resamples: int = PACKAGE_N_RESAMPLES,
+    preprocessing: PreprocessingSpec | None = None,
+) -> Path:
+    """Where a study's fitted CARVE state is cached, per scale and run.
 
     Both the scale name and a short hash of its resolved size are part of
     the filename deliberately. fit_or_load_carve loads whatever file sits at
@@ -393,11 +474,27 @@ def carve_cache_path(study: Study, *, scale: str | None = None, root: Path) -> P
     without the hash fit_or_load_carve would silently load the fit taken at
     the old size. A hash reads better than the raw resolved size for the
     None case (full data), which has no natural filename spelling.
+
+    A run key guards the same failure across kinds of fit: a k-based fit, a
+    Leiden resolution fit and a randomized-preprocessing fit at one scale
+    would otherwise share a filename. Pass the model_grids, n_resamples and
+    preprocessing the fit runs. The study's default run (its k-based grid,
+    no preprocessing, the package's resample count) carries no run key, so
+    the caches written before run keys existed keep their names. A study
+    with no k-based grid must pass model_grids.
     """
     resolved = resolve_scale(study, scale)  # raises if the scale is unknown
     name = _scale_name(study, scale)
     size_key = hashlib.sha1(repr(resolved).encode()).hexdigest()[:8]
-    return Path(root) / f"carve_{study.name}_{name}_{size_key}.carve"
+    run_key = _run_key(
+        study,
+        model_grids=model_grids,
+        n_resamples=n_resamples,
+        preprocessing=preprocessing,
+    )
+    stem = f"carve_{study.name}_{name}_{size_key}"
+    filename = f"{stem}.carve" if run_key is None else f"{stem}_{run_key}.carve"
+    return Path(root) / filename
 
 
 STUDIES: dict[str, Study] = {
