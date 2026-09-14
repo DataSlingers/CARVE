@@ -146,6 +146,15 @@ def test_cusanovich_notebook_no_longer_runs_the_k_based_comparison(retired):
     assert retired not in _code(NOTEBOOKS["cusanovich"])
 
 
+def test_cusanovich_notebook_does_not_offer_the_atlas_scale():
+    # Randomized preprocessing at every cell means hundreds of t-SNE fits on
+    # tens of thousands of cells, so the notebook runs dev and publication
+    # only; the atlas scale stays declared in STUDIES for the loader (spec
+    # section 6). Cell 4 still names the atlas when it reports the whole
+    # release's Unknown count, so the check is on the quoted scale name.
+    assert '"atlas"' not in _code(NOTEBOOKS["cusanovich"])
+
+
 def test_heca_notebook_reads_its_config_from_studies():
     source = _code(NOTEBOOKS["heca"])
     assert 'STUDIES["heca"]' in source
