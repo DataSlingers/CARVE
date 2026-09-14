@@ -519,44 +519,44 @@ STUDIES: dict[str, Study] = {
     "cusanovich": Study(
         name="cusanovich",
         loader=_cusanovich_loader,
-        estimator=EstimatorSpec(name="kmeans"),
-        candidate_k=tuple(range(4, 17)),
+        # The source clustered its t-SNE with graph community detection, so
+        # Leiden over resolution gives their operating point a position on
+        # the same axis. Nothing k-based is swept.
+        estimator=EstimatorSpec(name="leiden"),
+        candidate_k=(),
+        # The atlas scale stays declared so the loader can still produce it;
+        # the notebook does not run it (spec section 6).
         scales={"dev": 1500, "publication": 5000, "atlas": None},
         default_scale="dev",
-        # Spectral as in the other case studies, plus Ward and single-linkage
-        # agglomerative clustering. Single linkage is included deliberately:
-        # on an LSI it tends to peel off outliers one at a time, a partition
-        # that is near-identical across resamples and so scores as highly
-        # stable while saying little, which is worth showing.
-        partners=(
-            EstimatorSpec(name="spectral"),
-            EstimatorSpec(name="agglomerative"),
-            EstimatorSpec(name="agglomerative_single"),
-        ),
-        # The atlas scale runs every annotated cell (the loader always drops
-        # cell_label=="Unknown", about 12 percent of the atlas), where
-        # spectral and Ward cannot run, so that pass sweeps Leiden resolution
-        # instead. This is what shows the case-study conclusion survives past
-        # the subsample. 81,173 is the atlas as published; the annotated
-        # subset actually analyzed at this scale is smaller (see
-        # datasets._cusanovich and meta["n_cells_annotated"]).
+        partners=(),
         resolutions=tuple(round(0.1 * i, 1) for i in range(1, 21)),
         # Pinned rather than left at the package default. Both
         # consensus_matrices_ and consensus_generalizability_matrices_ are
         # retained per configuration, so retained memory is
-        # n_configs * 2 * m**2 * 8 bytes. At atlas scale (tens of thousands
-        # of cells, above anchor_threshold=5000) the 20-config Leiden
-        # resolution sweep would otherwise anchor to the package default of
-        # m=5000: 20 * 2 * 5000**2 * 8 B = 8.0 GB retained. Pinned to the
-        # same 2000 anchors hECA uses (below), that sweep instead retains
-        # 20 * 2 * 2000**2 * 8 B = 1.28 GB. At dev scale (1,500 cells) this
-        # is a no-op: m=2000 exceeds n, so resolve_anchors takes the exact,
-        # unanchored path regardless. At publication scale (5,000 cells) it
-        # newly anchors to 2000 where the run was previously exact, which
-        # is a deliberate, harmless trade at that size (a 5000x5000 exact
-        # matrix is only 0.2 GB) made for one consistent anchor count across
-        # every scale this study declares.
+        # n_configs * 2 * m**2 * 8 bytes: 20 * 2 * 2000**2 * 8 B = 1.28 GB
+        # for the 20-configuration sweep at 2000 anchors, against 8.0 GB at
+        # the package default of 5000 once n exceeds anchor_threshold. At dev
+        # scale (1,500 cells) this is a no-op, since m=2000 exceeds n and the
+        # run is exact. At publication scale (5,000 cells) the run anchors to
+        # 2000, the count hECA uses.
         consensus_anchors=2000,
+        # 150 resamples over three dimensionality reductions gives each 50
+        # under stratified allocation, against 33 at the package default.
+        n_resamples=150,
+        preprocessing=PreprocessingSpec(
+            # The LSI is already scaled by its singular values; neither the
+            # source nor the field standardizes or log-transforms it.
+            normalization=(("identity", {}),),
+            dim_reduction=(
+                ("identity", {}),
+                # The source's own perplexity and no other, so the t-SNE line
+                # is their recipe rather than an average over perplexities.
+                ("tsne", {"perplexity": [30]}),
+                # The field's current default embedding, so the finding reads
+                # as one about clustering in an embedding, not about t-SNE.
+                ("umap", {"n_neighbors": [15, 30]}),
+            ),
+        ),
     ),
     "heca": Study(
         name="heca",
@@ -586,9 +586,9 @@ def study_model_grids(
     """The study's own estimator plus its declared partners, over candidate_k.
 
     Klein sweeps Ward agglomerative and spectral; Levine sweeps KMeans and
-    spectral; Cusanovich sweeps KMeans, spectral, Ward and single linkage at
-    case-study scale; hECA pairs MiniBatchKMeans with KMeans. Each study
-    declares this on Study.partners.
+    spectral; hECA pairs MiniBatchKMeans with KMeans. Each study declares
+    this on Study.partners. Cusanovich sweeps only Leiden resolution, so it
+    has no k-based grid and this raises for it.
     """
     if study.estimator.name in RESOLUTION_ESTIMATORS:
         raise ValueError(

@@ -1,5 +1,7 @@
 """Tests for case-study compute."""
 
+from collections import Counter
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -24,6 +26,7 @@ from benchmarks._studies import (
     study_scaling_sweep,
 )
 from benchmarks._types import EstimatorSpec, PreprocessingSpec, Study
+from carve._pipeline import allocate_pipelines
 from carve.cluster import LeidenClustering, SpectralClustering
 from tests.benchmarks._helpers import make_carve_spy
 
@@ -460,10 +463,10 @@ class TestStudies:
     def test_every_case_study_is_registered(self):
         assert set(STUDIES) == {"klein", "levine32", "cusanovich", "heca"}
 
-    def test_each_study_has_a_loader_and_candidate_k(self):
+    def test_each_study_has_a_loader_and_a_sweep(self):
         for study in STUDIES.values():
             assert callable(study.loader)
-            assert len(study.candidate_k) > 0
+            assert study.candidate_k or study.resolutions
 
     def test_klein_sweeps_k_two_through_ten(self):
         assert STUDIES["klein"].candidate_k == tuple(range(2, 11))
@@ -767,24 +770,81 @@ class TestRegisteredStudiesCarryScales:
 
 
 class TestNewStudies:
-    def test_cusanovich_sweeps_four_through_sixteen(self):
-        # Centered near the 13 tissues; stops well short of the 30 clusters
-        # and 40 cell labels the source reports.
-        assert STUDIES["cusanovich"].candidate_k == tuple(range(4, 17))
+    def test_cusanovich_sweeps_leiden_resolution_only(self):
+        # Graph community detection is the source's own algorithm family, so
+        # the study sweeps Leiden resolution and nothing k-based.
+        study = STUDIES["cusanovich"]
+        assert study.estimator == EstimatorSpec(name="leiden")
+        assert study.candidate_k == ()
+        assert study.partners == ()
+        with pytest.raises(ValueError, match="study_resolution_grids"):
+            study_model_grids(study)
+        ((cls, grid),) = study_resolution_grids(study)
+        assert cls is LeidenClustering
+        assert grid["resolution"] == pytest.approx(
+            [round(0.1 * i, 1) for i in range(1, 21)]
+        )
+        assert grid["n_neighbors"] == [15]
+
+    def test_cusanovich_randomizes_over_the_lsi_tsne_and_umap(self):
+        study = STUDIES["cusanovich"]
+        assert study.n_resamples == 150
+        assert study.preprocessing == PreprocessingSpec(
+            normalization=(("identity", {}),),
+            dim_reduction=(
+                ("identity", {}),
+                ("tsne", {"perplexity": [30]}),
+                ("umap", {"n_neighbors": [15, 30]}),
+            ),
+        )
+
+    def test_cusanovich_gives_each_reduction_fifty_resamples(self):
+        # Stratified allocation is over options, so 150 resamples split 50,
+        # 50, 50 across identity, t-SNE and UMAP; UMAP's 50 are shared by its
+        # two n_neighbors values, each of which is its own pipeline label.
+        pytest.importorskip("umap")
+        study = STUDIES["cusanovich"]
+        options = resolve_preprocessing(study.preprocessing)
+        pipelines = allocate_pipelines(
+            options["normalization_options"],
+            options["dim_reduction_options"],
+            n_resamples=study.n_resamples,
+            random_state=42,
+        )
+        counts = Counter(pipeline.label for pipeline in pipelines)
+        assert set(counts) == {
+            "identity | identity",
+            "identity | TSNE(perplexity=30)",
+            "identity | UMAP(n_neighbors=15)",
+            "identity | UMAP(n_neighbors=30)",
+        }
+        assert counts["identity | identity"] == 50
+        assert counts["identity | TSNE(perplexity=30)"] == 50
+        assert (
+            counts["identity | UMAP(n_neighbors=15)"]
+            + counts["identity | UMAP(n_neighbors=30)"]
+            == 50
+        )
+
+    def test_cusanovich_cache_never_resolves_to_the_invalid_pre_fix_cache(
+        self, tmp_path
+    ):
+        # carve_cusanovich_dev_7841fb1f.carve was fit before the cell-order
+        # fix (1dea71d) and must never be served again.
+        study = STUDIES["cusanovich"]
+        path = carve_cache_path(
+            study,
+            root=tmp_path,
+            model_grids=study_resolution_grids(study),
+            n_resamples=study.n_resamples,
+            preprocessing=study.preprocessing,
+        )
+        assert path.name.startswith("carve_cusanovich_dev_7841fb1f_")
+        assert path.name != "carve_cusanovich_dev_7841fb1f.carve"
 
     def test_heca_sweeps_four_through_fifteen(self):
         # Five pooled organs; the sweep starts just below that count.
         assert STUDIES["heca"].candidate_k == tuple(range(4, 16))
-
-    def test_cusanovich_sweeps_kmeans_spectral_ward_and_single_linkage(self):
-        grids = study_model_grids(STUDIES["cusanovich"])
-
-        assert [(cls, params.get("linkage")) for cls, params in grids] == [
-            (KMeans, None),
-            (SpectralClustering, None),
-            (AgglomerativeClustering, ["ward"]),
-            (AgglomerativeClustering, ["single"]),
-        ]
 
     def test_heca_uses_estimators_that_can_run_at_scale(self):
         # Spectral builds a dense n-by-n affinity and Ward is quadratic in
@@ -806,14 +866,6 @@ class TestNewStudies:
         with pytest.raises(ValueError, match="declares no resolutions"):
             study_resolution_grids(STUDIES["klein"])
 
-    def test_cusanovich_also_declares_resolutions_for_its_atlas_pass(self):
-        # At atlas scale (every annotated cell -- smaller than the atlas's
-        # published 81,173, since Unknown-labeled cells are always dropped)
-        # neither spectral nor Ward can run, so the full-atlas pass sweeps
-        # Leiden resolution instead of k.
-        assert len(STUDIES["cusanovich"].resolutions) == 20
-        assert study_resolution_grids(STUDIES["cusanovich"])
-
     def test_heca_pins_its_anchor_count(self):
         # The 20-config Leiden resolution sweep retains both
         # consensus_matrices_ and consensus_generalizability_matrices_ per
@@ -823,10 +875,9 @@ class TestNewStudies:
         assert STUDIES["heca"].consensus_anchors == 2000
 
     def test_cusanovich_pins_the_same_anchor_count_as_heca(self):
-        # Left at the package default, the atlas-scale Leiden sweep (tens of
-        # thousands of cells, above anchor_threshold=5000) would retain 8.0
-        # GB of consensus blocks against hECA's 1.28 GB at a tenth the
-        # sample count. Pinned to the same 2000 anchors for the same reason.
+        # The 20-configuration resolution sweep retains 1.28 GB of consensus
+        # blocks at 2000 anchors, against 8.0 GB at the package default once
+        # n exceeds anchor_threshold. Pinned to hECA's count for that reason.
         assert STUDIES["cusanovich"].consensus_anchors == 2000
 
     def test_new_studies_declare_dev_and_publication_scales(self):
