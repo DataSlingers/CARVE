@@ -11,10 +11,12 @@ import numpy as np
 import pytest
 from matplotlib.collections import PolyCollection
 from matplotlib.legend import Legend
-from sklearn.cluster import KMeans
+from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import FunctionTransformer, StandardScaler
 
 import carve
+import carve.pl._plots as pl_plots
 from carve import CARVE
 
 
@@ -61,6 +63,34 @@ def _attach(model, **kwargs):
     adata = _bare_adata()
     carve.tl.attach_results(adata, model, **kwargs)
     return adata
+
+
+@pytest.fixture(scope="module")
+def randomized_model():
+    """CARVE fitted with randomized preprocessing, two estimators, on X_pca."""
+    m = CARVE(
+        n_clusters=np.arange(2, 5),
+        estimator_param_grids=[
+            (KMeans, {"n_clusters": [2, 3, 4], "n_init": [3]}),
+            (AgglomerativeClustering, {"n_clusters": [2, 3, 4], "linkage": ["ward"]}),
+        ],
+        normalization_options=[(FunctionTransformer, {}), (StandardScaler, {})],
+        dim_reduction_options=[(FunctionTransformer, {})],
+        n_resamples=6,
+        random_state=0,
+    )
+    m.fit(_bare_adata(), use_rep="X_pca", randomize_preprocessing=True)
+    return m
+
+
+@pytest.fixture(scope="module")
+def randomized_written(randomized_model, tmp_path_factory):
+    """A randomized result written into an AnnData and read back from h5ad."""
+    adata = _bare_adata()
+    carve.tl.attach_results(adata, randomized_model, use_rep="X_pca")
+    path = tmp_path_factory.mktemp("h5ad") / "randomized.h5ad"
+    adata.write_h5ad(path)
+    return ad.read_h5ad(path)
 
 
 PL_FUNCTIONS = [
@@ -317,3 +347,69 @@ class TestRepresentation:
             np.asarray(adata.layers["counts"], dtype=float)
         )
         np.testing.assert_allclose(ax.collections[0].get_offsets(), expected, rtol=1e-5)
+
+
+# -----------------------------------------------------------------------
+# metric_by_pipeline
+# -----------------------------------------------------------------------
+
+
+class TestMetricByPipeline:
+    def test_matches_the_model_method_after_an_h5ad_round_trip(
+        self, randomized_written, randomized_model
+    ):
+        a = carve.pl.metric_by_pipeline(randomized_written)
+        b = randomized_model.plot_metric_by_pipeline(measure="stability", rule="1se")
+        assert len(a.containers) == len(b.containers) == 2
+        assert [c.get_label() for c in a.containers] == [
+            c.get_label() for c in b.containers
+        ]
+        for ca, cb in zip(a.containers, b.containers):
+            np.testing.assert_allclose(ca[0].get_xdata(), cb[0].get_xdata())
+            np.testing.assert_allclose(ca[0].get_ydata(), cb[0].get_ydata())
+
+    def test_defaults_come_from_the_recorded_selection(
+        self, randomized_written, monkeypatch
+    ):
+        seen = {}
+
+        def spy(table, **kwargs):
+            seen.update(kwargs, n_rows=len(table))
+
+        monkeypatch.setattr(pl_plots, "_plot_metric_by_pipeline", spy)
+        for recorded in ("m0", "m1"):
+            adata = randomized_written.copy()
+            adata.uns["carve"]["params"]["selected_method_id"] = recorded
+            carve.pl.metric_by_pipeline(adata)
+            assert seen["method_id"] == recorded
+            assert (seen["measure"], seen["rule"], seen["not_two"]) == (
+                "stability",
+                "1se",
+                False,
+            )
+        carve.pl.metric_by_pipeline(
+            randomized_written, method_id="m1", measure="generalizability", rule="max"
+        )
+        assert (seen["method_id"], seen["measure"], seen["rule"]) == (
+            "m1",
+            "generalizability",
+            "max",
+        )
+        assert seen["n_rows"] == len(randomized_written.uns["carve"]["preprocessing_results"])
+
+    @pytest.mark.parametrize("case", ["not_randomized", "store_results_false"])
+    def test_absent_table_names_both_reasons(self, model, randomized_model, case):
+        if case == "not_randomized":
+            adata = _attach(model, use_rep="X_pca")
+        else:
+            adata = _attach(randomized_model, use_rep="X_pca", store_results=False)
+        with pytest.raises(
+            KeyError,
+            match=r"preprocessing_results'\] not found.*randomize_preprocessing=True.*store_results=False",
+        ):
+            carve.pl.metric_by_pipeline(adata)
+
+    def test_save_writes_the_file_and_returns_none(self, randomized_written, tmp_path):
+        path = tmp_path / "metric_by_pipeline.png"
+        assert carve.pl.metric_by_pipeline(randomized_written, save=path) is None
+        assert path.exists()

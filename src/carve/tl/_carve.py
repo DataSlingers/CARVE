@@ -131,7 +131,9 @@ def carve(
         Dimensionality reduction options used when
         ``randomize_preprocessing=True``.
     randomize_preprocessing : bool, default=False
-        Sample a random preprocessing pipeline per resample.
+        Draw a preprocessing pipeline per resample and fit it on each
+        subsample; see :meth:`carve.CARVE.fit`. The per-pipeline metrics are
+        written to ``uns`` alongside the results.
     classifier : sklearn classifier, optional
         Classifier used to score generalizability. Defaults to a random
         forest with ``n_trees`` trees.
@@ -165,7 +167,8 @@ def carve(
         n_obs-by-n_obs matrix, which ``.obsp`` cannot hold; in that case
         nothing is written and a ``UserWarning`` is issued instead.
     store_results : bool, default=True
-        Write the per-configuration metrics table into ``adata.uns``.
+        Write the per-configuration metrics table into ``adata.uns``, and the
+        per-pipeline table when the fit was randomized.
     mode : {"default", "stability", "generalizability"}, default="default"
         Which analyses to run.
     n_jobs : int, default=1
@@ -204,6 +207,10 @@ def carve(
         Run and selection parameters.
     ``adata.uns["carve"]["results"]``
         Per-configuration metrics, one row per configuration.
+    ``adata.uns["carve"]["preprocessing_results"]``
+        Per-pipeline metrics, one row per configuration, pipeline and sweep
+        value. Written only when ``randomize_preprocessing=True``; read by
+        :func:`carve.pl.metric_by_pipeline`.
 
     Everything written survives :meth:`~anndata.AnnData.write_h5ad`. The
     fitted :class:`~carve.CARVE` object itself is not retained; use
@@ -346,7 +353,8 @@ def attach_results(
         n_obs-by-n_obs matrix, which ``.obsp`` cannot hold; in that case
         nothing is written and a ``UserWarning`` is issued instead.
     store_results : bool, default=True
-        Write the per-configuration metrics table into ``adata.uns``.
+        Write the per-configuration metrics table into ``adata.uns``, and the
+        per-pipeline table when the fit was randomized.
     use_rep : str, optional
         Representation the model was fitted on, recorded in ``params`` so
         that plotting can fall back to it when choosing an embedding.
@@ -481,6 +489,10 @@ def attach_results(
     entry: dict = {"params": _anndata.params_to_uns(params)}
     if store_results:
         entry["results"] = _anndata.results_to_uns(model.estimator_results_)
+        if model.preprocessing_results_ is not None:
+            entry["preprocessing_results"] = _anndata.results_to_uns(
+                model.preprocessing_results_
+            )
     adata.uns[key_added] = entry
 
 
@@ -568,5 +580,8 @@ def _build_params(
         params["selected_estimator"] = row["estimator"]
     if "method_label" in row.index:
         params["selected_method_label"] = row["method_label"]
+    if "method_id" in row.index:
+        # pl.metric_by_pipeline defaults to this configuration's pipelines.
+        params["selected_method_id"] = row["method_id"]
 
     return params

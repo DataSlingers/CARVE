@@ -6,6 +6,7 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.preprocessing import FunctionTransformer, StandardScaler
 
 import carve
 from carve import CARVE
@@ -347,4 +348,46 @@ class TestAnchoredConsensusObspGuard:
         # skipped obsp write
         assert "carve" in adata_three_clusters.obs
         assert adata_three_clusters.uns["carve"]["params"]["n_consensus_anchors"] == 40
+
+
+class TestPreprocessingResults:
+    def _run_randomized(self, adata, **kwargs):
+        return _run(
+            adata,
+            randomize_preprocessing=True,
+            normalization_options=[(FunctionTransformer, {}), (StandardScaler, {})],
+            dim_reduction_options=[(FunctionTransformer, {})],
+            **kwargs,
+        )
+
+    def test_written_for_a_randomized_run(self, adata_three_clusters):
+        self._run_randomized(adata_three_clusters)
+        entry = adata_three_clusters.uns["carve"]
+        assert set(entry) == {"params", "results", "preprocessing_results"}
+        table = entry["preprocessing_results"]
+        assert set(table["pipeline"]) == {
+            "identity | identity",
+            "StandardScaler | identity",
+        }
+        assert entry["params"]["selected_method_id"] in set(table["method_id"])
+
+    def test_absent_without_randomization(self, adata_three_clusters):
+        _run(adata_three_clusters)
+        assert "preprocessing_results" not in adata_three_clusters.uns["carve"]
+
+    def test_absent_with_store_results_false(self, adata_three_clusters):
+        self._run_randomized(adata_three_clusters, store_results=False)
+        assert set(adata_three_clusters.uns["carve"]) == {"params"}
+
+    def test_selected_method_id_is_the_selected_row(self, adata_three_clusters):
+        model = CARVE(n_clusters=np.arange(2, 5), n_resamples=4, random_state=0)
+        model.fit(adata_three_clusters, use_rep="X_pca")
+        for measure in ("stability", "generalizability"):
+            carve.tl.attach_results(
+                adata_three_clusters, model, use_rep="X_pca", measure=measure, rule="max"
+            )
+            row = model._select_row(measure=measure, rule="max")[0]
+            params = adata_three_clusters.uns["carve"]["params"]
+            assert params["selected_method_id"] == row["method_id"]
+            assert params["selected_method_label"] == row["method_label"]
 

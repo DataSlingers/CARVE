@@ -28,6 +28,9 @@ from .._plotting import plot_cluster_violin as _plot_cluster_violin
 from .._plotting import plot_consensus_matrix as _plot_consensus_matrix
 from .._plotting import plot_diagnostic_scatter as _plot_diagnostic_scatter
 from .._plotting import (
+    plot_metric_by_pipeline as _plot_metric_by_pipeline,
+)
+from .._plotting import (
     plot_metric_over_n_clusters as _plot_metric_over_n_clusters,
 )
 
@@ -37,6 +40,7 @@ __all__ = [
     "cluster_violin",
     "consensus_matrix",
     "diagnostic_scatter",
+    "metric_by_pipeline",
     "metric_over_n_clusters",
 ]
 
@@ -109,6 +113,18 @@ def _results(adata: AnnData, key: str) -> pd.DataFrame:
             "tl.carve runs with store_results=False."
         )
     return _anndata.results_from_uns(entry["results"])
+
+
+def _preprocessing_results(adata: AnnData, key: str) -> pd.DataFrame:
+    """Return the per-pipeline metrics table, or explain why it is absent."""
+    entry = _entry(adata, key)
+    if "preprocessing_results" not in entry:
+        raise KeyError(
+            f"adata.uns[{key!r}]['preprocessing_results'] not found. It is "
+            "written only for a randomized fit, so either tl.carve ran without "
+            "randomize_preprocessing=True or it ran with store_results=False."
+        )
+    return _anndata.results_from_uns(entry["preprocessing_results"])
 
 
 def _annotation_text(
@@ -225,6 +241,110 @@ def metric_over_n_clusters(
     params = dict(_entry(adata, key)["params"])
     return _plot_metric_over_n_clusters(
         _results(adata, key),
+        measure=(
+            measure if measure is not None else str(params.get("measure", "stability"))
+        ),
+        rule=rule if rule is not None else str(params.get("rule", "1se")),
+        not_two=(
+            not_two if not_two is not None else bool(params.get("not_two", False))
+        ),
+        ax=ax,
+        figsize=figsize,
+        title=title,
+        xlabel=xlabel,
+        ylabel=ylabel,
+        legend=legend,
+        legend_loc=legend_loc,
+        palette=palette,
+        show=show,
+        save=save,
+        dpi=dpi,
+        **kwargs,
+    )
+
+
+def metric_by_pipeline(
+    adata: AnnData,
+    *,
+    key: str = "carve",
+    method_id: str | None = None,
+    measure: str | None = None,
+    rule: str | None = None,
+    not_two: bool | None = None,
+    ax: Axes | None = None,
+    figsize: tuple | None = None,
+    title: str | None = None,
+    xlabel: str | None = None,
+    ylabel: str | None = None,
+    legend: bool = True,
+    legend_loc: str = "best",
+    palette: str = "Accent",
+    show: bool = False,
+    save: str | Path | None = None,
+    dpi: int = 300,
+    **kwargs,
+) -> Axes | None:
+    """Plot a validation metric across the sweep axis, one line per pipeline.
+
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data matrix carrying results from a
+        :func:`carve.tl.carve` run with ``randomize_preprocessing=True``.
+    key : str, default="carve"
+        The ``key_added`` used when the results were written.
+    method_id : str, optional
+        Configuration whose pipelines are drawn. Defaults to the
+        configuration selected when the results were written, so the lines
+        belong to the labels in ``adata.obs``.
+    measure : str, optional
+        ``"stability"`` or ``"generalizability"``. Defaults to the measure
+        recorded at fit time.
+    rule : str, optional
+        Selection rule for the marked sweep value. Defaults to the recorded
+        rule.
+    not_two : bool, optional
+        Whether two-cluster solutions are excluded when marking the sweep
+        value. Defaults to the recorded value.
+    ax : matplotlib.axes.Axes, optional
+        Axes to draw on. A new figure is created when None.
+    figsize : tuple, optional
+        Figure size, used only when ``ax`` is None.
+    title, xlabel, ylabel : str, optional
+        Axis text overrides.
+    legend : bool, default=True
+        Draw the legend.
+    legend_loc : str, default="best"
+        Legend location.
+    palette : str, default="Accent"
+        Matplotlib colormap name used for the per-pipeline colors.
+    show : bool, default=False
+        Call ``plt.show()`` before returning.
+    save : str or pathlib.Path, optional
+        Write the figure to this path and return None.
+    dpi : int, default=300
+        Resolution used when saving.
+    **kwargs
+        Forwarded to the underlying line plot.
+
+    Returns
+    -------
+    ax : matplotlib.axes.Axes or None
+        The Axes drawn on, or None when ``save`` is given.
+
+    Raises
+    ------
+    KeyError
+        If the per-pipeline table is absent: the fit was not randomized, or
+        the results were written with ``store_results=False``.
+    """
+    params = dict(_entry(adata, key)["params"])
+    table = _preprocessing_results(adata, key)
+    return _plot_metric_by_pipeline(
+        table,
+        method_id=(
+            method_id if method_id is not None else str(params["selected_method_id"])
+        ),
         measure=(
             measure if measure is not None else str(params.get("measure", "stability"))
         ),

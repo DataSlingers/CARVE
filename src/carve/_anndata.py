@@ -301,7 +301,9 @@ def _stringify(value: Any) -> str:
 
 
 def results_to_uns(df: pd.DataFrame) -> pd.DataFrame:
-    """Sanitise ``estimator_results_`` so it survives an h5ad round trip.
+    """Sanitise a results table so it survives an h5ad round trip.
+
+    Used for both ``estimator_results_`` and ``preprocessing_results_``.
 
     Numeric and boolean columns pass through untouched. Every other column is
     coerced to pure ``str``: heterogeneous estimator grids leave columns mixing
@@ -316,7 +318,8 @@ def results_to_uns(df: pd.DataFrame) -> pd.DataFrame:
     Parameters
     ----------
     df : pandas.DataFrame
-        The fitted ``estimator_results_`` table.
+        A fitted results table, ``estimator_results_`` or
+        ``preprocessing_results_``.
 
     Returns
     -------
@@ -337,8 +340,8 @@ def results_from_uns(stored: Any) -> pd.DataFrame:
     """Rebuild a results frame read back from ``uns``.
 
     An h5ad round trip turns the original ``RangeIndex`` into string labels and
-    may widen integer columns, so the index is reset and the identity columns
-    are re-cast.
+    may widen integer columns, so the index is reset and the identity and
+    count columns are re-cast.
 
     Parameters
     ----------
@@ -351,7 +354,7 @@ def results_from_uns(stored: Any) -> pd.DataFrame:
         Frame with a clean ``RangeIndex`` and integral identity columns.
     """
     df = pd.DataFrame(stored).reset_index(drop=True)
-    for col in ("config_id", "sweep_rank"):
+    for col in ("config_id", "sweep_rank", "n_resamples"):
         if col in df.columns:
             df[col] = df[col].astype(int)
     return df

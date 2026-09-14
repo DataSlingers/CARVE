@@ -6,6 +6,7 @@ from ._plots import (
     cluster_violin,
     consensus_matrix,
     diagnostic_scatter,
+    metric_by_pipeline,
     metric_over_n_clusters,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "cluster_violin",
     "consensus_matrix",
     "diagnostic_scatter",
+    "metric_by_pipeline",
     "metric_over_n_clusters",
 ]

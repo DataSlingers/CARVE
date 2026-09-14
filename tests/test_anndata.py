@@ -4,6 +4,7 @@ import warnings
 
 import anndata as ad
 import numpy as np
+import pandas as pd
 import pytest
 from scipy import sparse
 
@@ -13,6 +14,8 @@ from carve._anndata import (
     is_anndata,
     labels_to_categorical,
     resolve_basis,
+    results_from_uns,
+    results_to_uns,
 )
 from carve._utils import ensure_2d_array
 
@@ -244,3 +247,44 @@ class TestFitAnnData:
         value = 2 if kwarg == "n_pcs" else "X_pca"
         with pytest.raises(ValueError, match="not valid when X is an array"):
             self._model().fit(X_three_clusters, **{kwarg: value})
+
+
+# -----------------------------------------------------------------------
+# results_to_uns and results_from_uns on the per-pipeline table
+# -----------------------------------------------------------------------
+
+
+class TestPreprocessingTableRoundTrip:
+    def _table(self):
+        return pd.DataFrame(
+            {
+                "method_id": ["m0", "m0"],
+                "pipeline": ["identity | identity", "identity | PCA(n_components=2)"],
+                "n_clusters": [2, 2],
+                "n_resamples": [3, 5],
+                "ari_stability": [0.5, 0.25],
+                "ari_generalizability_se": [np.nan, 0.1],
+                "sweep_rank": [0, 0],
+            }
+        )
+
+    def test_strings_stay_strings_and_numbers_stay_numbers(self):
+        clean = results_to_uns(self._table())
+        assert list(clean["pipeline"]) == [
+            "identity | identity",
+            "identity | PCA(n_components=2)",
+        ]
+        assert clean["n_resamples"].dtype.kind == "i"
+        assert np.isnan(clean.loc[0, "ari_generalizability_se"])
+
+    def test_widened_counts_come_back_integral(self):
+        # An h5ad round trip can return integer columns widened to float and
+        # the index as strings; results_from_uns undoes both.
+        stored = results_to_uns(self._table())
+        stored["n_resamples"] = stored["n_resamples"].astype(float)
+        stored["sweep_rank"] = stored["sweep_rank"].astype(float)
+        stored.index = stored.index.astype(str)
+        back = results_from_uns(stored)
+        assert back["n_resamples"].dtype.kind == "i"
+        assert list(back["n_resamples"]) == [3, 5]
+        assert back.index.equals(pd.RangeIndex(2))
