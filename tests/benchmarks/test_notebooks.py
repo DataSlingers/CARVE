@@ -120,20 +120,30 @@ def test_cusanovich_notebook_reads_its_config_from_studies():
     # Configuration must be read from STUDIES, not restated. Four manuscript
     # mismatches on this project came from re-derivation at the call site.
     assert 'STUDIES["cusanovich"]' in source
-    assert "study_model_grids(study)" in source
-    assert "candidate_k=study.candidate_k" in source
-    assert "range(4, 17)" not in source
+    assert "study_resolution_grids(study)" in source
+    assert "n_resamples=study.n_resamples" in source
+    assert "preprocessing=study.preprocessing" in source
+    assert "resolve_preprocessing(study.preprocessing)" in source
     assert "consensus_anchors=study.consensus_anchors" in source
+    assert "randomize_preprocessing=True" in source
+    for restated in ("perplexity", "n_neighbors", "n_resamples=150", "np.arange"):
+        assert restated not in source
 
 
-def test_cusanovich_notebook_draws_carve_output_before_the_composite():
-    # Mirrors Klein: CARVE's own six-panel diagnostic figure, then the
-    # composite, both from the one prepare_composite call.
-    source = _code(NOTEBOOKS["cusanovich"])
-    assert "figure_carve_output_cusanovich(inputs" in source
-    assert source.index("figure_carve_output_cusanovich(inputs") < source.index(
-        "figure_cusanovich_results(inputs"
-    )
+@pytest.mark.parametrize(
+    "retired",
+    [
+        "cvi_sweep",
+        "study_model_grids",
+        "figure_carve_output_cusanovich",
+        "prepare_composite",
+    ],
+)
+def test_cusanovich_notebook_no_longer_runs_the_k_based_comparison(retired):
+    # The CVI sweep, the k-based fit and the CompositeInputs figures left the
+    # study with the move to randomized preprocessing (case-study spec,
+    # section 6).
+    assert retired not in _code(NOTEBOOKS["cusanovich"])
 
 
 def test_heca_notebook_reads_its_config_from_studies():
@@ -143,18 +153,18 @@ def test_heca_notebook_reads_its_config_from_studies():
     assert "consensus_anchors=study.consensus_anchors" in source
 
 
-# Each ATAC case-study notebook opens with a reference-label scatter of one
-# embedding and then hands that same embedding to prepare_composite, so the
-# data is shown one way throughout. The embedding follows the source: the
-# Cusanovich atlas ships its own t-SNE, which the loader carries through as
-# meta["source_tsne"]; hECA ships nothing, so the notebook computes a UMAP
-# the way Levine_32dim.ipynb computes its t-SNE. AXIS_LABELS in the two
-# composite modules are pinned to match, in their own test files.
-def test_cusanovich_notebook_draws_the_source_tsne_throughout():
+# Each ATAC case-study notebook opens with a reference-label scatter of the
+# embedding its source provides. The Cusanovich atlas ships its own t-SNE,
+# which the loader carries through as meta["source_tsne"] and the figure's
+# panel B draws again. hECA ships nothing, so its notebook computes a UMAP the
+# way Levine_32dim.ipynb computes its t-SNE and hands that same embedding to
+# prepare_composite.
+def test_cusanovich_notebook_draws_the_source_tsne_and_writes_its_tables():
     source = _code(NOTEBOOKS["cusanovich"])
     assert 'meta["source_tsne"]' in source
     assert "figure_reference_scatter(" in source
-    assert "embedding=" in source
+    assert "figure_cusanovich_results(inputs" in source
+    assert "save_tables(inputs" in source
     assert "plt.subplots" not in source
 
 
