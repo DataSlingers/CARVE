@@ -782,20 +782,21 @@ class TestNewStudies:
         ((cls, grid),) = study_resolution_grids(study)
         assert cls is LouvainClustering
         assert grid["resolution"] == pytest.approx(
-            [round(0.2 * i, 1) for i in range(1, 21)]
+            [round(0.2 * i, 1) for i in range(1, 16)]
         )
         assert grid["n_neighbors"] == [15]
 
-    def test_cusanovich_randomizes_over_the_lsi_and_three_tsne_perplexities(self):
+    def test_cusanovich_randomizes_over_the_lsi_and_four_tsne_perplexities(self):
         study = STUDIES["cusanovich"]
         assert study.n_resamples == 150
         assert study.preprocessing == PreprocessingSpec(
             normalization=(("identity", {}),),
             dim_reduction=(
                 ("identity", {}),
-                ("tsne", {"perplexity": [15]}),
                 ("tsne", {"perplexity": [30]}),
                 ("tsne", {"perplexity": [45]}),
+                ("tsne", {"perplexity": [60]}),
+                ("tsne", {"perplexity": [75]}),
             ),
         )
 
@@ -811,11 +812,11 @@ class TestNewStudies:
         ]
         assert [SOURCE_TSNE_PERPLEXITY] in offered
 
-    def test_cusanovich_balances_resamples_across_its_four_pipelines(self):
+    def test_cusanovich_balances_resamples_across_its_five_pipelines(self):
         # Stratified allocation is over options, and each perplexity is its
-        # own option, so 150 resamples split 38, 38, 37, 37 across the LSI and
-        # the three t-SNE pipelines instead of t-SNE's share being drawn at
-        # random between perplexities.
+        # own option, so 150 resamples split 30 to each of the LSI and the
+        # four t-SNE pipelines instead of t-SNE's share being drawn at random
+        # between perplexities.
         study = STUDIES["cusanovich"]
         options = resolve_preprocessing(study.preprocessing)
         pipelines = allocate_pipelines(
@@ -827,11 +828,27 @@ class TestNewStudies:
         counts = Counter(pipeline.label for pipeline in pipelines)
         assert set(counts) == {
             "identity | identity",
-            "identity | TSNE(perplexity=15)",
             "identity | TSNE(perplexity=30)",
             "identity | TSNE(perplexity=45)",
+            "identity | TSNE(perplexity=60)",
+            "identity | TSNE(perplexity=75)",
         }
-        assert sorted(counts.values()) == [37, 37, 38, 38]
+        assert sorted(counts.values()) == [30, 30, 30, 30, 30]
+
+    def test_cusanovich_pipelines_fit_the_pipeline_palette(self):
+        # The per-pipeline panel samples PIPELINE_COLORS once per pipeline, so
+        # a study with more pipelines than colors draws two of them alike.
+        from benchmarks._theme import PIPELINE_COLORS
+
+        study = STUDIES["cusanovich"]
+        options = resolve_preprocessing(study.preprocessing)
+        pipelines = allocate_pipelines(
+            options["normalization_options"],
+            options["dim_reduction_options"],
+            n_resamples=study.n_resamples,
+            random_state=42,
+        )
+        assert len({pipeline.label for pipeline in pipelines}) <= len(PIPELINE_COLORS)
 
     def test_cusanovich_cache_never_resolves_to_the_invalid_pre_fix_cache(
         self, tmp_path
@@ -882,8 +899,8 @@ class TestNewStudies:
         assert STUDIES["heca"].consensus_anchors == 2000
 
     def test_cusanovich_pins_the_same_anchor_count_as_heca(self):
-        # The 20-configuration resolution sweep retains 1.28 GB of consensus
-        # blocks at 2000 anchors, against 8.0 GB at the package default once
+        # The 15-configuration resolution sweep retains 0.96 GB of consensus
+        # blocks at 2000 anchors, against 6.0 GB at the package default once
         # n exceeds anchor_threshold. Pinned to hECA's count for that reason.
         assert STUDIES["cusanovich"].consensus_anchors == 2000
 

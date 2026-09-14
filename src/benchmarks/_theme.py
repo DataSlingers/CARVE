@@ -123,10 +123,19 @@ if CLUSTER_CMAP_NAME not in mpl.colormaps:
 # Preprocessing pipelines in the Cusanovich figure's per-pipeline panel.
 # CARVE's plot_metric_by_pipeline takes a colormap name and samples it at
 # evenly spaced points, one per pipeline in sorted label order, so a
-# ListedColormap of exactly these colors gives each of up to four pipelines
-# its own entry. Okabe-Ito hues and tab10's brown, none of them a
-# METRIC_COLORS value, so a pipeline line is never read as a criterion.
-PIPELINE_COLORS: tuple[str, ...] = ("#0072B2", "#D55E00", "#CC79A7", "#8C564B")
+# ListedColormap of exactly these colors gives each of up to five pipelines
+# its own entry. Okabe-Ito hues, tab10's brown and Paul Tol's high-contrast
+# yellow, none of them a METRIC_COLORS value, so a pipeline line is never read
+# as a criterion. The yellow was the candidate that kept every pair apart under
+# simulated color-vision deficiency; the brown is low in chroma and closest to
+# the vermillion, which predates it.
+PIPELINE_COLORS: tuple[str, ...] = (
+    "#0072B2",
+    "#D55E00",
+    "#CC79A7",
+    "#8C564B",
+    "#DDAA33",
+)
 PIPELINE_CMAP_NAME: str = "carve_pipeline"
 if PIPELINE_CMAP_NAME not in mpl.colormaps:
     mpl.colormaps.register(

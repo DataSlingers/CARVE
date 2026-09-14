@@ -182,8 +182,8 @@ class TestPipelinePalette:
             color.lower() for color in PIPELINE_COLORS
         ]
 
-    @pytest.mark.parametrize("n", [1, 2, 3, 4])
-    def test_up_to_four_pipelines_get_distinct_colors(self, n):
+    @pytest.mark.parametrize("n", [1, 2, 3, 4, 5])
+    def test_up_to_five_pipelines_get_distinct_colors(self, n):
         # plot_metric_by_pipeline samples its colormap at np.linspace(0, 1, n).
         cmap = plt.get_cmap(PIPELINE_CMAP_NAME)
         colors = [to_hex(color) for color in cmap(np.linspace(0, 1, n))]
