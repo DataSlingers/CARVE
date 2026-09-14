@@ -253,12 +253,19 @@ class CusanovichInputs:
     not_two: bool = False
 
 
+#: The perplexity of the source's own t-SNE: Rtsne(pca=F, perplexity=30,
+#: max_iter=5000) in its dim_reduction.R. A fact about the publication, not a
+#: study parameter; STUDIES["cusanovich"] may offer other perplexities beside it.
+SOURCE_TSNE_PERPLEXITY = 30
+
+
 def source_recipe_pipeline(carve: Any) -> str:
     """The label of the pipeline that reproduces the source's embedding.
 
-    The source clustered a t-SNE of its LSI, so this is the one pipeline whose
-    dimensionality reduction is t-SNE. More than one, as when several
-    perplexities are offered, raises: which is the source's is then the
+    The source clustered a t-SNE of its LSI at SOURCE_TSNE_PERPLEXITY, so this
+    is the one t-SNE pipeline at that perplexity; t-SNE at other perplexities
+    sits beside it and is not the source's recipe. None, or more than one (as
+    under a second normalization), raises: which is the source's is then the
     study's decision, not something to guess.
     """
     _per_pipeline_table(carve)
@@ -266,10 +273,12 @@ def source_recipe_pipeline(carve: Any) -> str:
         label
         for label, spec in carve.preprocessing_pipelines_.items()
         if spec.dim_reduction.name == PREPROCESSOR_NAMES["tsne"]
+        and spec.dim_reduction.params.get("perplexity") == SOURCE_TSNE_PERPLEXITY
     )
     if len(labels) != 1:
         raise ValueError(
-            f"Expected exactly one t-SNE pipeline, found {len(labels)}: {labels}."
+            "Expected exactly one t-SNE pipeline at the source's perplexity "
+            f"{SOURCE_TSNE_PERPLEXITY}, found {len(labels)}: {labels}."
         )
     return labels[0]
 

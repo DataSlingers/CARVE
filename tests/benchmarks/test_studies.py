@@ -782,27 +782,40 @@ class TestNewStudies:
         ((cls, grid),) = study_resolution_grids(study)
         assert cls is LouvainClustering
         assert grid["resolution"] == pytest.approx(
-            [round(0.1 * i, 1) for i in range(1, 21)]
+            [round(0.2 * i, 1) for i in range(1, 21)]
         )
         assert grid["n_neighbors"] == [15]
 
-    def test_cusanovich_randomizes_over_the_lsi_tsne_and_umap(self):
+    def test_cusanovich_randomizes_over_the_lsi_and_three_tsne_perplexities(self):
         study = STUDIES["cusanovich"]
         assert study.n_resamples == 150
         assert study.preprocessing == PreprocessingSpec(
             normalization=(("identity", {}),),
             dim_reduction=(
                 ("identity", {}),
+                ("tsne", {"perplexity": [15]}),
                 ("tsne", {"perplexity": [30]}),
-                ("umap", {"n_neighbors": [15, 30]}),
+                ("tsne", {"perplexity": [45]}),
             ),
         )
 
-    def test_cusanovich_gives_each_reduction_fifty_resamples(self):
-        # Stratified allocation is over options, so 150 resamples split 50,
-        # 50, 50 across identity, t-SNE and UMAP; UMAP's 50 are shared by its
-        # two n_neighbors values, each of which is its own pipeline label.
-        pytest.importorskip("umap")
+    def test_cusanovich_offers_the_source_perplexity(self):
+        # The source's operating point is read from the t-SNE pipeline at the
+        # source's own perplexity, so the study must offer that value.
+        from benchmarks._cusanovich_compare import SOURCE_TSNE_PERPLEXITY
+
+        offered = [
+            grid["perplexity"]
+            for key, grid in STUDIES["cusanovich"].preprocessing.dim_reduction
+            if key == "tsne"
+        ]
+        assert [SOURCE_TSNE_PERPLEXITY] in offered
+
+    def test_cusanovich_balances_resamples_across_its_four_pipelines(self):
+        # Stratified allocation is over options, and each perplexity is its
+        # own option, so 150 resamples split 38, 38, 37, 37 across the LSI and
+        # the three t-SNE pipelines instead of t-SNE's share being drawn at
+        # random between perplexities.
         study = STUDIES["cusanovich"]
         options = resolve_preprocessing(study.preprocessing)
         pipelines = allocate_pipelines(
@@ -814,17 +827,11 @@ class TestNewStudies:
         counts = Counter(pipeline.label for pipeline in pipelines)
         assert set(counts) == {
             "identity | identity",
+            "identity | TSNE(perplexity=15)",
             "identity | TSNE(perplexity=30)",
-            "identity | UMAP(n_neighbors=15)",
-            "identity | UMAP(n_neighbors=30)",
+            "identity | TSNE(perplexity=45)",
         }
-        assert counts["identity | identity"] == 50
-        assert counts["identity | TSNE(perplexity=30)"] == 50
-        assert (
-            counts["identity | UMAP(n_neighbors=15)"]
-            + counts["identity | UMAP(n_neighbors=30)"]
-            == 50
-        )
+        assert sorted(counts.values()) == [37, 37, 38, 38]
 
     def test_cusanovich_cache_never_resolves_to_the_invalid_pre_fix_cache(
         self, tmp_path

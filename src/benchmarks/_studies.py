@@ -529,7 +529,10 @@ STUDIES: dict[str, Study] = {
         scales={"dev": 1500, "publication": 5000, "atlas": None},
         default_scale="dev",
         partners=(),
-        resolutions=tuple(round(0.1 * i, 1) for i in range(1, 21)),
+        # 0.2 to 4.0. Over 0.1 to 2.0 at dev scale the t-SNE pipeline reached
+        # only 21.5 of the source's 30 clusters, so the grid reaches further
+        # at the same number of configurations.
+        resolutions=tuple(round(0.2 * i, 1) for i in range(1, 21)),
         # Pinned rather than left at the package default. Both
         # consensus_matrices_ and consensus_generalizability_matrices_ are
         # retained per configuration, so retained memory is
@@ -540,8 +543,8 @@ STUDIES: dict[str, Study] = {
         # run is exact. At publication scale (5,000 cells) the run anchors to
         # 2000, the count hECA uses.
         consensus_anchors=2000,
-        # 150 resamples over three dimensionality reductions gives each 50
-        # under stratified allocation, against 33 at the package default.
+        # 150 resamples over four pipelines (the LSI as-is and t-SNE at three
+        # perplexities) give each 37 or 38 under stratified allocation.
         n_resamples=150,
         preprocessing=PreprocessingSpec(
             # The LSI is already scaled by its singular values; neither the
@@ -549,14 +552,15 @@ STUDIES: dict[str, Study] = {
             normalization=(("identity", {}),),
             dim_reduction=(
                 ("identity", {}),
-                # The source's own perplexity and no other, so the t-SNE line
-                # is their recipe rather than an average over perplexities.
-                # Their other Rtsne settings (5,000 iterations, random
-                # initialization) are bound in PREPROCESSOR_DEFAULTS.
+                # t-SNE at the source's perplexity, 30, and one either side.
+                # Each perplexity is its own option so stratified allocation
+                # balances resamples across them; one option with three values
+                # would split t-SNE's share at random. The source's other Rtsne
+                # settings (5,000 iterations, random initialization) are bound
+                # in PREPROCESSOR_DEFAULTS.
+                ("tsne", {"perplexity": [15]}),
                 ("tsne", {"perplexity": [30]}),
-                # The field's current default embedding, so the finding reads
-                # as one about clustering in an embedding, not about t-SNE.
-                ("umap", {"n_neighbors": [15, 30]}),
+                ("tsne", {"perplexity": [45]}),
             ),
         ),
     ),

@@ -257,22 +257,40 @@ class TestSourceRecipePipeline:
         specs = [_spec(step) for step in steps]
         return _FakeCarve(pd.DataFrame(), {spec.label: spec for spec in specs})
 
-    def test_finds_the_one_tsne_pipeline(self):
+    def test_finds_the_tsne_pipeline_at_the_source_perplexity(self):
+        # t-SNE at other perplexities sits beside the source's recipe and is
+        # not it.
         carve = self._carve(
             IDENTITY,
-            PipelineStep(cls=TSNE, params={"perplexity": 30}, name="TSNE"),
+            *(
+                PipelineStep(cls=TSNE, params={"perplexity": p}, name="TSNE")
+                for p in (15, 30, 45)
+            ),
             PipelineStep(cls=PCA, params={"n_components": 5}, name="PCA"),
         )
         assert source_recipe_pipeline(carve) == "identity | TSNE(perplexity=30)"
 
-    @pytest.mark.parametrize("perplexities", [(), (15, 30)])
-    def test_anything_but_one_tsne_pipeline_raises(self, perplexities):
+    @pytest.mark.parametrize("perplexities", [(), (15, 45)])
+    def test_no_tsne_pipeline_at_the_source_perplexity_raises(self, perplexities):
         steps = [
             PipelineStep(cls=TSNE, params={"perplexity": p}, name="TSNE")
             for p in perplexities
         ]
         carve = self._carve(IDENTITY, *steps)
-        with pytest.raises(ValueError, match="exactly one t-SNE pipeline"):
+        with pytest.raises(ValueError, match="source's perplexity 30"):
+            source_recipe_pipeline(carve)
+
+    def test_two_pipelines_at_the_source_perplexity_raise(self):
+        # A second normalization would give two t-SNE pipelines at perplexity
+        # 30; which one is the source's is then the study's decision.
+        tsne = PipelineStep(cls=TSNE, params={"perplexity": 30}, name="TSNE")
+        scaler = PipelineStep(cls=StandardScaler, params={}, name="StandardScaler")
+        specs = [
+            PipelineSpec(normalization=IDENTITY, dim_reduction=tsne),
+            PipelineSpec(normalization=scaler, dim_reduction=tsne),
+        ]
+        carve = _FakeCarve(pd.DataFrame(), {spec.label: spec for spec in specs})
+        with pytest.raises(ValueError, match="found 2"):
             source_recipe_pipeline(carve)
 
 
@@ -280,7 +298,7 @@ class TestSourceRecipePipeline:
 # differ from its first-appearance order (d, b, a, c), which is the order
 # CARVE factorizes reference labels in.
 _BLOB_NAMES = np.array(["d", "b", "a", "c"])
-_TSNE_PIPELINE = "identity | TSNE(perplexity=10)"
+_TSNE_PIPELINE = "identity | TSNE(perplexity=30)"
 
 
 @pytest.fixture(scope="module")
@@ -292,7 +310,7 @@ def fitted():
     y = _BLOB_NAMES[members]
     spec = PreprocessingSpec(
         normalization=(("identity", {}),),
-        dim_reduction=(("identity", {}), ("tsne", {"perplexity": [10]})),
+        dim_reduction=(("identity", {}), ("tsne", {"perplexity": [30]})),
     )
     carve = CARVE(
         estimator_param_grids=resolution_grids(EstimatorSpec(name="leiden"), (0.1, 0.5)),
