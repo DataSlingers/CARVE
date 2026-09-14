@@ -781,8 +781,10 @@ class TestNewStudies:
             study_model_grids(study)
         ((cls, grid),) = study_resolution_grids(study)
         assert cls is LouvainClustering
+        # Log-spaced from 0.02 to 3.0: at the atlas scale Louvain reaches the
+        # source's 30 clusters near 0.1 to 0.2 on a t-SNE and near 3.0 on the LSI.
         assert grid["resolution"] == pytest.approx(
-            [round(0.2 * i, 1) for i in range(1, 16)]
+            [0.02, 0.029, 0.041, 0.059, 0.084, 0.12, 0.17, 0.24, 0.35, 0.5, 0.72, 1.0, 1.5, 2.1, 3.0]
         )
         assert grid["n_neighbors"] == [15]
 

@@ -531,11 +531,13 @@ STUDIES: dict[str, Study] = {
         scales={"dev": 1500, "publication": 5000, "atlas": None},
         default_scale="dev",
         partners=(),
-        # 0.2 to 3.0. Over 0.2 to 4.0 at dev scale, stability selected
-        # resolution 1.8, so the grid stops at 3.0. The t-SNE clusterings stay
-        # short of the source's 30 clusters over this range (27.3 at 4.0), so
-        # source_operating_point reads the grid's top.
-        resolutions=tuple(round(0.2 * i, 1) for i in range(1, 16)),
+        # Log-spaced from 0.02 to 3.0, 15 values. Louvain's cluster count at a
+        # given resolution grows with the number of cells and differs by
+        # pipeline: on 50,164 atlas cells a converged perplexity-30 t-SNE gives
+        # 24 clusters at 0.05, 30 at 0.2 and 127 at 3.0, while the LSI gives 13
+        # at 0.2 and 34 at 3.0 (measured 2026-09-14). A log grid reaches the
+        # source's 30 clusters for both.
+        resolutions=tuple(float(f"{0.02 * 150 ** (i / 14):.2g}") for i in range(15)),
         # Pinned rather than left at the package default. Both
         # consensus_matrices_ and consensus_generalizability_matrices_ are
         # retained per configuration, so retained memory is
