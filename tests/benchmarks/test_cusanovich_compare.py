@@ -7,13 +7,25 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.preprocessing import FunctionTransformer, StandardScaler
 
+from sklearn.metrics import adjusted_rand_score
+
 from benchmarks._cusanovich_compare import (
+    TABLE_FILENAMES,
     axis_prefix,
     best_pipeline,
     pipeline_embedding,
+    prepare_cusanovich_inputs,
     published_partition_generalizability,
+    save_tables,
+    selection_summary,
     source_operating_point,
+    source_recipe_pipeline,
 )
+from benchmarks._estimators import resolution_grids
+from benchmarks._preprocessing import resolve_preprocessing
+from benchmarks._types import EstimatorSpec, PreprocessingSpec
+from benchmarks.figures._case_study import _align_to_reference
+from carve import CARVE
 from carve._pipeline import PipelineSpec, PipelineStep
 
 IDENTITY = PipelineStep(cls=FunctionTransformer, params={}, name="identity")
@@ -237,3 +249,156 @@ class TestPublishedPartitionGeneralizability:
         mean, se = self._score(*blobs, n_splits=1)
         assert mean == pytest.approx(1.0)
         assert np.isnan(se)
+
+
+class TestSourceRecipePipeline:
+    @staticmethod
+    def _carve(*steps):
+        specs = [_spec(step) for step in steps]
+        return _FakeCarve(pd.DataFrame(), {spec.label: spec for spec in specs})
+
+    def test_finds_the_one_tsne_pipeline(self):
+        carve = self._carve(
+            IDENTITY,
+            PipelineStep(cls=TSNE, params={"perplexity": 30}, name="TSNE"),
+            PipelineStep(cls=PCA, params={"n_components": 5}, name="PCA"),
+        )
+        assert source_recipe_pipeline(carve) == "identity | TSNE(perplexity=30)"
+
+    @pytest.mark.parametrize("perplexities", [(), (15, 30)])
+    def test_anything_but_one_tsne_pipeline_raises(self, perplexities):
+        steps = [
+            PipelineStep(cls=TSNE, params={"perplexity": p}, name="TSNE")
+            for p in perplexities
+        ]
+        carve = self._carve(IDENTITY, *steps)
+        with pytest.raises(ValueError, match="exactly one t-SNE pipeline"):
+            source_recipe_pipeline(carve)
+
+
+# Four separated blobs, labeled so the reference's sorted codes (a, b, c, d)
+# differ from its first-appearance order (d, b, a, c), which is the order
+# CARVE factorizes reference labels in.
+_BLOB_NAMES = np.array(["d", "b", "a", "c"])
+_TSNE_PIPELINE = "identity | TSNE(perplexity=10)"
+
+
+@pytest.fixture(scope="module")
+def fitted():
+    rng = np.random.default_rng(0)
+    centers = rng.normal(scale=8.0, size=(4, 6))
+    members = np.repeat(np.arange(4), 40)
+    X = centers[members] + rng.normal(scale=0.5, size=(160, 6))
+    y = _BLOB_NAMES[members]
+    spec = PreprocessingSpec(
+        normalization=(("identity", {}),),
+        dim_reduction=(("identity", {}), ("tsne", {"perplexity": [10]})),
+    )
+    carve = CARVE(
+        estimator_param_grids=resolution_grids(EstimatorSpec(name="leiden"), (0.1, 0.5)),
+        n_resamples=6,
+        n_trees=20,
+        random_state=0,
+        **resolve_preprocessing(spec),
+    )
+    carve.fit(X, reference_labels=y, randomize_preprocessing=True)
+    return X, y, carve
+
+
+@pytest.fixture(scope="module")
+def inputs(fitted):
+    X, y, carve = fitted
+    return prepare_cusanovich_inputs(
+        X, y, carve, source_tsne=X[:, :2], random_state=0
+    )
+
+
+@pytest.mark.requires_graph
+class TestPrepareCusanovichInputs:
+    def test_embeds_all_of_x_with_the_best_pipeline(self, fitted, inputs):
+        X, _, carve = fitted
+        row, spec = best_pipeline(carve, measure="stability", rule="1se")
+        assert inputs.best_pipeline_row.equals(row)
+        expected, labels = pipeline_embedding(X, spec, random_state=0)
+        np.testing.assert_allclose(inputs.embedding_A, expected)
+        assert inputs.embedding_A_labels == labels
+        assert (inputs.measure, inputs.rule, inputs.not_two) == ("stability", "1se", False)
+
+    def test_carve_labels_are_relabeled_onto_the_reference_codes(self, fitted, inputs):
+        _, y, carve = fitted
+        raw = carve.get_labels(measure="stability", rule="1se")
+        np.testing.assert_array_equal(inputs.carve_labels, _align_to_reference(raw, y))
+
+    def test_the_operating_point_targets_the_reference_cluster_count(
+        self, fitted, inputs
+    ):
+        # y has four clusters, so the operating point is the t-SNE pipeline's
+        # resolution nearest four; a fixed 30 would be far off and warn.
+        _, _, carve = fitted
+        assert inputs.operating_point == source_operating_point(
+            carve, pipeline=_TSNE_PIPELINE, target_k=4
+        )
+
+    def test_forwards_the_fits_settings_and_the_seed(self, fitted, monkeypatch):
+        # On separated blobs the probe scores 1.0 at any split count, and the
+        # best pipeline may be the seedless identity, so the returned values
+        # cannot show what was passed. Record the calls instead.
+        import benchmarks._cusanovich_compare as compare
+
+        X, y, carve = fitted
+        probes, embeddings = [], []
+        real_probe = compare.published_partition_generalizability
+        real_embedding = compare.pipeline_embedding
+
+        def probe(*args, **kwargs):
+            probes.append(kwargs)
+            return real_probe(*args, **kwargs)
+
+        def embedding(X, spec, *, random_state):
+            embeddings.append((spec, random_state))
+            return real_embedding(X, spec, random_state=random_state)
+
+        monkeypatch.setattr(compare, "published_partition_generalizability", probe)
+        monkeypatch.setattr(compare, "pipeline_embedding", embedding)
+        prepare_cusanovich_inputs(
+            X, y, carve, source_tsne=X[:, :2], random_state=7, n_jobs=2
+        )
+
+        assert probes == [
+            {
+                "n_splits": 6,
+                "subsample_ratio": carve.subsample_ratio,
+                "n_trees": 20,
+                "random_state": 7,
+                "n_jobs": 2,
+            }
+        ]
+        _, spec = best_pipeline(carve, measure="stability", rule="1se")
+        assert embeddings == [(spec, 7)]
+
+    def test_the_summary_reports_the_selection_and_the_comparison(
+        self, fitted, inputs
+    ):
+        _, y, carve = fitted
+        summary = selection_summary(inputs).set_index("quantity")["value"]
+        selected, _, n_clusters, _ = carve._select_row(measure="stability", rule="1se")
+        assert summary["selected_resolution"] == float(selected["sweep_value"])
+        assert summary["selected_n_clusters"] == n_clusters
+        assert summary["best_pipeline"] == inputs.best_pipeline_row["pipeline"]
+        assert summary["source_pipeline"] == _TSNE_PIPELINE
+        assert summary["operating_point_resolution"] == inputs.operating_point[0]
+        assert summary["published_generalizability"] == (
+            inputs.published_generalizability[0]
+        )
+        raw = carve.get_labels(measure="stability", rule="1se")
+        assert summary["consensus_ari_vs_source_clusters"] == pytest.approx(
+            adjusted_rand_score(y, raw)
+        )
+
+    def test_save_tables_writes_both_csvs(self, fitted, inputs, tmp_path):
+        _, _, carve = fitted
+        paths = save_tables(inputs, tmp_path / "out")
+        assert [path.name for path in paths] == list(TABLE_FILENAMES)
+        assert len(pd.read_csv(paths[0])) == len(carve.preprocessing_results_)
+        written = pd.read_csv(paths[1])
+        assert list(written["quantity"]) == list(selection_summary(inputs)["quantity"])

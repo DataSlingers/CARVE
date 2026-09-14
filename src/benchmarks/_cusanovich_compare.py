@@ -5,11 +5,13 @@ These functions set that recipe beside CARVE's: which preprocessing pipeline
 CARVE rates best at the configuration it selects, where the source's
 granularity falls on the t-SNE pipeline's resolution axis, and how well the
 published partition generalizes under the classifier probe CARVE applies to
-its own clusterings. No matplotlib here; figures._cusanovich_results draws
-the result.
+its own clusterings. prepare_cusanovich_inputs gathers all of it into
+CusanovichInputs; nothing here draws, figures._cusanovich_results does.
 """
 
 import warnings
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -218,3 +220,171 @@ def published_partition_generalizability(
         else float("nan")
     )
     return float(np.mean(scores)), se
+
+
+@dataclass(frozen=True)
+class CusanovichInputs:
+    """Everything the Cusanovich figure draws, already computed.
+
+    Assembling this is compute (prepare_cusanovich_inputs); drawing it is
+    reporting (figures.figure_cusanovich_results). Keeping them apart lets the
+    figure be tested without fitting anything, as with CompositeInputs.
+
+    carve_labels are CARVE's consensus labels relabeled onto y's codes, so a
+    CARVE cluster takes the color of the source cluster it best matches.
+    embedding_A is all of X embedded by the best pipeline, named by
+    embedding_A_labels. operating_point is (resolution, observed cluster
+    count) on the source recipe's pipeline; published_generalizability is
+    (mean, se). measure, rule and not_two are the selection every panel reads.
+    """
+
+    X: np.ndarray
+    y: np.ndarray
+    carve: Any
+    carve_labels: np.ndarray
+    embedding_A: np.ndarray
+    embedding_A_labels: tuple[str, str]
+    source_tsne: np.ndarray
+    best_pipeline_row: pd.Series
+    operating_point: tuple[float, float]
+    published_generalizability: tuple[float, float]
+    measure: str = "stability"
+    rule: str = "1se"
+    not_two: bool = False
+
+
+def source_recipe_pipeline(carve: Any) -> str:
+    """The label of the pipeline that reproduces the source's embedding.
+
+    The source clustered a t-SNE of its LSI, so this is the one pipeline whose
+    dimensionality reduction is t-SNE. More than one, as when several
+    perplexities are offered, raises: which is the source's is then the
+    study's decision, not something to guess.
+    """
+    _per_pipeline_table(carve)
+    labels = sorted(
+        label
+        for label, spec in carve.preprocessing_pipelines_.items()
+        if spec.dim_reduction.name == PREPROCESSOR_NAMES["tsne"]
+    )
+    if len(labels) != 1:
+        raise ValueError(
+            f"Expected exactly one t-SNE pipeline, found {len(labels)}: {labels}."
+        )
+    return labels[0]
+
+
+def prepare_cusanovich_inputs(
+    X: np.ndarray,
+    y: np.ndarray,
+    carve: Any,
+    *,
+    source_tsne: np.ndarray,
+    measure: str = "stability",
+    rule: str = "1se",
+    not_two: bool = False,
+    random_state: int = 42,
+    n_jobs: int = 1,
+) -> CusanovichInputs:
+    """Assemble the Cusanovich figure's inputs from a randomized fit.
+
+    Embeds all of X with the best pipeline at the selected configuration,
+    relabels CARVE's consensus labels onto y, places the source's operating
+    point on the t-SNE pipeline at y's own cluster count, and scores the
+    published partition y under the classifier probe with the fit's own
+    resample count, subsample ratio and tree count. This is compute; call it
+    once and draw from the result.
+    """
+    from .figures._case_study import _align_to_reference
+
+    X = np.asarray(X)
+    y = np.asarray(y)
+    row, spec = best_pipeline(carve, measure=measure, rule=rule, not_two=not_two)
+    embedding, axis_labels = pipeline_embedding(X, spec, random_state=random_state)
+    labels = carve.get_labels(measure=measure, rule=rule, not_two=not_two)
+
+    return CusanovichInputs(
+        X=X,
+        y=y,
+        carve=carve,
+        carve_labels=_align_to_reference(labels, y),
+        embedding_A=embedding,
+        embedding_A_labels=axis_labels,
+        source_tsne=np.asarray(source_tsne, dtype=np.float64),
+        best_pipeline_row=row,
+        operating_point=source_operating_point(
+            carve,
+            pipeline=source_recipe_pipeline(carve),
+            target_k=int(np.unique(y).size),
+        ),
+        published_generalizability=published_partition_generalizability(
+            X,
+            y,
+            n_splits=int(carve.n_resamples),
+            subsample_ratio=float(carve.subsample_ratio),
+            n_trees=int(carve.n_trees),
+            random_state=random_state,
+            n_jobs=n_jobs,
+        ),
+        measure=measure,
+        rule=rule,
+        not_two=not_two,
+    )
+
+
+def selection_summary(inputs: CusanovichInputs) -> pd.DataFrame:
+    """The numbers the case study reports, one (quantity, value) row each.
+
+    Written next to the figure by save_tables, so every number the manuscript
+    quotes has a file behind it.
+    """
+    carve = inputs.carve
+    selected, _, n_clusters, _ = carve._select_row(
+        measure=inputs.measure, rule=inputs.rule, not_two=inputs.not_two
+    )
+    best = inputs.best_pipeline_row
+    resolution, observed = inputs.operating_point
+    mean, se = inputs.published_generalizability
+    rows = [
+        ("measure", inputs.measure),
+        ("rule", inputs.rule),
+        ("not_two", inputs.not_two),
+        ("n_cells", int(inputs.y.size)),
+        ("source_clusters", int(np.unique(inputs.y).size)),
+        ("selected_method", selected["method_label"]),
+        ("selected_resolution", float(selected["sweep_value"])),
+        ("selected_n_clusters", int(n_clusters)),
+        ("selected_ari_stability", float(selected["ari_stability"])),
+        ("selected_ari_generalizability", float(selected["ari_generalizability"])),
+        ("best_pipeline", best["pipeline"]),
+        ("best_pipeline_n_resamples", int(best["n_resamples"])),
+        ("best_pipeline_ari_stability", float(best["ari_stability"])),
+        ("best_pipeline_ari_generalizability", float(best["ari_generalizability"])),
+        ("source_pipeline", source_recipe_pipeline(carve)),
+        ("operating_point_resolution", resolution),
+        ("operating_point_n_clusters", observed),
+        ("published_generalizability", mean),
+        ("published_generalizability_se", se),
+        (
+            "consensus_ari_vs_source_clusters",
+            float(adjusted_rand_score(inputs.y, inputs.carve_labels)),
+        ),
+    ]
+    return pd.DataFrame(rows, columns=["quantity", "value"])
+
+
+#: The CSVs save_tables writes, next to cusanovich_results.png.
+TABLE_FILENAMES: tuple[str, str] = (
+    "cusanovich_preprocessing_results.csv",
+    "cusanovich_selection_summary.csv",
+)
+
+
+def save_tables(inputs: CusanovichInputs, out_dir: Path) -> list[Path]:
+    """Write preprocessing_results_ and the selection summary as CSV."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    results_path, summary_path = (out_dir / name for name in TABLE_FILENAMES)
+    inputs.carve.preprocessing_results_.to_csv(results_path, index=False)
+    selection_summary(inputs).to_csv(summary_path, index=False)
+    return [results_path, summary_path]
