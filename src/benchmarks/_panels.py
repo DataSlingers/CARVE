@@ -17,6 +17,8 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import PathPatch, Rectangle
 from matplotlib.path import Path
 
+from carve._sweep import SWEEP_REGISTRY
+
 from ._registry import (
     BASELINE_METRIC,
     CARVE_METRICS_ALL,
@@ -28,6 +30,8 @@ from ._theme import (
     FALLBACK_COLOR,
     FONT_SIZES,
     FOREGROUND_COLOR,
+    MEASURE_LINESTYLES,
+    PIPELINE_CMAP_NAME,
     cluster_colors,
     metric_color,
     metric_linestyle,
@@ -341,17 +345,26 @@ def runtime_lines(
     return style_axes(ax)
 
 
+def _sweep_axis_label(param: str) -> str:
+    """The x-axis label for a sweep parameter, in CARVE's own wording."""
+    if param == "n_clusters":
+        return "Number of clusters $k$"
+    known = SWEEP_REGISTRY.get(param)
+    return known[2] if known else param.replace("_", " ").title()
+
+
 def carve_lines(
     ax: Axes,
     carve_obj: Any,
     *,
     measures: Sequence[str] = ("stability", "generalizability"),
+    rule: str = "1se",
     not_two: bool = False,
     title: str | None = None,
     annotate: bool = False,
     show_selected_k: bool = True,
 ) -> Axes:
-    """Plot CARVE validation curves over k, one line per measure.
+    """Plot CARVE validation curves over the sweep axis, one line per measure.
 
     ``estimator_results_`` has one row per (configuration, k): a case study
     that sweeps more than one estimator (Klein sweeps Ward agglomerative
@@ -364,23 +377,34 @@ def carve_lines(
     ``estimator_results_`` uses for "one line" -- see
     ``carve._sweep.MethodIds``), and the winning estimator's identity is
     named in the legend rather than left implicit.
+
+    The x axis is the run's sweep parameter, read from carve_obj.sweep_: the
+    number of clusters for a k-based run (and for a fit cached before sweep_
+    existed, every one of which is k-based), the swept value otherwise, such
+    as Leiden resolution. The selected value is marked from get_k or
+    get_sweep_value to match. rule and not_two are forwarded to every
+    selection call.
     """
     results = carve_obj.estimator_results_
+    sweep = getattr(carve_obj, "sweep_", None)
+    param = "n_clusters" if sweep is None else sweep.param
+    by_k = param == "n_clusters"
+    x_col = "n_clusters" if by_k else "sweep_value"
 
     for measure in measures:
         selected_row, _, _, _ = carve_obj._select_row(
-            measure=measure, rule="1se", not_two=not_two
+            measure=measure, rule=rule, not_two=not_two
         )
         method_id = selected_row["method_id"]
         method_label = selected_row["method_label"]
-        curve = results.loc[results["method_id"] == method_id].sort_values("n_clusters")
+        curve = results.loc[results["method_id"] == method_id].sort_values(x_col)
 
         color = metric_color(f"ari_{measure}_1se")
-        ks = curve["n_clusters"].to_numpy()
+        xs = curve[x_col].to_numpy()
         values = curve[f"ari_{measure}"].to_numpy()
         label = f"{_display(f'ari_{measure}_1se')} — {method_label}"
         ax.plot(
-            ks,
+            xs,
             values,
             marker="o",
             markersize=5.0,
@@ -390,22 +414,31 @@ def carve_lines(
         )
         if f"ari_{measure}_se" in curve.columns:
             se = curve[f"ari_{measure}_se"].to_numpy()
-            ax.fill_between(ks, values - se, values + se, color=color, alpha=0.15)
+            ax.fill_between(xs, values - se, values + se, color=color, alpha=0.15)
 
         if show_selected_k:
-            selected = int(
-                carve_obj.get_k(measure=measure, rule="1se", not_two=not_two)
-            )
+            if by_k:
+                selected = int(
+                    carve_obj.get_k(measure=measure, rule=rule, not_two=not_two)
+                )
+                note = f"$\\hat{{k}}={selected}$"
+            else:
+                selected = float(
+                    carve_obj.get_sweep_value(
+                        measure=measure, rule=rule, not_two=not_two
+                    )
+                )
+                note = f"{selected:g}"
             ax.axvline(selected, color=color, linestyle="--", linewidth=1.0, alpha=0.6)
             if annotate:
                 ax.annotate(
-                    f"$\\hat{{k}}={selected}$",
+                    note,
                     xy=(selected, float(np.nanmax(values))),
                     fontsize=FONT_SIZES["legend"],
                     color=color,
                 )
 
-    ax.set_xlabel("Number of clusters $k$", fontsize=FONT_SIZES["axis_label"])
+    ax.set_xlabel(_sweep_axis_label(param), fontsize=FONT_SIZES["axis_label"])
     # Both measures this draws are adjusted Rand indices against the
     # resampled reference, so "ARI" names the quantity; "Validation score",
     # which this replaces, named the role instead and matched neither the
@@ -414,6 +447,69 @@ def carve_lines(
     if title:
         ax.set_title(title, fontsize=FONT_SIZES["title"])
     ax.legend(fontsize=FONT_SIZES["legend"], frameon=False)
+    return style_axes(ax)
+
+
+def pipeline_lines(
+    ax: Axes,
+    carve_obj: Any,
+    *,
+    method_id: str,
+    measures: Sequence[str] = ("stability", "generalizability"),
+    rule: str = "1se",
+    not_two: bool = False,
+    title: str | None = None,
+) -> Axes:
+    """Plot per-pipeline validation curves for one estimator configuration.
+
+    The drawing is carve._plotting.plot_metric_by_pipeline, called once per
+    measure on the same axes, so the per-pipeline rows, the error bars at one
+    standard error and the per-pipeline selection line are CARVE's own; this
+    only themes them. Pipelines take PIPELINE_CMAP_NAME's colors, each measure
+    its MEASURE_LINESTYLES style, and one legend names both.
+    """
+    from carve._plotting import plot_metric_by_pipeline
+
+    table = carve_obj.preprocessing_results_
+    for measure in measures:
+        plot_metric_by_pipeline(
+            table,
+            method_id=method_id,
+            measure=measure,
+            rule=rule,
+            not_two=not_two,
+            ax=ax,
+            legend=False,
+            palette=PIPELINE_CMAP_NAME,
+            linestyle=MEASURE_LINESTYLES[measure],
+        )
+
+    handles: dict[str, Line2D] = {}
+    for container in ax.containers:
+        label = container.get_label()
+        if label not in handles:
+            handles[label] = Line2D(
+                [], [], color=container.lines[0].get_color(), marker="o", label=label
+            )
+    for measure in measures:
+        handles[measure] = Line2D(
+            [],
+            [],
+            color=FOREGROUND_COLOR,
+            linestyle=MEASURE_LINESTYLES[measure],
+            label=measure.capitalize(),
+        )
+    ax.legend(
+        handles=list(handles.values()), fontsize=FONT_SIZES["legend"], frameon=False
+    )
+
+    ax.set_xlabel(
+        _sweep_axis_label(str(table["sweep_param"].iloc[0])),
+        fontsize=FONT_SIZES["axis_label"],
+    )
+    ax.set_ylabel("ARI", fontsize=FONT_SIZES["axis_label"])
+    if title:
+        ax.set_title(title, fontsize=FONT_SIZES["title"])
     return style_axes(ax)
 
 

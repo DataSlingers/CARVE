@@ -120,6 +120,23 @@ _cluster_cmap = ListedColormap(list(CLUSTER_PALETTE), name=CLUSTER_CMAP_NAME)
 if CLUSTER_CMAP_NAME not in mpl.colormaps:
     mpl.colormaps.register(_cluster_cmap)
 
+# Preprocessing pipelines in the Cusanovich figure's per-pipeline panel.
+# CARVE's plot_metric_by_pipeline takes a colormap name and samples it at
+# evenly spaced points, one per pipeline in sorted label order, so a
+# ListedColormap of exactly these colors gives each of up to four pipelines
+# its own entry. Okabe-Ito hues and tab10's brown, none of them a
+# METRIC_COLORS value, so a pipeline line is never read as a criterion.
+PIPELINE_COLORS: tuple[str, ...] = ("#0072B2", "#D55E00", "#CC79A7", "#8C564B")
+PIPELINE_CMAP_NAME: str = "carve_pipeline"
+if PIPELINE_CMAP_NAME not in mpl.colormaps:
+    mpl.colormaps.register(
+        ListedColormap(list(PIPELINE_COLORS), name=PIPELINE_CMAP_NAME)
+    )
+
+# The per-pipeline panel draws both criteria for every pipeline on one axes;
+# color carries the pipeline, so line style carries the criterion.
+MEASURE_LINESTYLES: dict[str, str] = {"stability": "-", "generalizability": "--"}
+
 FONT_SIZES: dict[str, float] = {
     "tick": 9.0,
     "legend": 9.0,

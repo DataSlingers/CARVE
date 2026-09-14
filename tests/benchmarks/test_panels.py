@@ -5,6 +5,7 @@ is asserted directly rather than left to convention.
 """
 
 import inspect
+from types import SimpleNamespace
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -32,11 +33,18 @@ from benchmarks._panels import (
     metric_legend,
     metric_lines,
     panel_letter,
+    pipeline_lines,
     runtime_lines,
     scatter_clusters,
 )
-from benchmarks._theme import FONT_SIZES, FOREGROUND_COLOR, cluster_colors, metric_color
-from tests.benchmarks._helpers import StubCarve
+from benchmarks._theme import (
+    FONT_SIZES,
+    FOREGROUND_COLOR,
+    PIPELINE_COLORS,
+    cluster_colors,
+    metric_color,
+)
+from tests.benchmarks._helpers import StubCarve, pipeline_results, resolution_results
 
 
 @pytest.fixture
@@ -51,6 +59,7 @@ AX_FIRST_FUNCTIONS = (
     "axis_arrows",
     "metric_lines",
     "carve_lines",
+    "pipeline_lines",
     "cvi_lines",
     "alluvial",
     "ari_lollipop",
@@ -445,6 +454,114 @@ class TestCarveLines:
         for line in data_lines:
             x = line.get_xdata()
             assert np.all(np.diff(x) > 0)
+
+    def test_a_k_based_run_keeps_the_number_of_clusters_axis(self, ax):
+        carve_lines(ax, _carve_obj(), measures=("stability",))
+        assert ax.get_xlabel() == "Number of clusters $k$"
+
+    def test_a_resolution_run_draws_over_resolution(self, ax):
+        # A decoy configuration at other resolutions must not join the line,
+        # and the selected resolution, 0.6, comes from get_sweep_value: get_k
+        # would round it to a cluster count.
+        results = pd.concat(
+            [
+                resolution_results([0.2, 0.4, 0.6, 0.8], "Leiden"),
+                resolution_results([0.3, 0.5], "Leiden decoy", method_id="m1"),
+            ],
+            ignore_index=True,
+        )
+        carve = StubCarve(
+            results, select=lambda measure, not_two: ("m0", 0.6), sweep_param="resolution"
+        )
+        carve_lines(ax, carve, measures=("stability",))
+        data_line = next(ln for ln in ax.lines if ln.get_marker() == "o")
+        selection = next(ln for ln in ax.lines if ln.get_marker() != "o")
+        np.testing.assert_allclose(data_line.get_xdata(), [0.2, 0.4, 0.6, 0.8])
+        assert selection.get_xdata()[0] == pytest.approx(0.6)
+        assert ax.get_xlabel() == "Resolution"
+
+    def test_forwards_rule_and_not_two_to_every_selection(self, ax):
+        carve = _carve_obj()
+        carve_lines(ax, carve, rule="max", not_two=True)
+        assert len(carve.selection_calls) == 4
+        assert all(
+            call["rule"] == "max" and call["not_two"] for call in carve.selection_calls
+        )
+
+
+_PIPELINES = (
+    "identity | identity",
+    "identity | TSNE(perplexity=30)",
+    "identity | UMAP(n_neighbors=15)",
+)
+
+
+class TestPipelineLines:
+    @staticmethod
+    def _draw(ax, **kwargs):
+        table = pipeline_results(_PIPELINES, (0.2, 0.4, 0.6), method_ids=("m0", "m1"))
+        carve = SimpleNamespace(preprocessing_results_=table)
+        return pipeline_lines(ax, carve, method_id="m0", **kwargs)
+
+    def test_returns_the_same_axes(self, ax):
+        assert self._draw(ax) is ax
+
+    def test_one_line_pair_per_pipeline_sharing_a_pipeline_color(self, ax):
+        self._draw(ax)
+        drawn: dict[str, list] = {}
+        for container in ax.containers:
+            line = container.lines[0]
+            drawn.setdefault(container.get_label(), []).append(
+                (mcolors.to_hex(line.get_color()), line.get_linestyle())
+            )
+        assert set(drawn) == set(_PIPELINES)
+        for pair in drawn.values():
+            assert [style for _, style in pair] == ["-", "--"]
+            assert len({color for color, _ in pair}) == 1
+        colors = {pair[0][0] for pair in drawn.values()}
+        assert len(colors) == len(_PIPELINES)
+        assert colors <= {color.lower() for color in PIPELINE_COLORS}
+
+    def test_draws_only_the_named_configuration(self, ax):
+        # m1 scores 0.3 higher everywhere; pipeline 0 of m0 scores
+        # 0.5, 0.45, 0.4 on stability.
+        self._draw(ax)
+        stability = next(
+            container
+            for container in ax.containers
+            if container.get_label() == "identity | identity"
+        )
+        np.testing.assert_allclose(stability.lines[0].get_ydata(), [0.5, 0.45, 0.4])
+
+    def test_one_legend_names_the_pipelines_and_the_two_criteria(self, ax):
+        self._draw(ax)
+        texts = [text.get_text() for text in ax.get_legend().get_texts()]
+        assert texts == [*sorted(_PIPELINES), "Stability", "Generalizability"]
+
+    def test_labels_the_sweep_axis_and_the_criterion(self, ax):
+        self._draw(ax, title="By pipeline")
+        assert ax.get_xlabel() == "Resolution"
+        assert ax.get_ylabel() == "ARI"
+        assert ax.get_title() == "By pipeline"
+
+    def test_forwards_the_selection_arguments(self, ax, monkeypatch):
+        import carve._plotting as carve_plotting
+
+        calls = []
+        real = carve_plotting.plot_metric_by_pipeline
+
+        def spy(*args, **kwargs):
+            calls.append(
+                (kwargs["measure"], kwargs["rule"], kwargs["not_two"], kwargs["method_id"])
+            )
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(carve_plotting, "plot_metric_by_pipeline", spy)
+        self._draw(ax, rule="max", not_two=True)
+        assert calls == [
+            ("stability", "max", True, "m0"),
+            ("generalizability", "max", True, "m0"),
+        ]
 
 
 class TestCviLines:

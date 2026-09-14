@@ -1,6 +1,7 @@
 """Tests for the single source of figure styling."""
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pytest
 from matplotlib.colors import to_hex
 
@@ -8,7 +9,10 @@ from benchmarks._registry import CARVE_METRICS_ALL, CVI_METRICS, METRIC_DISPLAY_
 from benchmarks._theme import (
     CLUSTER_PALETTE,
     FONT_SIZES,
+    MEASURE_LINESTYLES,
     METRIC_COLORS,
+    PIPELINE_CMAP_NAME,
+    PIPELINE_COLORS,
     RC_PARAMS,
     apply_theme,
     cluster_cmap,
@@ -169,6 +173,29 @@ class TestPalette:
         """
         colors = cluster_colors(n)
         assert all(a != b for a, b in zip(colors, colors[1:]))
+
+
+class TestPipelinePalette:
+    def test_the_registered_colormap_is_the_pipeline_colors(self):
+        cmap = plt.get_cmap(PIPELINE_CMAP_NAME)
+        assert [to_hex(cmap(i)) for i in range(cmap.N)] == [
+            color.lower() for color in PIPELINE_COLORS
+        ]
+
+    @pytest.mark.parametrize("n", [1, 2, 3, 4])
+    def test_up_to_four_pipelines_get_distinct_colors(self, n):
+        # plot_metric_by_pipeline samples its colormap at np.linspace(0, 1, n).
+        cmap = plt.get_cmap(PIPELINE_CMAP_NAME)
+        colors = [to_hex(color) for color in cmap(np.linspace(0, 1, n))]
+        assert len(set(colors)) == n
+
+    def test_no_pipeline_color_is_a_criterion_color(self):
+        pipeline = {color.lower() for color in PIPELINE_COLORS}
+        metric = {color.lower() for color in METRIC_COLORS.values()}
+        assert not pipeline & metric
+
+    def test_the_two_criteria_have_their_own_line_styles(self):
+        assert MEASURE_LINESTYLES == {"stability": "-", "generalizability": "--"}
 
 
 class TestRcParams:
