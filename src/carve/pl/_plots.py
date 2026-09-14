@@ -12,6 +12,7 @@ configuration chosen when ``tl.carve`` ran, so re-selecting would silently pair
 one configuration's labels with another's scores.
 """
 
+import warnings
 from pathlib import Path
 from typing import Literal
 
@@ -33,6 +34,7 @@ from .._plotting import (
 from .._plotting import (
     plot_metric_over_n_clusters as _plot_metric_over_n_clusters,
 )
+from .._selection import MEASURE_MAP
 
 __all__ = [
     "cluster_boxplot",
@@ -298,8 +300,12 @@ def metric_by_pipeline(
         configuration selected when the results were written, so the lines
         belong to the labels in ``adata.obs``.
     measure : str, optional
-        ``"stability"`` or ``"generalizability"``. Defaults to the measure
-        recorded at fit time.
+        ``"stability"`` or ``"generalizability"``, or an alias of either --
+        the per-pipeline table carries only these two ARI criteria. Defaults
+        to the measure recorded at fit time; if that measure is not one of
+        these two, a warning is raised and ``"stability"`` is plotted
+        instead. An explicitly passed measure the table does not carry
+        raises instead of falling back.
     rule : str, optional
         Selection rule for the marked sweep value. Defaults to the recorded
         rule.
@@ -340,14 +346,30 @@ def metric_by_pipeline(
     """
     params = dict(_entry(adata, key)["params"])
     table = _preprocessing_results(adata, key)
+
+    if measure is None:
+        recorded = str(params.get("measure", "stability"))
+        column = MEASURE_MAP.get(recorded)
+        if column is None or column not in table.columns:
+            warnings.warn(
+                f"tl.carve recorded measure {recorded!r}, which the "
+                "per-pipeline table does not carry; plotting 'stability'. "
+                "Pass measure='generalizability' for the other ARI criterion.",
+                UserWarning,
+                stacklevel=2,
+            )
+            resolved_measure = "stability"
+        else:
+            resolved_measure = recorded
+    else:
+        resolved_measure = measure
+
     return _plot_metric_by_pipeline(
         table,
         method_id=(
             method_id if method_id is not None else str(params["selected_method_id"])
         ),
-        measure=(
-            measure if measure is not None else str(params.get("measure", "stability"))
-        ),
+        measure=resolved_measure,
         rule=rule if rule is not None else str(params.get("rule", "1se")),
         not_two=(
             not_two if not_two is not None else bool(params.get("not_two", False))

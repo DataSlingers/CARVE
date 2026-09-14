@@ -444,8 +444,44 @@ class TestPlotMetricByPipeline:
             plot_metric_by_pipeline(_pipeline_results_df(), method_id="m9")
 
     def test_measure_the_table_does_not_carry(self):
-        with pytest.raises(ValueError, match="consensus_pac_stability"):
+        with pytest.raises(
+            ValueError,
+            match=r"must be 'stability' or 'generalizability'.*got 'pac'",
+        ):
             plot_metric_by_pipeline(_pipeline_results_df(), method_id="m0", measure="pac")
+
+    def test_unsupported_measure_names_the_two_ari_criteria(self):
+        with pytest.raises(
+            ValueError,
+            match=(
+                r"The per-pipeline table carries only the ARI criteria, so "
+                r"measure must be 'stability' or 'generalizability' "
+                r"\(or an alias of either\); got 'average'\."
+            ),
+        ):
+            plot_metric_by_pipeline(
+                _pipeline_results_df(), method_id="m0", measure="average"
+            )
+
+    def test_1se_falls_back_to_max_when_the_best_row_has_no_se(self):
+        # m0's best stability row is identity | identity at k=3 (0.90). Give
+        # it a NaN SE, as a pipeline that received a single resample would,
+        # and confirm the dashed marker still lands on that sweep value
+        # instead of being silently dropped.
+        df = _pipeline_results_df()
+        best = (
+            (df["method_id"] == "m0")
+            & (df["pipeline"] == "identity | identity")
+            & (df["sweep_value"] == 3)
+        )
+        assert best.sum() == 1
+        df.loc[best, "ari_stability_se"] = np.nan
+        df.loc[best, "n_resamples"] = 1
+
+        ax = plot_metric_by_pipeline(df, method_id="m0", rule="1se")
+        dashed = [line for line in ax.get_lines() if line.get_linestyle() == "--"]
+        assert len(dashed) == 1
+        assert list(dashed[0].get_xdata()) == [3.0, 3.0]
 
 
 class TestSharedMetricDrawing:

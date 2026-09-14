@@ -352,7 +352,8 @@ class CARVE(BaseEstimator):
             generalizability reflect preprocessing choice as well as
             sampling. Pipelines are allocated evenly: each (normalization,
             dimensionality reduction) option pair is used in floor or ceil
-            of ``n_resamples / n_pairs`` resamples, in a seeded random order,
+            of ``n_resamples / n_pairs`` resamples (``n_pairs`` being the
+            number of such option pairs), in a seeded random order,
             with hyperparameters drawn per resample. A resample's pipeline is
             fit separately on each of its subsamples, the two clustered
             subsamples and the held-out set, so an embedding that does not

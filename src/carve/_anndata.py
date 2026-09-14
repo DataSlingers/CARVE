@@ -301,7 +301,7 @@ def _stringify(value: Any) -> str:
 
 
 def results_to_uns(df: pd.DataFrame) -> pd.DataFrame:
-    """Sanitise a results table so it survives an h5ad round trip.
+    """Sanitize a results table so it survives an h5ad round trip.
 
     Used for both ``estimator_results_`` and ``preprocessing_results_``.
 

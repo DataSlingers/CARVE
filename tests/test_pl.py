@@ -371,6 +371,12 @@ class TestMetricByPipeline:
     def test_defaults_come_from_the_recorded_selection(
         self, randomized_written, monkeypatch
     ):
+        # randomized_written is module-scoped and shared with other tests in
+        # this class, so every mutation below goes through a fresh .copy().
+        # The recorded params are set to non-default values here
+        # (measure="generalizability", rule="max", not_two=True) so that a
+        # pl.metric_by_pipeline that hard-coded "stability"/"1se"/False
+        # instead of reading params could not pass this test by accident.
         seen = {}
 
         def spy(table, **kwargs):
@@ -380,12 +386,15 @@ class TestMetricByPipeline:
         for recorded in ("m0", "m1"):
             adata = randomized_written.copy()
             adata.uns["carve"]["params"]["selected_method_id"] = recorded
+            adata.uns["carve"]["params"]["measure"] = "generalizability"
+            adata.uns["carve"]["params"]["rule"] = "max"
+            adata.uns["carve"]["params"]["not_two"] = True
             carve.pl.metric_by_pipeline(adata)
             assert seen["method_id"] == recorded
             assert (seen["measure"], seen["rule"], seen["not_two"]) == (
-                "stability",
-                "1se",
-                False,
+                "generalizability",
+                "max",
+                True,
             )
         carve.pl.metric_by_pipeline(
             randomized_written, method_id="m1", measure="generalizability", rule="max"
@@ -396,6 +405,27 @@ class TestMetricByPipeline:
             "max",
         )
         assert seen["n_rows"] == len(randomized_written.uns["carve"]["preprocessing_results"])
+
+    def test_recorded_measure_not_carried_falls_back_to_stability_with_a_warning(
+        self, randomized_written, monkeypatch
+    ):
+        seen = {}
+
+        def spy(table, **kwargs):
+            seen.update(kwargs, n_rows=len(table))
+
+        monkeypatch.setattr(pl_plots, "_plot_metric_by_pipeline", spy)
+        adata = randomized_written.copy()
+        adata.uns["carve"]["params"]["measure"] = "average"
+        with pytest.warns(
+            UserWarning,
+            match=(
+                r"tl\.carve recorded measure 'average', which the "
+                r"per-pipeline table does not carry; plotting 'stability'\."
+            ),
+        ):
+            carve.pl.metric_by_pipeline(adata)
+        assert seen["measure"] == "stability"
 
     @pytest.mark.parametrize("case", ["not_randomized", "store_results_false"])
     def test_absent_table_names_both_reasons(self, model, randomized_model, case):

@@ -204,7 +204,9 @@ def plot_metric_by_pipeline(
     among the plotted rows; it can differ from the selection over
     ``estimator_results_``, which pools every pipeline. The table has no
     quantile columns, so ``rule="quantile"`` falls back to ``"max"`` with a
-    warning.
+    warning. When the best row has no standard error (a pipeline that
+    received one resample), ``rule="1se"`` marks the best value, as
+    ``"max"`` does.
 
     Parameters
     ----------
@@ -216,7 +218,8 @@ def plot_metric_by_pipeline(
         the ``method_id`` column.
     measure : str, default="stability"
         ``"stability"`` or ``"generalizability"``, or an alias of either. The
-        table carries no consensus or accuracy columns.
+        per-pipeline table carries only these two ARI criteria -- no
+        consensus or accuracy columns -- so any other measure raises.
     rule : str, default="1se"
         Selection rule for the marked sweep value: "max", "1se", "quantile".
     not_two : bool, default=False
@@ -277,13 +280,35 @@ def plot_metric_by_pipeline(
             f"Available: {sorted(method_ids.unique())}."
         )
 
+    if measure not in MEASURE_MAP or MEASURE_MAP[measure] not in rows.columns:
+        raise ValueError(
+            "The per-pipeline table carries only the ARI criteria, so "
+            "measure must be 'stability' or 'generalizability' (or an "
+            f"alias of either); got {measure!r}."
+        )
+
+    # F2: under "1se", a pipeline that received a single resample has a NaN
+    # standard error for its best row. The NaN threshold then leaves nothing
+    # within tolerance, idxmax() raises, and the caller's try/except silently
+    # drops the dashed marker. Draw "max" instead in that case; "max" needs
+    # no standard error and agrees with "1se" whenever "1se" would succeed.
+    draw_rule = rule
+    if draw_rule == "1se":
+        measure_col = MEASURE_MAP[measure]
+        non_nan_measure = rows[measure_col].dropna()
+        if not non_nan_measure.empty:
+            best_idx = rows[measure_col].idxmax()
+            se_col = f"{measure_col}_se"
+            if pd.isna(rows.loc[best_idx, se_col]):
+                draw_rule = "max"
+
     return _draw_metric_lines(
         rows,
         group_col="pipeline",
         label_of=lambda row: str(row["pipeline"]),
         legend_title="Pipelines",
         measure=measure,
-        rule=rule,
+        rule=draw_rule,
         not_two=not_two,
         ax=ax,
         figsize=figsize,
@@ -338,7 +363,9 @@ def _draw_metric_lines(
     se_col = f"{measure_col}_se"
 
     if measure_col not in results_df.columns:
-        raise ValueError(f"Metric column {measure_col!r} not found in results_df.")
+        raise ValueError(
+            f"Metric column {measure_col!r} not found in the results table."
+        )
     has_se = se_col in results_df.columns
 
     # --- Figure setup ---
