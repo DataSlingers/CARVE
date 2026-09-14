@@ -5,9 +5,11 @@ import pytest
 
 from benchmarks._types import (
     KNOWN_ESTIMATORS,
+    KNOWN_PREPROCESSORS,
     Axis,
     EstimatorSpec,
     Manifest,
+    PreprocessingSpec,
     Scenario,
     Study,
 )
@@ -158,8 +160,8 @@ class TestStudy:
         assert meta["source"] == "test"
         assert study.k_star is None
 
-    def test_rejects_empty_candidate_k(self):
-        with pytest.raises(ValueError, match="candidate_k"):
+    def test_rejects_a_study_with_neither_sweep(self):
+        with pytest.raises(ValueError, match="candidate_k, resolutions or both"):
             Study(
                 name="demo",
                 loader=lambda subsample: (np.zeros((2, 2)), np.zeros(2), {}),
@@ -168,6 +170,68 @@ class TestStudy:
                 scales={"dev": 100},
                 default_scale="dev",
             )
+
+    def test_accepts_a_resolution_only_study(self):
+        # A study that sweeps only Leiden resolution has no k grid to declare.
+        study = Study(
+            name="demo",
+            loader=lambda subsample: (np.zeros((2, 2)), np.zeros(2), {}),
+            estimator=EstimatorSpec(name="leiden"),
+            candidate_k=(),
+            resolutions=(0.5, 1.0),
+            scales={"dev": 100},
+            default_scale="dev",
+        )
+        assert study.candidate_k == ()
+        assert study.resolutions == (0.5, 1.0)
+
+    def test_run_settings_default_to_the_package_run(self):
+        study = Study(
+            name="demo",
+            loader=lambda subsample: (np.zeros((2, 2)), np.zeros(2), {}),
+            estimator=EstimatorSpec(name="kmeans"),
+            candidate_k=(2, 3),
+            scales={"dev": 100},
+            default_scale="dev",
+        )
+        assert study.n_resamples == 100
+        assert study.preprocessing is None
+
+
+def _roles(**override):
+    options = {
+        "normalization": (("identity", {}),),
+        "dim_reduction": (("identity", {}),),
+    }
+    options.update(override)
+    return options
+
+
+class TestPreprocessingSpec:
+    def test_accepts_every_known_preprocessor(self):
+        spec = PreprocessingSpec(
+            normalization=(("identity", {}), ("standard_scaler", {})),
+            dim_reduction=(
+                ("identity", {}),
+                ("pca", {"n_components": [5]}),
+                ("tsne", {"perplexity": [30]}),
+                ("umap", {"n_neighbors": [15, 30]}),
+            ),
+        )
+        named = {key for key, _ in (*spec.normalization, *spec.dim_reduction)}
+        assert named == KNOWN_PREPROCESSORS
+
+    @pytest.mark.parametrize("role", ["normalization", "dim_reduction"])
+    def test_an_unknown_key_raises_naming_the_valid_ones(self, role):
+        with pytest.raises(ValueError, match=r"nmf.*Valid names") as excinfo:
+            PreprocessingSpec(**_roles(**{role: (("nmf", {}),)}))
+        assert role in str(excinfo.value)
+        assert "tsne" in str(excinfo.value)
+
+    @pytest.mark.parametrize("role", ["normalization", "dim_reduction"])
+    def test_an_empty_role_raises(self, role):
+        with pytest.raises(ValueError, match=f"{role} needs at least one option"):
+            PreprocessingSpec(**_roles(**{role: ()}))
 
 
 class TestManifest:

@@ -4,7 +4,7 @@ This module is a leaf: it imports only the standard library, so every other
 module in the package may depend on it without creating a cycle.
 """
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -17,6 +17,12 @@ KNOWN_ESTIMATORS: frozenset[str] = frozenset(
         "spectral",
         "leiden",
     }
+)
+
+#: Registry keys a PreprocessingSpec may name. _preprocessing maps each one to
+#: its transformer; the names live here so this module stays a leaf.
+KNOWN_PREPROCESSORS: frozenset[str] = frozenset(
+    {"identity", "standard_scaler", "pca", "tsne", "umap"}
 )
 
 
@@ -71,6 +77,36 @@ class EstimatorSpec:
                 f"Unknown estimator {self.name!r}. "
                 f"Valid names are {sorted(KNOWN_ESTIMATORS)}."
             )
+
+
+@dataclass(frozen=True)
+class PreprocessingSpec:
+    """The preprocessing options a randomized case-study fit draws from.
+
+    Each role holds (key, grid) pairs: key names a registered transformer and
+    grid maps each of its hyperparameters to candidate values, one of which is
+    drawn per resample. Options are named by key rather than by class so this
+    module stays a leaf; _preprocessing.resolve_preprocessing turns them into
+    the option lists CARVE takes. Validation is strict for the same reason
+    EstimatorSpec's is.
+    """
+
+    normalization: tuple[tuple[str, Mapping[str, Sequence[Any]]], ...]
+    dim_reduction: tuple[tuple[str, Mapping[str, Sequence[Any]]], ...]
+
+    def __post_init__(self) -> None:
+        for role in ("normalization", "dim_reduction"):
+            options = getattr(self, role)
+            if not options:
+                raise ValueError(
+                    f"PreprocessingSpec: {role} needs at least one option."
+                )
+            unknown = sorted({key for key, _ in options} - KNOWN_PREPROCESSORS)
+            if unknown:
+                raise ValueError(
+                    f"PreprocessingSpec: unknown {role} option(s) {unknown}. "
+                    f"Valid names are {sorted(KNOWN_PREPROCESSORS)}."
+                )
 
 
 def _simulator_parameters() -> frozenset[str]:
@@ -170,6 +206,12 @@ class Study:
     order study_model_grids emits them. Declared here so the set of
     estimators a case study compares is part of its configuration rather
     than a branch on its name.
+
+    A study declares candidate_k, resolutions or both, depending on which
+    sweeps it runs. n_resamples is the resample count its CARVE fit runs,
+    and preprocessing, when set, is the option set a randomized fit draws
+    its pipelines from; both live here so a notebook reads them rather than
+    restating them.
     """
 
     name: str
@@ -182,10 +224,15 @@ class Study:
     resolutions: tuple[float, ...] = ()
     consensus_anchors: int | None = None
     k_star: int | None = None
+    n_resamples: int = 100
+    preprocessing: PreprocessingSpec | None = None
 
     def __post_init__(self) -> None:
-        if not self.candidate_k:
-            raise ValueError(f"Study {self.name!r}: candidate_k must not be empty.")
+        if not self.candidate_k and not self.resolutions:
+            raise ValueError(
+                f"Study {self.name!r}: declare candidate_k, resolutions or "
+                "both; both are empty."
+            )
         if not self.scales:
             raise ValueError(f"Study {self.name!r}: declare at least one scale.")
         if self.default_scale not in self.scales:
