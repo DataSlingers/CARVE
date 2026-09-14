@@ -396,7 +396,9 @@ def align_cluster_labels(
     Returns
     -------
     aligned : ndarray of shape (n_samples,)
-        Aligned labels with best matching permutation.
+        Aligned labels with best matching permutation. Clusters the
+        assignment cannot match, when there are more clusters than reference
+        labels, take ids past the largest reference label.
     """
     cont = contingency_matrix(reference_labels, labels)
     row_ind, col_ind = linear_sum_assignment(-cont)
@@ -407,8 +409,13 @@ def align_cluster_labels(
     mapping = {
         pred_classes[col]: true_classes[row] for row, col in zip(row_ind, col_ind)
     }
+    # An unmatched cluster that kept its own id could share the id a matched
+    # cluster was given, merging the two, so each takes a fresh one instead.
+    next_id = int(np.max(true_classes)) + 1
     for pc in pred_classes:
-        mapping.setdefault(pc, pc)
+        if pc not in mapping:
+            mapping[pc] = next_id
+            next_id += 1
 
     aligned = np.array([mapping[lbl] for lbl in labels], dtype=reference_labels.dtype)
     return aligned

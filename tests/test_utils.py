@@ -7,6 +7,7 @@ from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import adjusted_rand_score
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import FunctionTransformer
 
@@ -209,6 +210,19 @@ class TestAlignClusterLabels:
         labels = np.array([1, 1, 0, 0], dtype=np.int64)
         aligned = align_cluster_labels(ref, labels)
         assert aligned.dtype == ref.dtype
+
+    def test_more_clusters_than_reference_labels_are_never_merged(self):
+        # Three reference labels, five clusters of twelve. Clusters 4, 3 and 2
+        # carry most of labels 0, 1 and 2; clusters 0 and 1 straddle two
+        # labels and go unmatched. Left on their own ids they would share the
+        # ids clusters 4 and 3 were given.
+        ref = np.repeat([0, 1, 2], 20)
+        labels = np.repeat([4, 0, 3, 1, 2], 12)
+        aligned = align_cluster_labels(ref, labels)
+        assert np.unique(aligned).size == 5
+        assert adjusted_rand_score(labels, aligned) == 1.0
+        assert (aligned[0], aligned[24], aligned[48]) == (0, 1, 2)
+        assert (aligned[12], aligned[36]) == (3, 4)
 
 
 # -----------------------------------------------------------------------
