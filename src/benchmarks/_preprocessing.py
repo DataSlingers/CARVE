@@ -25,13 +25,22 @@ PREPROCESSOR_CLASSES: dict[str, str] = {
 }
 
 #: Settings bound into every transformer of a kind, pinned so results do not
-#: move when a library changes its default. t-SNE's max_iter is left at
-#: scikit-learn's default.
+#: move when a library changes its default. t-SNE mirrors the source's
+#: Rtsne(pca=F, perplexity=30, max_iter=5000): random initialization and a
+#: learning rate of 200, as Rtsne uses, and no early stop, so every fit runs
+#: all 5,000 iterations. Perplexity is drawn from the spec's grid.
 PREPROCESSOR_DEFAULTS: dict[str, dict[str, Any]] = {
     "identity": {},
     "standard_scaler": {},
     "pca": {},
-    "tsne": {"n_components": 2},
+    "tsne": {
+        "n_components": 2,
+        "max_iter": 5000,
+        "init": "random",
+        "learning_rate": 200.0,
+        "n_iter_without_progress": 5000,
+        "min_grad_norm": 0.0,
+    },
     "umap": {"n_components": 2, "min_dist": 0.1},
 }
 

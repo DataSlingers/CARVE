@@ -71,7 +71,18 @@ def test_a_missing_umap_names_the_extra(monkeypatch):
 
 
 def test_the_pinned_defaults():
-    assert PREPROCESSOR_DEFAULTS["tsne"] == {"n_components": 2}
+    # t-SNE mirrors the source's Rtsne(pca=F, perplexity=30, max_iter=5000):
+    # Rtsne's random initialization and learning rate (eta) of 200, and no
+    # early stop, so every fit runs all 5,000 iterations. Perplexity comes
+    # from the spec's grid, not from here.
+    assert PREPROCESSOR_DEFAULTS["tsne"] == {
+        "n_components": 2,
+        "max_iter": 5000,
+        "init": "random",
+        "learning_rate": 200.0,
+        "n_iter_without_progress": 5000,
+        "min_grad_norm": 0.0,
+    }
     assert PREPROCESSOR_DEFAULTS["umap"] == {"n_components": 2, "min_dist": 0.1}
 
 
