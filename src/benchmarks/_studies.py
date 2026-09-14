@@ -325,9 +325,10 @@ def _levine_loader(subsample: int | float | None):
 def _cusanovich_loader(subsample: int | float | None):
     from .datasets import load_cusanovich
 
-    # tissue is the reference: it is determined by dissection, not by any
-    # clustering, which is what makes it independent ground truth.
-    return load_cusanovich(subsample=subsample, random_state=42, label_column="tissue")
+    # The reference is the source publication's own 30 clusters, which assign
+    # every cell, so drop_unknown stays at its default and the comparison is
+    # over the cells that partition covers.
+    return load_cusanovich(subsample=subsample, random_state=42, label_column="cluster")
 
 
 def _heca_loader(subsample: int | float | None):

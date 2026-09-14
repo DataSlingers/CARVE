@@ -1,10 +1,13 @@
 """Cusanovich et al. mouse sci-ATAC-seq atlas.
 
 436,206 peaks by 81,173 cells of binarized chromatin accessibility across 13
-adult mouse tissues. The reference label used here is the tissue the nucleus
-was dissected from, which is externally determined rather than an output of
-anybody's clustering, and is therefore the same kind of independent ground
-truth as the Klein study's collection timepoints.
+adult mouse tissues. The reference label used here is the source
+publication's own clustering: 30 clusters from graph community detection on a
+two-dimensional t-SNE of their LSI. It is a published partition, not ground
+truth, so agreement with it is reported as agreement and never as accuracy.
+The 30 clusters assign every cell, so every cell is kept by default. Tissue of
+dissection and the 40 marker-based cell labels ride along in
+meta["source_labels"].
 
 Preprocessing follows the source publication's own dim_reduction.R: a 3%
 site-frequency threshold, TF-IDF, and a 50-component SVD whose cell
@@ -36,8 +39,12 @@ _METADATA = "metadata/cell_metadata.txt"
 #: notebook can show the data the way the source does, at zero compute.
 _SOURCE_TSNE_COLUMNS = ("tsne_1", "tsne_2")
 
-#: Label value marking cells the source left unannotated. Dropped, mirroring
-#: the Levine study's removal of the uncharacterized population 15.
+#: Columns of cell_metadata.txt holding the source's own labels, carried
+#: through as meta["source_labels"] for coloring and side checks.
+_SOURCE_LABEL_COLUMNS = ("tissue", "cluster", "subset_cluster", "cell_label")
+
+#: Label value marking cells the source left unannotated. Dropped only under
+#: drop_unknown=True.
 UNKNOWN_LABEL = "Unknown"
 
 #: Column checked for UNKNOWN_LABEL to decide which cells to drop. This is
@@ -113,7 +120,8 @@ def load_cusanovich(
     random_state: int = 42,
     site_frequency_threshold: float = 0.03,
     n_components: int = 50,
-    label_column: str = "tissue",
+    label_column: str = "cluster",
+    drop_unknown: bool = False,
 ) -> tuple[np.ndarray, pd.Series, dict]:
     """Load and preprocess the Cusanovich mouse sci-ATAC atlas.
 
@@ -122,7 +130,8 @@ def load_cusanovich(
     root : Path or None
         Directory holding the dataset folders. Defaults to data/.
     subsample : int, float, or None
-        Stratified subsample size, as a count or a fraction. None keeps all.
+        Subsample size, as a count or a fraction, stratified by the reference
+        label. None keeps all.
     random_state : int
         Seed for the stratified subsample and the SVD.
     site_frequency_threshold : float
@@ -131,17 +140,24 @@ def load_cusanovich(
     n_components : int
         SVD components retained. All of them are kept; none is dropped.
     label_column : str
-        Metadata column used as the reference label. "tissue" is externally
-        determined; "cell_label" is the source's marker-based annotation.
-        Cells the source could not annotate (UNKNOWN_LABEL in cell_label)
-        are dropped regardless of which column is chosen here.
+        Metadata column used as the reference label, returned as strings.
+        "cluster" is the source's 30-cluster partition of every cell;
+        "tissue" is the dissection of origin; "cell_label" is the source's
+        marker-based annotation.
+    drop_unknown : bool
+        Drop cells whose cell_label is UNKNOWN_LABEL, 10,029 of the release's
+        81,173. Off by default: the source's clusters assign every cell, so
+        dropping these would compare against a partition of a different set.
 
     Returns
     -------
     (X, y, meta)
-        meta["source_tsne"] is an (n_cells, 2) float array of the source's
-        own t-SNE coordinates, filtered and subsampled alongside X so that
-        row i of both is the same cell.
+        Row i of X, y, meta["source_tsne"] and meta["source_labels"] is the
+        same cell. meta["source_tsne"] is an (n_cells, 2) float array of the
+        source's own t-SNE coordinates; meta["source_labels"] is a DataFrame
+        of the source's tissue, cluster, subset_cluster and cell_label.
+        meta["n_cells_annotated"] counts the atlas cells whose cell_label is
+        not UNKNOWN_LABEL, whether or not they were dropped.
     """
     from sklearn.decomposition import TruncatedSVD
     from sklearn.model_selection import StratifiedShuffleSplit
@@ -182,15 +198,15 @@ def load_cusanovich(
         )
     metadata = metadata.set_index("cell")
 
-    # UNKNOWN_LABEL is not a rare edge case: in the source cell_metadata.txt
-    # it covers 10,029 of 81,173 cells, about 12 percent. Dropping it here,
-    # regardless of scale or label_column, means the atlas's published
-    # 81,173 cells and the annotated set this function actually returns
-    # (n_cells_annotated in meta, below) are two different numbers -- do not
-    # conflate them, including at scales={"atlas": None}.
-    keep_cells = metadata[_ANNOTATION_COLUMN].notna().to_numpy() & (
+    # UNKNOWN_LABEL covers 10,029 of 81,173 cells in the release, about 12
+    # percent. The source's 30 clusters assign every one of them, so they
+    # stay unless drop_unknown asks otherwise; n_cells_annotated reports the
+    # annotated count either way.
+    annotated = metadata[_ANNOTATION_COLUMN].notna().to_numpy() & (
         metadata[_ANNOTATION_COLUMN].to_numpy() != UNKNOWN_LABEL
     )
+    n_annotated = int(annotated.sum())
+    keep_cells = annotated if drop_unknown else np.ones(n_cells_full, dtype=bool)
 
     peak_cell_counts = np.asarray((matrix > 0).sum(axis=1)).ravel()
     keep_peaks = peak_cell_counts >= site_frequency_threshold * n_cells_full
@@ -199,7 +215,12 @@ def load_cusanovich(
     n_kept_cells = int(keep_cells.sum())
 
     preprocessing = [
-        f"drop cells labeled {UNKNOWN_LABEL!r} in {_ANNOTATION_COLUMN}",
+        (
+            f"drop cells labeled {UNKNOWN_LABEL!r} in {_ANNOTATION_COLUMN}"
+            if drop_unknown
+            else f"keep every cell, including the {n_cells_full - n_annotated} "
+            f"labeled {UNKNOWN_LABEL!r} in {_ANNOTATION_COLUMN}"
+        ),
         f"keep peaks accessible in at least {site_frequency_threshold:.0%} "
         "of cells (site_frequency_threshold, source default 3%)",
     ]
@@ -237,29 +258,26 @@ def load_cusanovich(
         )
 
     X = np.asarray(embedding, dtype=np.float64)
-    y = pd.Series(
-        metadata.loc[keep_cells, label_column].to_numpy(),
-        name=label_column,
-    ).astype(str)
+    kept = metadata.loc[keep_cells]
+    y = pd.Series(kept[label_column].to_numpy(), name=label_column).astype(str)
     source_tsne = np.asarray(
-        metadata.loc[keep_cells, list(_SOURCE_TSNE_COLUMNS)].to_numpy(),
-        dtype=np.float64,
+        kept[list(_SOURCE_TSNE_COLUMNS)].to_numpy(), dtype=np.float64
     )
+    source_labels = kept[list(_SOURCE_LABEL_COLUMNS)].reset_index(drop=True)
 
-    n_annotated = int(X.shape[0])
+    n_kept = int(X.shape[0])
     if subsample is not None:
         size = (
-            int(subsample * n_annotated)
-            if isinstance(subsample, float)
-            else int(subsample)
+            int(subsample * n_kept) if isinstance(subsample, float) else int(subsample)
         )
         splitter = StratifiedShuffleSplit(
-            n_splits=1, test_size=size / n_annotated, random_state=random_state
+            n_splits=1, test_size=size / n_kept, random_state=random_state
         )
         _, idx = next(splitter.split(X, y))
         X = X[idx]
         y = y.iloc[idx].reset_index(drop=True)
         source_tsne = source_tsne[idx]
+        source_labels = source_labels.iloc[idx].reset_index(drop=True)
 
     meta = {
         "source": "Cusanovich",
@@ -272,10 +290,12 @@ def load_cusanovich(
         "n_peaks_full": int(matrix.shape[0]),
         "n_peaks_kept": n_peaks_kept,
         "label_name": label_column,
+        "drop_unknown": drop_unknown,
         "drops_first_component": False,
         "preprocessing": preprocessing,
         "subsample": subsample,
         "random_state": random_state,
         "source_tsne": source_tsne,
+        "source_labels": source_labels,
     }
     return X, y, meta

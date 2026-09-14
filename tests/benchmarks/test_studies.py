@@ -9,6 +9,7 @@ from benchmarks._estimators import param_grids
 from benchmarks._studies import (
     CVI_SWEEP_METRICS,
     STUDIES,
+    _cusanovich_loader,
     _heca_loader,
     _klein_loader,
     _levine_loader,
@@ -502,6 +503,23 @@ class TestLoaderSubsampling:
         _heca_loader(25_000)
         assert calls["subsample"] == 25_000
         assert calls["subsample_before_embedding"] is True
+
+    def test_cusanovich_loader_references_the_source_clusters(self, monkeypatch):
+        # The reference is the source's 30 clusters, which assign every cell,
+        # so the Unknown-labeled cells stay: drop_unknown is left at False.
+        calls = {}
+
+        def fake_load_cusanovich(**kwargs):
+            calls.update(kwargs)
+            return np.zeros((1, 1)), pd.Series(["a"]), {}
+
+        monkeypatch.setattr(
+            "benchmarks.datasets.load_cusanovich", fake_load_cusanovich
+        )
+        _cusanovich_loader(1500)
+        assert calls["subsample"] == 1500
+        assert calls["label_column"] == "cluster"
+        assert calls.get("drop_unknown", False) is False
 
     def test_levine_loader_requests_five_thousand_cells(self, monkeypatch):
         calls = {}
