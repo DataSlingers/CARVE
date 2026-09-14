@@ -39,6 +39,9 @@ from ._plotting import (
     plot_diagnostic_scatter as _plot_diagnostic_scatter,
 )
 from ._plotting import (
+    plot_metric_by_pipeline as _plot_metric_by_pipeline,
+)
+from ._plotting import (
     plot_metric_over_n_clusters as _plot_metric_over_n_clusters,
 )
 from ._runner import run_validation
@@ -1159,6 +1162,122 @@ class CARVE(BaseEstimator):
 
         return _plot_metric_over_n_clusters(
             self.estimator_results_,
+            measure=measure,
+            rule=rule,
+            not_two=not_two,
+            ax=ax,
+            figsize=figsize,
+            title=title,
+            xlabel=xlabel,
+            ylabel=ylabel,
+            legend=legend,
+            legend_loc=legend_loc,
+            palette=palette,
+            show=show,
+            save=save,
+            dpi=dpi,
+            **kwargs,
+        )
+
+    def plot_metric_by_pipeline(
+        self,
+        *,
+        method_id: str | None = None,
+        measure: str = "stability",
+        rule: str = "1se",
+        not_two: bool = False,
+        ax=None,
+        figsize: tuple | None = None,
+        title: str | None = None,
+        xlabel: str | None = None,
+        ylabel: str | None = None,
+        legend: bool = True,
+        legend_loc: str = "best",
+        palette: str = "Accent",
+        show: bool = False,
+        save: str | Path | None = None,
+        dpi: int = 300,
+        **kwargs,
+    ) -> Axes | None:
+        """Plot a metric across the sweep axis, one line per preprocessing pipeline.
+
+        The per-pipeline companion to ``plot_metric_over_n_clusters`` for a fit
+        with ``randomize_preprocessing=True``. Draws the rows of
+        ``preprocessing_results_`` for one estimator configuration, one line
+        per pipeline, with error bars at +/-1 standard error over the
+        resamples that pipeline received.
+
+        Parameters
+        ----------
+        method_id : str, optional
+            The configuration to draw, a value of the ``method_id`` column.
+            Defaults to the configuration CARVE selects under ``measure``,
+            ``rule`` and ``not_two``, so the plot shows the pipelines behind
+            the selected configuration.
+        measure : str, default="stability"
+            ``"stability"`` or ``"generalizability"``, or an alias of either.
+        rule : str, default="1se"
+            Selection rule: "max", "1se", "quantile". Used for the default
+            ``method_id`` and for the sweep value marked among the plotted
+            rows.
+        not_two : bool, default=False
+            Whether to exclude two-cluster configurations from both
+            selections.
+        ax : matplotlib.axes.Axes, optional
+            Axes object to plot on. If None, creates a new figure.
+        figsize : tuple, optional
+            Figure size (width, height) in inches. Default is (9, 5.5).
+        title : str, optional
+            Figure title.
+        xlabel : str, optional
+            X-axis label. Default is derived from the sweep parameter.
+        ylabel : str, optional
+            Y-axis label. If None, auto-generated from metric name.
+        legend : bool, default=True
+            Whether to display a legend naming the pipelines.
+        legend_loc : str, default="best"
+            Legend location (passed to matplotlib's ax.legend).
+        palette : str, default="Accent"
+            Matplotlib colormap name for line colors.
+        show : bool, default=False
+            Whether to call plt.show() before returning.
+        save : str or Path, optional
+            Path to save the figure. If provided, the figure is saved and
+            None is returned instead of an Axes object.
+        dpi : int, default=300
+            Dots per inch for saved figures.
+        **kwargs
+            Additional keyword arguments passed to matplotlib's errorbar
+            function.
+
+        Returns
+        -------
+        ax : matplotlib.axes.Axes or None
+            The Axes object, or None if save was used.
+
+        Raises
+        ------
+        RuntimeError
+            If the instance has not been fitted, or was fitted without
+            ``randomize_preprocessing=True``.
+        ValueError
+            If ``method_id`` is not in ``preprocessing_results_``.
+
+        Examples
+        --------
+        >>> carve = CARVE().fit(X, randomize_preprocessing=True)
+        >>> ax = carve.plot_metric_by_pipeline(measure="stability", rule="1se")
+        """
+        if self.estimator_results_ is None:
+            raise RuntimeError("Call fit() first.")
+
+        if method_id is None:
+            row, _, _, _ = self._select_row(measure=measure, rule=rule, not_two=not_two)
+            method_id = str(row["method_id"])
+
+        return _plot_metric_by_pipeline(
+            self.preprocessing_results_,
+            method_id=method_id,
             measure=measure,
             rule=rule,
             not_two=not_two,

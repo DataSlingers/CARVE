@@ -1,5 +1,6 @@
 """Tests for CARVE public API (fit, get_labels, get_k, get_estimator, plotting, persistence)."""
 
+import copy
 import warnings
 
 import matplotlib.pyplot as plt
@@ -18,6 +19,7 @@ import carve._utils as carve_utils
 import carve.api as carve_api
 from carve import CARVE, LeidenClustering, LouvainClustering
 from carve._pipeline import PipelineSpec, pipeline_from_spec
+from carve._plotting import plot_metric_by_pipeline
 from carve._utils import resolve_anchors
 from tests._helpers import make_njobs_spy, make_noise_embedding, make_seed_spy
 from tests.fixtures.nonrandomized_gate import (
@@ -2075,6 +2077,71 @@ class TestDefaultPreprocessingOptions:
         out = capsys.readouterr().out
         assert "[CARVE] normalization      : resolved_norm\n" in out
         assert "[CARVE] dim_reduction      : resolved_dr\n" in out
+
+
+class TestPlotMetricByPipeline:
+    """CARVE.plot_metric_by_pipeline draws the pipelines behind the selected
+    configuration unless told otherwise."""
+
+    @staticmethod
+    def _decoyed(randomized_fit):
+        """A copy of the randomized fit in which rule="max" can only select
+        m1, and m0's pipelines are renamed as decoys."""
+        _, fitted = randomized_fit
+        carve = copy.deepcopy(fitted)
+        results = carve.estimator_results_
+        is_m1 = results["method_id"] == "m1"
+        results.loc[is_m1, "ari_stability"] = 1.0
+        results.loc[~is_m1, "ari_stability"] = 0.0
+        table = carve.preprocessing_results_
+        is_m0 = table["method_id"] == "m0"
+        table.loc[is_m0, "pipeline"] = "decoy | " + table.loc[is_m0, "pipeline"]
+        return carve
+
+    def test_defaults_to_the_selected_configuration(self, randomized_fit):
+        carve = self._decoyed(randomized_fit)
+        assert carve._select_row(measure="stability", rule="max")[0]["method_id"] == "m1"
+        ax = carve.plot_metric_by_pipeline(measure="stability", rule="max")
+        drawn = {c.get_label() for c in ax.containers}
+        m1 = carve.preprocessing_results_[carve.preprocessing_results_["method_id"] == "m1"]
+        assert drawn == set(m1["pipeline"])
+        assert not any(label.startswith("decoy") for label in drawn)
+
+    def test_explicit_method_id_is_drawn(self, randomized_fit):
+        carve = self._decoyed(randomized_fit)
+        ax = carve.plot_metric_by_pipeline(method_id="m0", rule="max")
+        assert len(ax.containers) > 1
+        assert all(c.get_label().startswith("decoy | ") for c in ax.containers)
+
+    def test_matches_the_module_function(self, randomized_fit):
+        _, carve = randomized_fit
+        row = carve._select_row(measure="generalizability", rule="1se")[0]
+        a = carve.plot_metric_by_pipeline(measure="generalizability")
+        b = plot_metric_by_pipeline(
+            carve.preprocessing_results_,
+            method_id=row["method_id"],
+            measure="generalizability",
+        )
+        assert a.get_ylabel() == b.get_ylabel() == "ARI Generalizability"
+        assert [c.get_label() for c in a.containers] == [
+            c.get_label() for c in b.containers
+        ]
+        for ca, cb in zip(a.containers, b.containers):
+            np.testing.assert_array_equal(ca[0].get_ydata(), cb[0].get_ydata())
+
+    def test_save(self, randomized_fit, tmp_path):
+        _, carve = randomized_fit
+        path = tmp_path / "pipelines.png"
+        assert carve.plot_metric_by_pipeline(save=path) is None
+        assert path.exists()
+
+    def test_not_randomized(self, fitted_carve):
+        with pytest.raises(RuntimeError, match="the fit was not randomized"):
+            fitted_carve.plot_metric_by_pipeline()
+
+    def test_unfitted(self):
+        with pytest.raises(RuntimeError, match="Call fit"):
+            CARVE(verbose=0).plot_metric_by_pipeline()
 
 
 class TestShowProgress:
