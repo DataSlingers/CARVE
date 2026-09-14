@@ -16,6 +16,7 @@ KNOWN_ESTIMATORS: frozenset[str] = frozenset(
         "agglomerative_single",
         "spectral",
         "leiden",
+        "louvain",
     }
 )
 

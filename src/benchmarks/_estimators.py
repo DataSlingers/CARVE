@@ -11,7 +11,7 @@ from typing import Any
 from sklearn.base import ClusterMixin
 from sklearn.cluster import AgglomerativeClustering, KMeans, MiniBatchKMeans
 
-from carve.cluster import LeidenClustering, SpectralClustering
+from carve.cluster import LeidenClustering, LouvainClustering, SpectralClustering
 
 from ._types import EstimatorSpec
 
@@ -22,6 +22,7 @@ ESTIMATOR_CLASSES: dict[str, type[ClusterMixin]] = {
     "agglomerative_single": AgglomerativeClustering,
     "spectral": SpectralClustering,
     "leiden": LeidenClustering,
+    "louvain": LouvainClustering,
 }
 
 ESTIMATOR_DEFAULTS: dict[str, dict[str, Any]] = {
@@ -36,12 +37,15 @@ ESTIMATOR_DEFAULTS: dict[str, dict[str, Any]] = {
     # modularity is Leiden's default objective. The two objective functions
     # use different resolution scales and must not share a grid.
     "leiden": {"n_neighbors": 15, "objective_function": "modularity"},
+    # Louvain optimizes modularity only and takes no objective_function; the
+    # same 15-neighbor graph as Leiden.
+    "louvain": {"n_neighbors": 15},
 }
 
 # Estimators whose granularity is swept through resolution rather than
 # n_clusters. A single CARVE run sweeps exactly one parameter, so these
 # cannot appear in the same grid as a k-based estimator.
-RESOLUTION_ESTIMATORS: frozenset[str] = frozenset({"leiden"})
+RESOLUTION_ESTIMATORS: frozenset[str] = frozenset({"leiden", "louvain"})
 
 # Estimators that build a dense n-by-n affinity or distance matrix, so their
 # memory cost is quadratic in the sample count regardless of k or resolution.

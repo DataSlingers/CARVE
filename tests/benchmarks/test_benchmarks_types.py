@@ -281,6 +281,7 @@ class TestManifest:
 
 def test_graph_and_minibatch_estimators_are_known():
     assert "leiden" in KNOWN_ESTIMATORS
+    assert "louvain" in KNOWN_ESTIMATORS
     assert "minibatch_kmeans" in KNOWN_ESTIMATORS
     assert EstimatorSpec(name="leiden").name == "leiden"
     assert EstimatorSpec(name="minibatch_kmeans").name == "minibatch_kmeans"

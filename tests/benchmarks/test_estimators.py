@@ -77,9 +77,19 @@ class TestParamGrids:
 
 
 class TestResolutionEstimators:
-    def test_leiden_sweeps_resolution_not_n_clusters(self):
+    def test_graph_estimators_sweep_resolution_not_n_clusters(self):
         assert "leiden" in RESOLUTION_ESTIMATORS
+        assert "louvain" in RESOLUTION_ESTIMATORS
         assert "kmeans" not in RESOLUTION_ESTIMATORS
+
+    def test_louvain_resolution_grid(self):
+        # LouvainClustering takes no objective_function, so its grid carries
+        # only the resolution sweep and the neighbor count Leiden uses.
+        from carve.cluster import LouvainClustering
+
+        ((cls, grid),) = resolution_grids(EstimatorSpec(name="louvain"), [0.5, 1.0])
+        assert cls is LouvainClustering
+        assert grid == {"resolution": [0.5, 1.0], "n_neighbors": [15]}
 
     def test_resolution_grid_shape(self):
         from carve.cluster import LeidenClustering

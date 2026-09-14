@@ -519,10 +519,10 @@ STUDIES: dict[str, Study] = {
     "cusanovich": Study(
         name="cusanovich",
         loader=_cusanovich_loader,
-        # The source clustered its t-SNE with graph community detection, so
-        # Leiden over resolution gives their operating point a position on
-        # the same axis. Nothing k-based is swept.
-        estimator=EstimatorSpec(name="leiden"),
+        # The source clustered its t-SNE with Seurat's Louvain, so Louvain
+        # over resolution gives their operating point a position on the same
+        # axis. Nothing k-based is swept.
+        estimator=EstimatorSpec(name="louvain"),
         candidate_k=(),
         # The atlas scale stays declared so the loader can still produce it;
         # the notebook does not run it (spec section 6).
@@ -551,6 +551,8 @@ STUDIES: dict[str, Study] = {
                 ("identity", {}),
                 # The source's own perplexity and no other, so the t-SNE line
                 # is their recipe rather than an average over perplexities.
+                # Their other Rtsne settings (5,000 iterations, random
+                # initialization) are bound in PREPROCESSOR_DEFAULTS.
                 ("tsne", {"perplexity": [30]}),
                 # The field's current default embedding, so the finding reads
                 # as one about clustering in an embedding, not about t-SNE.
@@ -587,7 +589,7 @@ def study_model_grids(
 
     Klein sweeps Ward agglomerative and spectral; Levine sweeps KMeans and
     spectral; hECA pairs MiniBatchKMeans with KMeans. Each study declares
-    this on Study.partners. Cusanovich sweeps only Leiden resolution, so it
+    this on Study.partners. Cusanovich sweeps only Louvain resolution, so it
     has no k-based grid and this raises for it.
     """
     if study.estimator.name in RESOLUTION_ESTIMATORS:
@@ -605,14 +607,21 @@ def study_model_grids(
 def study_resolution_grids(
     study: Study,
 ) -> list[tuple[type[ClusterMixin], dict[str, list[Any]]]]:
-    """The study's Leiden resolution sweep.
+    """The study's resolution sweep.
 
-    A separate CARVE run from study_model_grids: SweepSpec is frozen, so a
-    k-based and a resolution-based sweep cannot share one run.
+    The study's own estimator when it sweeps resolution (Cusanovich's
+    Louvain); otherwise Leiden, as for hECA, whose k-based sweep runs
+    separately. A separate CARVE run from study_model_grids: SweepSpec is
+    frozen, so a k-based and a resolution-based sweep cannot share one run.
     """
     if not study.resolutions:
         raise ValueError(f"Study {study.name!r} declares no resolutions.")
-    return resolution_grids(EstimatorSpec(name="leiden"), study.resolutions)
+    spec = (
+        study.estimator
+        if study.estimator.name in RESOLUTION_ESTIMATORS
+        else EstimatorSpec(name="leiden")
+    )
+    return resolution_grids(spec, study.resolutions)
 
 
 def study_scaling_sweep(

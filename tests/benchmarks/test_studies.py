@@ -27,7 +27,7 @@ from benchmarks._studies import (
 )
 from benchmarks._types import EstimatorSpec, PreprocessingSpec, Study
 from carve._pipeline import allocate_pipelines
-from carve.cluster import LeidenClustering, SpectralClustering
+from carve.cluster import LeidenClustering, LouvainClustering, SpectralClustering
 from tests.benchmarks._helpers import make_carve_spy
 
 
@@ -770,17 +770,17 @@ class TestRegisteredStudiesCarryScales:
 
 
 class TestNewStudies:
-    def test_cusanovich_sweeps_leiden_resolution_only(self):
-        # Graph community detection is the source's own algorithm family, so
-        # the study sweeps Leiden resolution and nothing k-based.
+    def test_cusanovich_sweeps_louvain_resolution_only(self):
+        # The source clustered its t-SNE with Seurat's Louvain, so the study
+        # sweeps Louvain resolution and nothing k-based.
         study = STUDIES["cusanovich"]
-        assert study.estimator == EstimatorSpec(name="leiden")
+        assert study.estimator == EstimatorSpec(name="louvain")
         assert study.candidate_k == ()
         assert study.partners == ()
         with pytest.raises(ValueError, match="study_resolution_grids"):
             study_model_grids(study)
         ((cls, grid),) = study_resolution_grids(study)
-        assert cls is LeidenClustering
+        assert cls is LouvainClustering
         assert grid["resolution"] == pytest.approx(
             [round(0.1 * i, 1) for i in range(1, 21)]
         )
