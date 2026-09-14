@@ -174,7 +174,17 @@ def test_cusanovich_notebook_draws_the_source_tsne_and_writes_its_tables():
     assert "figure_reference_scatter(" in source
     assert "figure_cusanovich_results(inputs" in source
     assert "save_tables(inputs" in source
-    assert "plt.subplots" not in source
+    # The one figure built in the notebook is the composite of CARVE's own
+    # plots; every other figure comes from benchmarks.figures.
+    assert source.count("plt.subplots") == 1
+
+
+def test_cusanovich_notebook_shows_carves_own_plots():
+    # Both criteria over resolution, pooled over pipelines and by pipeline,
+    # drawn by CARVE's own plotting methods rather than a benchmarks figure.
+    source = _code(NOTEBOOKS["cusanovich"])
+    assert "carve.plot_metric_over_n_clusters(" in source
+    assert "carve.plot_metric_by_pipeline(" in source
 
 
 def test_heca_notebook_draws_one_umap_throughout():
