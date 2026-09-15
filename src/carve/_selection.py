@@ -10,6 +10,7 @@ from sklearn.base import ClusterMixin
 
 from ._sweep import observed_k, observed_k_series
 from ._types import GridSpec, Measure, Rule
+from ._utils import pin_estimator_defaults
 
 # Maps short measure aliases to canonical column names in estimator_results_
 MEASURE_MAP = {
@@ -353,7 +354,7 @@ def build_estimator_from_row(
     valid_keys = get_estimator_param_names(est_class)
     params = row_to_estimator_params(row, valid_keys)
 
-    return est_class(**params)
+    return est_class(**pin_estimator_defaults(est_class, params))
 
 
 def get_estimator_param_names(est_class: type[ClusterMixin]) -> set[str]:

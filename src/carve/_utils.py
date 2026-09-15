@@ -14,6 +14,7 @@ from numpy.typing import ArrayLike
 from scipy import sparse
 from scipy.optimize import linear_sum_assignment
 from sklearn.base import ClassifierMixin, ClusterMixin, clone
+from sklearn.cluster import HDBSCAN
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics.cluster import contingency_matrix
 
@@ -231,6 +232,33 @@ def _summarize_ari_scores(
     return (mean, se, q95, q05)
 
 
+def pin_estimator_defaults(
+    estimator_cls: type[ClusterMixin],
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    """Set defaults that scikit-learn is changing, unless the grid sets them.
+
+    scikit-learn 1.9 warns when HDBSCAN is built without ``copy``, and 1.10
+    changes its default from False to True. CARVE never relies on HDBSCAN
+    writing into its input, so it passes True.
+
+    Parameters
+    ----------
+    estimator_cls : type
+        Estimator class about to be instantiated.
+    params : dict
+        Estimator parameters from a grid or a results row.
+
+    Returns
+    -------
+    params : dict
+        ``params``, with ``copy=True`` added for HDBSCAN when absent.
+    """
+    if issubclass(estimator_cls, HDBSCAN) and "copy" not in params:
+        return {**params, "copy": True}
+    return params
+
+
 def cluster_labels(
     X: np.ndarray,
     estimator_cls: type[ClusterMixin],
@@ -261,6 +289,8 @@ def cluster_labels(
     TypeError
         If the estimator provides no valid way to extract labels.
     """
+    params = pin_estimator_defaults(estimator_cls, params)
+
     try:
         estimator = estimator_cls(random_state=random_state, **params)
     except Exception:

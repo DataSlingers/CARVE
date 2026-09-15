@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.cluster import AgglomerativeClustering, KMeans
+from sklearn.cluster import HDBSCAN, AgglomerativeClustering, KMeans
 
 from carve._selection import (
     MEASURE_MAP,
@@ -278,6 +278,19 @@ class TestBuildEstimatorFromRow:
         )
         est = build_estimator_from_row(grids, row)
         assert est.n_clusters == 4
+
+    def test_hdbscan_is_built_with_an_explicit_copy(self):
+        # scikit-learn 1.9 warns at fit when HDBSCAN has no explicit copy.
+        grids = [(HDBSCAN, {"min_cluster_size": [5]})]
+        row = pd.Series({"estimator": "HDBSCAN", "min_cluster_size": 5})
+        est = build_estimator_from_row(grids, row)
+        assert est.copy is True
+
+    def test_hdbscan_keeps_the_copy_its_grid_set(self):
+        grids = [(HDBSCAN, {"min_cluster_size": [5], "copy": [False]})]
+        row = pd.Series({"estimator": "HDBSCAN", "min_cluster_size": 5, "copy": False})
+        est = build_estimator_from_row(grids, row)
+        assert est.copy is False
 
 
 # -----------------------------------------------------------------------

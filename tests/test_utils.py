@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.cluster import AgglomerativeClustering, KMeans
+from sklearn.cluster import HDBSCAN, AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
@@ -179,6 +179,12 @@ class TestClusterLabels:
         l1 = cluster_labels(X_two_clusters, KMeans, random_state=42, n_clusters=2)
         l2 = cluster_labels(X_two_clusters, KMeans, random_state=42, n_clusters=2)
         np.testing.assert_array_equal(l1, l2)
+
+    def test_hdbscan_fits_without_the_copy_deprecation_warning(self, X_two_clusters):
+        # scikit-learn 1.9 raises a FutureWarning at fit when HDBSCAN has no
+        # explicit copy; filterwarnings = error turns it into a failure.
+        labels = cluster_labels(X_two_clusters, HDBSCAN, min_cluster_size=5)
+        assert labels.shape == (60,)
 
 
 # -----------------------------------------------------------------------
