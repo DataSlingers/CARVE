@@ -88,8 +88,10 @@ def _read_matrix(path: Path) -> sparse.csr_matrix:
     """Read the peaks-by-cells Matrix Market file."""
     from scipy.io import mmread
 
+    # scipy 1.18 warns when spmatrix is left to its default, which changes
+    # in 1.20; the csr_matrix wrap returns the same matrix either way.
     with gzip.open(path, "rb") as handle:
-        return sparse.csr_matrix(mmread(handle))
+        return sparse.csr_matrix(mmread(handle, spmatrix=False))
 
 
 def _tfidf(counts: sparse.csr_matrix) -> sparse.csr_matrix:
