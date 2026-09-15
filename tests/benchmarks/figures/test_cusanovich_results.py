@@ -165,6 +165,17 @@ def test_d_draws_one_line_pair_per_pipeline_sharing_cs_x_axis(inputs):
     assert panels["D"].get_shared_x_axes().joined(panels["D"], panels["C"])
 
 
+def test_c_and_d_draw_resolution_on_a_log_axis_ticked_at_the_grid(inputs):
+    fig = figure_cusanovich_results(inputs, save=False)
+    fig.canvas.draw()
+    panels = _panels(fig)
+    assert panels["C"].get_xscale() == "log"
+    assert panels["D"].get_xscale() == "log"
+    for letter in "CD":
+        labels = [label.get_text() for label in panels[letter].get_xticklabels()]
+        assert labels == ["0.2", "0.4", "0.6", "0.8", "1"]
+
+
 def test_every_selection_uses_the_inputs_rule_and_not_two(inputs):
     figure_cusanovich_results(replace(inputs, rule="max", not_two=True), save=False)
     calls = inputs.carve.selection_calls

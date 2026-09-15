@@ -155,6 +155,14 @@ def figure_cusanovich_results(
             not_two=inputs.not_two,
             title=f"CARVE over {carve.sweep_.param}, pooled over pipelines",
         )
+        # The resolution grid is log-spaced, so C draws it on a log axis ticked
+        # at the grid values; D shares C's x axis and follows. The scale is set
+        # before the secondary axis exists, because a later scale change resets
+        # that axis's ticks when the figure is drawn.
+        grid = np.unique(carve.estimator_results_["sweep_value"].to_numpy(dtype=float))
+        ax_c.set_xscale("log")
+        ax_c.set_xticks(grid, labels=[f"{value:g}" for value in grid])
+        ax_c.minorticks_off()
         _mark_source(ax_c, inputs, method_id)
         _observed_cluster_axis(ax_c, inputs, method_id)
 
