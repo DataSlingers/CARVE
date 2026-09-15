@@ -362,14 +362,55 @@ def _pipeline_results_df():
     return pd.DataFrame(rows)
 
 
+def _estimator_results_df():
+    """The estimator_results_ table behind _pipeline_results_df, pooled.
+
+    It disagrees with the per-pipeline rows on purpose. Under "1se" the best
+    row, m1 at k=2 with SE 0.10, admits m0 at k=4, so CARVE selects (m0, 4);
+    the rule over m0's rows alone, pooled or per pipeline, stops at k=3. For
+    m1 the rule over its own pooled rows stops at k=2, where its per-pipeline
+    rows peak at k=4.
+    """
+    curves = {
+        "m0": ([0.80, 0.90, 0.86], [0.01, 0.01, 0.01]),
+        "m1": ([0.95, 0.40, 0.30], [0.10, 0.01, 0.01]),
+    }
+    rows = []
+    for method_id, (values, ses) in curves.items():
+        for rank, (k, value, se) in enumerate(zip((2, 3, 4), values, ses)):
+            rows.append(
+                {
+                    "method_id": method_id,
+                    "method_label": f"KMeans {method_id}",
+                    "n_clusters": k,
+                    "ari_stability": value,
+                    "ari_stability_se": se,
+                    "ari_generalizability": value - 0.1,
+                    "ari_generalizability_se": se,
+                    "n_clusters_observed": float(k),
+                    "sweep_param": "n_clusters",
+                    "sweep_value": k,
+                    "sweep_rank": rank,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
 def _curves(ax):
     """Each errorbar's data line, keyed by its legend label."""
     return {container.get_label(): container[0] for container in ax.containers}
 
 
+def _dashed(ax):
+    """The dashed selection lines on ax."""
+    return [line for line in ax.get_lines() if line.get_linestyle() == "--"]
+
+
 class TestPlotMetricByPipeline:
     def test_one_line_per_pipeline_of_the_configuration(self):
-        ax = plot_metric_by_pipeline(_pipeline_results_df(), method_id="m0")
+        ax = plot_metric_by_pipeline(
+            _pipeline_results_df(), estimator_df=_estimator_results_df(), method_id="m0"
+        )
         assert set(_curves(ax)) == {
             "identity | identity",
             "identity | PCA(n_components=2)",
@@ -377,7 +418,10 @@ class TestPlotMetricByPipeline:
 
     def test_lines_carry_the_rows_values(self):
         ax = plot_metric_by_pipeline(
-            _pipeline_results_df(), method_id="m0", measure="generalizability"
+            _pipeline_results_df(),
+            estimator_df=_estimator_results_df(),
+            method_id="m0",
+            measure="generalizability",
         )
         curves = _curves(ax)
         np.testing.assert_allclose(
@@ -388,30 +432,63 @@ class TestPlotMetricByPipeline:
         )
         np.testing.assert_allclose(curves["identity | identity"].get_xdata(), [2, 3, 4])
 
-    def test_selected_value_comes_from_the_plotted_configuration(self):
-        # Over the whole table the best stability is m1 at k=4; within m0, k=3.
-        ax = plot_metric_by_pipeline(_pipeline_results_df(), method_id="m0", rule="max")
-        dashed = [line for line in ax.get_lines() if line.get_linestyle() == "--"]
-        assert len(dashed) == 1
-        assert list(dashed[0].get_xdata()) == [3.0, 3.0]
+    def test_marks_the_sweep_value_carve_selected(self):
+        # Under "1se" CARVE selects (m0, k=4) from the pooled table. The rule
+        # over m0's per-pipeline rows, or over m0's pooled rows alone, stops
+        # at k=3.
+        ax = plot_metric_by_pipeline(
+            _pipeline_results_df(),
+            estimator_df=_estimator_results_df(),
+            method_id="m0",
+            rule="1se",
+        )
+        (dashed,) = _dashed(ax)
+        assert list(dashed.get_xdata()) == [4.0, 4.0]
+        assert dashed.get_label() == "Selected k (1-SE rule): 4"
+
+    def test_unselected_configuration_marks_the_rule_over_its_pooled_rows(self):
+        # CARVE selects m0 under "1se". For m1 the rule runs over m1's pooled
+        # rows and stops at k=2; m1's per-pipeline rows peak at k=4.
+        ax = plot_metric_by_pipeline(
+            _pipeline_results_df(),
+            estimator_df=_estimator_results_df(),
+            method_id="m1",
+            rule="1se",
+        )
+        (dashed,) = _dashed(ax)
+        assert list(dashed.get_xdata()) == [2.0, 2.0]
 
     def test_legend_and_axis_labels(self):
-        ax = plot_metric_by_pipeline(_pipeline_results_df(), method_id="m0")
+        ax = plot_metric_by_pipeline(
+            _pipeline_results_df(), estimator_df=_estimator_results_df(), method_id="m0"
+        )
         assert ax.get_legend().get_title().get_text() == "Pipelines"
         assert ax.get_xlabel() == "Number of Clusters (k)"
         assert ax.get_ylabel() == "ARI Stability"
 
     def test_resolution_axis(self):
-        df = _pipeline_results_df().rename(columns={"n_clusters": "resolution"})
-        df["sweep_param"] = "resolution"
-        df["sweep_value"] = df["sweep_value"] / 4
-        ax = plot_metric_by_pipeline(df, method_id="m0")
+        def as_resolution(df):
+            df = df.rename(columns={"n_clusters": "resolution"})
+            df["sweep_param"] = "resolution"
+            df["sweep_value"] = df["sweep_value"] / 4
+            return df
+
+        ax = plot_metric_by_pipeline(
+            as_resolution(_pipeline_results_df()),
+            estimator_df=as_resolution(_estimator_results_df()),
+            method_id="m0",
+        )
         assert ax.get_xlabel() == "Resolution"
         np.testing.assert_allclose(ax.get_xticks(), [0.5, 0.75, 1.0])
+        (dashed,) = _dashed(ax)
+        assert list(dashed.get_xdata()) == [1.0, 1.0]
 
     def test_colors_come_from_the_palette(self):
         ax = plot_metric_by_pipeline(
-            _pipeline_results_df(), method_id="m0", palette="viridis"
+            _pipeline_results_df(),
+            estimator_df=_estimator_results_df(),
+            method_id="m0",
+            palette="viridis",
         )
         drawn = [tuple(c[0].get_color()) for c in ax.containers]
         expected = [tuple(rgba) for rgba in plt.get_cmap("viridis")(np.linspace(0, 1, 2))]
@@ -419,36 +496,55 @@ class TestPlotMetricByPipeline:
 
     def test_kwargs_reach_the_errorbar(self):
         ax = plot_metric_by_pipeline(
-            _pipeline_results_df(), method_id="m0", linestyle=":"
+            _pipeline_results_df(),
+            estimator_df=_estimator_results_df(),
+            method_id="m0",
+            linestyle=":",
         )
         assert [c[0].get_linestyle() for c in ax.containers] == [":", ":"]
 
     def test_save_writes_the_file_and_returns_none(self, tmp_path):
         path = tmp_path / "pipelines.png"
         result = plot_metric_by_pipeline(
-            _pipeline_results_df(), method_id="m0", save=path
+            _pipeline_results_df(),
+            estimator_df=_estimator_results_df(),
+            method_id="m0",
+            save=path,
         )
         assert result is None
         assert path.exists()
 
     def test_none_table_names_the_cause(self):
         with pytest.raises(RuntimeError, match="the fit was not randomized"):
-            plot_metric_by_pipeline(None, method_id="m0")
+            plot_metric_by_pipeline(
+                None, estimator_df=_estimator_results_df(), method_id="m0"
+            )
 
     def test_empty_table(self):
         with pytest.raises(RuntimeError, match="empty"):
-            plot_metric_by_pipeline(_pipeline_results_df().iloc[0:0], method_id="m0")
+            plot_metric_by_pipeline(
+                _pipeline_results_df().iloc[0:0],
+                estimator_df=_estimator_results_df(),
+                method_id="m0",
+            )
 
     def test_unknown_method_id(self):
         with pytest.raises(ValueError, match=r"method_id 'm9' not found.*\['m0', 'm1'\]"):
-            plot_metric_by_pipeline(_pipeline_results_df(), method_id="m9")
+            plot_metric_by_pipeline(
+                _pipeline_results_df(), estimator_df=_estimator_results_df(), method_id="m9"
+            )
 
     def test_measure_the_table_does_not_carry(self):
         with pytest.raises(
             ValueError,
             match=r"must be 'stability' or 'generalizability'.*got 'pac'",
         ):
-            plot_metric_by_pipeline(_pipeline_results_df(), method_id="m0", measure="pac")
+            plot_metric_by_pipeline(
+                _pipeline_results_df(),
+                estimator_df=_estimator_results_df(),
+                method_id="m0",
+                measure="pac",
+            )
 
     def test_unsupported_measure_names_the_two_ari_criteria(self):
         with pytest.raises(
@@ -460,28 +556,11 @@ class TestPlotMetricByPipeline:
             ),
         ):
             plot_metric_by_pipeline(
-                _pipeline_results_df(), method_id="m0", measure="average"
+                _pipeline_results_df(),
+                estimator_df=_estimator_results_df(),
+                method_id="m0",
+                measure="average",
             )
-
-    def test_1se_falls_back_to_max_when_the_best_row_has_no_se(self):
-        # m0's best stability row is identity | identity at k=3 (0.90). Give
-        # it a NaN SE, as a pipeline that received a single resample would,
-        # and confirm the dashed marker still lands on that sweep value
-        # instead of being silently dropped.
-        df = _pipeline_results_df()
-        best = (
-            (df["method_id"] == "m0")
-            & (df["pipeline"] == "identity | identity")
-            & (df["sweep_value"] == 3)
-        )
-        assert best.sum() == 1
-        df.loc[best, "ari_stability_se"] = np.nan
-        df.loc[best, "n_resamples"] = 1
-
-        ax = plot_metric_by_pipeline(df, method_id="m0", rule="1se")
-        dashed = [line for line in ax.get_lines() if line.get_linestyle() == "--"]
-        assert len(dashed) == 1
-        assert list(dashed[0].get_xdata()) == [3.0, 3.0]
 
 
 class TestSharedMetricDrawing:
@@ -496,7 +575,14 @@ class TestSharedMetricDrawing:
 
         monkeypatch.setattr(carve_plotting, "_draw_metric_lines", spy)
         assert plot_metric_over_n_clusters(metric_results_df) == "drawn"
-        assert plot_metric_by_pipeline(_pipeline_results_df(), method_id="m0") == "drawn"
+        assert (
+            plot_metric_by_pipeline(
+                _pipeline_results_df(),
+                estimator_df=_estimator_results_df(),
+                method_id="m0",
+            )
+            == "drawn"
+        )
         assert calls == [("method_id", "Estimators", 3), ("pipeline", "Pipelines", 6)]
 
 

@@ -156,9 +156,11 @@ def plot_metric_over_n_clusters(
         group_col="method_id",
         label_of=_build_estimator_label,
         legend_title="Estimators",
+        select_row=lambda: select_best_row_by_rule(
+            results_df, measure=measure, rule=rule, not_two=not_two
+        ),
         measure=measure,
         rule=rule,
-        not_two=not_two,
         ax=ax,
         figsize=figsize,
         title=title,
@@ -177,6 +179,7 @@ def plot_metric_over_n_clusters(
 def plot_metric_by_pipeline(
     preprocessing_df: pd.DataFrame | None,
     *,
+    estimator_df: pd.DataFrame,
     method_id: str,
     measure: str = "stability",
     rule: str = "1se",
@@ -200,19 +203,22 @@ def plot_metric_by_pipeline(
     by the same code. It reads ``preprocessing_results_`` instead of
     ``estimator_results_`` and draws one line per ``pipeline`` within one
     estimator configuration, ``method_id``, instead of one line per
-    configuration. The dashed line marks the sweep value ``rule`` selects
-    among the plotted rows; it can differ from the selection over
-    ``estimator_results_``, which pools every pipeline. The table has no
-    quantile columns, so ``rule="quantile"`` falls back to ``"max"`` with a
-    warning. When the best row has no standard error (a pipeline that
-    received one resample), ``rule="1se"`` marks the best value, as
-    ``"max"`` does.
+    configuration. The dashed line marks the sweep value CARVE selects from
+    ``estimator_df`` under ``measure``, ``rule`` and ``not_two``. That table
+    pools every pipeline, so the line stands where the pipelines of the
+    selected configuration are compared, not where ``rule`` would land among
+    the plotted rows. When CARVE selects a configuration other than
+    ``method_id``, the line marks the sweep value ``rule`` selects among
+    ``method_id``'s rows of ``estimator_df``.
 
     Parameters
     ----------
     preprocessing_df : pandas.DataFrame or None
         ``CARVE.preprocessing_results_``. None means the fit was not
         randomized.
+    estimator_df : pandas.DataFrame
+        ``CARVE.estimator_results_``, the table the marked sweep value is
+        selected from.
     method_id : str
         The estimator configuration whose pipelines are drawn, a value of
         the ``method_id`` column.
@@ -287,29 +293,16 @@ def plot_metric_by_pipeline(
             f"alias of either); got {measure!r}."
         )
 
-    # F2: under "1se", a pipeline that received a single resample has a NaN
-    # standard error for its best row. The NaN threshold then leaves nothing
-    # within tolerance, idxmax() raises, and the caller's try/except silently
-    # drops the dashed marker. Draw "max" instead in that case; "max" needs
-    # no standard error and agrees with "1se" whenever "1se" would succeed.
-    draw_rule = rule
-    if draw_rule == "1se":
-        measure_col = MEASURE_MAP[measure]
-        non_nan_measure = rows[measure_col].dropna()
-        if not non_nan_measure.empty:
-            best_idx = rows[measure_col].idxmax()
-            se_col = f"{measure_col}_se"
-            if pd.isna(rows.loc[best_idx, se_col]):
-                draw_rule = "max"
-
     return _draw_metric_lines(
         rows,
         group_col="pipeline",
         label_of=lambda row: str(row["pipeline"]),
         legend_title="Pipelines",
+        select_row=lambda: _selected_row_for(
+            estimator_df, method_id, measure=measure, rule=rule, not_two=not_two
+        ),
         measure=measure,
-        rule=draw_rule,
-        not_two=not_two,
+        rule=rule,
         ax=ax,
         figsize=figsize,
         title=title,
@@ -325,15 +318,41 @@ def plot_metric_by_pipeline(
     )
 
 
+def _selected_row_for(
+    estimator_df: pd.DataFrame,
+    method_id: str,
+    *,
+    measure: str,
+    rule: str,
+    not_two: bool,
+) -> pd.Series:
+    """The ``estimator_df`` row whose sweep value marks ``method_id``'s selection.
+
+    CARVE's selection over ``estimator_df``, which pools every pipeline, when
+    it lands on ``method_id``; otherwise the rule's choice among
+    ``method_id``'s rows. Restricting to ``method_id`` first would not do for
+    the selected configuration: under ``"1se"`` and ``"quantile"`` the
+    tolerance comes from the best row of the whole table, which can belong to
+    another configuration.
+    """
+    row = select_best_row_by_rule(
+        estimator_df, measure=measure, rule=rule, not_two=not_two
+    )
+    if str(row["method_id"]) == str(method_id):
+        return row
+    own = estimator_df[estimator_df["method_id"].astype(str) == str(method_id)]
+    return select_best_row_by_rule(own, measure=measure, rule=rule, not_two=not_two)
+
+
 def _draw_metric_lines(
     results_df: pd.DataFrame,
     *,
     group_col: str,
     label_of: Callable[[pd.Series], str],
     legend_title: str,
+    select_row: Callable[[], pd.Series],
     measure: str,
     rule: str,
-    not_two: bool,
     ax: Axes | None,
     figsize: tuple | None,
     title: str | None,
@@ -354,6 +373,10 @@ def _draw_metric_lines(
     ``pipeline``), so the two plots cannot drift apart. ``results_df`` is
     non-empty and carries ``sweep_param``, ``sweep_value``, ``sweep_rank``,
     ``n_clusters_observed`` and the measure's column.
+
+    ``select_row`` returns the row whose ``sweep_value`` the dashed line
+    marks. If it raises, for example because ``not_two`` leaves no rows, the
+    line is left off.
     """
     if measure not in MEASURE_MAP:
         raise ValueError(
@@ -412,9 +435,7 @@ def _draw_metric_lines(
 
     # --- Vertical line at the selected sweep value ---
     try:
-        best_row = select_best_row_by_rule(
-            results_df, measure=measure, rule=rule, not_two=not_two
-        )
+        best_row = select_row()
         best_x = float(best_row[x_col])
         rule_str = "1-SE" if rule == "1se" else rule.title()
         pretty = "k" if param == "n_clusters" else param

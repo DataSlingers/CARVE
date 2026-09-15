@@ -2119,6 +2119,7 @@ class TestPlotMetricByPipeline:
         a = carve.plot_metric_by_pipeline(measure="generalizability")
         b = plot_metric_by_pipeline(
             carve.preprocessing_results_,
+            estimator_df=carve.estimator_results_,
             method_id=row["method_id"],
             measure="generalizability",
         )
@@ -2128,6 +2129,27 @@ class TestPlotMetricByPipeline:
         ]
         for ca, cb in zip(a.containers, b.containers):
             np.testing.assert_array_equal(ca[0].get_ydata(), cb[0].get_ydata())
+
+    def test_marks_the_selected_sweep_value(self, randomized_fit):
+        # rule="max" selects m1 at k=2 from estimator_results_, while every
+        # per-pipeline row of m1 peaks at k=3. The marker follows the
+        # selection, the sweep value whose pipelines best_pipeline compares.
+        _, fitted = randomized_fit
+        carve = copy.deepcopy(fitted)
+        results = carve.estimator_results_
+        results["ari_stability"] = np.where(
+            (results["method_id"] == "m1") & (results["sweep_value"] == 2), 1.0, 0.0
+        )
+        table = carve.preprocessing_results_
+        table["ari_stability"] = np.where(
+            (table["method_id"] == "m1") & (table["sweep_value"] == 3), 1.0, 0.0
+        )
+        row = carve._select_row(measure="stability", rule="max")[0]
+        assert (row["method_id"], row["sweep_value"]) == ("m1", 2)
+
+        ax = carve.plot_metric_by_pipeline(measure="stability", rule="max")
+        (dashed,) = [line for line in ax.get_lines() if line.get_linestyle() == "--"]
+        assert list(dashed.get_xdata()) == [2.0, 2.0]
 
     def test_save(self, randomized_fit, tmp_path):
         _, carve = randomized_fit

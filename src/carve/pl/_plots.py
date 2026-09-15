@@ -366,6 +366,7 @@ def metric_by_pipeline(
 
     return _plot_metric_by_pipeline(
         table,
+        estimator_df=_results(adata, key),
         method_id=(
             method_id if method_id is not None else str(params["selected_method_id"])
         ),

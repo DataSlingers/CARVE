@@ -367,6 +367,12 @@ class TestMetricByPipeline:
         for ca, cb in zip(a.containers, b.containers):
             np.testing.assert_allclose(ca[0].get_xdata(), cb[0].get_xdata())
             np.testing.assert_allclose(ca[0].get_ydata(), cb[0].get_ydata())
+        selected = randomized_model._select_row(measure="stability", rule="1se")[0]
+        marked = [
+            [line.get_xdata()[0] for line in ax.get_lines() if line.get_linestyle() == "--"]
+            for ax in (a, b)
+        ]
+        assert marked[0] == marked[1] == [float(selected["sweep_value"])]
 
     def test_defaults_come_from_the_recorded_selection(
         self, randomized_written, monkeypatch

@@ -1206,7 +1206,12 @@ class CARVE(BaseEstimator):
         with ``randomize_preprocessing=True``. Draws the rows of
         ``preprocessing_results_`` for one estimator configuration, one line
         per pipeline, with error bars at +/-1 standard error over the
-        resamples that pipeline received.
+        resamples that pipeline received. The dashed line marks the sweep
+        value CARVE selects from ``estimator_results_``, pooled over
+        pipelines, so the lines crossing it rank the pipelines at the
+        selected configuration. For a ``method_id`` CARVE did not select, it
+        marks the sweep value ``rule`` selects among that configuration's
+        rows of ``estimator_results_``.
 
         Parameters
         ----------
@@ -1219,8 +1224,7 @@ class CARVE(BaseEstimator):
             ``"stability"`` or ``"generalizability"``, or an alias of either.
         rule : str, default="1se"
             Selection rule: "max", "1se", "quantile". Used for the default
-            ``method_id`` and for the sweep value marked among the plotted
-            rows.
+            ``method_id`` and for the marked sweep value.
         not_two : bool, default=False
             Whether to exclude two-cluster configurations from both
             selections.
@@ -1278,6 +1282,7 @@ class CARVE(BaseEstimator):
 
         return _plot_metric_by_pipeline(
             self.preprocessing_results_,
+            estimator_df=self.estimator_results_,
             method_id=method_id,
             measure=measure,
             rule=rule,
