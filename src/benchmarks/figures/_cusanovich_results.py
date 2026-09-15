@@ -9,8 +9,9 @@ resolution, the source's operating point and the published partition's own
 generalizability marked, and the mean observed cluster count on a secondary
 axis. (D) The same two criteria per pipeline at the selected configuration,
 on C's x axis. A and B share one color map, so a CARVE cluster takes the
-color of the source cluster it best matches; with 30 source clusters the
-palette cycles, as _theme.cluster_colors documents.
+color of the source cluster it best matches. _theme.CLUSTER_PALETTE holds 64
+distinct colors, so each of the 30 source clusters, and each CARVE cluster
+left unmatched past them, has its own until 64.
 """
 
 from pathlib import Path

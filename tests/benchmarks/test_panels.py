@@ -500,7 +500,10 @@ class TestPipelineLines:
     @staticmethod
     def _draw(ax, **kwargs):
         table = pipeline_results(_PIPELINES, (0.2, 0.4, 0.6), method_ids=("m0", "m1"))
-        carve = SimpleNamespace(preprocessing_results_=table)
+        carve = SimpleNamespace(
+            preprocessing_results_=table,
+            estimator_results_=table.drop_duplicates(["method_id", "sweep_value"]),
+        )
         return pipeline_lines(ax, carve, method_id="m0", **kwargs)
 
     def test_returns_the_same_axes(self, ax):
@@ -552,15 +555,23 @@ class TestPipelineLines:
 
         def spy(*args, **kwargs):
             calls.append(
-                (kwargs["measure"], kwargs["rule"], kwargs["not_two"], kwargs["method_id"])
+                (
+                    kwargs["measure"],
+                    kwargs["rule"],
+                    kwargs["not_two"],
+                    kwargs["method_id"],
+                    len(kwargs["estimator_df"]),
+                )
             )
             return real(*args, **kwargs)
 
         monkeypatch.setattr(carve_plotting, "plot_metric_by_pipeline", spy)
         self._draw(ax, rule="max", not_two=True)
+        # estimator_df is the pooled table, one row per method and resolution,
+        # not the 18-row per-pipeline table.
         assert calls == [
-            ("stability", "max", True, "m0"),
-            ("generalizability", "max", True, "m0"),
+            ("stability", "max", True, "m0", 6),
+            ("generalizability", "max", True, "m0", 6),
         ]
 
 

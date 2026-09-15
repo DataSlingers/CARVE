@@ -59,15 +59,25 @@ METRIC_COLORS: dict[str, str] = {
 
 FALLBACK_COLOR = "#7F7F7F"
 
-# Matplotlib's tab10, which is what the published case-study composites draw
-# their clusters in: the Klein figure's four timepoints are tab10's first
-# four hues. Spelled out rather than read off plt.get_cmap("tab10") so the
-# values are greppable and cannot shift under a Matplotlib release.
+# The first 64 entries of colorcet's glasbey_category10 (colorcet 3.2.1,
+# CC BY 4.0). Its first ten entries are Matplotlib's tab10, which is what the
+# published case-study composites draw their clusters in: the Klein figure's
+# four timepoints are tab10's first four hues, so figures with at most ten
+# labels are unchanged. The remaining entries follow Glasbey et al. (2007):
+# each is chosen as far as possible from every color before it. tab10 alone
+# cycled, so the Cusanovich source partition's 30 clusters shared ten colors
+# three to a color. Spelled out rather than read from colorcet, which is not a
+# dependency, so the values are greppable and cannot shift under a release.
+#
+# Measured in OKLab (times 100), the closest pair is 9.8 apart among the first
+# 30 entries, 7.0 among the first 64 and 4.0 among the first 128, so the
+# palette stops at 64. No palette of 30 colors keeps every pair apart under
+# color-vision deficiency; tab10's green and orange already do not.
 #
 # tab10's eighth entry is the same grey as FALLBACK_COLOR. That only matters
-# for a figure with at least eight clusters *and* a color map missing an
-# entry, which no current figure has; if one appears, the fallback is what
-# should move, not the palette.
+# for a figure with at least eight clusters and a color map missing an entry,
+# which no current figure has; if one appears, the fallback is what should
+# move, not the palette.
 CLUSTER_PALETTE: tuple[str, ...] = (
     "#1F77B4",
     "#FF7F0E",
@@ -79,6 +89,60 @@ CLUSTER_PALETTE: tuple[str, ...] = (
     "#7F7F7F",
     "#BCBD22",
     "#17BECF",
+    "#3A0183",
+    "#004301",
+    "#0FFFA9",
+    "#5E0040",
+    "#BCBCFF",
+    "#D8AFA2",
+    "#B80080",
+    "#004E53",
+    "#6B6500",
+    "#7D0200",
+    "#6126FF",
+    "#FFFF9A",
+    "#574964",
+    "#8CB894",
+    "#94FCFF",
+    "#028268",
+    "#91FF00",
+    "#8300A0",
+    "#AD8944",
+    "#5B3400",
+    "#FFC0F3",
+    "#FF6F76",
+    "#798CFF",
+    "#DD00FF",
+    "#515646",
+    "#00458A",
+    "#FFBF60",
+    "#FF018D",
+    "#BEC9CF",
+    "#AF98B5",
+    "#B75700",
+    "#027000",
+    "#CD88FF",
+    "#1DD646",
+    "#C0ECC4",
+    "#7A98B5",
+    "#A56089",
+    "#6F8957",
+    "#BD7D76",
+    "#8B2945",
+    "#00ADFF",
+    "#8FD4FF",
+    "#4B6D77",
+    "#00D4B1",
+    "#9300F3",
+    "#8B9500",
+    "#5D5C9F",
+    "#FEDFBB",
+    "#00939F",
+    "#FFDC00",
+    "#00AB79",
+    "#520068",
+    "#000092",
+    "#0B5D3E",
 )
 
 # The thin outline on scatter markers and the corner axis arrows both read as
@@ -113,10 +177,12 @@ FOREGROUND_COLOR: str = "#000000"
 # instead of 0 to 3. The name stays registered for the call sites that color
 # by *estimator* rather than by cluster (plot_metric_over_n_clusters), where
 # a stable ten-color map is what is wanted and the count of clusters is
-# irrelevant. Guarded so importing this module twice (e.g. a test re-import)
-# does not raise on re-registration.
+# irrelevant. It registers tab10's ten entries only: those call sites sample
+# the map at evenly spaced points, so registering all of CLUSTER_PALETTE would
+# move every estimator line onto a different color. Guarded so importing this
+# module twice (e.g. a test re-import) does not raise on re-registration.
 CLUSTER_CMAP_NAME: str = "carve_cluster"
-_cluster_cmap = ListedColormap(list(CLUSTER_PALETTE), name=CLUSTER_CMAP_NAME)
+_cluster_cmap = ListedColormap(list(CLUSTER_PALETTE[:10]), name=CLUSTER_CMAP_NAME)
 if CLUSTER_CMAP_NAME not in mpl.colormaps:
     mpl.colormaps.register(_cluster_cmap)
 
@@ -240,11 +306,10 @@ def cluster_colors(n: int) -> list[str]:
     without it having to adopt their resampling.
 
     Past len(CLUSTER_PALETTE) the palette cycles from the start, so every
-    repeat is exactly len(CLUSTER_PALETTE) apart and two *adjacent* cluster
+    repeat is exactly len(CLUSTER_PALETTE) apart and two adjacent cluster
     indices are never the same color. Resampling instead (a first attempt at
-    this function) put duplicates on adjacent indices -- verified: at n=17, 7
-    of 16 adjacent pairs shared a color. Color cannot distinguish more than
-    ten clusters either way; adjacency is what is left to protect.
+    this function, against the ten-color palette) put duplicates on adjacent
+    indices -- verified: at n=17, 7 of 16 adjacent pairs shared a color.
     """
     return [to_hex(CLUSTER_PALETTE[i % len(CLUSTER_PALETTE)]) for i in range(n)]
 

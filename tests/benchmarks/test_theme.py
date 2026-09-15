@@ -7,6 +7,7 @@ from matplotlib.colors import to_hex
 
 from benchmarks._registry import CARVE_METRICS_ALL, CVI_METRICS, METRIC_DISPLAY_NAMES
 from benchmarks._theme import (
+    CLUSTER_CMAP_NAME,
     CLUSTER_PALETTE,
     FONT_SIZES,
     MEASURE_LINESTYLES,
@@ -118,7 +119,40 @@ class TestPalette:
     def test_cluster_colors_are_stable(self):
         assert cluster_colors(4) == cluster_colors(4)
 
-    @pytest.mark.parametrize("n", [1, 3, 10])
+    def test_the_first_ten_cluster_colors_are_tab10(self):
+        """Figures with at most ten clusters keep the hues they were drawn in.
+
+        The Klein composite's four timepoints are tab10's first four hues.
+        Compared against Matplotlib's own tab10 rather than CLUSTER_PALETTE,
+        so an edit to the palette's head cannot pass by also editing the
+        expectation.
+        """
+        tab10 = plt.get_cmap("tab10")
+        assert cluster_colors(10) == [to_hex(tab10(i)) for i in range(10)]
+
+    def test_thirty_source_clusters_get_thirty_distinct_colors(self):
+        """The Cusanovich source partition has 30 clusters.
+
+        Cycling tab10 drew three clusters in every color, so panels A and B
+        of the Cusanovich figure could not be read against each other.
+        """
+        assert len(set(cluster_colors(30))) == 30
+
+    def test_no_palette_entry_repeats(self):
+        assert len(set(CLUSTER_PALETTE)) == len(CLUSTER_PALETTE)
+
+    def test_the_registered_colormap_stays_the_ten_color_map(self):
+        """Estimator lines sample the registered map at evenly spaced points.
+
+        plot_metric_over_n_clusters draws plt.get_cmap(palette) at
+        np.linspace(0, 1, n), so registering the whole CLUSTER_PALETTE would
+        spread the estimator lines of the CARVE-output figures over different
+        entries than the ten they are drawn in now.
+        """
+        cmap = plt.get_cmap(CLUSTER_CMAP_NAME)
+        assert [to_hex(cmap(i)) for i in range(cmap.N)] == cluster_colors(10)
+
+    @pytest.mark.parametrize("n", [1, 3, 10, 30])
     def test_cluster_colors_is_the_palette_in_order(self, n):
         """Cluster i is palette entry i, not a resampled spread over the map.
 
@@ -131,7 +165,7 @@ class TestPalette:
         """
         assert cluster_colors(n) == [to_hex(c) for c in CLUSTER_PALETTE[:n]]
 
-    @pytest.mark.parametrize("n", [1, 3, 4, 10])
+    @pytest.mark.parametrize("n", [1, 3, 4, 10, 30])
     def test_cluster_cmap_agrees_under_both_indexing_styles(self, n):
         """The cross-panel agreement cluster_cmap exists to buy.
 
@@ -152,27 +186,20 @@ class TestPalette:
         assert by_index == cluster_colors(n)
         assert by_imshow == cluster_colors(n)
 
-    @pytest.mark.parametrize("n", [11, 14, 17])
-    def test_cluster_colors_no_adjacent_duplicates_above_the_palette_length(self, n):
-        """Above ten clusters, agreement with the registered colormap is
-        not achievable (it duplicates by construction), so cluster_colors
-        instead guarantees legibility within one panel: cycling
-        CLUSTER_PALETTE from the start means every repeat falls exactly
-        len(CLUSTER_PALETTE) indices apart, so two *adjacent* cluster
-        indices are never the same color. An earlier version of this
-        function resampled the registered colormap unconditionally, which
-        put duplicates on adjacent indices instead (measured: 7 of 16
-        adjacent pairs identical at n=17) -- exactly the failure mode this
-        pins against.
-
-        n=14 and n=17 are not arbitrary: Levine's reported labels run to
-        roughly 14 populations and its swept k reaches 17, and
-        cluster_color_map colors the alluvial and ARI-lollipop panels'
-        true-label column with this function, so both counts are real,
-        not hypothetical.
+    @pytest.mark.parametrize("extra", [1, 4, 7])
+    def test_cluster_colors_no_adjacent_duplicates_above_the_palette_length(
+        self, extra
+    ):
+        """Past its own length the palette cycles from the start, so every
+        repeat falls exactly len(CLUSTER_PALETTE) indices apart and two
+        adjacent cluster indices are never the same color. An earlier version
+        of this function resampled the registered colormap instead, which put
+        duplicates on adjacent indices (measured: 7 of 16 adjacent pairs
+        identical at n=17 against the ten-color map).
         """
-        colors = cluster_colors(n)
+        colors = cluster_colors(len(CLUSTER_PALETTE) + extra)
         assert all(a != b for a, b in zip(colors, colors[1:]))
+        assert colors[len(CLUSTER_PALETTE)] == colors[0]
 
 
 class TestPipelinePalette:

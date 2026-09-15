@@ -464,9 +464,10 @@ def pipeline_lines(
 
     The drawing is carve._plotting.plot_metric_by_pipeline, called once per
     measure on the same axes, so the per-pipeline rows, the error bars at one
-    standard error and the per-pipeline selection line are CARVE's own; this
-    only themes them. Pipelines take PIPELINE_CMAP_NAME's colors, each measure
-    its MEASURE_LINESTYLES style, and one legend names both.
+    standard error and the line at CARVE's selected sweep value, read from
+    estimator_results_, are CARVE's own; this only themes them. Pipelines
+    take PIPELINE_CMAP_NAME's colors, each measure its MEASURE_LINESTYLES
+    style, and one legend names both.
     """
     from carve._plotting import plot_metric_by_pipeline
 
@@ -474,6 +475,7 @@ def pipeline_lines(
     for measure in measures:
         plot_metric_by_pipeline(
             table,
+            estimator_df=carve_obj.estimator_results_,
             method_id=method_id,
             measure=measure,
             rule=rule,
