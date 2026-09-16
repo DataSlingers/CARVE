@@ -15,11 +15,9 @@ from benchmarks._cusanovich_compare import (
     best_pipeline,
     pipeline_embedding,
     prepare_cusanovich_inputs,
-    published_partition_generalizability,
     save_tables,
     selection_summary,
     source_operating_point,
-    source_recipe_pipeline,
 )
 from benchmarks._estimators import resolution_grids
 from benchmarks._preprocessing import resolve_preprocessing
@@ -50,8 +48,9 @@ def _row(method_id, pipeline, resolution, stability, generalizability, observed)
 class _FakeCarve:
     """The members of a fitted CARVE these functions read."""
 
-    def __init__(self, table, pipelines=None, selected=None):
+    def __init__(self, table, pipelines=None, selected=None, results=None):
         self.preprocessing_results_ = table
+        self.estimator_results_ = results
         self.preprocessing_pipelines_ = pipelines
         self._selected = selected
         self.select_calls = []
@@ -156,29 +155,30 @@ class TestPipelineEmbedding:
 class TestSourceOperatingPoint:
     @pytest.fixture
     def carve(self):
-        # The t-SNE pipeline's counts rise with resolution, listed out of
-        # order. A decoy pipeline hits 30 exactly, which a function ignoring
-        # the pipeline would return.
-        table = pd.DataFrame(
-            [
-                _row("m0", "tsne", 0.6, 0.5, 0.5, 33.0),
-                _row("m0", "tsne", 0.2, 0.5, 0.5, 12.0),
-                _row("m0", "tsne", 0.4, 0.5, 0.5, 26.0),
-                _row("m0", "umap", 0.8, 0.5, 0.5, 30.0),
-            ]
+        # Configuration m0's pooled counts rise with resolution, listed out of
+        # order. Configuration m1 hits 30 exactly, and so does one pipeline of
+        # m0 at 0.2, where the pooled count is 12; a function reading another
+        # configuration, or a single pipeline, would return one of those.
+        per_pipeline = pd.DataFrame([_row("m0", "tsne", 0.2, 0.5, 0.5, 30.0)])
+        pooled = pd.DataFrame(
+            {
+                "method_id": ["m0", "m0", "m0", "m1"],
+                "sweep_value": [0.6, 0.2, 0.4, 0.8],
+                "n_clusters_observed": [33.0, 12.0, 26.0, 30.0],
+            }
         )
-        return _FakeCarve(table)
+        return _FakeCarve(per_pipeline, results=pooled)
 
-    def test_picks_the_named_pipelines_nearest_count(self, carve):
-        assert source_operating_point(carve, pipeline="tsne", target_k=30) == (
+    def test_picks_the_configurations_nearest_pooled_count(self, carve):
+        assert source_operating_point(carve, method_id="m0", target_k=30) == (
             0.6,
             33.0,
         )
 
     def test_ties_go_to_the_lower_resolution(self, carve):
         # 26 and 34 are both 4 from 30; the table lists 0.6 first.
-        carve.preprocessing_results_.loc[0, "n_clusters_observed"] = 34.0
-        assert source_operating_point(carve, pipeline="tsne", target_k=30) == (
+        carve.estimator_results_.loc[0, "n_clusters_observed"] = 34.0
+        assert source_operating_point(carve, method_id="m0", target_k=30) == (
             0.4,
             26.0,
         )
@@ -186,7 +186,7 @@ class TestSourceOperatingPoint:
     def test_stays_silent_within_a_quarter_of_the_target(self, carve):
         # 33 is 7 from 40, inside 25 percent (10); any warning fails the test
         # under filterwarnings = error.
-        assert source_operating_point(carve, pipeline="tsne", target_k=40) == (
+        assert source_operating_point(carve, method_id="m0", target_k=40) == (
             0.6,
             33.0,
         )
@@ -194,111 +194,18 @@ class TestSourceOperatingPoint:
     def test_warns_past_a_quarter_of_the_target(self, carve):
         # 33 is 17 from 50, past 25 percent (12.5).
         with pytest.warns(UserWarning, match="more than 25%"):
-            point = source_operating_point(carve, pipeline="tsne", target_k=50)
+            point = source_operating_point(carve, method_id="m0", target_k=50)
         assert point == (0.6, 33.0)
 
-    def test_an_unknown_pipeline_raises_naming_the_available_ones(self, carve):
-        with pytest.raises(ValueError, match="umap"):
-            source_operating_point(carve, pipeline="pca", target_k=30)
-
-    def test_more_than_one_configuration_raises(self, carve):
-        carve.preprocessing_results_.loc[1, "method_id"] = "m1"
-        with pytest.raises(ValueError, match="more than one estimator configuration"):
-            source_operating_point(carve, pipeline="tsne", target_k=30)
-
-
-class TestPublishedPartitionGeneralizability:
-    @pytest.fixture
-    def blobs(self):
-        rng = np.random.default_rng(0)
-        centers = rng.normal(scale=10.0, size=(3, 5))
-        members = np.repeat(np.arange(3), 60)
-        X = centers[members] + rng.normal(scale=0.3, size=(180, 5))
-        return X, np.array(["a", "b", "c"])[members]
-
-    @staticmethod
-    def _score(X, labels, **overrides):
-        settings = {
-            "n_splits": 10,
-            "subsample_ratio": 0.618,
-            "n_trees": 20,
-            "random_state": 0,
-        }
-        settings.update(overrides)
-        return published_partition_generalizability(X, labels, **settings)
-
-    def test_a_partition_that_is_a_function_of_x_generalizes_perfectly(self, blobs):
-        mean, se = self._score(*blobs)
-        assert mean == pytest.approx(1.0)
-        assert se == pytest.approx(0.0)
-
-    def test_a_random_relabeling_does_not_generalize(self, blobs):
-        # A forest memorizes any labeling of its training rows, so scoring on
-        # the training rows, or against them, would come out near 1.
-        X, labels = blobs
-        shuffled = np.random.default_rng(1).permutation(labels)
-        mean, _ = self._score(X, shuffled, n_splits=30)
-        assert abs(mean) < 0.05
-
-    def test_is_seeded(self, blobs):
-        X, labels = blobs
-        shuffled = np.random.default_rng(1).permutation(labels)
-        assert self._score(X, shuffled) == self._score(X, shuffled)
-
-    def test_a_single_split_has_no_standard_error(self, blobs):
-        mean, se = self._score(*blobs, n_splits=1)
-        assert mean == pytest.approx(1.0)
-        assert np.isnan(se)
-
-
-class TestSourceRecipePipeline:
-    @staticmethod
-    def _carve(*steps):
-        specs = [_spec(step) for step in steps]
-        return _FakeCarve(pd.DataFrame(), {spec.label: spec for spec in specs})
-
-    def test_finds_the_tsne_pipeline_at_the_source_perplexity(self):
-        # t-SNE at other perplexities sits beside the source's recipe and is
-        # not it.
-        carve = self._carve(
-            IDENTITY,
-            *(
-                PipelineStep(cls=TSNE, params={"perplexity": p}, name="TSNE")
-                for p in (15, 30, 45)
-            ),
-            PipelineStep(cls=PCA, params={"n_components": 5}, name="PCA"),
-        )
-        assert source_recipe_pipeline(carve) == "identity | TSNE(perplexity=30)"
-
-    @pytest.mark.parametrize("perplexities", [(), (15, 45)])
-    def test_no_tsne_pipeline_at_the_source_perplexity_raises(self, perplexities):
-        steps = [
-            PipelineStep(cls=TSNE, params={"perplexity": p}, name="TSNE")
-            for p in perplexities
-        ]
-        carve = self._carve(IDENTITY, *steps)
-        with pytest.raises(ValueError, match="source's perplexity 30"):
-            source_recipe_pipeline(carve)
-
-    def test_two_pipelines_at_the_source_perplexity_raise(self):
-        # A second normalization would give two t-SNE pipelines at perplexity
-        # 30; which one is the source's is then the study's decision.
-        tsne = PipelineStep(cls=TSNE, params={"perplexity": 30}, name="TSNE")
-        scaler = PipelineStep(cls=StandardScaler, params={}, name="StandardScaler")
-        specs = [
-            PipelineSpec(normalization=IDENTITY, dim_reduction=tsne),
-            PipelineSpec(normalization=scaler, dim_reduction=tsne),
-        ]
-        carve = _FakeCarve(pd.DataFrame(), {spec.label: spec for spec in specs})
-        with pytest.raises(ValueError, match="found 2"):
-            source_recipe_pipeline(carve)
+    def test_an_unknown_configuration_raises_naming_the_available_ones(self, carve):
+        with pytest.raises(ValueError, match=r"\['m0', 'm1'\]"):
+            source_operating_point(carve, method_id="m2", target_k=30)
 
 
 # Four separated blobs, labeled so the reference's sorted codes (a, b, c, d)
 # differ from its first-appearance order (d, b, a, c), which is the order
 # CARVE factorizes reference labels in.
 _BLOB_NAMES = np.array(["d", "b", "a", "c"])
-_TSNE_PIPELINE = "identity | TSNE(perplexity=30)"
 
 
 @pytest.fixture(scope="module")
@@ -350,47 +257,31 @@ class TestPrepareCusanovichInputs:
     def test_the_operating_point_targets_the_reference_cluster_count(
         self, fitted, inputs
     ):
-        # y has four clusters, so the operating point is the t-SNE pipeline's
-        # resolution nearest four; a fixed 30 would be far off and warn.
+        # y has four clusters, so the operating point is the selected
+        # configuration's resolution nearest four; a fixed 30 would be far off
+        # and warn.
         _, _, carve = fitted
+        selected, _, _, _ = carve._select_row(measure="stability", rule="1se")
         assert inputs.operating_point == source_operating_point(
-            carve, pipeline=_TSNE_PIPELINE, target_k=4
+            carve, method_id=selected["method_id"], target_k=4
         )
 
-    def test_forwards_the_fits_settings_and_the_seed(self, fitted, monkeypatch):
-        # On separated blobs the probe scores 1.0 at any split count, and the
-        # best pipeline may be the seedless identity, so the returned values
-        # cannot show what was passed. Record the calls instead.
+    def test_embeds_with_the_given_seed(self, fitted, monkeypatch):
+        # The best pipeline may be the seedless identity, so the embedding
+        # cannot show which seed was passed. Record the call instead.
         import benchmarks._cusanovich_compare as compare
 
         X, y, carve = fitted
-        probes, embeddings = [], []
-        real_probe = compare.published_partition_generalizability
+        embeddings = []
         real_embedding = compare.pipeline_embedding
-
-        def probe(*args, **kwargs):
-            probes.append(kwargs)
-            return real_probe(*args, **kwargs)
 
         def embedding(X, spec, *, random_state):
             embeddings.append((spec, random_state))
             return real_embedding(X, spec, random_state=random_state)
 
-        monkeypatch.setattr(compare, "published_partition_generalizability", probe)
         monkeypatch.setattr(compare, "pipeline_embedding", embedding)
-        prepare_cusanovich_inputs(
-            X, y, carve, source_tsne=X[:, :2], random_state=7, n_jobs=2
-        )
+        prepare_cusanovich_inputs(X, y, carve, source_tsne=X[:, :2], random_state=7)
 
-        assert probes == [
-            {
-                "n_splits": 6,
-                "subsample_ratio": carve.subsample_ratio,
-                "n_trees": 20,
-                "random_state": 7,
-                "n_jobs": 2,
-            }
-        ]
         _, spec = best_pipeline(carve, measure="stability", rule="1se")
         assert embeddings == [(spec, 7)]
 
@@ -403,10 +294,11 @@ class TestPrepareCusanovichInputs:
         assert summary["selected_resolution"] == float(selected["sweep_value"])
         assert summary["selected_n_clusters"] == n_clusters
         assert summary["best_pipeline"] == inputs.best_pipeline_row["pipeline"]
-        assert summary["source_pipeline"] == _TSNE_PIPELINE
         assert summary["operating_point_resolution"] == inputs.operating_point[0]
-        assert summary["published_generalizability"] == (
-            inputs.published_generalizability[0]
+        assert summary["operating_point_n_clusters"] == inputs.operating_point[1]
+        assert not any(
+            quantity.startswith(("published", "source_pipeline"))
+            for quantity in summary.index
         )
         raw = carve.get_labels(measure="stability", rule="1se")
         assert summary["consensus_ari_vs_source_clusters"] == pytest.approx(

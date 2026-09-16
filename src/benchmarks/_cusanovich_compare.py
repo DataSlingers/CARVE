@@ -2,11 +2,10 @@
 
 The source clustered a two-dimensional t-SNE of its LSI into 30 clusters.
 These functions set that recipe beside CARVE's: which preprocessing pipeline
-CARVE rates best at the configuration it selects, where the source's
-granularity falls on the t-SNE pipeline's resolution axis, and how well the
-published partition generalizes under the classifier probe CARVE applies to
-its own clusterings. prepare_cusanovich_inputs gathers all of it into
-CusanovichInputs; nothing here draws, figures._cusanovich_results does.
+CARVE rates best at the configuration it selects, and where the source's
+granularity falls on CARVE's pooled resolution axis.
+prepare_cusanovich_inputs gathers both into CusanovichInputs; nothing here
+draws, figures._cusanovich_results does.
 """
 
 import warnings
@@ -17,15 +16,13 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from sklearn.metrics import adjusted_rand_score
-from sklearn.model_selection import StratifiedShuffleSplit
 
 from carve._pipeline import PipelineSpec, PipelineStep, pipeline_from_spec
 from carve._selection import MEASURE_MAP
-from carve._utils import default_generalizability_classifier
 
 from ._preprocessing import PREPROCESSOR_NAMES
 
-#: How far a pipeline's nearest observed cluster count may sit from the target
+#: How far the nearest pooled observed cluster count may sit from the target
 #: before source_operating_point warns, as a fraction of the target.
 OPERATING_POINT_TOLERANCE = 0.25
 
@@ -128,28 +125,24 @@ def pipeline_embedding(
 
 
 def source_operating_point(
-    carve: Any, *, pipeline: str, target_k: int
+    carve: Any, *, method_id: str, target_k: int
 ) -> tuple[float, float]:
-    """The resolution at which one pipeline's clusterings come nearest target_k.
+    """The resolution at which one configuration's clusterings come nearest target_k.
 
-    Reads the preprocessing_results_ rows for the named pipeline and returns
-    (resolution, observed cluster count) for the row whose n_clusters_observed
-    is nearest target_k, ties going to the lower resolution. The count is a
-    mean over that pipeline's resamples at that resolution. Warns when it is
-    more than OPERATING_POINT_TOLERANCE of target_k away, which means the
-    resolution grid does not reach the source's granularity for this pipeline.
+    Reads the estimator_results_ rows for method_id and returns (resolution,
+    observed cluster count) for the row whose n_clusters_observed is nearest
+    target_k, ties going to the lower resolution. The count is the mean over
+    all resamples at that resolution, pooled over pipelines, which is the
+    count the figure's secondary axis names. Warns when it is more than
+    OPERATING_POINT_TOLERANCE of target_k away, which means the resolution
+    grid does not reach the source's granularity.
     """
-    table = _per_pipeline_table(carve)
-    rows = table.loc[table["pipeline"] == pipeline]
+    results = carve.estimator_results_
+    rows = results.loc[results["method_id"] == method_id]
     if rows.empty:
         raise ValueError(
-            f"No per-pipeline rows for {pipeline!r}. "
-            f"Available: {sorted(table['pipeline'].unique())}."
-        )
-    if rows["method_id"].nunique() > 1:
-        raise ValueError(
-            f"Pipeline {pipeline!r} has rows for more than one estimator "
-            "configuration; an operating point is defined on one resolution axis."
+            f"No estimator_results_ rows for {method_id!r}. "
+            f"Available: {sorted(results['method_id'].unique())}."
         )
 
     rows = rows.sort_values("sweep_value", kind="stable")
@@ -159,7 +152,7 @@ def source_operating_point(
     observed = float(row["n_clusters_observed"])
     if abs(observed - target_k) > OPERATING_POINT_TOLERANCE * target_k:
         warnings.warn(
-            f"The {pipeline!r} clustering nearest {target_k} clusters has "
+            f"The {method_id!r} clustering nearest {target_k} clusters has "
             f"{observed:.1f}, at resolution {resolution:g}: more than "
             f"{OPERATING_POINT_TOLERANCE:.0%} away. Extend the study's "
             "resolution grid.",
@@ -167,59 +160,6 @@ def source_operating_point(
             stacklevel=2,
         )
     return resolution, observed
-
-
-def published_partition_generalizability(
-    X: np.ndarray,
-    labels: np.ndarray,
-    *,
-    n_splits: int,
-    subsample_ratio: float,
-    n_trees: int,
-    random_state: int,
-    n_jobs: int = 1,
-) -> tuple[float, float]:
-    """How well a fixed partition generalizes under CARVE's classifier probe.
-
-    For each of n_splits stratified splits with subsample_ratio of the rows in
-    training, the classifier CARVE trains for generalizability
-    (carve._utils.default_generalizability_classifier, a random forest with
-    n_trees trees) is fit on X[train] with the partition's labels and predicts
-    X[test]; the split scores the ARI between those predictions and the
-    partition's own test labels. Split s seeds its forest with
-    random_state + s. Stratifying keeps every class in training, which a
-    random split can miss for a small one. Stability of a fixed partition is
-    not defined, so none is computed.
-
-    Returns
-    -------
-    (mean, se) : the mean ARI over splits and its standard error, NaN for a
-        single split, as in CARVE's own tables.
-    """
-    X = np.asarray(X)
-    labels = np.asarray(labels)
-    splitter = StratifiedShuffleSplit(
-        n_splits=n_splits, train_size=subsample_ratio, random_state=random_state
-    )
-    scores = []
-    for split, (train, test) in enumerate(splitter.split(X, labels)):
-        classifier = default_generalizability_classifier(
-            classifier=None,
-            n_features=X.shape[1],
-            n_trees=n_trees,
-            random_state=random_state + split,
-            n_jobs=n_jobs,
-        )
-        classifier.fit(X[train], labels[train])
-        scores.append(adjusted_rand_score(labels[test], classifier.predict(X[test])))
-
-    scores = np.asarray(scores, dtype=float)
-    se = (
-        float(np.std(scores, ddof=1) / np.sqrt(scores.size))
-        if scores.size > 1
-        else float("nan")
-    )
-    return float(np.mean(scores)), se
 
 
 @dataclass(frozen=True)
@@ -234,8 +174,8 @@ class CusanovichInputs:
     CARVE cluster takes the color of the source cluster it best matches.
     embedding_A is all of X embedded by the best pipeline, named by
     embedding_A_labels. operating_point is (resolution, observed cluster
-    count) on the source recipe's pipeline; published_generalizability is
-    (mean, se). measure, rule and not_two are the selection every panel reads.
+    count) on the selected configuration's pooled curve. measure, rule and
+    not_two are the selection every panel reads.
     """
 
     X: np.ndarray
@@ -247,40 +187,9 @@ class CusanovichInputs:
     source_tsne: np.ndarray
     best_pipeline_row: pd.Series
     operating_point: tuple[float, float]
-    published_generalizability: tuple[float, float]
     measure: str = "stability"
     rule: str = "1se"
     not_two: bool = False
-
-
-#: The perplexity of the source's own t-SNE: Rtsne(pca=F, perplexity=30,
-#: max_iter=5000) in its dim_reduction.R. A fact about the publication, not a
-#: study parameter; STUDIES["cusanovich"] may offer other perplexities beside it.
-SOURCE_TSNE_PERPLEXITY = 30
-
-
-def source_recipe_pipeline(carve: Any) -> str:
-    """The label of the pipeline that reproduces the source's embedding.
-
-    The source clustered a t-SNE of its LSI at SOURCE_TSNE_PERPLEXITY, so this
-    is the one t-SNE pipeline at that perplexity; t-SNE at other perplexities
-    sits beside it and is not the source's recipe. None, or more than one (as
-    under a second normalization), raises: which is the source's is then the
-    study's decision, not something to guess.
-    """
-    _per_pipeline_table(carve)
-    labels = sorted(
-        label
-        for label, spec in carve.preprocessing_pipelines_.items()
-        if spec.dim_reduction.name == PREPROCESSOR_NAMES["tsne"]
-        and spec.dim_reduction.params.get("perplexity") == SOURCE_TSNE_PERPLEXITY
-    )
-    if len(labels) != 1:
-        raise ValueError(
-            "Expected exactly one t-SNE pipeline at the source's perplexity "
-            f"{SOURCE_TSNE_PERPLEXITY}, found {len(labels)}: {labels}."
-        )
-    return labels[0]
 
 
 def prepare_cusanovich_inputs(
@@ -293,16 +202,13 @@ def prepare_cusanovich_inputs(
     rule: str = "1se",
     not_two: bool = False,
     random_state: int = 42,
-    n_jobs: int = 1,
 ) -> CusanovichInputs:
     """Assemble the Cusanovich figure's inputs from a randomized fit.
 
     Embeds all of X with the best pipeline at the selected configuration,
-    relabels CARVE's consensus labels onto y, places the source's operating
-    point on the t-SNE pipeline at y's own cluster count, and scores the
-    published partition y under the classifier probe with the fit's own
-    resample count, subsample ratio and tree count. This is compute; call it
-    once and draw from the result.
+    relabels CARVE's consensus labels onto y, and places the source's
+    operating point on the selected configuration's pooled curve at y's own
+    cluster count. This is compute; call it once and draw from the result.
     """
     from .figures._case_study import _align_to_reference
 
@@ -322,18 +228,7 @@ def prepare_cusanovich_inputs(
         source_tsne=np.asarray(source_tsne, dtype=np.float64),
         best_pipeline_row=row,
         operating_point=source_operating_point(
-            carve,
-            pipeline=source_recipe_pipeline(carve),
-            target_k=int(np.unique(y).size),
-        ),
-        published_generalizability=published_partition_generalizability(
-            X,
-            y,
-            n_splits=int(carve.n_resamples),
-            subsample_ratio=float(carve.subsample_ratio),
-            n_trees=int(carve.n_trees),
-            random_state=random_state,
-            n_jobs=n_jobs,
+            carve, method_id=str(row["method_id"]), target_k=int(np.unique(y).size)
         ),
         measure=measure,
         rule=rule,
@@ -353,7 +248,6 @@ def selection_summary(inputs: CusanovichInputs) -> pd.DataFrame:
     )
     best = inputs.best_pipeline_row
     resolution, observed = inputs.operating_point
-    mean, se = inputs.published_generalizability
     rows = [
         ("measure", inputs.measure),
         ("rule", inputs.rule),
@@ -369,11 +263,8 @@ def selection_summary(inputs: CusanovichInputs) -> pd.DataFrame:
         ("best_pipeline_n_resamples", int(best["n_resamples"])),
         ("best_pipeline_ari_stability", float(best["ari_stability"])),
         ("best_pipeline_ari_generalizability", float(best["ari_generalizability"])),
-        ("source_pipeline", source_recipe_pipeline(carve)),
         ("operating_point_resolution", resolution),
         ("operating_point_n_clusters", observed),
-        ("published_generalizability", mean),
-        ("published_generalizability_se", se),
         (
             "consensus_ari_vs_source_clusters",
             float(adjusted_rand_score(inputs.y, inputs.carve_labels)),

@@ -5,13 +5,12 @@ embedding of the pipeline CARVE rates best at its selected configuration.
 (B) The source's clusters on the source's own t-SNE, which cell_metadata.txt
 ships and the loader carries as meta["source_tsne"]. (C) CARVE's stability
 and generalizability over resolution, pooled over pipelines, with the selected
-resolution, the source's operating point and the published partition's own
-generalizability marked, and the mean observed cluster count on a secondary
-axis. (D) The same two criteria per pipeline at the selected configuration,
-on C's x axis. A and B share one color map, so a CARVE cluster takes the
-color of the source cluster it best matches. _theme.CLUSTER_PALETTE holds 64
-distinct colors, so each of the 30 source clusters, and each CARVE cluster
-left unmatched past them, has its own until 64.
+resolution and the source's operating point marked, and the mean observed
+cluster count on a secondary axis. (D) The same two criteria per pipeline at
+the selected configuration, on C's x axis. A and B share one color map, so a
+CARVE cluster takes the color of the source cluster it best matches.
+_theme.CLUSTER_PALETTE holds 64 distinct colors, so each of the 30 source
+clusters, and each CARVE cluster left unmatched past them, has its own until 64.
 """
 
 from pathlib import Path
@@ -57,18 +56,17 @@ def _panel_a_title(inputs: CusanovichInputs, selected, n_clusters: int) -> str:
 
 
 def _mark_source(ax: Axes, inputs: CusanovichInputs, method_id: str) -> None:
-    """The source's operating point on C's curves, and its partition's score.
+    """The source's operating point on C's curves.
 
     The operating point is placed on the pooled curves at the resolution where
-    the t-SNE pipeline's clusterings come nearest the source's cluster count,
-    and labeled with that count. The horizontal line is the published
-    partition's own generalizability under the same classifier probe.
+    their mean observed cluster count, the count the secondary axis names,
+    comes nearest the source's, and labeled with both counts.
     """
     results = inputs.carve.estimator_results_
     curve = results.loc[results["method_id"] == method_id]
     resolution, observed = inputs.operating_point
-    at_point = curve.loc[np.isclose(curve["sweep_value"].astype(float), resolution)]
     n_source = int(np.unique(inputs.y).size)
+    at_point = curve.loc[np.isclose(curve["sweep_value"].astype(float), resolution)]
 
     for index, measure in enumerate(("stability", "generalizability")):
         ax.plot(
@@ -82,20 +80,12 @@ def _mark_source(ax: Axes, inputs: CusanovichInputs, method_id: str) -> None:
             markeredgecolor=metric_color(f"ari_{measure}_1se"),
             zorder=3,
             label=(
-                f"source operating point, {observed:.0f} clusters on t-SNE"
+                f"nearest the source's {n_source} clusters ({observed:.0f} observed)"
                 if index == 0
                 else "_nolegend_"
             ),
         )
 
-    mean, _ = inputs.published_generalizability
-    ax.axhline(
-        mean,
-        color=metric_color("ari_generalizability_1se"),
-        linestyle="--",
-        linewidth=1.2,
-        label=f"published {n_source} clusters, RF probe",
-    )
     ax.legend(fontsize=FONT_SIZES["legend"], frameon=False)
 
 

@@ -801,18 +801,6 @@ class TestNewStudies:
             ),
         )
 
-    def test_cusanovich_offers_the_source_perplexity(self):
-        # The source's operating point is read from the t-SNE pipeline at the
-        # source's own perplexity, so the study must offer that value.
-        from benchmarks._cusanovich_compare import SOURCE_TSNE_PERPLEXITY
-
-        offered = [
-            grid["perplexity"]
-            for key, grid in STUDIES["cusanovich"].preprocessing.dim_reduction
-            if key == "tsne"
-        ]
-        assert [SOURCE_TSNE_PERPLEXITY] in offered
-
     def test_cusanovich_balances_resamples_across_its_four_pipelines(self):
         # Stratified allocation is over options, and each perplexity is its
         # own option, so 50 resamples split 12 or 13 to each of the LSI and

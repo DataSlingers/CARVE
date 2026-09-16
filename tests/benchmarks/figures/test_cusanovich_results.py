@@ -59,7 +59,6 @@ def inputs():
         source_tsne=rng.normal(size=(n, 2)),
         best_pipeline_row=best,
         operating_point=(0.8, 16.0),
-        published_generalizability=(0.55, 0.02),
     )
 
 
@@ -126,7 +125,7 @@ def test_a_carve_cluster_takes_the_color_of_the_source_cluster_it_matches(inputs
     assert color_of(panels["A"], "3") == color_of(panels["B"], "4")
 
 
-def test_c_marks_the_operating_point_and_the_published_partition(inputs):
+def test_c_marks_the_operating_point_and_draws_no_horizontal_line(inputs):
     ax = _panels(figure_cusanovich_results(inputs, save=False))["C"]
     assert ax.get_xlabel() == "Resolution"
 
@@ -137,12 +136,16 @@ def test_c_marks_the_operating_point_and_the_published_partition(inputs):
             [(0.8, at_point["ari_stability"]), (0.8, at_point["ari_generalizability"])]
         )
     )
-    horizontal = [line for line in ax.lines if list(line.get_ydata()) == [0.55, 0.55]]
-    assert len(horizontal) == 1
+    horizontal = [
+        line
+        for line in ax.lines
+        if len(line.get_ydata()) > 1 and len(set(line.get_ydata())) == 1
+    ]
+    assert horizontal == []
 
     legend = [text.get_text() for text in ax.get_legend().get_texts()]
-    assert "source operating point, 16 clusters on t-SNE" in legend
-    assert "published 6 clusters, RF probe" in legend
+    assert "nearest the source's 6 clusters (16 observed)" in legend
+    assert not any("published" in text for text in legend)
 
 
 def test_c_counts_the_observed_clusters_on_a_secondary_axis(inputs):
