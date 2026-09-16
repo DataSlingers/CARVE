@@ -318,6 +318,16 @@ class TestPlotMetricOverNClusters:
         assert ax.get_xlabel() == "k"
         assert ax.get_ylabel() == "Score"
 
+    def test_marker_label_and_default_ylabel(self, resolution_results_df):
+        # Pins the text _draw_metric_lines built itself before its callers
+        # passed y_col, ylabel and selection_label in.
+        ax = plot_metric_over_n_clusters(
+            resolution_results_df, measure="stability", rule="max"
+        )
+        (dashed,) = _dashed(ax)
+        assert dashed.get_label() == "Selected resolution (Max rule): 0.25"
+        assert ax.get_ylabel() == "ARI Stability"
+
 
 # -----------------------------------------------------------------------
 # plot_metric_by_pipeline
@@ -570,7 +580,9 @@ class TestSharedMetricDrawing:
         calls = []
 
         def spy(df, **kwargs):
-            calls.append((kwargs["group_col"], kwargs["legend_title"], len(df)))
+            calls.append(
+                (kwargs["group_col"], kwargs["legend_title"], kwargs["y_col"], len(df))
+            )
             return "drawn"
 
         monkeypatch.setattr(carve_plotting, "_draw_metric_lines", spy)
@@ -583,7 +595,10 @@ class TestSharedMetricDrawing:
             )
             == "drawn"
         )
-        assert calls == [("method_id", "Estimators", 3), ("pipeline", "Pipelines", 6)]
+        assert calls == [
+            ("method_id", "Estimators", "ari_stability", 3),
+            ("pipeline", "Pipelines", "ari_stability", 6),
+        ]
 
 
 # -----------------------------------------------------------------------

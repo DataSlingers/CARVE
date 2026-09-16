@@ -150,22 +150,25 @@ def plot_metric_over_n_clusters(
     """
     if results_df.empty:
         raise RuntimeError("Results DataFrame is empty.")
+    measure_col = _measure_column(results_df, measure)
+    param = sweep_param_name(results_df)
 
     return _draw_metric_lines(
         results_df,
+        y_col=measure_col,
         group_col="method_id",
         label_of=_build_estimator_label,
         legend_title="Estimators",
         select_row=lambda: select_best_row_by_rule(
             results_df, measure=measure, rule=rule, not_two=not_two
         ),
-        measure=measure,
+        selection_label=lambda row: _selection_label(row, param=param, rule=rule),
         rule=rule,
         ax=ax,
         figsize=figsize,
         title=title,
         xlabel=xlabel,
-        ylabel=ylabel,
+        ylabel=ylabel if ylabel is not None else _measure_ylabel(measure_col),
         legend=legend,
         legend_loc=legend_loc,
         palette=palette,
@@ -293,21 +296,25 @@ def plot_metric_by_pipeline(
             f"alias of either); got {measure!r}."
         )
 
+    measure_col = MEASURE_MAP[measure]
+    param = sweep_param_name(rows)
+
     return _draw_metric_lines(
         rows,
+        y_col=measure_col,
         group_col="pipeline",
         label_of=lambda row: str(row["pipeline"]),
         legend_title="Pipelines",
         select_row=lambda: _selected_row_for(
             estimator_df, method_id, measure=measure, rule=rule, not_two=not_two
         ),
-        measure=measure,
+        selection_label=lambda row: _selection_label(row, param=param, rule=rule),
         rule=rule,
         ax=ax,
         figsize=figsize,
         title=title,
         xlabel=xlabel,
-        ylabel=ylabel,
+        ylabel=ylabel if ylabel is not None else _measure_ylabel(measure_col),
         legend=legend,
         legend_loc=legend_loc,
         palette=palette,
@@ -344,20 +351,59 @@ def _selected_row_for(
     return select_best_row_by_rule(own, measure=measure, rule=rule, not_two=not_two)
 
 
+def _measure_column(results_df: pd.DataFrame, measure: str) -> str:
+    """Return the results column behind ``measure``.
+
+    Plots call this before drawing. An unknown measure would otherwise make
+    the selection raise inside the ``try`` around the dashed line, and the
+    line would be left off without an error.
+
+    Raises
+    ------
+    ValueError
+        If ``measure`` is not a key of ``MEASURE_MAP``, or the table does not
+        carry its column.
+    """
+    if measure not in MEASURE_MAP:
+        raise ValueError(
+            f"Measure {measure!r} not found. Valid options: {list(MEASURE_MAP.keys())}"
+        )
+    measure_col = MEASURE_MAP[measure]
+    if measure_col not in results_df.columns:
+        raise ValueError(
+            f"Metric column {measure_col!r} not found in the results table."
+        )
+    return measure_col
+
+
+def _measure_ylabel(measure_col: str) -> str:
+    """Default y-axis label for a metric column, e.g. ``"ARI Stability"``."""
+    return measure_col.replace("_", " ").title().replace("Ari", "ARI")
+
+
+def _selection_label(row: pd.Series, *, param: str, rule: str) -> str:
+    """Legend text for the dashed line at the selected row's sweep value."""
+    rule_str = "1-SE" if rule == "1se" else rule.title()
+    pretty = "k" if param == "n_clusters" else param
+    value = float(row["sweep_value"])
+    return f"Selected {pretty} ({rule_str} rule): {value:g}"
+
+
 def _draw_metric_lines(
     results_df: pd.DataFrame,
     *,
+    y_col: str,
     group_col: str,
     label_of: Callable[[pd.Series], str],
     legend_title: str,
     select_row: Callable[[], pd.Series],
-    measure: str,
+    selection_label: Callable[[pd.Series], str],
     rule: str,
     ax: Axes | None,
     figsize: tuple | None,
     title: str | None,
     xlabel: str | None,
-    ylabel: str | None,
+    ylabel: str,
     legend: bool,
     legend_loc: str,
     palette: str,
@@ -366,29 +412,20 @@ def _draw_metric_lines(
     dpi: int,
     **kwargs,
 ) -> Axes | None:
-    """Draw one metric line per group across the sweep axis.
+    """Draw one line of ``y_col`` per group across the sweep axis.
 
-    The drawing behind both :func:`plot_metric_over_n_clusters` (grouped on
-    ``method_id``) and :func:`plot_metric_by_pipeline` (grouped on
-    ``pipeline``), so the two plots cannot drift apart. ``results_df`` is
-    non-empty and carries ``sweep_param``, ``sweep_value``, ``sweep_rank``,
-    ``n_clusters_observed`` and the measure's column.
+    The drawing behind the line plots over the sweep axis in this module, so
+    they cannot drift apart. ``results_df`` is non-empty and carries
+    ``sweep_param``, ``sweep_value``, ``sweep_rank``, ``group_col`` and
+    ``y_col``. Error bars come from ``f"{y_col}_se"`` when the table carries
+    it. Callers validate the measure and resolve the default ``ylabel``.
 
     ``select_row`` returns the row whose ``sweep_value`` the dashed line
-    marks. If it raises, for example because ``not_two`` leaves no rows, the
-    line is left off.
+    marks, and ``selection_label`` builds its legend text from that row. If
+    either raises, for example because ``not_two`` leaves no rows, the line
+    is left off.
     """
-    if measure not in MEASURE_MAP:
-        raise ValueError(
-            f"Measure {measure!r} not found. Valid options: {list(MEASURE_MAP.keys())}"
-        )
-    measure_col = MEASURE_MAP[measure]
-    se_col = f"{measure_col}_se"
-
-    if measure_col not in results_df.columns:
-        raise ValueError(
-            f"Metric column {measure_col!r} not found in the results table."
-        )
+    se_col = f"{y_col}_se"
     has_se = se_col in results_df.columns
 
     # --- Figure setup ---
@@ -401,7 +438,6 @@ def _draw_metric_lines(
 
     # --- Identify grouping and x-axis columns ---
     x_col = "sweep_value"
-    param = sweep_param_name(results_df)
 
     results_df = results_df.copy()
     grouped = results_df.groupby([group_col])
@@ -414,7 +450,7 @@ def _draw_metric_lines(
         group_df_sorted = group_df.sort_values(x_col)
 
         x = group_df_sorted[x_col].values
-        y = group_df_sorted[measure_col].values
+        y = group_df_sorted[y_col].values
         yerr = group_df_sorted[se_col].values if has_se else None
         color = colors[color_idx % len(colors)]
 
@@ -436,16 +472,13 @@ def _draw_metric_lines(
     # --- Vertical line at the selected sweep value ---
     try:
         best_row = select_row()
-        best_x = float(best_row[x_col])
-        rule_str = "1-SE" if rule == "1se" else rule.title()
-        pretty = "k" if param == "n_clusters" else param
         ax.axvline(
-            best_x,
+            float(best_row[x_col]),
             color="gray",
             linestyle="--",
             linewidth=2,
             alpha=0.6,
-            label=f"Selected {pretty} ({rule_str} rule): {best_x:g}",
+            label=selection_label(best_row),
             zorder=0,
         )
     except Exception:
@@ -455,10 +488,6 @@ def _draw_metric_lines(
     if xlabel is None:
         xlabel = sweep_axis_label(results_df)
     ax.set_xlabel(xlabel, fontsize=12)
-
-    if ylabel is None:
-        ylabel = measure_col.replace("_", " ").title()
-        ylabel = ylabel.replace("Ari", "ARI")
     ax.set_ylabel(ylabel, fontsize=12)
 
     if title is not None:
