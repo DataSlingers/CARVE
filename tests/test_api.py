@@ -766,6 +766,10 @@ class TestPlotting:
         with pytest.raises(RuntimeError, match="fit"):
             carve.plot_metric_over_n_clusters()
 
+    def test_plot_n_clusters_over_sweep_unfitted(self):
+        with pytest.raises(RuntimeError, match="Call fit"):
+            CARVE(verbose=0).plot_n_clusters_over_sweep()
+
     def test_plot_consensus_matrix(self, fitted_carve):
         ax = fitted_carve.plot_consensus_matrix()
         assert ax is not None
@@ -1197,6 +1201,38 @@ class TestMinClusterSizeMode:
     def test_plot_xlabel(self, fitted_hdbscan):
         ax = fitted_hdbscan.plot_metric_over_n_clusters()
         assert ax.get_xlabel() == "Minimum Cluster Size"
+
+    def test_plot_n_clusters_over_sweep_marks_the_selection_it_is_asked_for(
+        self, fitted_hdbscan
+    ):
+        # min_cluster_size runs coarse to fine as 8, 5, 3. Stability peaks at
+        # size 3. Generalizability peaks at size 8 and reaches 0.98 at size 5,
+        # inside one standard error of the peak, and size 8's count is two
+        # clusters. So the default call marks 3; generalizability under "max"
+        # marks 8, where "1se" would mark the finer 5; and not_two=True
+        # excludes 8 and marks 5. A method that drops measure, rule or
+        # not_two marks the wrong size in one of the three calls.
+        carve = copy.deepcopy(fitted_hdbscan)
+        results = carve.estimator_results_
+        size = results["sweep_value"]
+        results["ari_stability"] = np.where(size == 3, 1.0, 0.0)
+        results["ari_stability_se"] = 0.01
+        results["ari_generalizability"] = np.select(
+            [size == 8, size == 5], [1.0, 0.98], default=0.0
+        )
+        results["ari_generalizability_se"] = 0.05
+        results["n_clusters_observed"] = np.where(size == 8, 2.0, 4.0)
+
+        def marked(**kwargs):
+            ax = carve.plot_n_clusters_over_sweep(**kwargs)
+            (dashed,) = [
+                line for line in ax.get_lines() if line.get_linestyle() == "--"
+            ]
+            return dashed.get_xdata()[0]
+
+        assert marked() == 3
+        assert marked(measure="generalizability", rule="max") == 8
+        assert marked(measure="generalizability", rule="max", not_two=True) == 5
 
     def _fit(self, X, **kwargs):
         return CARVE(

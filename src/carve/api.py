@@ -44,6 +44,9 @@ from ._plotting import (
 from ._plotting import (
     plot_metric_over_n_clusters as _plot_metric_over_n_clusters,
 )
+from ._plotting import (
+    plot_n_clusters_over_sweep as _plot_n_clusters_over_sweep,
+)
 from ._runner import run_validation
 from ._selection import select_best_estimator, select_best_k, select_best_row_by_rule
 from ._sweep import (
@@ -1284,6 +1287,122 @@ class CARVE(BaseEstimator):
             self.preprocessing_results_,
             estimator_df=self.estimator_results_,
             method_id=method_id,
+            measure=measure,
+            rule=rule,
+            not_two=not_two,
+            ax=ax,
+            figsize=figsize,
+            title=title,
+            xlabel=xlabel,
+            ylabel=ylabel,
+            legend=legend,
+            legend_loc=legend_loc,
+            palette=palette,
+            show=show,
+            save=save,
+            dpi=dpi,
+            **kwargs,
+        )
+
+    def plot_n_clusters_over_sweep(
+        self,
+        *,
+        measure: str = "stability",
+        rule: str = "1se",
+        not_two: bool = False,
+        ax=None,
+        figsize: tuple | None = None,
+        title: str | None = None,
+        xlabel: str | None = None,
+        ylabel: str | None = None,
+        legend: bool = True,
+        legend_loc: str = "best",
+        palette: str = "Accent",
+        show: bool = False,
+        save: str | Path | None = None,
+        dpi: int = 300,
+        **kwargs,
+    ) -> Axes | None:
+        """Plot the realized number of clusters across a sweep that does not fix k.
+
+        For a run over ``resolution``, ``min_cluster_size`` or another
+        parameter that is not ``n_clusters``. Draws ``n_clusters_observed``
+        from ``estimator_results_`` against the swept value, one line per
+        estimator configuration, with error bars at +/-1 standard error. The
+        dashed line marks the sweep value selected under ``measure``,
+        ``rule`` and ``not_two``. Its legend entry states the count there,
+        which is what ``get_k`` returns for the same arguments.
+
+        The count is the mean, over resamples, of the number of clusters in
+        the clustering of each resample's training subsample, counted after
+        ``noise_policy``. Under ``"drop"`` noise points are removed before
+        counting; under ``"as_cluster"`` the noise label counts as one
+        cluster; under ``"singleton"`` each noise point counts as its own
+        cluster. It is not the count of one fit on the full data;
+        ``get_labels`` cuts the consensus at the rounded count by default.
+        The error bars are the standard error of the mean, not the spread of
+        the count across resamples.
+
+        Parameters
+        ----------
+        measure : str, default="stability"
+            Metric used to select the marked sweep value. Options as in
+            ``plot_metric_over_n_clusters``.
+        rule : str, default="1se"
+            Selection rule: "max", "1se", "quantile".
+        not_two : bool, default=False
+            Whether to exclude configurations whose rounded count is two
+            when selecting.
+        ax : matplotlib.axes.Axes, optional
+            Axes object to plot on. If None, creates a new figure.
+        figsize : tuple, optional
+            Figure size (width, height) in inches. Default is (9, 5.5).
+        title : str, optional
+            Figure title.
+        xlabel : str, optional
+            X-axis label. Default is derived from the sweep parameter.
+        ylabel : str, optional
+            Y-axis label. Default is "Mean Observed Number of Clusters".
+        legend : bool, default=True
+            Whether to display a legend showing estimator labels.
+        legend_loc : str, default="best"
+            Legend location (passed to matplotlib's ax.legend).
+        palette : str, default="Accent"
+            Matplotlib colormap name for line colors.
+        show : bool, default=False
+            Whether to call plt.show() before returning.
+        save : str or Path, optional
+            Path to save the figure. If provided, the figure is saved and
+            None is returned instead of an Axes object.
+        dpi : int, default=300
+            Dots per inch for saved figures.
+        **kwargs
+            Additional keyword arguments passed to matplotlib's errorbar
+            function.
+
+        Returns
+        -------
+        ax : matplotlib.axes.Axes or None
+            The Axes object, or None if save was used.
+
+        Raises
+        ------
+        RuntimeError
+            If the instance has not been fitted yet.
+        ValueError
+            If the run swept ``n_clusters``, or ``measure`` is unknown.
+
+        Examples
+        --------
+        >>> carve = CARVE(resolution=[0.25, 0.5, 1.0, 2.0]).fit(X)
+        >>> ax = carve.plot_n_clusters_over_sweep(measure="stability", rule="1se")
+        >>> ax.set_xscale("log")
+        """
+        if self.estimator_results_ is None:
+            raise RuntimeError("Call fit() first.")
+
+        return _plot_n_clusters_over_sweep(
+            self.estimator_results_,
             measure=measure,
             rule=rule,
             not_two=not_two,
