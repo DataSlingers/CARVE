@@ -15,11 +15,13 @@ import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.legend import Legend
 from matplotlib.lines import Line2D
+from matplotlib.ticker import MaxNLocator
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from sklearn.decomposition import PCA
 
 from ._selection import MEASURE_MAP, select_best_row_by_rule
 from ._sweep import (
+    observed_k,
     sweep_axis_label,
     sweep_param_name,
 )
@@ -325,6 +327,148 @@ def plot_metric_by_pipeline(
     )
 
 
+def plot_n_clusters_over_sweep(
+    results_df: pd.DataFrame,
+    *,
+    measure: str = "stability",
+    rule: str = "1se",
+    not_two: bool = False,
+    ax: Axes | None = None,
+    figsize: tuple | None = None,
+    title: str | None = None,
+    xlabel: str | None = None,
+    ylabel: str | None = None,
+    legend: bool = True,
+    legend_loc: str = "best",
+    palette: str = "Accent",
+    show: bool = False,
+    save: str | Path | None = None,
+    dpi: int = 300,
+    **kwargs,
+) -> Axes | None:
+    """Plot the realized number of clusters across a sweep that does not fix k.
+
+    When a run sweeps ``resolution``, ``min_cluster_size`` or another
+    parameter that is not ``n_clusters``, the number of clusters is an
+    outcome of the sweep. This plot draws it against the swept value, one
+    line per estimator configuration (``method_id``), with error bars at
+    +/-1 standard error. A vertical dashed line marks the sweep value
+    selected under ``measure``, ``rule`` and ``not_two``, and its legend
+    entry states the count there. The x axis matches
+    :func:`plot_metric_over_n_clusters`, so the two plots can share it.
+
+    The count is ``n_clusters_observed``: the mean, over resamples, of the
+    number of clusters in the clustering of each resample's training
+    subsample, counted after the noise policy. Under ``"drop"`` noise points
+    are removed before counting; under ``"as_cluster"`` the noise label
+    counts as one cluster; under ``"singleton"`` each noise point counts as
+    its own cluster. It is not the count of one fit on the full data. At the
+    selected sweep value it rounds to ``CARVE.get_k()``, the count
+    ``CARVE.get_labels()`` cuts the consensus at by default. The error bars
+    are the standard error of that mean, not the spread of the count across
+    resamples.
+
+    Parameters
+    ----------
+    results_df : pd.DataFrame
+        ``estimator_results_`` from a CARVE fit that swept a parameter other
+        than ``n_clusters``.
+    measure : str, default="stability"
+        Metric used to select the marked sweep value. Options as in
+        :func:`plot_metric_over_n_clusters`.
+    rule : str, default="1se"
+        Selection rule for the marked sweep value: "max", "1se", "quantile".
+    not_two : bool, default=False
+        Exclude configurations whose rounded count is two when selecting.
+    ax : matplotlib.axes.Axes, optional
+        Axes object to plot on. If None, creates a new figure.
+    figsize : tuple, optional
+        Figure size (width, height) in inches. Default is (9, 5.5).
+    title : str, optional
+        Figure title.
+    xlabel : str, optional
+        X-axis label. Default is derived from the sweep parameter.
+    ylabel : str, optional
+        Y-axis label. Default is "Mean Observed Number of Clusters".
+    legend : bool, default=True
+        Whether to display a legend.
+    legend_loc : str, default="best"
+        Legend location (passed to ax.legend).
+    palette : str, default="Accent"
+        Matplotlib colormap name for line colors.
+    show : bool, default=False
+        Whether to call plt.show() before returning.
+    save : str or Path, optional
+        Path to save the figure. If provided, the figure is saved and None
+        is returned instead of the Axes object.
+    dpi : int, default=300
+        Dots per inch for saved figures.
+    **kwargs
+        Additional keyword arguments passed to ax.errorbar().
+
+    Returns
+    -------
+    ax : matplotlib.axes.Axes or None
+        The Axes drawn on, or None if save is used.
+
+    Raises
+    ------
+    RuntimeError
+        If results_df is empty.
+    ValueError
+        If the table sweeps ``n_clusters``, or ``measure`` is unknown or
+        names a column the table does not carry.
+
+    Examples
+    --------
+    >>> from carve.api import CARVE
+    >>> carve = CARVE(resolution=[0.25, 0.5, 1.0, 2.0]).fit(X)
+    >>> ax = plot_n_clusters_over_sweep(carve.estimator_results_)
+    >>> ax.set_xscale("log")
+    """
+    if results_df.empty:
+        raise RuntimeError("Results DataFrame is empty.")
+
+    param = sweep_param_name(results_df)
+    if param == "n_clusters":
+        raise ValueError(
+            "plot_n_clusters_over_sweep needs a sweep over a parameter other "
+            "than n_clusters. This table sweeps n_clusters, where the realized "
+            "count is the swept value itself; use plot_metric_over_n_clusters."
+        )
+    _measure_column(results_df, measure)
+
+    def selection_label(row: pd.Series) -> str:
+        marked = _selection_label(row, param=param, rule=rule)
+        return f"{marked}, {observed_k(row)} clusters"
+
+    return _draw_metric_lines(
+        results_df,
+        y_col="n_clusters_observed",
+        group_col="method_id",
+        label_of=_build_estimator_label,
+        legend_title="Estimators",
+        select_row=lambda: select_best_row_by_rule(
+            results_df, measure=measure, rule=rule, not_two=not_two
+        ),
+        selection_label=selection_label,
+        rule=rule,
+        integer_y=True,
+        ax=ax,
+        figsize=figsize,
+        title=title,
+        xlabel=xlabel,
+        ylabel=ylabel if ylabel is not None else "Mean Observed Number of Clusters",
+        legend=legend,
+        legend_loc=legend_loc,
+        palette=palette,
+        show=show,
+        save=save,
+        dpi=dpi,
+        **kwargs,
+    )
+
+
 def _selected_row_for(
     estimator_df: pd.DataFrame,
     method_id: str,
@@ -399,6 +543,7 @@ def _draw_metric_lines(
     select_row: Callable[[], pd.Series],
     selection_label: Callable[[pd.Series], str],
     rule: str,
+    integer_y: bool = False,
     ax: Axes | None,
     figsize: tuple | None,
     title: str | None,
@@ -424,6 +569,8 @@ def _draw_metric_lines(
     marks, and ``selection_label`` builds its legend text from that row. If
     either raises, for example because ``not_two`` leaves no rows, the line
     is left off.
+
+    ``integer_y`` puts the y ticks on whole numbers, for counts.
     """
     se_col = f"{y_col}_se"
     has_se = se_col in results_df.columns
@@ -496,6 +643,9 @@ def _draw_metric_lines(
     x_unique = sorted(results_df[x_col].unique())
     if len(x_unique) <= 20:
         ax.set_xticks(x_unique)
+
+    if integer_y:
+        ax.yaxis.set_major_locator(MaxNLocator(integer=True))
 
     if legend:
         ax.legend(

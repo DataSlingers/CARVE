@@ -21,6 +21,7 @@ from carve._plotting import (
     plot_diagnostic_scatter,
     plot_metric_by_pipeline,
     plot_metric_over_n_clusters,
+    plot_n_clusters_over_sweep,
 )
 from tests._helpers import with_sweep_cols
 
@@ -595,10 +596,176 @@ class TestSharedMetricDrawing:
             )
             == "drawn"
         )
+        assert plot_n_clusters_over_sweep(_realized_count_df()) == "drawn"
         assert calls == [
             ("method_id", "Estimators", "ari_stability", 3),
             ("pipeline", "Pipelines", "ari_stability", 6),
+            ("method_id", "Estimators", "n_clusters_observed", 6),
         ]
+
+
+# -----------------------------------------------------------------------
+# plot_n_clusters_over_sweep
+# -----------------------------------------------------------------------
+
+
+def _realized_count_df():
+    """A resolution-mode estimator_results_ table over two methods.
+
+    Each selection below lands on a different row, and two of the counts
+    differ between truncation and rounding (6.6 and 2.2 round to 7 and 2):
+
+    - stability, "max": Leiden at 1.0 (0.90), 6.6 observed.
+    - stability, "1se": 0.90 - 0.03 admits Leiden at 2.0 (0.88), the finest
+      row within tolerance, 11.0 observed.
+    - generalizability, "max": Louvain at 0.5 (0.95), 2.2 observed.
+    - generalizability, "max", not_two: Louvain at 0.5 rounds to two
+      clusters and is excluded, leaving Leiden at 1.0 (0.70).
+    """
+    curves = {
+        ("m0", "LeidenClustering"): (
+            [0.80, 0.90, 0.88],
+            [0.01, 0.03, 0.01],
+            [0.60, 0.70, 0.65],
+            [3.2, 6.6, 11.0],
+            [0.2, 0.4, 0.0],
+        ),
+        ("m1", "LouvainClustering"): (
+            [0.70, 0.75, 0.60],
+            [0.01, 0.01, 0.01],
+            [0.95, 0.50, 0.40],
+            [2.2, 5.0, 9.4],
+            [0.1, 0.3, 0.6],
+        ),
+    }
+    rows = []
+    for (method_id, label), values in curves.items():
+        stab, stab_se, gen, observed, observed_se = values
+        for rank, resolution in enumerate((0.5, 1.0, 2.0)):
+            rows.append(
+                {
+                    "config_id": len(rows),
+                    "method_id": method_id,
+                    "method_label": label,
+                    "estimator": label,
+                    "resolution": resolution,
+                    "ari_stability": stab[rank],
+                    "ari_stability_se": stab_se[rank],
+                    "ari_generalizability": gen[rank],
+                    "ari_generalizability_se": 0.01,
+                    "sweep_param": "resolution",
+                    "sweep_value": resolution,
+                    "sweep_rank": rank,
+                    "n_clusters_observed": observed[rank],
+                    "n_clusters_observed_se": observed_se[rank],
+                    "noise_fraction": 0.0,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+class TestPlotNClustersOverSweep:
+    def test_lines_carry_the_observed_counts_and_their_standard_errors(self):
+        ax = plot_n_clusters_over_sweep(_realized_count_df())
+        curves = {c.get_label(): c for c in ax.containers}
+        assert set(curves) == {"LeidenClustering", "LouvainClustering"}
+
+        for label, counts, ses in (
+            ("LeidenClustering", [3.2, 6.6, 11.0], [0.2, 0.4, 0.0]),
+            ("LouvainClustering", [2.2, 5.0, 9.4], [0.1, 0.3, 0.6]),
+        ):
+            data_line, _, (bars,) = curves[label]
+            np.testing.assert_allclose(data_line.get_xdata(), [0.5, 1.0, 2.0])
+            np.testing.assert_allclose(data_line.get_ydata(), counts)
+            half_widths = [
+                (seg[1][1] - seg[0][1]) / 2 for seg in bars.get_segments()
+            ]
+            np.testing.assert_allclose(half_widths, ses, atol=1e-12)
+
+    @pytest.mark.parametrize(
+        ("measure", "rule", "not_two", "x", "label"),
+        [
+            (
+                "stability",
+                "max",
+                False,
+                1.0,
+                "Selected resolution (Max rule): 1, 7 clusters",
+            ),
+            (
+                "stability",
+                "1se",
+                False,
+                2.0,
+                "Selected resolution (1-SE rule): 2, 11 clusters",
+            ),
+            (
+                "generalizability",
+                "max",
+                False,
+                0.5,
+                "Selected resolution (Max rule): 0.5, 2 clusters",
+            ),
+            (
+                "generalizability",
+                "max",
+                True,
+                1.0,
+                "Selected resolution (Max rule): 1, 7 clusters",
+            ),
+        ],
+    )
+    def test_marks_the_selected_sweep_value_and_its_count(
+        self, measure, rule, not_two, x, label
+    ):
+        ax = plot_n_clusters_over_sweep(
+            _realized_count_df(), measure=measure, rule=rule, not_two=not_two
+        )
+        (dashed,) = _dashed(ax)
+        assert list(dashed.get_xdata()) == [x, x]
+        assert dashed.get_label() == label
+
+    def test_axis_labels(self):
+        ax = plot_n_clusters_over_sweep(_realized_count_df())
+        assert ax.get_xlabel() == "Resolution"
+        assert ax.get_ylabel() == "Mean Observed Number of Clusters"
+        ax = plot_n_clusters_over_sweep(_realized_count_df(), ylabel="Clusters")
+        assert ax.get_ylabel() == "Clusters"
+
+    def test_y_ticks_are_whole_numbers(self):
+        # Between 2 and 3 clusters the default locator ticks at 1.8, 2.0, ...
+        df = with_sweep_cols(
+            pd.DataFrame(
+                {
+                    "estimator": ["LeidenClustering"] * 3,
+                    "resolution": [0.5, 1.0, 2.0],
+                    "ari_stability": [0.9, 0.8, 0.7],
+                    "ari_stability_se": [0.01, 0.01, 0.01],
+                }
+            ),
+            param="resolution",
+            method_label="LeidenClustering",
+            observed=[2.0, 2.5, 3.0],
+        )
+        ticks = plot_n_clusters_over_sweep(df).get_yticks()
+        np.testing.assert_array_equal(ticks, np.round(ticks))
+
+    def test_a_sweep_over_n_clusters_raises(self, metric_results_df):
+        with pytest.raises(ValueError, match="other than n_clusters"):
+            plot_n_clusters_over_sweep(metric_results_df)
+
+    def test_unknown_measure_raises(self):
+        with pytest.raises(ValueError, match="not found"):
+            plot_n_clusters_over_sweep(_realized_count_df(), measure="nonexistent")
+
+    def test_empty_df(self):
+        with pytest.raises(RuntimeError, match="empty"):
+            plot_n_clusters_over_sweep(pd.DataFrame())
+
+    def test_save_writes_the_file_and_returns_none(self, tmp_path):
+        path = tmp_path / "n_clusters.png"
+        assert plot_n_clusters_over_sweep(_realized_count_df(), save=path) is None
+        assert path.exists()
 
 
 # -----------------------------------------------------------------------
