@@ -93,6 +93,29 @@ def randomized_written(randomized_model, tmp_path_factory):
     return ad.read_h5ad(path)
 
 
+@pytest.fixture(scope="module")
+def sweep_model():
+    """CARVE fitted over HDBSCAN's min_cluster_size, a sweep that does not fix k."""
+    m = CARVE(
+        sweep="min_cluster_size",
+        sweep_values=np.array([3, 5, 8]),
+        n_resamples=5,
+        random_state=0,
+    )
+    m.fit(_bare_adata(), use_rep="X_pca")
+    return m
+
+
+@pytest.fixture(scope="module")
+def sweep_written(sweep_model, tmp_path_factory):
+    """The min_cluster_size result written into an AnnData and read back from h5ad."""
+    adata = _bare_adata()
+    carve.tl.attach_results(adata, sweep_model, use_rep="X_pca")
+    path = tmp_path_factory.mktemp("h5ad") / "sweep.h5ad"
+    adata.write_h5ad(path)
+    return ad.read_h5ad(path)
+
+
 PL_FUNCTIONS = [
     carve.pl.metric_over_n_clusters,
     carve.pl.consensus_matrix,
@@ -448,4 +471,67 @@ class TestMetricByPipeline:
     def test_save_writes_the_file_and_returns_none(self, randomized_written, tmp_path):
         path = tmp_path / "metric_by_pipeline.png"
         assert carve.pl.metric_by_pipeline(randomized_written, save=path) is None
+        assert path.exists()
+
+
+# -----------------------------------------------------------------------
+# n_clusters_over_sweep
+# -----------------------------------------------------------------------
+
+
+class TestNClustersOverSweep:
+    def test_matches_the_model_method_after_an_h5ad_round_trip(
+        self, sweep_written, sweep_model
+    ):
+        a = carve.pl.n_clusters_over_sweep(sweep_written)
+        b = sweep_model.plot_n_clusters_over_sweep(measure="stability", rule="1se")
+        assert len(a.containers) == len(b.containers) > 0
+        for ca, cb in zip(a.containers, b.containers):
+            assert ca.get_label() == cb.get_label()
+            np.testing.assert_allclose(ca[0].get_xdata(), cb[0].get_xdata())
+            np.testing.assert_allclose(ca[0].get_ydata(), cb[0].get_ydata())
+            np.testing.assert_allclose(
+                ca[2][0].get_segments(), cb[2][0].get_segments()
+            )
+        (dashed_a,) = [line for line in a.get_lines() if line.get_linestyle() == "--"]
+        (dashed_b,) = [line for line in b.get_lines() if line.get_linestyle() == "--"]
+        assert dashed_a.get_label() == dashed_b.get_label()
+        assert dashed_a.get_xdata()[0] == sweep_model.get_sweep_value()
+
+    def test_defaults_come_from_the_recorded_selection(
+        self, sweep_written, monkeypatch
+    ):
+        # The recorded params are set to non-default values so that a
+        # wrapper hard-coding "stability", "1se" and False could not pass by
+        # accident.
+        seen = {}
+
+        def spy(table, **kwargs):
+            seen.update(kwargs, n_rows=len(table))
+
+        monkeypatch.setattr(pl_plots, "_plot_n_clusters_over_sweep", spy)
+        adata = sweep_written.copy()
+        adata.uns["carve"]["params"]["measure"] = "generalizability"
+        adata.uns["carve"]["params"]["rule"] = "max"
+        adata.uns["carve"]["params"]["not_two"] = True
+        carve.pl.n_clusters_over_sweep(adata)
+        assert (seen["measure"], seen["rule"], seen["not_two"]) == (
+            "generalizability",
+            "max",
+            True,
+        )
+        assert seen["n_rows"] == len(sweep_written.uns["carve"]["results"])
+
+        carve.pl.n_clusters_over_sweep(
+            adata, measure="pac", rule="1se", not_two=False
+        )
+        assert (seen["measure"], seen["rule"], seen["not_two"]) == (
+            "pac",
+            "1se",
+            False,
+        )
+
+    def test_save_writes_the_file_and_returns_none(self, sweep_written, tmp_path):
+        path = tmp_path / "n_clusters_over_sweep.png"
+        assert carve.pl.n_clusters_over_sweep(sweep_written, save=path) is None
         assert path.exists()

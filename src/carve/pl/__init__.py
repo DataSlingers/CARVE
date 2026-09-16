@@ -8,6 +8,7 @@ from ._plots import (
     diagnostic_scatter,
     metric_by_pipeline,
     metric_over_n_clusters,
+    n_clusters_over_sweep,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "diagnostic_scatter",
     "metric_by_pipeline",
     "metric_over_n_clusters",
+    "n_clusters_over_sweep",
 ]

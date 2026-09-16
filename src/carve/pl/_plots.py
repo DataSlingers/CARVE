@@ -34,6 +34,9 @@ from .._plotting import (
 from .._plotting import (
     plot_metric_over_n_clusters as _plot_metric_over_n_clusters,
 )
+from .._plotting import (
+    plot_n_clusters_over_sweep as _plot_n_clusters_over_sweep,
+)
 from .._selection import MEASURE_MAP
 
 __all__ = [
@@ -44,6 +47,7 @@ __all__ = [
     "diagnostic_scatter",
     "metric_by_pipeline",
     "metric_over_n_clusters",
+    "n_clusters_over_sweep",
 ]
 
 Source = Literal["gini", "ce", "accuracy"]
@@ -371,6 +375,109 @@ def metric_by_pipeline(
             method_id if method_id is not None else str(params["selected_method_id"])
         ),
         measure=resolved_measure,
+        rule=rule if rule is not None else str(params.get("rule", "1se")),
+        not_two=(
+            not_two if not_two is not None else bool(params.get("not_two", False))
+        ),
+        ax=ax,
+        figsize=figsize,
+        title=title,
+        xlabel=xlabel,
+        ylabel=ylabel,
+        legend=legend,
+        legend_loc=legend_loc,
+        palette=palette,
+        show=show,
+        save=save,
+        dpi=dpi,
+        **kwargs,
+    )
+
+
+def n_clusters_over_sweep(
+    adata: AnnData,
+    *,
+    key: str = "carve",
+    measure: str | None = None,
+    rule: str | None = None,
+    not_two: bool | None = None,
+    ax: Axes | None = None,
+    figsize: tuple | None = None,
+    title: str | None = None,
+    xlabel: str | None = None,
+    ylabel: str | None = None,
+    legend: bool = True,
+    legend_loc: str = "best",
+    palette: str = "Accent",
+    show: bool = False,
+    save: str | Path | None = None,
+    dpi: int = 300,
+    **kwargs,
+) -> Axes | None:
+    """Plot the realized number of clusters across a sweep that does not fix k.
+
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data matrix carrying results from a :func:`carve.tl.carve`
+        run over a parameter other than ``n_clusters``.
+    key : str, default="carve"
+        The ``key_added`` used when the results were written.
+    measure : str, optional
+        Metric used to select the marked sweep value. Defaults to the
+        measure recorded at fit time, so the marker matches the labels in
+        ``adata.obs``.
+    rule : str, optional
+        Selection rule for the marked sweep value. Defaults to the recorded
+        rule.
+    not_two : bool, optional
+        Whether two-cluster solutions are excluded when selecting. Defaults
+        to the recorded value.
+    ax : matplotlib.axes.Axes, optional
+        Axes to draw on. A new figure is created when None.
+    figsize : tuple, optional
+        Figure size, used only when ``ax`` is None.
+    title, xlabel, ylabel : str, optional
+        Axis text overrides.
+    legend : bool, default=True
+        Draw the legend.
+    legend_loc : str, default="best"
+        Legend location.
+    palette : str, default="Accent"
+        Matplotlib colormap name used for the per-method colors.
+    show : bool, default=False
+        Call ``plt.show()`` before returning.
+    save : str or pathlib.Path, optional
+        Write the figure to this path and return None.
+    dpi : int, default=300
+        Resolution used when saving.
+    **kwargs
+        Forwarded to the underlying line plot.
+
+    Returns
+    -------
+    ax : matplotlib.axes.Axes or None
+        The Axes drawn on, or None when ``save`` is given.
+
+    Raises
+    ------
+    KeyError
+        If ``adata.uns[key]`` or its results table is absent.
+    ValueError
+        If the stored results sweep ``n_clusters``.
+
+    Notes
+    -----
+    The count is the mean over resamples of the number of clusters in the
+    clustering of each resample's training subsample, not the count of one
+    fit on the full data. See :meth:`carve.CARVE.plot_n_clusters_over_sweep`.
+    """
+    params = dict(_entry(adata, key)["params"])
+    return _plot_n_clusters_over_sweep(
+        _results(adata, key),
+        measure=(
+            measure if measure is not None else str(params.get("measure", "stability"))
+        ),
         rule=rule if rule is not None else str(params.get("rule", "1se")),
         not_two=(
             not_two if not_two is not None else bool(params.get("not_two", False))
