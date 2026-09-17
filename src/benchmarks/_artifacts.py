@@ -300,10 +300,25 @@ def write_frame(
 
     An empty row list writes an empty frame with the schema's columns; the
     study's at_k checkpoint is empty by design.
+
+    Written atomically, the way write_manifest writes manifest.json: to a
+    temporary file in the same directory, then os.replace onto the final
+    path. unit_done is existence-only, so a worker killed mid-write must
+    never leave a truncated file at a path resume would treat as complete.
     """
     path = Path(path)
     frame = pd.DataFrame(rows) if rows else pd.DataFrame(columns=list(schema))
-    _validate_against(frame, schema).to_parquet(path, index=False)
+    frame = _validate_against(frame, schema)
+    fd, tmp_name = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.stem}.", suffix=".parquet.tmp"
+    )
+    os.close(fd)
+    try:
+        frame.to_parquet(tmp_name, index=False)
+        os.replace(tmp_name, path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
     return path
 
 

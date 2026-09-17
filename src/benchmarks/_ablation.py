@@ -289,6 +289,32 @@ def cell_rows(
     for metric_name in CARVE_METRICS_ALL:
         measure = metric_measure(metric_name)
         rule = metric_rule(metric_name)
+        if results[measure].isna().all():
+            # A degenerate resampling draw (small B, small n, or an unlucky
+            # seed) can leave one sample with zero consensus co-occurrences,
+            # which makes this measure NaN for every configuration -- see
+            # CARVE's stability_gini_scores_/stability_ce_scores_ .mean(),
+            # not .nanmean(). select_best_row_by_rule's idxmax then raises on
+            # an all-NaN column. That is CARVE's own behavior (src/carve/ is
+            # out of scope here), so this cell records an unselected row for
+            # the metric instead of crashing the whole run.
+            warnings.warn(
+                f"Cell {key}: metric {metric_name!r} is NaN for every "
+                f"configuration (measure {measure!r} could not be scored); "
+                "recording an unselected row instead of raising.",
+                stacklevel=2,
+            )
+            selection.append(
+                {
+                    **key,
+                    "metric_name": metric_name,
+                    "selected_estimator": np.nan,
+                    "selected_k": np.nan,
+                    "k_star": np.nan if k_star is None else float(k_star),
+                    "ari_selected": np.nan,
+                }
+            )
+            continue
         row = select_best_row_by_rule(
             results, measure=measure, rule=rule, not_two=not_two
         )
@@ -366,9 +392,11 @@ def run_unit(
 
 
 def _run_and_write(unit, rd, ablation, scale, data, thread_cap) -> None:
-    # Module level, not a closure: joblib memmaps large array arguments
-    # (the study's X) once per call, while a closure would pickle them
-    # into every task.
+    # Module level, not a closure: joblib decides whether to memmap an
+    # array argument by its size (max_nbytes), not by whether the callable
+    # wrapping it is a closure. This stays at module scope so it pickles by
+    # qualified name for any joblib backend, and so run_unit is a global
+    # tests can monkeypatch (see test_ablation.py's resume test).
     frames = run_unit(
         unit, ablation=ablation, scale=scale, data=data, thread_cap=thread_cap
     )

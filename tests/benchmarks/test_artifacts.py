@@ -373,6 +373,21 @@ class TestAblationFrames:
         frame = pd.read_parquet(path)
         assert list(frame.columns) == list(ABLATION_SCHEMAS["cells"])
 
+    def test_write_frame_is_atomic_on_a_failed_write(self, tmp_path, monkeypatch):
+        # A worker killed mid-write (or, here, a write that simply fails)
+        # must not leave a truncated file at the final path -- unit_done is
+        # existence-only, so a resumed run would otherwise treat a
+        # half-written parquet file as a completed unit.
+        def boom(self, *args, **kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(pd.DataFrame, "to_parquet", boom)
+        path = tmp_path / "cells__x.parquet"
+        with pytest.raises(OSError, match="disk full"):
+            write_frame(path, [self._row()], ABLATION_SCHEMAS["cells"])
+        assert not path.exists()
+        assert list(tmp_path.iterdir()) == []
+
     def test_write_frame_accepts_no_rows(self, tmp_path):
         path = write_frame(tmp_path / "at_k__x.parquet", [], ABLATION_SCHEMAS["at_k"])
         frame = pd.read_parquet(path)

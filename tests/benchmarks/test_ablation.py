@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.datasets import make_blobs
+from sklearn.metrics import adjusted_rand_score
 
 import benchmarks._ablation as ablation_module
 import benchmarks._ablation_cells as cells_module
@@ -137,11 +138,41 @@ class TestSimilarityRows:
         assert {r["draw"] for r in rows} == {0, 1}
 
     def test_subsample_rows_score_the_draw_against_the_full_fit(self):
-        unit = Unit("similarity", Cell("tiny", "easy", 0, 0.5, 0, 0))
+        from benchmarks._ablation import _simulated
+        from benchmarks._ablation_cells import similarity_seed
+        from benchmarks._estimators import build_estimator
+        from carve._utils import split_subsample_indices
+
+        cell = Cell("tiny", "easy", 0, 0.5, 0, 0)
+        unit = Unit("similarity", cell)
         rows = similarity_rows(unit, ablation=TINY_ABLATION, scale="dev", data=None)
         assert len(rows) == 3 * 2  # candidate k x draws
         assert all(-1.0 <= r["ari"] <= 1.0 for r in rows)
         assert {r["subsample_ratio"] for r in rows} == {0.5}
+
+        # Independently recompute one (estimator, k, draw) row: the row's
+        # ari must be the draw's subsample clustering scored against the
+        # base full-data fit restricted to the draw -- not against the
+        # truth labels or an unrestricted reference, which the count and
+        # range assertions above would not catch.
+        X, y, scenario, base = _simulated(cell, TINY_ABLATION, "dev")
+        X = np.asarray(X)
+        k = scenario.candidate_k[0]
+        draw = 0
+        full = build_estimator(
+            scenario.estimator, n_clusters=k, random_state=base
+        ).fit_predict(X)
+        seed = similarity_seed(base, draw)
+        idx, _ = split_subsample_indices(
+            X.shape[0], subsample_ratio=cell.subsample_ratio, random_state=seed
+        )
+        sub = build_estimator(
+            scenario.estimator, n_clusters=k, random_state=seed
+        ).fit_predict(X[idx])
+        expected = adjusted_rand_score(full[idx], sub)
+
+        row = next(r for r in rows if r["k"] == k and r["draw"] == draw)
+        assert row["ari"] == pytest.approx(expected)
 
     def test_a_draw_has_the_subsample_size_carve_uses(self):
         from carve._utils import split_subsample_indices
@@ -200,6 +231,57 @@ class TestCellRows:
         assert selection["k_star"].isna().all()
         assert (selection["selected_k"] != 2).all()
         assert selection["ari_selected"].between(-1, 1).all()
+
+
+class TestCellRowsAllNaNMeasure:
+    """Cell("tiny", "easy", 0, 0.5, 8, 1) is a known trigger: at B=8, one of
+    120 simulated samples is never included in any resample draw (chance
+    ~0.5**8 per sample), leaving its consensus-matrix row all-NaN. CARVE
+    sums that into consensus_gini_stability/consensus_ce_stability with
+    .mean(), not .nanmean() (src/carve/api.py), so both measures come back
+    NaN for every configuration of this cell. select_best_row_by_rule's
+    idxmax used to raise ValueError("Encountered all NA values") on that
+    column; cell_rows must record an unselected row for the metric instead
+    of crashing the run, while the ARI-based metrics -- unaffected by the
+    missing sample's consensus row, since they never depend on gini/CE --
+    keep selecting normally.
+    """
+
+    @classmethod
+    @pytest.fixture(scope="class")
+    def degenerate(cls):
+        unit = Unit("cell", Cell("tiny", "easy", 0, 0.5, 8, 1))
+        with pytest.warns(UserWarning, match="is NaN for every configuration"):
+            return cell_rows(
+                unit, ablation=TINY_ABLATION, scale="dev", data=None, thread_cap=None
+            )
+
+    def test_gini_curve_is_genuinely_all_nan(self, degenerate):
+        # Exercise the path for real: if CARVE ever stops producing an
+        # all-NaN gini column for this cell, this fails loudly rather than
+        # letting the rest of the test pass on a scenario that no longer
+        # occurs.
+        curves = pd.DataFrame(degenerate["curves"])
+        gini = curves.loc[curves["metric_name"] == "consensus_gini_stability", "metric_value"]
+        assert gini.notna().sum() == 0
+        assert len(gini) == 3
+
+    def test_returns_instead_of_raising(self, degenerate):
+        assert degenerate["curves"] and degenerate["selection"] and degenerate["cells"]
+
+    def test_gini_and_ce_selection_rows_are_unselected(self, degenerate):
+        selection = pd.DataFrame(degenerate["selection"]).set_index("metric_name")
+        for metric in ("consensus_gini_stability", "consensus_ce_stability"):
+            row = selection.loc[metric]
+            assert np.isnan(row["selected_k"])
+            assert np.isnan(row["ari_selected"])
+
+    def test_headline_ari_metrics_still_select_a_candidate_k(self, degenerate):
+        selection = pd.DataFrame(degenerate["selection"]).set_index("metric_name")
+        for metric in ("ari_stability", "ari_generalizability"):
+            row = selection.loc[metric]
+            assert not np.isnan(row["selected_k"])
+            assert int(row["selected_k"]) in {3, 4, 5}
 
 
 class TestAblationHash:
