@@ -1,0 +1,286 @@
+"""Per-setting summaries of the ablation frames.
+
+Pure pandas over the frames read_frames returns, so the figures, the table
+and the notebook compute nothing themselves. x names the swept column,
+"subsample_ratio" for the rho arm and "n_resamples" for the B arm. Rows
+with study == POOLED pool the simulated studies; the case study has
+difficulty "" and is never pooled with them.
+"""
+
+from collections.abc import Sequence
+
+import numpy as np
+import pandas as pd
+
+from ._artifacts import CELL_KEY
+from ._registry import GENERALIZABILITY_METRICS
+from ._tables import wilson_ci
+
+HEADLINE_METRICS: tuple[str, ...] = ("ari_stability_1se", "ari_generalizability_1se")
+POOLED: str = "pooled"
+DATASET_KEY: tuple[str, ...] = ("study", "difficulty", "dataset")
+
+
+def metric_mode(metric_name: str) -> str:
+    """Which consensus matrix a metric's labels are cut from; mirrors _run._labels_mode."""
+    return "generalizability" if metric_name in GENERALIZABILITY_METRICS else "default"
+
+
+def _is_simulation(frame: pd.DataFrame) -> pd.Series:
+    return frame["difficulty"] != ""
+
+
+def _with_pooled(
+    frame: pd.DataFrame, group: list[str], agg: dict, *, x: str
+) -> pd.DataFrame:
+    """Aggregate per (x, study, ...) and append pooled rows over the simulations."""
+    per = frame.groupby(group, as_index=False).agg(**agg)
+    sims = frame[_is_simulation(frame)]
+    pooled_group = [g for g in group if g != "study"]
+    pooled = sims.groupby(pooled_group, as_index=False).agg(**agg)
+    pooled.insert(group.index("study"), "study", POOLED)
+    return pd.concat([per, pooled], ignore_index=True)
+
+
+def selection_summary(
+    selection: pd.DataFrame, *, x: str, metrics: Sequence[str] = HEADLINE_METRICS
+) -> pd.DataFrame:
+    """k* recovery with Wilson bounds, mean bias and mean ARI of the selected labels.
+
+    Simulations only: the study has no true k.
+    """
+    rows = selection[
+        selection["k_star"].notna() & selection["metric_name"].isin(metrics)
+    ].copy()
+    rows["hit"] = (rows["selected_k"] == rows["k_star"]).astype(float)
+    rows["bias"] = rows["selected_k"] - rows["k_star"]
+    out = _with_pooled(
+        rows,
+        [x, "study", "metric_name"],
+        {
+            "n": ("hit", "size"),
+            "hits": ("hit", "sum"),
+            "bias_mean": ("bias", "mean"),
+            "ari_mean": ("ari_selected", "mean"),
+            "ari_sem": ("ari_selected", "sem"),
+        },
+        x=x,
+    )
+    out["recovery"] = out["hits"] / out["n"]
+    bounds = [wilson_ci(int(h), int(n)) for h, n in zip(out["hits"], out["n"])]
+    out["recovery_lo"] = [lo for lo, _ in bounds]
+    out["recovery_hi"] = [hi for _, hi in bounds]
+    return out[
+        [
+            x,
+            "study",
+            "metric_name",
+            "n",
+            "recovery",
+            "recovery_lo",
+            "recovery_hi",
+            "bias_mean",
+            "ari_mean",
+            "ari_sem",
+        ]
+    ]
+
+
+def _pair_agreement(choices: pd.Series) -> float:
+    n = len(choices)
+    if n < 2:
+        return np.nan
+    counts = choices.value_counts().to_numpy(dtype=float)
+    return float((counts * (counts - 1)).sum() / (n * (n - 1)))
+
+
+def agreement_summary(
+    selection: pd.DataFrame, *, x: str, metrics: Sequence[str] = HEADLINE_METRICS
+) -> pd.DataFrame:
+    """Fraction of replicate pairs that select the same (estimator, k), per
+    dataset, then averaged over datasets. NaN with a single replicate."""
+    rows = selection[selection["metric_name"].isin(metrics)].copy()
+    rows["choice"] = rows["selected_estimator"] + "@" + rows["selected_k"].astype(str)
+    per_dataset = (
+        rows.groupby([x, *DATASET_KEY, "metric_name"], as_index=False)["choice"]
+        .agg(_pair_agreement)
+        .rename(columns={"choice": "agreement"})
+    )
+    return _with_pooled(
+        per_dataset,
+        [x, "study", "metric_name"],
+        {"agreement": ("agreement", "mean"), "n_datasets": ("agreement", "size")},
+        x=x,
+    )
+
+
+def spread_summary(
+    curves: pd.DataFrame, *, x: str, metrics: Sequence[str] = HEADLINE_METRICS
+) -> pd.DataFrame:
+    """Standard deviation of a metric across replicates at each (dataset,
+    estimator, k), averaged over those."""
+    rows = curves[curves["metric_name"].isin(metrics)]
+    sd = (
+        rows.groupby(
+            [x, *DATASET_KEY, "metric_name", "estimator", "k"], as_index=False
+        )["metric_value"]
+        .std(ddof=1)
+        .rename(columns={"metric_value": "sd"})
+    )
+    return _with_pooled(
+        sd, [x, "study", "metric_name"], {"spread": ("sd", "mean")}, x=x
+    )
+
+
+def curve_at_k_star(
+    curves: pd.DataFrame,
+    datasets: pd.DataFrame,
+    *,
+    x: str,
+    metrics: Sequence[str] = HEADLINE_METRICS,
+) -> pd.DataFrame:
+    """Mean metric value and mean reported standard error at the true k."""
+    merged = curves.merge(datasets[[*DATASET_KEY, "k_star"]], on=list(DATASET_KEY))
+    rows = merged[
+        (merged["k"] == merged["k_star"]) & merged["metric_name"].isin(metrics)
+    ]
+    return _with_pooled(
+        rows,
+        [x, "study", "metric_name"],
+        {
+            "value_mean": ("metric_value", "mean"),
+            "value_sem": ("metric_value", "sem"),
+            "se_mean": ("metric_se", "mean"),
+        },
+        x=x,
+    )
+
+
+def rare_recall_summary(
+    at_k: pd.DataFrame,
+    selection: pd.DataFrame,
+    *,
+    x: str,
+    metrics: Sequence[str] = HEADLINE_METRICS,
+    difficulty: str | None = None,
+) -> pd.DataFrame:
+    """Recall of the smallest true cluster at the selected k and at k*.
+
+    Each metric reads the at_k rows of its own consensus mode. difficulty
+    restricts to one axis label (the hard setting is where rare clusters
+    are smallest).
+    """
+    key = list(CELL_KEY)
+    parts = []
+    for metric in metrics:
+        sel = selection[selection["metric_name"] == metric]
+        sel = sel[sel["k_star"].notna()][key + ["selected_k", "k_star"]].copy()
+        sel["k_star"] = sel["k_star"].astype(int)
+        at = at_k[at_k["mode"] == metric_mode(metric)][key + ["k", "rare_recall_at_k"]]
+        at_selected = sel.merge(at, left_on=key + ["selected_k"], right_on=key + ["k"])
+        at_star = sel.merge(at, left_on=key + ["k_star"], right_on=key + ["k"])
+        frame = (
+            at_selected[key + ["rare_recall_at_k"]]
+            .rename(columns={"rare_recall_at_k": "recall_selected"})
+            .merge(
+                at_star[key + ["rare_recall_at_k"]].rename(
+                    columns={"rare_recall_at_k": "recall_k_star"}
+                ),
+                on=key,
+            )
+        )
+        frame["metric_name"] = metric
+        parts.append(frame)
+    rows = pd.concat(parts, ignore_index=True)
+    if difficulty is not None:
+        rows = rows[rows["difficulty"] == difficulty]
+    return _with_pooled(
+        rows,
+        [x, "study", "metric_name"],
+        {
+            "recall_selected": ("recall_selected", "mean"),
+            "recall_k_star": ("recall_k_star", "mean"),
+        },
+        x=x,
+    )
+
+
+def similarity_summary(similarity: pd.DataFrame) -> pd.DataFrame:
+    """Mean subsample-versus-full ARI per (rho, study, estimator, k)."""
+    return similarity.groupby(
+        ["subsample_ratio", "study", "estimator", "k"], as_index=False
+    ).agg(ari_mean=("ari", "mean"), ari_sem=("ari", "sem"), n=("ari", "size"))
+
+
+def study_selection_shares(
+    selection: pd.DataFrame, *, x: str, metric: str, study: str
+) -> pd.DataFrame:
+    """Share of replicates selecting each (estimator, k) at each setting."""
+    rows = selection[
+        (selection["study"] == study) & (selection["metric_name"] == metric)
+    ]
+    counts = rows.groupby(
+        [x, "selected_estimator", "selected_k"], as_index=False
+    ).size()
+    counts = counts.rename(columns={"size": "count"})
+    totals = rows.groupby(x, as_index=False).size().rename(columns={"size": "n"})
+    out = counts.merge(totals, on=x)
+    out["share"] = out["count"] / out["n"]
+    return out[[x, "selected_estimator", "selected_k", "count", "n", "share"]]
+
+
+def diagnostics_summary(cells: pd.DataFrame, *, x: str) -> pd.DataFrame:
+    """Mean fit time, NaN fraction and cluster-count warnings per setting and study."""
+    return cells.groupby([x, "study"], as_index=False).agg(
+        fit_seconds=("fit_seconds", "mean"),
+        consensus_nan_fraction=("consensus_nan_fraction", "mean"),
+        n_cluster_count_warnings=("n_cluster_count_warnings", "mean"),
+    )
+
+
+def table_rows(
+    view: dict[str, pd.DataFrame],
+    *,
+    x: str,
+    study: str,
+    metrics: Sequence[str] = HEADLINE_METRICS,
+) -> pd.DataFrame:
+    """One row per (setting, metric) for the SI table: pooled recovery with
+    its Wilson interval, pooled ARI, pooled replicate agreement, and the
+    study's modal selection with its share of replicates."""
+    selection = view["selection"]
+    pooled = selection_summary(selection, x=x, metrics=metrics)
+    pooled = pooled[pooled["study"] == POOLED]
+    agreement = agreement_summary(selection, x=x, metrics=metrics)
+    agreement = agreement[agreement["study"] == POOLED][[x, "metric_name", "agreement"]]
+    rows = pooled.merge(agreement, on=[x, "metric_name"], how="left")
+    modal = []
+    for metric in metrics:
+        shares = study_selection_shares(selection, x=x, metric=metric, study=study)
+        for setting, group in shares.groupby(x):
+            top = group.sort_values(
+                ["share", "selected_k"], ascending=[False, True]
+            ).iloc[0]
+            modal.append(
+                {
+                    x: setting,
+                    "metric_name": metric,
+                    "study_modal": f"{top['selected_estimator']}, k={int(top['selected_k'])}",
+                    "study_share": float(top["share"]),
+                }
+            )
+    rows = rows.merge(pd.DataFrame(modal), on=[x, "metric_name"], how="left")
+    rows = rows.rename(columns={x: "setting"})
+    return rows[
+        [
+            "setting",
+            "metric_name",
+            "recovery",
+            "recovery_lo",
+            "recovery_hi",
+            "ari_mean",
+            "agreement",
+            "study_modal",
+            "study_share",
+        ]
+    ].sort_values(["setting", "metric_name"], ignore_index=True)
