@@ -348,6 +348,17 @@ class TestAblationTable:
                     "study_modal": "Ward, k=2",
                     "study_share": 0.75,
                 },
+                {
+                    "setting": 0.9,
+                    "metric_name": "ari_stability_1se",
+                    "recovery": 0.33,
+                    "recovery_lo": 0.14,
+                    "recovery_hi": 0.61,
+                    "ari_mean": 0.52,
+                    "agreement": 0.50,
+                    "study_modal": "SpectralClustering, k=3",
+                    "study_share": 0.80,
+                },
                 # 0.7 + ari_generalizability_1se intentionally omitted (match.empty)
             ]
         )
@@ -387,6 +398,17 @@ class TestAblationTable:
                     "study_modal": "Ward, k=5",
                     "study_share": 0.60,
                 },
+                {
+                    "setting": 150,
+                    "metric_name": "ari_stability_1se",
+                    "recovery": 0.42,
+                    "recovery_lo": 0.19,
+                    "recovery_hi": 0.68,
+                    "ari_mean": 0.56,
+                    "agreement": 0.58,
+                    "study_modal": "SpectralClustering, k=3",
+                    "study_share": 0.75,
+                },
                 # 100 + ari_generalizability_1se intentionally omitted (match.empty)
             ]
         )
@@ -407,33 +429,43 @@ class TestAblationTable:
         assert "Ward, $k=2$" in tex
         assert "Ward, $k=5$" in tex
         assert "Ward, $k=4$" in tex
+        assert "Spectral, $k=3$" in tex
 
-        # Verify that NaN study_share causes modal to render as empty (no estimator/k shown)
-        # SpectralClustering entries have NaN study_share, so they should render empty
-        # Check that the rows with missing study_share have empty modal cells
-        # by looking for empty trailing cells in the data rows
-
-        # Count rho data lines: 0.5 and 0.7 each appear once
+        # Extract rho data lines: 0.5, 0.7, 0.9
         rho_section = tex.split(r"\begin{tabular}{lcccccc}")[1].split(r"\end{tabular}")[0]
         rho_data_lines = [
             line
             for line in rho_section.split("\n")
             if line.strip() and "0." in line and not line.startswith("\\")
         ]
-        assert len(rho_data_lines) == 2, f"Expected 2 rho data rows, got {len(rho_data_lines)}"
+        assert len(rho_data_lines) == 3, f"Expected 3 rho data rows, got {len(rho_data_lines)}"
 
-        # Count b data lines: 50 and 100 each appear once
+        # Extract B data lines: 50, 100, 150
         b_section = tex.split(r"\begin{tabular}{lcccccccc}")[1].split(r"\end{tabular}")[0]
         b_data_lines = [
             line
             for line in b_section.split("\n")
-            if line.strip() and (line.startswith("50 ") or line.startswith("100 "))
+            if line.strip()
+            and (line.startswith("50 ") or line.startswith("100 ") or line.startswith("150 "))
         ]
-        assert len(b_data_lines) == 2, f"Expected 2 b data rows, got {len(b_data_lines)}"
+        assert len(b_data_lines) == 3, f"Expected 3 b data rows, got {len(b_data_lines)}"
 
-        # Verify NaN cells render as empty strings, not "nan"
-        # Rows should contain empty cells (consecutive & with space between)
-        for line in rho_data_lines + b_data_lines:
+        # Verify cell counts: rho sub-table has 7 cells per row (1 setting + 3 * 2 metrics)
+        for line in rho_data_lines:
             assert "nan" not in line.lower(), f"Line should not contain nan: {line}"
-            # Check that there are patterns like " & " for empty cells
-            assert " & " in line, f"Line should have empty cells separated by &: {line}"
+            # Strip the LaTeX row-end marker (space-backslash-backslash)
+            line_content = line[:-3] if line.endswith(r" \\") else line
+            cells = line_content.split(" & ")
+            assert (
+                len(cells) == 7
+            ), f"Rho row should have 7 cells, got {len(cells)}: {line}"
+
+        # Verify cell counts: B sub-table has 9 cells per row (1 setting + 4 * 2 metrics)
+        for line in b_data_lines:
+            assert "nan" not in line.lower(), f"Line should not contain nan: {line}"
+            # Strip the LaTeX row-end marker (space-backslash-backslash)
+            line_content = line[:-3] if line.endswith(r" \\") else line
+            cells = line_content.split(" & ")
+            assert (
+                len(cells) == 9
+            ), f"B row should have 9 cells, got {len(cells)}: {line}"
