@@ -1,6 +1,7 @@
 # Sensitivity of CARVE to the subsampling proportion and the resample count: design
 
 Date: 2026-09-16
+Revised: 2026-09-17 (parallelism: decision 9, sections 7.3, 7.5, 10, 11)
 Status: awaiting author review, then planning with /superpowers:writing-plans
 Supersedes: nothing
 Related: `docs/superpowers/specs/2026-09-01-benchmarks-rebuild-design.md` (scenario runner and
@@ -61,7 +62,20 @@ Benchmarks, in `src/benchmarks/`:
 - `labels_by_k` in `run_cell` holds the scenario estimator's full-data fit at each candidate k, with
   `random_state=benchmark_seed`.
 - `run_scenario` parallelizes over cells with joblib, gives CARVE `n_jobs=1`, checkpoints one parquet
-  file per cell and content-addresses the run directory with `config_hash`.
+  file per cell and content-addresses the run directory with `config_hash`, which does not include
+  `n_jobs`. `run.py` defaults `--n-jobs` to 1.
+- CARVE's `n_jobs` is a core budget (`carve._utils.resolve_core_budget`): `outer` resample workers,
+  and `inner = max(1, cpu_count() // outer)` threads for each resample's classifier, where
+  `cpu_count` is joblib's. Probed on 2026-09-17 inside an 11-worker loky pool (joblib 1.5.3):
+  OpenMP and BLAS are capped at one thread (`OMP_NUM_THREADS=1`), but `cpu_count()` still returns 11,
+  so a fit with `n_jobs=1` gives its forest 11 threads and the pool can run 121 forest threads on 11
+  cores. Setting `LOKY_MAX_CPU_COUNT=1` inside the worker made `resolve_core_budget(1, ...)` return
+  (1, 1); joblib's `cpu_count` takes the minimum of the system count and that variable. The core
+  budget work on 2026-09-11 measured nested forest threads as slower (eight forest fits: 2.9 s
+  single-threaded, 3.7 s with every forest on all cores) and found `estimator_results_` identical
+  across thread counts, so the thread count affects speed only.
+- The machine has 5 performance and 6 efficiency cores and 18 GiB. Concurrent single-threaded t-SNE
+  fits measured on 2026-09-14 gave 4.3, 4.9 and 5.2 single-fit equivalents at 5, 8 and 11 workers.
 - `STUDIES["klein"]` declares Ward agglomerative and self-tuning spectral clustering over k = 2..10,
   with scales `dev` (400 cells) and `publication` (0.5, which is 1,358 cells). The Klein notebook
   selects with `measure="generalizability"`, `rule="1se"` and `not_two=True`, with `RANDOM_SEED =
@@ -110,6 +124,10 @@ Taken in the 2026-09-16 brainstorming session.
    seed, so each ρ value would see different data, and there is no replicate dimension. Computation
    inside the notebook: a multi-day run needs checkpointing and resume.
 8. No change to `src/carve/`, and no change to any published scenario's output or `config_hash`.
+9. Parallelism (author, 2026-09-17). Every ablation run uses the worker count that finishes it
+   fastest, and no fit runs more threads than its share of the cores. The runner's `n_jobs` defaults
+   to -1, and the publication value is chosen among 5, 6, 7, 8 and -1 by a timing check (section
+   10).
 
 ## 4. Study design
 
@@ -165,6 +183,8 @@ numbers are not reported.
 - Klein: `study_model_grids(STUDIES["klein"])`, `n_jobs=1`, `subsample_ratio=ρ`, `n_resamples=B`.
   The data is loaded once at the configured scale and shared with the workers. Selection uses the
   Study's `not_two` (section 7.1).
+- In both, CARVE's `n_jobs=1` means one resample worker per fit. How many threads its classifier gets
+  is set by the thread cap in section 7.3.
 
 ## 5. Outcomes
 
@@ -256,6 +276,10 @@ package defaults and projects to `SCHEMA`, so its output for every published sce
 The CVIs stay in `run_cell` and are not recomputed per ablation cell. Function boundaries are settled
 in the plan.
 
+The thread cap of section 7.3 lives in this shared code, so a scenario run with `n_jobs` above 1 gets
+the same speedup without moving a result row. With `n_jobs=1` the cap is every core, so a timed
+scenario run at the default measures what it measures today.
+
 ### 7.3 Runner
 
 A new module `_ablation.py` provides `run_ablation(ablation, *, scale, root, n_jobs, resume,
@@ -264,7 +288,17 @@ verbose) -> Path`.
 - It enumerates the unique cells for the scale. Klein cells run first. Simulation cells follow,
   grouped by dataset index (every scenario and setting for dataset 0, then dataset 1, and so on), so
   a stopped run holds a balanced design over fewer datasets.
-- joblib parallelizes over units of work and CARVE gets `n_jobs=1`, as in `run_scenario`.
+- Parallelism. joblib parallelizes over units of work with the loky backend, and `n_jobs` defaults
+  to -1. Units are many and small (at most 1,500 samples), so parallelism across units is used rather
+  than within a fit, and no process pool is nested inside another. Each CARVE fit gets `n_jobs=1`.
+- Thread cap. For the duration of each fit, a unit caps the CPU count its process reports at
+  `max(1, cores // workers)`, where `workers` is the resolved worker count. CARVE's core budget then
+  gives the forest that many threads instead of every core. The probe in section 2 shows that
+  `LOKY_MAX_CPU_COUNT` does this without a change to `src/carve/`; the plan settles the mechanism,
+  including restoring the variable afterwards.
+- The manifest records the requested `n_jobs`, the resolved worker count, the thread cap and
+  `os.cpu_count()`. The per-cell `fit_seconds` are measured with a full worker pool; they feed the
+  cost estimate and the diagnostics, not a runtime result.
 - Per-dataset work (oracle ARI, smallest true cluster, full-data fits for similarity) runs once per
   (study, difficulty, dataset) and is checkpointed on its own. Similarity runs once per (study,
   difficulty, dataset, ρ) and is checkpointed separately from the CARVE cells.
@@ -304,7 +338,8 @@ filters them to one arm's cells.
 
 `python -m benchmarks.run --ablation rho_b [--scale dev|publication] [--n-jobs N] [--no-resume]`.
 `--list` also prints the ablation names. `--ablation` is mutually exclusive with `--scenario` and
-`--all`. The scale defaults to the ablation's default scale.
+`--all`. The scale defaults to the ablation's default scale. With `--ablation`, `--n-jobs` defaults
+to -1. With `--scenario` and `--all` it keeps its default of 1 (section 13).
 
 ## 8. Figures, table and notebook
 
@@ -392,7 +427,11 @@ Unit tests, in the files that mirror each module:
   replicates, a synthetic Study in place of Klein) runs end to end; a cell in both arms is computed
   once; resume skips completed units; dev and publication run directories differ.
 - Artifacts: every schema validates on write; `arm_view` returns exactly its arm's cells.
-- CLI: `--ablation` parses and is exclusive with `--scenario` and `--all`.
+- CLI: `--ablation` parses and is exclusive with `--scenario` and `--all`; its `n_jobs` defaults to
+  -1, and `--scenario` still defaults to 1.
+- Thread cap: in a real two-worker loky pool, a recording classifier passed to a fit inside a unit
+  sees `n_jobs == max(1, cores // 2)`. With the cap removed it sees every core, so the test fails.
+  With one worker it sees every core. The CPU-count variable is restored after the fit.
 - Figures: the contract test, and both figures render from the tiny run's frames.
 - Notebook pins as in section 8, and the Klein `not_two` pin from section 7.1.
 
@@ -409,8 +448,11 @@ Verification before the publication run, in order:
 3. Where a full-scale scenario run from current code exists in `results/runs/`, the CARVE metric
    rows of the simulation cells at ρ = 0.618, B = 100, replicate 0 equal that run's rows for the
    same scenario, difficulty and dataset.
-4. The publication cost estimate is re-derived from the dev run's recorded fit times before the
-   four-day run starts.
+4. Timing check. One fixed batch of publication-scale cells, including Klein cells, with at least 22
+   units so every worker count up to 11 stays busy, runs into a scratch root once at each `n_jobs`
+   in {5, 6, 7, 8, -1}. The batch is sized to take about 15 minutes at -1, which puts the check at
+   about 1.5 hours. The value with the shortest wall clock is the publication run's `n_jobs`, and
+   the publication cost estimate is re-derived from its throughput before the four-day run starts.
 
 ## 11. Cost and run order
 
@@ -421,7 +463,8 @@ Estimates from section 2; circles and moons carry about ±30%.
   similarity, about 54 h.
 - B arm, simulations: 10 pairs × 3 replicates × (10 + 25 + 50 + 100 + 200)/100 × 12.6 min: about
   24 h, less the 60 shared cells.
-- Klein: 120 unique fits, about 12 h.
+- Klein: 120 unique fits. At 6 min per fit on 8 cores, run one after another, that is 12 h. The
+  runner fits them concurrently with capped forests, so the timing check re-derives this figure.
 - Total: about 90 h.
 
 Run order within the ablation is set by the runner (section 7.3). The Cusanovich 150-resample run
@@ -446,4 +489,6 @@ needs the same machine; which runs first is the author's call.
 - The R port.
 - Changing CARVE's defaults, or storing per-resample scores in CARVE.
 - Any change to a published scenario's output.
+- Changing the `--n-jobs` default for `--scenario` and `--all`. Their result rows do not depend on
+  it, but the scaling scenarios time their fits, and concurrent workers change those timings.
 - Edits to `overleaf/`.
