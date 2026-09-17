@@ -12,6 +12,7 @@ notebooks' opening view of their reference labels, and saves alongside the
 composites it precedes.
 """
 
+from ._ablation import figure_ablation_b, figure_ablation_rho
 from ._benchmarking_examples import figure_benchmarking_examples
 from ._benchmarking_results import figure_benchmarking_results
 from ._carve_output import figure_carve_output_klein, figure_carve_output_levine
@@ -32,6 +33,8 @@ __all__ = [
     "CompositeInputs",
     "VIS_ROOT",
     "composite_figure",
+    "figure_ablation_b",
+    "figure_ablation_rho",
     "figure_benchmarking_examples",
     "figure_benchmarking_results",
     "figure_carve_output_klein",
