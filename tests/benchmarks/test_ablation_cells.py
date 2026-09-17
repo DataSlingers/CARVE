@@ -171,6 +171,14 @@ class TestUnitFiles:
         assert set(unit_paths(tmp_path, d)) == {"datasets"}
         assert set(unit_paths(tmp_path, s)) == {"similarity"}
 
+    @pytest.mark.parametrize("scale", ("dev", "publication"))
+    def test_stems_are_unique_over_every_unit(self, tmp_path, scale):
+        units = enumerate_units(RHO_B, scale)
+        paths = []
+        for unit in units:
+            paths.extend(unit_paths(tmp_path, unit).values())
+        assert len(paths) == len(set(paths)), "Checkpoint paths must be unique to avoid collision"
+
 
 class TestSeeds:
     def test_simulation_base_is_the_benchmark_seed(self):
