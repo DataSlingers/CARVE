@@ -74,7 +74,9 @@ class TestAblationCli:
 
     def test_ablation_is_exclusive_with_scenario_and_all(self, capsys):
         assert main(["--ablation", "rho_b", "--scenario", "gaussians"]) == 2
+        assert "exclusive" in capsys.readouterr().err
         assert main(["--ablation", "rho_b", "--all"]) == 2
+        assert "exclusive" in capsys.readouterr().err
 
     def test_n_jobs_defaults_differ_by_mode(self):
         args = _parser().parse_args(["--scenario", "gaussians"])
@@ -85,9 +87,18 @@ class TestAblationCli:
         args = _parser().parse_args(["--ablation", "rho_b", "--n-jobs", "6"])
         assert run_module._resolve_n_jobs(args) == 6
 
-    def test_scale_defaults_to_the_ablations_default(self):
-        args = _parser().parse_args(["--ablation", "rho_b"])
-        assert args.scale is None
+    def test_scale_defaults_to_the_ablations_default(self, tmp_path, monkeypatch):
+        calls = []
+
+        def fake_run_ablation(ablation, **kwargs):
+            calls.append(kwargs)
+            return tmp_path / "rd"
+
+        monkeypatch.setattr(run_module, "run_ablation", fake_run_ablation)
+        code = main(["--ablation", "rho_b", "--root", str(tmp_path)])
+        assert code == 0
+        kwargs = calls[0]
+        assert kwargs["scale"] == ABLATIONS["rho_b"].default_scale
 
     def test_runs_an_ablation_through_the_runner(self, tmp_path, monkeypatch):
         calls = []
