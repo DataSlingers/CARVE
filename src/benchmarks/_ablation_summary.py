@@ -47,10 +47,17 @@ def selection_summary(
 ) -> pd.DataFrame:
     """k* recovery with Wilson bounds, mean bias and mean ARI of the selected labels.
 
-    Simulations only: the study has no true k.
+    Simulations only: the study has no true k. An undefined selection (Task 6
+    records selected_k as NaN when a metric's measure column is NaN for every
+    configuration of a cell) is missing data, not a miss: it is dropped
+    before hit/bias are computed, so it does not count toward n or drag
+    recovery down, and a group left with no defined selections at all emits
+    no row.
     """
     rows = selection[
-        selection["k_star"].notna() & selection["metric_name"].isin(metrics)
+        selection["k_star"].notna()
+        & selection["selected_k"].notna()
+        & selection["metric_name"].isin(metrics)
     ].copy()
     rows["hit"] = (rows["selected_k"] == rows["k_star"]).astype(float)
     rows["bias"] = rows["selected_k"] - rows["k_star"]
@@ -98,14 +105,34 @@ def agreement_summary(
     selection: pd.DataFrame, *, x: str, metrics: Sequence[str] = HEADLINE_METRICS
 ) -> pd.DataFrame:
     """Fraction of replicate pairs that select the same (estimator, k), per
-    dataset, then averaged over datasets. NaN with a single replicate."""
+    dataset, then averaged over datasets. NaN with a single replicate.
+
+    A row whose selection is undefined (selected_estimator or selected_k is
+    NaN, per Task 6's all-NaN-measure case) is dropped before choices are
+    built: it never selected anything, so it neither agrees nor disagrees.
+    Casting both sides to str before concatenating (rather than relying on
+    selected_estimator already being an object column of strings) keeps this
+    from raising when a metric's selected_estimator is NaN for every row
+    passed in, which leaves the column float64 even after filtering to zero
+    rows.
+    """
     rows = selection[selection["metric_name"].isin(metrics)].copy()
-    rows["choice"] = rows["selected_estimator"] + "@" + rows["selected_k"].astype(str)
+    rows = rows[rows["selected_estimator"].notna() & rows["selected_k"].notna()]
+    rows["choice"] = (
+        rows["selected_estimator"].astype(str) + "@" + rows["selected_k"].astype(str)
+    )
     per_dataset = (
         rows.groupby([x, *DATASET_KEY, "metric_name"], as_index=False)["choice"]
         .agg(_pair_agreement)
         .rename(columns={"choice": "agreement"})
     )
+    # On a fully empty input (every selection in a group undefined), the
+    # groupby-apply above has nothing to call _pair_agreement on and keeps
+    # "agreement"'s dtype from "choice" (a string column) instead of the
+    # float _pair_agreement actually returns; force it back to float so the
+    # downstream mean in _with_pooled does not raise on an all-undefined
+    # group.
+    per_dataset["agreement"] = per_dataset["agreement"].astype(float)
     return _with_pooled(
         per_dataset,
         [x, "study", "metric_name"],

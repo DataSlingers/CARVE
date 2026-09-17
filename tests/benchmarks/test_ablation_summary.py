@@ -62,6 +62,26 @@ def _selection():
     return pd.DataFrame(rows)
 
 
+def _undefined_gini_rows():
+    """Task 6's exact row shape: a non-headline metric whose measure column
+    was NaN for every configuration of a cell records selected_estimator,
+    selected_k and ari_selected as NaN. One setting (0.2) is undefined for
+    every replicate; the other (0.618) has one defined replicate and one
+    undefined."""
+    metric = "consensus_gini_stability"
+    rows = [
+        {**_key(rho=0.2, rep=0), "metric_name": metric, "selected_estimator": np.nan,
+         "selected_k": np.nan, "k_star": 5.0, "ari_selected": np.nan},
+        {**_key(rho=0.2, rep=1), "metric_name": metric, "selected_estimator": np.nan,
+         "selected_k": np.nan, "k_star": 5.0, "ari_selected": np.nan},
+        {**_key(rho=0.618, rep=0), "metric_name": metric, "selected_estimator": "KMeans",
+         "selected_k": 5, "k_star": 5.0, "ari_selected": 0.9},
+        {**_key(rho=0.618, rep=1), "metric_name": metric, "selected_estimator": np.nan,
+         "selected_k": np.nan, "k_star": 5.0, "ari_selected": np.nan},
+    ]
+    return pd.DataFrame(rows)
+
+
 class TestMetricMode:
     @pytest.mark.parametrize("metric", CARVE_METRICS_ALL)
     def test_agrees_with_the_runner(self, metric):
@@ -124,15 +144,78 @@ class TestAgreementSummary:
         assert out[out["study"] == "gaussians"]["agreement"].iloc[0] == pytest.approx(1 / 3)
 
 
+class TestUndefinedSelections:
+    """An undefined selection (Task 6's all-NaN-measure case) is missing
+    data, not a miss: it must not count toward n, must not read as
+    "disagreed", and a setting left with no defined selection at all must
+    not appear in the output."""
+
+    def test_selection_summary_emits_no_row_for_an_entirely_undefined_setting(self):
+        out = selection_summary(
+            _undefined_gini_rows(), x=X, metrics=("consensus_gini_stability",)
+        )
+        assert 0.2 not in set(out[X])
+
+    def test_selection_summary_counts_only_defined_rows_at_a_mixed_setting(self):
+        out = selection_summary(
+            _undefined_gini_rows(), x=X, metrics=("consensus_gini_stability",)
+        )
+        mixed = out[(out["study"] == "gaussians") & (out[X] == 0.618)].iloc[0]
+        assert mixed["n"] == 1
+        assert mixed["recovery"] == 1.0
+
+    def test_selection_summary_all_undefined_frame_does_not_raise(self):
+        frame = _undefined_gini_rows()
+        frame = frame[frame[X] == 0.2]
+        out = selection_summary(frame, x=X, metrics=("consensus_gini_stability",))
+        assert out.empty
+        assert list(out.columns) == [X, "study", "metric_name", "n", "recovery", "recovery_lo",
+                                     "recovery_hi", "bias_mean", "ari_mean", "ari_sem"]
+
+    def test_agreement_summary_is_nan_not_zero_with_fewer_than_two_defined(self):
+        out = agreement_summary(
+            _undefined_gini_rows(), x=X, metrics=("consensus_gini_stability",)
+        )
+        mixed = out[(out["study"] == "gaussians") & (out[X] == 0.618)].iloc[0]
+        assert pd.isna(mixed["agreement"])
+
+    def test_agreement_summary_all_undefined_frame_does_not_raise(self):
+        frame = _undefined_gini_rows()
+        frame = frame[frame[X] == 0.2]
+        out = agreement_summary(frame, x=X, metrics=("consensus_gini_stability",))
+        assert out.empty
+        assert list(out.columns) == [X, "study", "metric_name", "agreement", "n_datasets"]
+
+    def test_headline_metrics_are_unaffected(self):
+        # The fixture's headline-metric rows never have undefined selections;
+        # this class's filter must not change their existing behavior.
+        out = selection_summary(_selection(), x=X)
+        stab_02 = out[(out["study"] == "gaussians") & (out["metric_name"] == STAB)
+                      & (out[X] == 0.2)].iloc[0]
+        assert stab_02["n"] == 4
+
+
 class TestSpreadSummary:
     def test_mean_sd_across_replicates(self):
-        rows = []
-        for rep, value in ((0, 0.5), (1, 0.7)):
-            for k in (3, 4):
-                rows.append({**_key(rep=rep), "metric_name": STAB, "estimator": "KMeans",
-                             "k": k, "metric_value": value + 0.01 * k, "metric_se": 0.02})
+        # k=3 and k=4 carry different replicate spreads, so the mean over k
+        # is only right if both per-k standard deviations were computed
+        # (equal per-k spreads by construction could pass "averaged over k"
+        # without ever exercising the average).
+        rows = [
+            {**_key(rep=0), "metric_name": STAB, "estimator": "KMeans", "k": 3,
+             "metric_value": 0.5, "metric_se": 0.02},
+            {**_key(rep=1), "metric_name": STAB, "estimator": "KMeans", "k": 3,
+             "metric_value": 0.7, "metric_se": 0.02},
+            {**_key(rep=0), "metric_name": STAB, "estimator": "KMeans", "k": 4,
+             "metric_value": 0.4, "metric_se": 0.02},
+            {**_key(rep=1), "metric_name": STAB, "estimator": "KMeans", "k": 4,
+             "metric_value": 1.0, "metric_se": 0.02},
+        ]
         out = spread_summary(pd.DataFrame(rows), x=X)
-        expected = np.std([0.5, 0.7], ddof=1)
+        sd_k3 = np.std([0.5, 0.7], ddof=1)
+        sd_k4 = np.std([0.4, 1.0], ddof=1)
+        expected = np.mean([sd_k3, sd_k4])
+        assert sd_k3 != pytest.approx(sd_k4)  # guards against a degenerate fixture
         assert out[out["study"] == "gaussians"]["spread"].iloc[0] == pytest.approx(expected)
         assert out[out["study"] == POOLED]["spread"].iloc[0] == pytest.approx(expected)
 
@@ -199,6 +282,29 @@ class TestSimilaritySummary:
         assert out["ari_mean"].iloc[0] == pytest.approx(0.65)
         assert out["n"].iloc[0] == 4
 
+    def test_groups_by_rho_estimator_and_k_separately(self):
+        # A single (subsample_ratio, estimator, k) combination cannot tell
+        # the documented four-column group key apart from a narrower one
+        # that happens to collapse to the same single group.
+        rows = []
+        for d in (0, 1):
+            for m in (0, 1):
+                rows.append({"study": "gaussians", "difficulty": "medium", "dataset": d,
+                             "subsample_ratio": 0.5, "estimator": "KMeans", "k": 5,
+                             "draw": m, "ari": 0.6 + 0.1 * m})
+                rows.append({"study": "gaussians", "difficulty": "medium", "dataset": d,
+                             "subsample_ratio": 0.8, "estimator": "AgglomerativeClustering",
+                             "k": 6, "draw": m, "ari": 0.2 + 0.1 * m})
+        out = similarity_summary(pd.DataFrame(rows))
+        assert len(out) == 2
+        low = out[(out["subsample_ratio"] == 0.5) & (out["estimator"] == "KMeans")
+                  & (out["k"] == 5)].iloc[0]
+        high = out[(out["subsample_ratio"] == 0.8)
+                   & (out["estimator"] == "AgglomerativeClustering") & (out["k"] == 6)].iloc[0]
+        assert low["ari_mean"] == pytest.approx(0.65)
+        assert high["ari_mean"] == pytest.approx(0.25)
+        assert low["n"] == 4 and high["n"] == 4
+
 
 class TestStudySelectionShares:
     def test_shares_per_setting(self):
@@ -212,16 +318,23 @@ class TestStudySelectionShares:
 
 class TestDiagnosticsSummary:
     def test_means_per_setting_and_study(self):
+        # fit_seconds and consensus_nan_fraction differ between the two
+        # replicates being averaged, so "take first" and "mean" disagree
+        # and the assertions can tell them apart.
         cells = pd.DataFrame([
-            {**_key(rho=rho, rep=rep), "carve_random_state": 1, "n_samples": 100,
-             "fit_seconds": 10.0 * rho, "consensus_nan_fraction": 0.0 if rho > 0.5 else 0.1,
-             "n_cluster_count_warnings": rep}
-            for rho in (0.2, 0.618) for rep in (0, 1)
+            {**_key(rho=0.2, rep=0), "carve_random_state": 1, "n_samples": 100,
+             "fit_seconds": 1.0, "consensus_nan_fraction": 0.08, "n_cluster_count_warnings": 0},
+            {**_key(rho=0.2, rep=1), "carve_random_state": 1, "n_samples": 100,
+             "fit_seconds": 3.0, "consensus_nan_fraction": 0.12, "n_cluster_count_warnings": 1},
+            {**_key(rho=0.618, rep=0), "carve_random_state": 1, "n_samples": 100,
+             "fit_seconds": 6.0, "consensus_nan_fraction": 0.0, "n_cluster_count_warnings": 0},
+            {**_key(rho=0.618, rep=1), "carve_random_state": 1, "n_samples": 100,
+             "fit_seconds": 6.2, "consensus_nan_fraction": 0.02, "n_cluster_count_warnings": 1},
         ])
         out = diagnostics_summary(cells, x=X)
         row = out[out[X] == 0.2].iloc[0]
-        assert row["fit_seconds"] == pytest.approx(2.0)
-        assert row["consensus_nan_fraction"] == pytest.approx(0.1)
+        assert row["fit_seconds"] == pytest.approx(2.0)  # mean of 1.0 and 3.0, not 1.0
+        assert row["consensus_nan_fraction"] == pytest.approx(0.10)  # mean of 0.08 and 0.12
         assert row["n_cluster_count_warnings"] == pytest.approx(0.5)
 
 
