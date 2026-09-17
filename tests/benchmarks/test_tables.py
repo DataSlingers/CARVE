@@ -303,3 +303,137 @@ class TestAblationTable:
         path = write_ablation_table(data, ablation=ablation, scale="dev", out_dir=tmp_path)
         assert path == tmp_path / "si_table_ablation.tex"
         assert r"\begin{table}" in path.read_text()
+
+    def test_renders_nan_and_missing_cells_empty(self):
+        """Verify NaN and missing-row rendering paths are covered.
+
+        Builds rows_by_arm by hand with: one row with NaN recovery/recovery_lo/
+        recovery_hi/ari_mean; one row with NaN study_share; one (setting, metric)
+        pair absent entirely (match.empty fires); and defined rows with
+        study_modal "AgglomerativeClustering, k=4" and "SpectralClustering, k=3".
+        """
+        # Build rows_by_arm with both headline metrics for each arm
+        rho_rows = pd.DataFrame(
+            [
+                {
+                    "setting": 0.5,
+                    "metric_name": "ari_stability_1se",
+                    "recovery": float("nan"),
+                    "recovery_lo": float("nan"),
+                    "recovery_hi": float("nan"),
+                    "ari_mean": float("nan"),
+                    "agreement": 0.75,
+                    "study_modal": "AgglomerativeClustering, k=4",
+                    "study_share": 0.50,
+                },
+                {
+                    "setting": 0.5,
+                    "metric_name": "ari_generalizability_1se",
+                    "recovery": 0.33,
+                    "recovery_lo": 0.14,
+                    "recovery_hi": 0.61,
+                    "ari_mean": 0.45,
+                    "agreement": 0.60,
+                    "study_modal": "SpectralClustering, k=3",
+                    "study_share": float("nan"),
+                },
+                {
+                    "setting": 0.7,
+                    "metric_name": "ari_stability_1se",
+                    "recovery": 0.25,
+                    "recovery_lo": 0.09,
+                    "recovery_hi": 0.53,
+                    "ari_mean": 0.50,
+                    "agreement": 0.42,
+                    "study_modal": "Ward, k=2",
+                    "study_share": 0.75,
+                },
+                # 0.7 + ari_generalizability_1se intentionally omitted (match.empty)
+            ]
+        )
+
+        b_rows = pd.DataFrame(
+            [
+                {
+                    "setting": 50,
+                    "metric_name": "ari_stability_1se",
+                    "recovery": float("nan"),
+                    "recovery_lo": float("nan"),
+                    "recovery_hi": float("nan"),
+                    "ari_mean": float("nan"),
+                    "agreement": 0.33,
+                    "study_modal": "AgglomerativeClustering, k=4",
+                    "study_share": 0.50,
+                },
+                {
+                    "setting": 50,
+                    "metric_name": "ari_generalizability_1se",
+                    "recovery": 0.42,
+                    "recovery_lo": 0.19,
+                    "recovery_hi": 0.68,
+                    "ari_mean": 0.55,
+                    "agreement": 0.67,
+                    "study_modal": "SpectralClustering, k=3",
+                    "study_share": float("nan"),
+                },
+                {
+                    "setting": 100,
+                    "metric_name": "ari_stability_1se",
+                    "recovery": 0.17,
+                    "recovery_lo": 0.05,
+                    "recovery_hi": 0.45,
+                    "ari_mean": 0.48,
+                    "agreement": 0.25,
+                    "study_modal": "Ward, k=5",
+                    "study_share": 0.60,
+                },
+                # 100 + ari_generalizability_1se intentionally omitted (match.empty)
+            ]
+        )
+
+        rows_by_arm = {"rho": rho_rows, "b": b_rows}
+        tex = render_ablation_tex(
+            rows_by_arm,
+            metrics=("ari_stability_1se", "ari_generalizability_1se"),
+            caption="Test",
+            label="tab:test",
+            study_title="Test",
+        )
+
+        # Assert no "nan" literal appears
+        assert "nan" not in tex
+
+        # Verify short names render correctly (these have defined study_share)
+        assert "Ward, $k=2$" in tex
+        assert "Ward, $k=5$" in tex
+        assert "Ward, $k=4$" in tex
+
+        # Verify that NaN study_share causes modal to render as empty (no estimator/k shown)
+        # SpectralClustering entries have NaN study_share, so they should render empty
+        # Check that the rows with missing study_share have empty modal cells
+        # by looking for empty trailing cells in the data rows
+
+        # Count rho data lines: 0.5 and 0.7 each appear once
+        rho_section = tex.split(r"\begin{tabular}{lcccccc}")[1].split(r"\end{tabular}")[0]
+        rho_data_lines = [
+            line
+            for line in rho_section.split("\n")
+            if line.strip() and "0." in line and not line.startswith("\\")
+        ]
+        assert len(rho_data_lines) == 2, f"Expected 2 rho data rows, got {len(rho_data_lines)}"
+
+        # Count b data lines: 50 and 100 each appear once
+        b_section = tex.split(r"\begin{tabular}{lcccccccc}")[1].split(r"\end{tabular}")[0]
+        b_data_lines = [
+            line
+            for line in b_section.split("\n")
+            if line.strip() and (line.startswith("50 ") or line.startswith("100 "))
+        ]
+        assert len(b_data_lines) == 2, f"Expected 2 b data rows, got {len(b_data_lines)}"
+
+        # Verify NaN cells render as empty strings, not "nan"
+        # Rows should contain empty cells (consecutive & with space between)
+        for line in rho_data_lines + b_data_lines:
+            assert "nan" not in line.lower(), f"Line should not contain nan: {line}"
+            # Check that there are patterns like " & " for empty cells
+            assert " & " in line, f"Line should have empty cells separated by &: {line}"

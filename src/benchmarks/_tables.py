@@ -311,7 +311,7 @@ def _modal(text: object, share: float) -> str:
 def render_ablation_tex(
     rows_by_arm: Mapping[str, pd.DataFrame],
     *,
-    metrics: Sequence[str] = ("ari_stability_1se", "ari_generalizability_1se"),
+    metrics: Sequence[str] | None = None,
     caption: str,
     label: str,
     study_title: str,
@@ -321,8 +321,13 @@ def render_ablation_tex(
 
     Per headline selector: pooled k* recovery with its Wilson interval, the
     pooled mean ARI of the selected labels, in the B sub-table the pooled
-    replicate agreement, and the study's modal selection with its share.
+    replicate agreement, and the study's modal selection with its share. Metrics
+    default to the headline selectors.
     """
+    if metrics is None:
+        from ._ablation_summary import HEADLINE_METRICS
+
+        metrics = HEADLINE_METRICS
     lines = [
         r"\begin{table}[ht]",
         r"\centering",
