@@ -2,7 +2,8 @@
 
 import pytest
 
-from benchmarks._registry import PUBLISHED_RANDOM_STATE
+import benchmarks.run as run_module
+from benchmarks._registry import ABLATIONS, PUBLISHED_RANDOM_STATE
 from benchmarks.run import _parser, main
 
 
@@ -60,3 +61,65 @@ class TestCli:
         (tmp_path / "empty").mkdir()
         assert main(["--promote", str(tmp_path / "empty")]) == 1
         assert "manifest" in capsys.readouterr().err
+
+
+class TestAblationCli:
+    def test_listing_includes_ablations(self, capsys):
+        assert main(["--list"]) == 0
+        assert "ablation:rho_b" in capsys.readouterr().out
+
+    def test_unknown_ablation_is_rejected(self, capsys):
+        assert main(["--ablation", "nope"]) == 2
+        assert "nope" in capsys.readouterr().err
+
+    def test_ablation_is_exclusive_with_scenario_and_all(self, capsys):
+        assert main(["--ablation", "rho_b", "--scenario", "gaussians"]) == 2
+        assert main(["--ablation", "rho_b", "--all"]) == 2
+
+    def test_n_jobs_defaults_differ_by_mode(self):
+        args = _parser().parse_args(["--scenario", "gaussians"])
+        assert args.n_jobs is None
+        assert run_module._resolve_n_jobs(args) == 1
+        args = _parser().parse_args(["--ablation", "rho_b"])
+        assert run_module._resolve_n_jobs(args) == -1
+        args = _parser().parse_args(["--ablation", "rho_b", "--n-jobs", "6"])
+        assert run_module._resolve_n_jobs(args) == 6
+
+    def test_scale_defaults_to_the_ablations_default(self):
+        args = _parser().parse_args(["--ablation", "rho_b"])
+        assert args.scale is None
+
+    def test_runs_an_ablation_through_the_runner(self, tmp_path, monkeypatch):
+        calls = []
+
+        def fake_run_ablation(ablation, **kwargs):
+            calls.append((ablation.name, kwargs))
+            return tmp_path / "rd"
+
+        monkeypatch.setattr(run_module, "run_ablation", fake_run_ablation)
+        code = main(["--ablation", "rho_b", "--scale", "dev", "--root", str(tmp_path)])
+        assert code == 0
+        name, kwargs = calls[0]
+        assert name == "rho_b"
+        assert kwargs["scale"] == "dev"
+        assert kwargs["n_jobs"] == -1
+        assert kwargs["resume"] is True
+        assert kwargs["units"] is None
+
+    def test_timing_batch_passes_the_timing_units_without_resume(self, tmp_path, monkeypatch):
+        calls = []
+
+        def fake_run_ablation(ablation, **kwargs):
+            calls.append(kwargs)
+            return tmp_path / "rd"
+
+        monkeypatch.setattr(run_module, "run_ablation", fake_run_ablation)
+        code = main(
+            ["--ablation", "rho_b", "--scale", "publication", "--timing-batch",
+             "--n-jobs", "5", "--root", str(tmp_path)]
+        )
+        assert code == 0
+        kwargs = calls[0]
+        assert kwargs["resume"] is False
+        assert kwargs["n_jobs"] == 5
+        assert len(kwargs["units"]) == 22
