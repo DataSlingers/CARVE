@@ -1,8 +1,11 @@
 """Tests for the experiment registry."""
 
+import dataclasses
+
 import pytest
 
 from benchmarks._registry import (
+    ABLATIONS,
     ACTIVE_ANCHOR_SET_NAME,
     ACTIVE_ANCHORS,
     CARVE_METRICS_ALL,
@@ -11,11 +14,16 @@ from benchmarks._registry import (
     GENERALIZABILITY_METRICS,
     PUBLISHED_ANCHORS,
     PUBLISHED_RANDOM_STATE,
+    REPLICATE_SEED_SPACING,
     SCALING_AXES,
     SCENARIOS,
+    SIMILARITY_SEED_OFFSET,
     metric_measure,
     metric_rule,
+    package_defaults,
+    validate_ablation,
 )
+from benchmarks._types import AblationScale, ArmScale
 
 DIFFICULTY_SCENARIOS = (
     "gaussians",
@@ -191,3 +199,98 @@ class TestScenarios:
 class TestPublishedRandomState:
     def test_matches_the_notebooks_random_seed(self):
         assert PUBLISHED_RANDOM_STATE == 42
+
+
+class TestAblationRegistry:
+    def test_rho_b_is_registered(self):
+        assert "rho_b" in ABLATIONS
+        assert ABLATIONS["rho_b"].name == "rho_b"
+
+    def test_grids_are_the_spec_values(self):
+        ablation = ABLATIONS["rho_b"]
+        assert ablation.rho_grid == (0.2, 0.3, 0.4, 0.5, 0.618, 0.7, 0.8, 0.9)
+        assert ablation.b_grid == (10, 25, 50, 100, 200)
+
+    def test_defaults_are_read_from_carve(self):
+        from dataclasses import fields
+
+        from carve import CARVE
+
+        defaults = {f.name: f.default for f in fields(CARVE)}
+        assert package_defaults() == (
+            defaults["subsample_ratio"],
+            defaults["n_resamples"],
+        )
+        assert ABLATIONS["rho_b"].rho_default == defaults["subsample_ratio"]
+        assert ABLATIONS["rho_b"].b_default == defaults["n_resamples"]
+
+    def test_runs_the_six_difficulty_scenarios_and_klein(self):
+        ablation = ABLATIONS["rho_b"]
+        assert set(ablation.scenarios) == {
+            "gaussians", "t_dist", "t_dist_noise", "circles", "moons", "swiss_rolls",
+        }
+        assert ablation.study == "klein"
+
+    def test_publication_scale_matches_the_spec(self):
+        scale = ABLATIONS["rho_b"].scales["publication"]
+        assert scale.rho_arm == ArmScale(("easy", "medium", "hard"), tuple(range(10)), 1, 10)
+        assert scale.b_arm == ArmScale(("medium", "hard"), tuple(range(5)), 3, 10)
+        assert scale.similarity_draws == 20
+        assert scale.n_total is None
+        assert scale.study_scale == "publication"
+
+    def test_dev_scale_is_small_and_overrides_n_total(self):
+        scale = ABLATIONS["rho_b"].scales["dev"]
+        assert scale.rho_arm == ArmScale(("medium",), (0, 1), 1, 2)
+        assert scale.b_arm == ArmScale(("medium",), (0, 1), 2, 2)
+        assert scale.similarity_draws == 5
+        assert scale.n_total == 500
+        assert scale.study_scale == "dev"
+
+    def test_default_scale_is_publication(self):
+        assert ABLATIONS["rho_b"].default_scale == "publication"
+
+    def test_rejects_a_scenario_that_is_not_registered(self):
+        bad = dataclasses.replace(ABLATIONS["rho_b"], scenarios=("nope",))
+        with pytest.raises(ValueError, match="nope"):
+            validate_ablation(bad)
+
+    def test_rejects_a_scaling_scenario(self):
+        bad = dataclasses.replace(ABLATIONS["rho_b"], scenarios=("gaussians_samples",))
+        with pytest.raises(ValueError, match="difficulty"):
+            validate_ablation(bad)
+
+    def test_rejects_an_unknown_difficulty(self):
+        scale = ABLATIONS["rho_b"].scales["dev"]
+        bad_scale = dataclasses.replace(
+            scale, rho_arm=dataclasses.replace(scale.rho_arm, difficulties=("brutal",))
+        )
+        bad = dataclasses.replace(ABLATIONS["rho_b"], scales={"dev": bad_scale}, default_scale="dev")
+        with pytest.raises(ValueError, match="brutal"):
+            validate_ablation(bad)
+
+    def test_seed_constants_keep_replicates_and_similarity_apart(self):
+        # One fit's seeds span 3 * B; bases differ by up to two axis steps
+        # plus the largest dataset index. The spacing must clear both.
+        ablation = ABLATIONS["rho_b"]
+        span = 3 * max(ablation.b_grid)
+        assert REPLICATE_SEED_SPACING == 1_000_000
+        assert SIMILARITY_SEED_OFFSET == 500_000
+        assert SIMILARITY_SEED_OFFSET > span
+        assert SIMILARITY_SEED_OFFSET + 20 < REPLICATE_SEED_SPACING - span
+
+    def test_validation_rejects_a_spacing_inside_one_fits_seed_span(self, monkeypatch):
+        import benchmarks._registry as registry
+
+        monkeypatch.setattr(registry, "REPLICATE_SEED_SPACING", 100)
+        with pytest.raises(ValueError, match="REPLICATE_SEED_SPACING"):
+            validate_ablation(ABLATIONS["rho_b"])
+
+    def test_validation_rejects_a_similarity_offset_inside_a_replicate_window(
+        self, monkeypatch
+    ):
+        import benchmarks._registry as registry
+
+        monkeypatch.setattr(registry, "SIMILARITY_SEED_OFFSET", 10)
+        with pytest.raises(ValueError, match="SIMILARITY_SEED_OFFSET"):
+            validate_ablation(ABLATIONS["rho_b"])
