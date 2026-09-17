@@ -14,6 +14,7 @@ import resource
 import subprocess
 import sys
 import tempfile
+from collections.abc import Mapping
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
@@ -63,6 +64,86 @@ RUNTIME_SCHEMA: tuple[str, ...] = (
     "t_per_k_generalizability_s",
 )
 
+# --- Ablation frames ---------------------------------------------------------
+# A cell is one CARVE fit. Every per-cell frame starts with this key so the
+# frames join on it; the study (Klein) has difficulty "" and dataset 0.
+CELL_KEY: tuple[str, ...] = (
+    "study",
+    "difficulty",
+    "dataset",
+    "subsample_ratio",
+    "n_resamples",
+    "replicate",
+)
+
+ABLATION_CURVE_SCHEMA: tuple[str, ...] = CELL_KEY + (
+    "metric_name",
+    "estimator",
+    "k",
+    "metric_value",
+    # The <measure>_se column where CARVE provides one, NaN otherwise.
+    "metric_se",
+)
+
+ABLATION_SELECTION_SCHEMA: tuple[str, ...] = CELL_KEY + (
+    "metric_name",
+    "selected_estimator",
+    "selected_k",
+    # NaN for the study, which has no true k.
+    "k_star",
+    "ari_selected",
+)
+
+# Simulations only: labels at every candidate k, per consensus mode.
+ABLATION_AT_K_SCHEMA: tuple[str, ...] = CELL_KEY + (
+    "mode",
+    "k",
+    "ari_at_k",
+    "rare_recall_at_k",
+)
+
+ABLATION_CELL_SCHEMA: tuple[str, ...] = CELL_KEY + (
+    "carve_random_state",
+    "n_samples",
+    "fit_seconds",
+    "consensus_nan_fraction",
+    "n_cluster_count_warnings",
+)
+
+# One row per simulated dataset; NaN in every numeric column for the study.
+ABLATION_DATASET_SCHEMA: tuple[str, ...] = (
+    "study",
+    "difficulty",
+    "dataset",
+    "n_samples",
+    "k_star",
+    "oracle_ari",
+    "rare_label",
+    "rare_fraction",
+)
+
+# subsample_ratio 1.0 marks the refit reference: the full data clustered
+# again with the draw's seed and scored against the base full-data fit.
+ABLATION_SIMILARITY_SCHEMA: tuple[str, ...] = (
+    "study",
+    "difficulty",
+    "dataset",
+    "subsample_ratio",
+    "estimator",
+    "k",
+    "draw",
+    "ari",
+)
+
+ABLATION_SCHEMAS: dict[str, tuple[str, ...]] = {
+    "curves": ABLATION_CURVE_SCHEMA,
+    "selection": ABLATION_SELECTION_SCHEMA,
+    "at_k": ABLATION_AT_K_SCHEMA,
+    "cells": ABLATION_CELL_SCHEMA,
+    "datasets": ABLATION_DATASET_SCHEMA,
+    "similarity": ABLATION_SIMILARITY_SCHEMA,
+}
+
 _TRACKED_PACKAGES = (
     "numpy",
     "pandas",
@@ -73,10 +154,8 @@ _TRACKED_PACKAGES = (
 )
 
 
-def _canonical_config(
-    scenario: Scenario, *, n_seeds: int, n_resamples: int, random_state: int
-) -> dict[str, Any]:
-    """The subset of a scenario that changing must invalidate a run."""
+def scenario_identity(scenario: Scenario) -> dict[str, Any]:
+    """What defines a scenario, independent of how many cells a run draws."""
     return {
         "name": scenario.name,
         "axis_name": scenario.axis.name,
@@ -88,6 +167,15 @@ def _canonical_config(
         "k_star": scenario.k_star,
         "candidate_k": list(scenario.candidate_k),
         "n_trees": scenario.n_trees,
+    }
+
+
+def _canonical_config(
+    scenario: Scenario, *, n_seeds: int, n_resamples: int, random_state: int
+) -> dict[str, Any]:
+    """The subset of a scenario that changing must invalidate a run."""
+    return {
+        **scenario_identity(scenario),
         "n_seeds": n_seeds,
         "n_resamples": n_resamples,
         "random_state": random_state,
@@ -194,6 +282,66 @@ def read_runtimes(rd: Path) -> pd.DataFrame:
     return frame[list(RUNTIME_SCHEMA)]
 
 
+def ablation_dir(root: Path, name: str, scale: str, cfg_hash: str) -> Path:
+    """Create and return results/runs/ablation_<name>/<scale>/<hash>/.
+
+    The scale is in the path as well as in the hash, so a publication read
+    cannot pick up a development-scale run by accident.
+    """
+    path = Path(root) / f"ablation_{name}" / scale / cfg_hash
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def write_frame(
+    path: Path, rows: list[dict[str, Any]], schema: tuple[str, ...]
+) -> Path:
+    """Write rows as one parquet file after validating them against a schema.
+
+    An empty row list writes an empty frame with the schema's columns; the
+    study's at_k checkpoint is empty by design.
+    """
+    path = Path(path)
+    frame = pd.DataFrame(rows) if rows else pd.DataFrame(columns=list(schema))
+    _validate_against(frame, schema).to_parquet(path, index=False)
+    return path
+
+
+def read_frames(rd: Path) -> dict[str, pd.DataFrame]:
+    """Concatenate every ablation checkpoint in a run directory, per schema.
+
+    Files are named <schema>__<unit>.parquet. A schema with no file yet
+    comes back as an empty frame with its columns, so a partial run reads.
+    """
+    frames: dict[str, pd.DataFrame] = {}
+    for name, schema in ABLATION_SCHEMAS.items():
+        paths = sorted(Path(rd).glob(f"{name}__*.parquet"))
+        if not paths:
+            frames[name] = pd.DataFrame(columns=list(schema))
+            continue
+        frame = pd.concat([pd.read_parquet(p) for p in paths], ignore_index=True)
+        frames[name] = frame[list(schema)]
+    return frames
+
+
+def provenance() -> dict[str, Any]:
+    """The machine-and-code record every manifest carries."""
+    return {
+        "git_sha": _git_sha(),
+        "package_versions": _package_versions(),
+        "platform": {
+            "system": platform.system(),
+            "release": platform.release(),
+            "machine": platform.machine(),
+            "processor": platform.processor(),
+            "python": platform.python_version(),
+            "cores": os.cpu_count(),
+        },
+        "peak_rss_bytes": peak_rss_bytes(),
+        "peak_rss_unit": "bytes",
+    }
+
+
 def peak_rss_bytes() -> int:
     """Peak resident set size of this process and its children, in bytes.
 
@@ -266,24 +414,15 @@ def build_manifest(
         n_jobs=n_jobs,
         random_state=random_state,
         wall_clock_s=float(wall_clock_s),
-        peak_rss_bytes=peak_rss_bytes(),
-        peak_rss_unit="bytes",
-        git_sha=_git_sha(),
-        package_versions=_package_versions(),
-        platform={
-            "system": platform.system(),
-            "release": platform.release(),
-            "machine": platform.machine(),
-            "processor": platform.processor(),
-            "python": platform.python_version(),
-            "cores": os.cpu_count(),
-        },
+        **provenance(),
         config=config,
     )
 
 
-def write_manifest(rd: Path, manifest: Manifest) -> Path:
+def write_manifest(rd: Path, manifest: Manifest | Mapping[str, Any]) -> Path:
     """Write manifest.json beside the checkpoints, atomically.
+
+    Accepts a Manifest or any mapping, so the ablation writes the same atomic file.
 
     Writes to a temporary file in the same directory, then os.replace onto
     manifest.json. os.replace is atomic on POSIX, so a concurrent reader --
@@ -298,7 +437,10 @@ def write_manifest(rd: Path, manifest: Manifest) -> Path:
     fd, tmp_name = tempfile.mkstemp(dir=rd, prefix=".manifest.", suffix=".json.tmp")
     try:
         with os.fdopen(fd, "w") as f:
-            f.write(json.dumps(manifest.to_dict(), indent=2, default=str))
+            payload = (
+                manifest.to_dict() if isinstance(manifest, Manifest) else dict(manifest)
+            )
+            f.write(json.dumps(payload, indent=2, default=str))
         os.chmod(tmp_name, 0o644)
         os.replace(tmp_name, path)
     except BaseException:

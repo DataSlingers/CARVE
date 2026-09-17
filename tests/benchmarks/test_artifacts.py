@@ -7,17 +7,24 @@ import pandas as pd
 import pytest
 
 from benchmarks._artifacts import (
+    ABLATION_SCHEMAS,
     RUNTIME_SCHEMA,
     SCHEMA,
+    CELL_KEY,
+    ablation_dir,
     build_manifest,
     completed_cells,
     config_hash,
     peak_rss_bytes,
     promote,
+    provenance,
+    read_frames,
     read_run,
     read_runtimes,
     run_dir,
+    scenario_identity,
     write_checkpoint,
+    write_frame,
     write_manifest,
     write_runtime_checkpoint,
 )
@@ -322,3 +329,96 @@ class TestRuntimeSidecar:
         del bad["t_stability_s"]
         with pytest.raises(ValueError, match="t_stability_s"):
             write_runtime_checkpoint(rd, "easy", 0, [bad])
+
+
+class TestAblationSchemas:
+    def test_every_per_cell_schema_starts_with_the_cell_key(self):
+        for name in ("curves", "selection", "at_k", "cells"):
+            assert ABLATION_SCHEMAS[name][: len(CELL_KEY)] == CELL_KEY
+
+    def test_schemas_are_the_documented_contract(self):
+        assert ABLATION_SCHEMAS["curves"] == CELL_KEY + (
+            "metric_name", "estimator", "k", "metric_value", "metric_se",
+        )
+        assert ABLATION_SCHEMAS["selection"] == CELL_KEY + (
+            "metric_name", "selected_estimator", "selected_k", "k_star", "ari_selected",
+        )
+        assert ABLATION_SCHEMAS["at_k"] == CELL_KEY + ("mode", "k", "ari_at_k", "rare_recall_at_k")
+        assert ABLATION_SCHEMAS["cells"] == CELL_KEY + (
+            "carve_random_state", "n_samples", "fit_seconds",
+            "consensus_nan_fraction", "n_cluster_count_warnings",
+        )
+        assert ABLATION_SCHEMAS["datasets"] == (
+            "study", "difficulty", "dataset", "n_samples", "k_star",
+            "oracle_ari", "rare_label", "rare_fraction",
+        )
+        assert ABLATION_SCHEMAS["similarity"] == (
+            "study", "difficulty", "dataset", "subsample_ratio", "estimator", "k", "draw", "ari",
+        )
+
+
+class TestAblationFrames:
+    def _row(self, **overrides):
+        row = {
+            "study": "gaussians", "difficulty": "medium", "dataset": 0,
+            "subsample_ratio": 0.618, "n_resamples": 100, "replicate": 0,
+            "carve_random_state": 10042, "n_samples": 1500, "fit_seconds": 1.0,
+            "consensus_nan_fraction": 0.0, "n_cluster_count_warnings": 0,
+        }
+        row.update(overrides)
+        return row
+
+    def test_write_frame_validates_and_orders_columns(self, tmp_path):
+        path = write_frame(tmp_path / "cells__x.parquet", [self._row()], ABLATION_SCHEMAS["cells"])
+        frame = pd.read_parquet(path)
+        assert list(frame.columns) == list(ABLATION_SCHEMAS["cells"])
+
+    def test_write_frame_accepts_no_rows(self, tmp_path):
+        path = write_frame(tmp_path / "at_k__x.parquet", [], ABLATION_SCHEMAS["at_k"])
+        frame = pd.read_parquet(path)
+        assert frame.empty
+        assert list(frame.columns) == list(ABLATION_SCHEMAS["at_k"])
+
+    def test_write_frame_rejects_a_row_outside_the_schema(self, tmp_path):
+        with pytest.raises(ValueError, match="outside the schema"):
+            write_frame(tmp_path / "cells__x.parquet", [self._row(extra=1)], ABLATION_SCHEMAS["cells"])
+
+    def test_read_frames_returns_every_schema_even_when_empty(self, tmp_path):
+        frames = read_frames(tmp_path)
+        assert set(frames) == set(ABLATION_SCHEMAS)
+        for name, frame in frames.items():
+            assert list(frame.columns) == list(ABLATION_SCHEMAS[name])
+            assert frame.empty
+
+    def test_read_frames_concatenates_by_prefix(self, tmp_path):
+        write_frame(tmp_path / "cells__a.parquet", [self._row(dataset=0)], ABLATION_SCHEMAS["cells"])
+        write_frame(tmp_path / "cells__b.parquet", [self._row(dataset=1)], ABLATION_SCHEMAS["cells"])
+        frames = read_frames(tmp_path)
+        assert sorted(frames["cells"]["dataset"]) == [0, 1]
+        assert frames["curves"].empty
+
+    def test_ablation_dir_nests_name_scale_and_hash(self, tmp_path):
+        rd = ablation_dir(tmp_path, "rho_b", "dev", "abc123")
+        assert rd == tmp_path / "ablation_rho_b" / "dev" / "abc123"
+        assert rd.is_dir()
+
+
+class TestProvenance:
+    def test_carries_the_manifest_provenance_fields(self):
+        record = provenance()
+        assert set(record) == {
+            "git_sha", "package_versions", "platform", "peak_rss_bytes", "peak_rss_unit",
+        }
+        assert record["peak_rss_unit"] == "bytes"
+
+    def test_scenario_identity_is_the_config_hash_input_minus_run_parameters(self):
+        scenario = SCENARIOS["gaussians"]
+        identity = scenario_identity(scenario)
+        assert set(identity) == {
+            "name", "axis_name", "axis_values", "axis_labels", "anchors",
+            "shared", "estimator", "k_star", "candidate_k", "n_trees",
+        }
+
+    def test_write_manifest_accepts_a_mapping(self, tmp_path):
+        path = write_manifest(tmp_path, {"run_id": "r1", "ablation": "rho_b"})
+        assert json.loads(path.read_text()) == {"run_id": "r1", "ablation": "rho_b"}
