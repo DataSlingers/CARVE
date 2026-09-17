@@ -24,10 +24,12 @@ from .._ablation_summary import (
     selection_summary,
     similarity_summary,
     spread_summary,
+    study_ari_summary,
     study_selection_shares,
 )
 from .._panels import grouped_legend
 from .._registry import METRIC_DISPLAY_NAMES
+from .._studies import STUDIES
 from .._theme import (
     CARVE_LINEWIDTH,
     FALLBACK_COLOR,
@@ -159,21 +161,17 @@ def _study_ari(
     ax, selection: pd.DataFrame, *, x: str, study: str, metrics: Sequence[str]
 ) -> None:
     """Mean and standard error over replicates of the selected labels' ARI
-    against the study's reference labels."""
-    rows = selection[
-        (selection["study"] == study) & selection["metric_name"].isin(metrics)
-    ]
-    stats = rows.groupby([x, "metric_name"], as_index=False).agg(
-        mean=("ari_selected", "mean"), sem=("ari_selected", "sem")
-    )
+    against the study's reference labels. Only plots; the aggregation lives
+    in _ablation_summary.study_ari_summary so the notebook can share it."""
+    stats = study_ari_summary(selection, x=x, study=study, metrics=metrics)
     for metric in metrics:
         part = stats[stats["metric_name"] == metric].sort_values(x)
         if part.empty:
             continue
         ax.errorbar(
             part[x],
-            part["mean"],
-            yerr=part["sem"].fillna(0.0),
+            part["ari_mean"],
+            yerr=part["ari_sem"].fillna(0.0),
             marker="o",
             markersize=4,
             linewidth=CARVE_LINEWIDTH,
@@ -368,23 +366,28 @@ def figure_ablation_rho(
         )
         ax = axes[2, 2]
         _study_ari(ax, selection, x=x, study=study, metrics=HEADLINE_METRICS)
-        klein_sim = similarity_summary(
-            view["similarity"][view["similarity"]["study"] == study]
-        )
-        klein_sim = klein_sim[klein_sim["k"] == 4]
-        for estimator, part in klein_sim.groupby("estimator"):
-            part = part.sort_values(x)
-            ax.plot(
-                part[x],
-                part["ari_mean"],
-                marker="s",
-                markersize=3,
-                linestyle=":",
-                linewidth=REFERENCE_LINEWIDTH,
-                color=FOREGROUND_COLOR,
-                alpha=0.9 if estimator.startswith("Agglomerative") else 0.5,
-                label=f"{estimator}, subsample vs full at k=4",
+        # The manuscript reports one k for this study; read it from the
+        # registry rather than restating it, and skip the similarity lines
+        # if the study reports none.
+        reported_k = STUDIES[study].reported_k
+        if reported_k is not None:
+            klein_sim = similarity_summary(
+                view["similarity"][view["similarity"]["study"] == study]
             )
+            klein_sim = klein_sim[klein_sim["k"] == reported_k]
+            for estimator, part in klein_sim.groupby("estimator"):
+                part = part.sort_values(x)
+                ax.plot(
+                    part[x],
+                    part["ari_mean"],
+                    marker="s",
+                    markersize=3,
+                    linestyle=":",
+                    linewidth=REFERENCE_LINEWIDTH,
+                    color=FOREGROUND_COLOR,
+                    alpha=0.9 if estimator.startswith("Agglomerative") else 0.5,
+                    label=f"{estimator}, subsample vs full at k={reported_k}",
+                )
         _title(
             ax, "I", f"{STUDY_TITLES.get(study, study)}: selected labels and similarity"
         )

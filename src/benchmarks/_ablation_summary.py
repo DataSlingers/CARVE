@@ -256,6 +256,33 @@ def study_selection_shares(
     return out[[x, "selected_estimator", "selected_k", "count", "n", "share"]]
 
 
+def study_ari_summary(
+    selection: pd.DataFrame,
+    *,
+    x: str,
+    study: str,
+    metrics: Sequence[str] = HEADLINE_METRICS,
+) -> pd.DataFrame:
+    """Mean, standard error and count of the selected labels' ARI to a
+    study's reference labels, one row per (x, metric).
+
+    Restricted to one study rather than pooled: unlike the simulations,
+    a case study's replicates all score against the same reference
+    labels, so there is nothing to pool over. An undefined selection
+    (ari_selected NaN, Task 6's all-NaN-measure case) is dropped before
+    aggregating rather than counted as a zero.
+    """
+    rows = selection[
+        (selection["study"] == study) & selection["metric_name"].isin(metrics)
+    ]
+    rows = rows[rows["ari_selected"].notna()]
+    return rows.groupby([x, "metric_name"], as_index=False).agg(
+        ari_mean=("ari_selected", "mean"),
+        ari_sem=("ari_selected", "sem"),
+        n=("ari_selected", "size"),
+    )
+
+
 def diagnostics_summary(cells: pd.DataFrame, *, x: str) -> pd.DataFrame:
     """Mean fit time, NaN fraction and cluster-count warnings per setting and study."""
     return cells.groupby([x, "study"], as_index=False).agg(

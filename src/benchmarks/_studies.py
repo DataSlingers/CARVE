@@ -507,8 +507,10 @@ STUDIES: dict[str, Study] = {
         default_scale="publication",
         partners=(EstimatorSpec(name="spectral"),),
         # The manuscript's headline selection (Ward at k=4, generalizability,
-        # 1SE) excludes k=2; the Klein notebook and the ablation read it here.
+        # 1SE) excludes k=2 and reports k=4; the Klein notebook and the
+        # ablation read both from here.
         not_two=True,
+        reported_k=4,
     ),
     "levine32": Study(
         name="levine32",

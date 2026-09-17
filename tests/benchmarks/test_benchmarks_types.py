@@ -398,8 +398,8 @@ class TestAblation:
             _ablation(scenarios=("gaussians", "gaussians"))
 
 
-class TestStudyNotTwo:
-    def test_defaults_to_false(self):
+class TestStudyDefaults:
+    def test_not_two_defaults_to_false(self):
         study = Study(
             name="demo",
             loader=lambda subsample: (None, None, {}),
@@ -409,3 +409,14 @@ class TestStudyNotTwo:
             default_scale="dev",
         )
         assert study.not_two is False
+
+    def test_reported_k_defaults_to_none(self):
+        study = Study(
+            name="demo",
+            loader=lambda subsample: (None, None, {}),
+            estimator=EstimatorSpec(name="kmeans"),
+            candidate_k=(2, 3),
+            scales={"dev": 100},
+            default_scale="dev",
+        )
+        assert study.reported_k is None

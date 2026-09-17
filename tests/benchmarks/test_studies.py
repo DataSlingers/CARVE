@@ -476,6 +476,11 @@ class TestStudies:
         # not_two=True; the notebook and the ablation both read it from here.
         assert STUDIES["klein"].not_two is True
 
+    def test_klein_reports_k_four(self):
+        # The manuscript reports k=4 for Klein; figures read it from here
+        # rather than restating it as a literal.
+        assert STUDIES["klein"].reported_k == 4
+
     def test_levine_sweeps_k_seven_through_seventeen(self):
         assert STUDIES["levine32"].candidate_k == tuple(range(7, 18))
 

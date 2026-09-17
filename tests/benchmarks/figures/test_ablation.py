@@ -1,13 +1,17 @@
 """Tests for the two SI ablation figures, on synthetic frames."""
 
+import dataclasses
+
 import matplotlib
 
 matplotlib.use("Agg")
 
+import matplotlib.pyplot as plt
 import pytest
 from matplotlib.figure import Figure
 
 from benchmarks._registry import ABLATIONS
+from benchmarks._studies import STUDIES
 from benchmarks.figures import figure_ablation_b, figure_ablation_rho
 from tests.benchmarks._helpers import synthetic_ablation_frames
 
@@ -24,14 +28,19 @@ class TestFigureAblationRho:
         fig = figure_ablation_rho(frames, ablation=RHO_B, scale="dev", save=False)
         assert isinstance(fig, Figure)
         assert len(fig.axes) == 9
+        plt.close(fig)
 
     def test_saves_under_its_si_name(self, frames, tmp_path):
-        figure_ablation_rho(frames, ablation=RHO_B, scale="dev", out_dir=tmp_path)
+        fig = figure_ablation_rho(frames, ablation=RHO_B, scale="dev", out_dir=tmp_path)
         assert (tmp_path / "si_fig_ablation_rho.png").exists()
+        plt.close(fig)
 
     def test_save_false_writes_nothing(self, frames, tmp_path):
-        figure_ablation_rho(frames, ablation=RHO_B, scale="dev", save=False, out_dir=tmp_path)
+        fig = figure_ablation_rho(
+            frames, ablation=RHO_B, scale="dev", save=False, out_dir=tmp_path
+        )
         assert not list(tmp_path.iterdir())
+        plt.close(fig)
 
     def test_marks_the_default_rho_on_every_sweep_panel(self, frames):
         fig = figure_ablation_rho(frames, ablation=RHO_B, scale="dev", save=False)
@@ -42,6 +51,7 @@ class TestFigureAblationRho:
                    if len(line.get_xdata()) == 2 and line.get_xdata()[0] == line.get_xdata()[1])
         ]
         assert len(with_line) == 8
+        plt.close(fig)
 
     def test_similarity_panel_reaches_the_reference_ratio(self, frames):
         fig = figure_ablation_rho(frames, ablation=RHO_B, scale="dev", save=False)
@@ -58,6 +68,32 @@ class TestFigureAblationRho:
             if len(line.get_xdata()) > 2
         )
         assert xmax == pytest.approx(1.0)
+        plt.close(fig)
+
+    def test_panel_i_similarity_lines_read_k_from_the_registry(
+        self, frames, monkeypatch
+    ):
+        # If the figure restated Klein's reported k as a literal instead of
+        # reading Study.reported_k, this would still pass at the registry's
+        # actual value (4); patching it to something else is what would
+        # catch a reintroduced literal.
+        patched = dataclasses.replace(STUDIES["klein"], reported_k=7)
+        monkeypatch.setitem(STUDIES, "klein", patched)
+        fig = figure_ablation_rho(frames, ablation=RHO_B, scale="dev", save=False)
+        labels = [line.get_label() for ax in fig.axes for line in ax.lines]
+        assert any(label.endswith("subsample vs full at k=7") for label in labels)
+        assert not any(label.endswith("subsample vs full at k=4") for label in labels)
+        plt.close(fig)
+
+    def test_panel_i_skips_similarity_lines_when_the_study_reports_no_k(
+        self, frames, monkeypatch
+    ):
+        patched = dataclasses.replace(STUDIES["klein"], reported_k=None)
+        monkeypatch.setitem(STUDIES, "klein", patched)
+        fig = figure_ablation_rho(frames, ablation=RHO_B, scale="dev", save=False)
+        labels = [line.get_label() for ax in fig.axes for line in ax.lines]
+        assert not any("subsample vs full at k=" in label for label in labels)
+        plt.close(fig)
 
 
 class TestFigureAblationB:
@@ -65,12 +101,15 @@ class TestFigureAblationB:
         fig = figure_ablation_b(frames, ablation=RHO_B, scale="dev", save=False)
         assert isinstance(fig, Figure)
         assert len(fig.axes) == 8
+        plt.close(fig)
 
     def test_saves_under_its_si_name(self, frames, tmp_path):
-        figure_ablation_b(frames, ablation=RHO_B, scale="dev", out_dir=tmp_path)
+        fig = figure_ablation_b(frames, ablation=RHO_B, scale="dev", out_dir=tmp_path)
         assert (tmp_path / "si_fig_ablation_b.png").exists()
+        plt.close(fig)
 
     def test_b_axes_are_logarithmic(self, frames):
         fig = figure_ablation_b(frames, ablation=RHO_B, scale="dev", save=False)
         # Every panel but the stacked-bar one sweeps B on a log axis.
         assert sum(ax.get_xscale() == "log" for ax in fig.axes) == 7
+        plt.close(fig)

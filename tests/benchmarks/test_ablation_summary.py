@@ -15,6 +15,7 @@ from benchmarks._ablation_summary import (
     selection_summary,
     similarity_summary,
     spread_summary,
+    study_ari_summary,
     study_selection_shares,
     table_rows,
 )
@@ -314,6 +315,58 @@ class TestStudySelectionShares:
         at_default = out[out[X] == 0.618]
         assert len(at_default) == 1 and at_default["share"].iloc[0] == 1.0
         assert set(out["n"]) == {2}
+
+
+class TestStudyAriSummary:
+    def test_mean_and_sem_over_replicates(self):
+        # The fixture's Klein ari_selected is a constant 0.7; mutate one
+        # replicate's value so the mean and standard error can actually
+        # move (and so a broken implementation that ignored replicate 1
+        # could fail this test).
+        selection = _selection().copy()
+        mask = (
+            (selection["study"] == "klein")
+            & (selection[X] == 0.618)
+            & (selection["replicate"] == 1)
+            & (selection["metric_name"] == STAB)
+        )
+        assert mask.sum() == 1
+        selection.loc[mask, "ari_selected"] = 0.9
+
+        out = study_ari_summary(selection, x=X, study="klein", metrics=HEADLINE_METRICS)
+        assert list(out.columns) == [X, "metric_name", "ari_mean", "ari_sem", "n"]
+        assert len(out) == 4  # two rho values x two headline metrics
+
+        moved = out[(out[X] == 0.618) & (out["metric_name"] == STAB)].iloc[0]
+        assert moved["ari_mean"] == pytest.approx(0.8)
+        assert moved["ari_sem"] == pytest.approx(0.1)
+        assert moved["n"] == 2
+
+        unchanged = out[(out[X] == 0.618) & (out["metric_name"] == GEN)].iloc[0]
+        assert unchanged["ari_mean"] == pytest.approx(0.7)
+        assert unchanged["ari_sem"] == pytest.approx(0.0)
+        assert unchanged["n"] == 2
+
+    def test_excludes_other_studies(self):
+        out = study_ari_summary(_selection(), x=X, study="klein", metrics=HEADLINE_METRICS)
+        assert set(out[X]) == {0.2, 0.618}
+
+    def test_drops_undefined_selections_rather_than_counting_them(self):
+        selection = _selection().copy()
+        extra = selection[
+            (selection["study"] == "klein")
+            & (selection[X] == 0.618)
+            & (selection["replicate"] == 0)
+            & (selection["metric_name"] == STAB)
+        ].copy()
+        extra["replicate"] = 2
+        extra["ari_selected"] = np.nan
+        selection = pd.concat([selection, extra], ignore_index=True)
+
+        out = study_ari_summary(selection, x=X, study="klein", metrics=HEADLINE_METRICS)
+        row = out[(out[X] == 0.618) & (out["metric_name"] == STAB)].iloc[0]
+        assert row["n"] == 2
+        assert row["ari_mean"] == pytest.approx(0.7)
 
 
 class TestDiagnosticsSummary:

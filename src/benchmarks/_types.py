@@ -217,6 +217,9 @@ class Study:
     not_two is the study's selection setting: True excludes k=2 from every
     selection made on its fits, as the Klein notebook does for the
     manuscript's headline result.
+
+    reported_k is the k the manuscript reports for this study, read by
+    figures that show a single k; None when the study reports none.
     """
 
     name: str
@@ -232,6 +235,7 @@ class Study:
     n_resamples: int = 100
     preprocessing: PreprocessingSpec | None = None
     not_two: bool = False
+    reported_k: int | None = None
 
     def __post_init__(self) -> None:
         if not self.candidate_k and not self.resolutions:
