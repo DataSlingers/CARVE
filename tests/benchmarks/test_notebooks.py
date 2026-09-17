@@ -32,6 +32,7 @@ NOTEBOOKS = {
     "heca": REPO_ROOT / "notebooks" / "case_studies" / "hECA.ipynb",
     "tutorial": REPO_ROOT / "notebooks" / "Tutorial.ipynb",
     "resolution_tutorial": REPO_ROOT / "notebooks" / "Resolution_Tutorial.ipynb",
+    "ablation": REPO_ROOT / "notebooks" / "Resampling_Ablation.ipynb",
 }
 
 
@@ -191,3 +192,22 @@ def test_heca_notebook_draws_one_umap_throughout():
     assert "figure_reference_scatter(" in source
     assert "embedding=" in source
     assert "plt.subplots" not in source
+
+
+def test_ablation_notebook_reads_its_config_from_the_registry():
+    source = _code(NOTEBOOKS["ablation"])
+    assert 'ABLATIONS["rho_b"]' in source
+    assert "read_frames(" in source
+    assert "arm_view(" in source
+    assert "figure_ablation_rho(" in source
+    assert "figure_ablation_b(" in source
+    assert "write_ablation_table(" in source
+    # No grid literal: the rho and B values come from the Ablation.
+    for restated in ("0.618", "(10, 25", "[10, 25", "0.2, 0.3"):
+        assert restated not in source
+
+
+def test_ablation_notebook_computes_nothing():
+    source = _code(NOTEBOOKS["ablation"])
+    for forbidden in ("run_ablation(", "CARVE(", "fit_carve(", ".fit("):
+        assert forbidden not in source
