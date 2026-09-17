@@ -19,6 +19,7 @@ from benchmarks._ablation_summary import (
     study_selection_shares,
     table_rows,
 )
+from benchmarks._artifacts import ABLATION_SELECTION_SCHEMA
 from benchmarks._registry import CARVE_METRICS_ALL
 from benchmarks._run import _labels_mode
 from benchmarks._tables import wilson_ci
@@ -402,3 +403,43 @@ class TestTableRows:
         assert row["study_modal"] == "AgglomerativeClustering, k=4"
         assert row["study_share"] == 1.0
         assert row["agreement"] == 1.0
+
+    def test_empty_selection_frame_returns_an_empty_frame_with_documented_columns(self):
+        # A schema-shaped, zero-row selection frame is what read_frames
+        # returns before any checkpoint for that arm exists (a fresh or
+        # interrupted run). study_selection_shares then returns empty for
+        # every metric, leaving modal == [] for the merge; table_rows must
+        # not raise KeyError building that merge's frame.
+        empty = pd.DataFrame(columns=list(ABLATION_SELECTION_SCHEMA))
+        out = table_rows({"selection": empty}, x=X, study="klein")
+        assert list(out.columns) == [
+            "setting", "metric_name", "recovery", "recovery_lo", "recovery_hi",
+            "ari_mean", "agreement", "study_modal", "study_share",
+        ]
+        assert out.empty
+
+    def test_simulated_only_frame_has_no_row_for_the_requested_study(self):
+        # Every row belongs to a simulated study ("gaussians"); none belong
+        # to the requested study ("klein"). study_selection_shares(study=
+        # "klein") is then empty for every metric (same root cause as the
+        # fully-empty case), but selection_summary/agreement_summary still
+        # have real pooled data from "gaussians" to report: the correct
+        # result keeps those (setting, metric) rows with study_modal and
+        # study_share as NaN, rather than being empty outright.
+        rows = [
+            {**_key(rho=rho, rep=rep), "metric_name": metric, "selected_estimator": "KMeans",
+             "selected_k": 5, "k_star": 5.0, "ari_selected": 0.9}
+            for rho in (0.2, 0.618) for rep in (0, 1) for metric in (STAB, GEN)
+        ]
+        out = table_rows({"selection": pd.DataFrame(rows)}, x=X, study="klein")
+        assert list(out.columns) == [
+            "setting", "metric_name", "recovery", "recovery_lo", "recovery_hi",
+            "ari_mean", "agreement", "study_modal", "study_share",
+        ]
+        assert not out.empty
+        assert set(out["setting"]) == {0.2, 0.618}
+        assert out["study_modal"].isna().all()
+        assert out["study_share"].isna().all()
+        # The pooled headline numbers are unaffected by the missing study.
+        row = out[(out["setting"] == 0.618) & (out["metric_name"] == STAB)].iloc[0]
+        assert row["recovery"] == 1.0

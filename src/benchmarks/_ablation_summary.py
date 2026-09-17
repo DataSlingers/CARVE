@@ -301,7 +301,14 @@ def table_rows(
 ) -> pd.DataFrame:
     """One row per (setting, metric) for the SI table: pooled recovery with
     its Wilson interval, pooled ARI, pooled replicate agreement, and the
-    study's modal selection with its share of replicates."""
+    study's modal selection with its share of replicates.
+
+    A partial run (an empty selection frame, or one with no rows for the
+    named study) leaves modal empty; declaring the merge frame's columns
+    up front keeps the [x, "metric_name"] merge keys present so this
+    returns a zero-row frame with the documented columns instead of
+    raising KeyError.
+    """
     selection = view["selection"]
     pooled = selection_summary(selection, x=x, metrics=metrics)
     pooled = pooled[pooled["study"] == POOLED]
@@ -323,7 +330,10 @@ def table_rows(
                     "study_share": float(top["share"]),
                 }
             )
-    rows = rows.merge(pd.DataFrame(modal), on=[x, "metric_name"], how="left")
+    modal_frame = pd.DataFrame(
+        modal, columns=[x, "metric_name", "study_modal", "study_share"]
+    )
+    rows = rows.merge(modal_frame, on=[x, "metric_name"], how="left")
     rows = rows.rename(columns={x: "setting"})
     return rows[
         [
