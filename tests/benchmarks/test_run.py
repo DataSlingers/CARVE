@@ -2,16 +2,33 @@
 
 import dataclasses
 import json
+import os
+import re
 import shutil
+import warnings
 from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from joblib import Parallel, cpu_count, delayed
 
 from benchmarks._artifacts import SCHEMA, read_run
+from benchmarks._estimators import param_grids
 from benchmarks._registry import CARVE_METRICS_ALL, CVI_METRICS
-from benchmarks._run import run_cell, run_scenario
+from benchmarks._run import (
+    CLUSTER_COUNT_WARNING,
+    benchmark_seed,
+    cpu_cap,
+    fit_carve,
+    labels_by_mode,
+    rare_cluster_recall,
+    run_cell,
+    run_scenario,
+    smallest_cluster,
+    thread_cap_for,
+)
+from benchmarks._simulate import simulate
 from benchmarks._types import Axis, EstimatorSpec, Scenario
 
 # The tiny scenario's hard axis point leaves no configuration inside the
@@ -412,3 +429,177 @@ class TestRuntimeCapture:
         from benchmarks._registry import TIMED_SCENARIOS
 
         assert "gaussians" not in TIMED_SCENARIOS
+
+
+class TestBenchmarkSeed:
+    def test_matches_the_published_derivation(self):
+        assert benchmark_seed(3, 2, 42) == 3 + 20000 + 42
+
+
+class TestSmallestCluster:
+    def test_returns_the_smallest_label_and_its_fraction(self):
+        y = np.array([0, 0, 0, 1, 1, 2])
+        assert smallest_cluster(y) == (2, 1 / 6)
+
+    def test_ties_go_to_the_lowest_label(self):
+        y = np.array([0, 1, 1, 2, 3, 3])
+        assert smallest_cluster(y)[0] == 0
+
+
+class TestRareClusterRecall:
+    def test_perfect_recovery_is_one(self):
+        y = np.array([0, 0, 0, 1, 1, 2])
+        labels = np.array([5, 5, 5, 7, 7, 9])
+        assert rare_cluster_recall(y, labels, rare_label=2) == 1.0
+
+    def test_a_rare_cluster_merged_into_another_is_zero(self):
+        y = np.array([0, 0, 0, 1, 1, 2])
+        labels = np.array([0, 0, 0, 1, 1, 1])
+        assert rare_cluster_recall(y, labels, rare_label=2) == 0.0
+
+    def test_fewer_clusters_than_truth_leaves_the_rare_one_unmatched(self):
+        y = np.array([0, 0, 0, 1, 1, 2, 2])
+        labels = np.array([0, 0, 0, 1, 1, 1, 1])
+        assert rare_cluster_recall(y, labels, rare_label=2) == 0.0
+
+    def test_partial_recovery_is_the_matched_fraction(self):
+        y = np.array([0, 0, 0, 1, 1, 2, 2, 2, 2])
+        labels = np.array([0, 0, 0, 1, 1, 2, 2, 1, 1])
+        assert rare_cluster_recall(y, labels, rare_label=2) == pytest.approx(0.5)
+
+    def test_rejects_a_label_absent_from_the_truth(self):
+        with pytest.raises(ValueError, match="rare_label"):
+            rare_cluster_recall(np.array([0, 1]), np.array([0, 1]), rare_label=7)
+
+
+def _budget_under_cap(cap):
+    from carve._utils import resolve_core_budget
+
+    with cpu_cap(cap):
+        inside = resolve_core_budget(1, n_resamples=100)
+    after = resolve_core_budget(1, n_resamples=100)
+    return inside, after, os.environ.get("LOKY_MAX_CPU_COUNT")
+
+
+class TestCpuCap:
+    def test_reaches_carves_core_budget_inside_loky_workers(self):
+        cores = cpu_count()
+        cap = max(1, cores // 2)
+        results = Parallel(n_jobs=2)(delayed(_budget_under_cap)(cap) for _ in range(4))
+        for inside, after, env in results:
+            assert inside == (1, cap)
+            assert after == (1, cores)
+            assert env is None
+
+    def test_none_leaves_the_environment_alone(self, monkeypatch):
+        monkeypatch.delenv("LOKY_MAX_CPU_COUNT", raising=False)
+        with cpu_cap(None):
+            assert "LOKY_MAX_CPU_COUNT" not in os.environ
+
+    def test_restores_a_previous_value(self, monkeypatch):
+        monkeypatch.setenv("LOKY_MAX_CPU_COUNT", "3")
+        with cpu_cap(1):
+            assert os.environ["LOKY_MAX_CPU_COUNT"] == "1"
+        assert os.environ["LOKY_MAX_CPU_COUNT"] == "3"
+
+    def test_thread_cap_for_splits_the_machine(self):
+        workers, cap = thread_cap_for(1)
+        assert (workers, cap) == (1, cpu_count())
+        workers, cap = thread_cap_for(-1)
+        assert workers == cpu_count()
+        assert cap == 1
+
+
+class TestFitCarve:
+    def test_regex_matches_carves_own_message(self):
+        # The literal format string lives in carve/_runner.py:
+        # f"labels_1 has {k_1} clusters, expected {expected}".
+        assert re.match(CLUSTER_COUNT_WARNING, "labels_1 has 3 clusters, expected 4")
+        assert re.match(CLUSTER_COUNT_WARNING, "labels_test has 2 clusters, expected 10")
+        assert not re.match(CLUSTER_COUNT_WARNING, "Non-default mode is experimental")
+
+    def test_counts_cluster_count_warnings_without_raising(self, monkeypatch):
+        # filterwarnings=error is on, so if fit_carve did not intercept these
+        # they would raise here instead of being counted.
+        import benchmarks._run as run_module
+
+        class ShortCarve(run_module.CARVE):
+            def fit(self, X, **kwargs):
+                warnings.warn("labels_1 has 3 clusters, expected 4", stacklevel=2)
+                warnings.warn("labels_test has 2 clusters, expected 4", stacklevel=2)
+                return super().fit(X, **kwargs)
+
+        monkeypatch.setattr(run_module, "CARVE", ShortCarve)
+        X = np.random.default_rng(0).normal(size=(60, 3))
+        fit = fit_carve(
+            X,
+            grids=param_grids(EstimatorSpec(name="kmeans"), (2, 3)),
+            n_resamples=4,
+            n_trees=10,
+            random_state=0,
+            subsample_ratio=0.5,
+        )
+        assert fit.n_cluster_count_warnings == 2
+        assert fit.fit_seconds > 0
+        assert fit.carve.estimator_results_ is not None
+
+    def test_re_emits_other_warnings(self, tiny_scenario, monkeypatch):
+        import benchmarks._run as run_module
+
+        class NoisyCarve(run_module.CARVE):
+            def fit(self, X, **kwargs):
+                warnings.warn("something else entirely", stacklevel=2)
+                return super().fit(X, **kwargs)
+
+        monkeypatch.setattr(run_module, "CARVE", NoisyCarve)
+        X = np.random.default_rng(0).normal(size=(60, 3))
+        with pytest.warns(UserWarning, match="something else entirely"):
+            fit_carve(
+                X,
+                grids=param_grids(tiny_scenario.estimator, (2, 3)),
+                n_resamples=4,
+                n_trees=10,
+                random_state=0,
+            )
+
+    def test_subsample_ratio_none_keeps_the_constructor_kwargs(self, recording_carve):
+        X = np.random.default_rng(0).normal(size=(60, 3))
+        grids = param_grids(EstimatorSpec(name="kmeans"), (2, 3))
+        fit_carve(X, grids=grids, n_resamples=4, n_trees=10, random_state=0)
+        assert "subsample_ratio" not in recording_carve.init_kwargs[0]
+        fit_carve(X, grids=grids, n_resamples=4, n_trees=10, random_state=0, subsample_ratio=0.5)
+        assert recording_carve.init_kwargs[1]["subsample_ratio"] == 0.5
+
+
+class TestLabelsByMode:
+    def test_scores_every_mode_and_k(self, tiny_scenario):
+        X, y = simulate(tiny_scenario, axis_value=0, axis_label="easy", seed=0)
+        fit = fit_carve(
+            X,
+            grids=param_grids(tiny_scenario.estimator, tiny_scenario.candidate_k),
+            n_resamples=8,
+            n_trees=10,
+            random_state=0,
+        )
+        rare_label, _ = smallest_cluster(y)
+        scores = labels_by_mode(
+            fit.carve, y, candidate_k=tiny_scenario.candidate_k, rare_label=rare_label
+        )
+        assert set(scores) == {"default", "generalizability"}
+        for mode in scores:
+            assert set(scores[mode]) == set(tiny_scenario.candidate_k)
+            for k in scores[mode]:
+                assert -1.0 <= scores[mode][k]["ari"] <= 1.0
+                assert 0.0 <= scores[mode][k]["rare_recall"] <= 1.0
+
+    def test_omits_rare_recall_without_a_rare_label(self, tiny_scenario):
+        X, y = simulate(tiny_scenario, axis_value=0, axis_label="easy", seed=0)
+        fit = fit_carve(
+            X,
+            grids=param_grids(tiny_scenario.estimator, (3,)),
+            n_resamples=8,
+            n_trees=10,
+            random_state=0,
+        )
+        scores = labels_by_mode(fit.carve, y, candidate_k=(3,))
+        assert set(scores["default"][3]) == {"ari"}

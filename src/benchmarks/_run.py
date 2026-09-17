@@ -9,7 +9,8 @@ Parallelism is inverted. The old runners parallelized five-element inner
 loops with processes while the sixty-iteration outer loop ran serially, and
 passed the same n_jobs to both the outer loop and CARVE, so the two nested.
 Here joblib parallelizes the outer (axis x seed) loop and CARVE always gets
-n_jobs=1.
+n_jobs=1. Each fit is also capped at its share of the machine's threads (see
+cpu_cap), which changes nothing at n_jobs=1.
 
 reference_labels is not passed to fit. The old scaling runner passed the true
 labels and the difficulty runner did not. reference_labels only permutes
@@ -19,18 +20,23 @@ invariant to label permutation. The divergence was cosmetic.
 """
 
 import json
+import os
+import re
 import time
 import uuid
 import warnings
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-from joblib import Parallel, delayed
+from joblib import Parallel, cpu_count, delayed, effective_n_jobs
 from sklearn.metrics import adjusted_rand_score
 from tqdm.auto import tqdm
 
 from carve import CARVE
+from carve._utils import align_cluster_labels
 
 from ._artifacts import (
     build_manifest,
@@ -53,6 +59,151 @@ from ._registry import (
 )
 from ._simulate import simulate
 from ._types import Scenario
+
+# CARVE warns once per subsample whose clustering did not reach the
+# requested k. At a large rho the hold-out set is small and this fires
+# often; the ablation counts it per cell instead of letting it escalate.
+CLUSTER_COUNT_WARNING: str = r"^labels_\w+ has \d+ clusters, expected \d+$"
+
+
+def benchmark_seed(seed: int, axis_idx: int, random_state: int) -> int:
+    """The seed a cell simulates and fits with: the published derivation."""
+    return int(seed + (axis_idx * 10000) + random_state)
+
+
+@contextmanager
+def cpu_cap(cap: int | None):
+    """Cap the CPU count joblib reports for the duration of the block.
+
+    Inside a loky worker, joblib caps OpenMP and BLAS at one thread but
+    joblib.cpu_count() still reports the whole machine, so a CARVE fit with
+    n_jobs=1 hands its random forest every core and a pool of such fits
+    oversubscribes the machine. loky's cpu_count takes the minimum of the
+    system count and LOKY_MAX_CPU_COUNT, which is what CARVE's core budget
+    reads, so setting the variable here is enough. None caps nothing.
+    """
+    if cap is None:
+        yield
+        return
+    previous = os.environ.get("LOKY_MAX_CPU_COUNT")
+    os.environ["LOKY_MAX_CPU_COUNT"] = str(int(cap))
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("LOKY_MAX_CPU_COUNT", None)
+        else:
+            os.environ["LOKY_MAX_CPU_COUNT"] = previous
+
+
+def thread_cap_for(n_jobs: int) -> tuple[int, int]:
+    """Resolve n_jobs to (workers, threads per fit) so the product fits the machine."""
+    workers = max(1, int(effective_n_jobs(n_jobs)))
+    return workers, max(1, cpu_count() // workers)
+
+
+@dataclass(frozen=True)
+class CarveFit:
+    """One CARVE fit with what the benchmarks record about it."""
+
+    carve: CARVE
+    fit_seconds: float
+    n_cluster_count_warnings: int
+
+
+def fit_carve(
+    X: np.ndarray,
+    *,
+    grids: list[tuple[type, dict[str, list[Any]]]],
+    n_resamples: int,
+    n_trees: int,
+    random_state: int,
+    subsample_ratio: float | None = None,
+    thread_cap: int | None = None,
+) -> CarveFit:
+    """Fit CARVE the way every benchmark fits it: one worker, timed.
+
+    subsample_ratio=None leaves CARVE's default in place and passes nothing,
+    so a scenario cell constructs CARVE with exactly the arguments it did
+    before this function existed. Cluster-count warnings are counted and
+    swallowed; every other warning is re-emitted after the fit.
+    """
+    optional = (
+        {} if subsample_ratio is None else {"subsample_ratio": float(subsample_ratio)}
+    )
+    carve = CARVE(
+        estimator_param_grids=grids,
+        n_resamples=n_resamples,
+        n_trees=n_trees,
+        n_jobs=1,
+        random_state=random_state,
+        **optional,
+    )
+    with warnings.catch_warnings(record=True) as caught, cpu_cap(thread_cap):
+        warnings.filterwarnings("always", message=CLUSTER_COUNT_WARNING)
+        t0 = time.perf_counter()
+        carve.fit(X)
+        elapsed = time.perf_counter() - t0
+    n_count = 0
+    for record in caught:
+        if re.match(CLUSTER_COUNT_WARNING, str(record.message)):
+            n_count += 1
+        else:
+            warnings.warn(record.message, stacklevel=2)
+    return CarveFit(
+        carve=carve, fit_seconds=float(elapsed), n_cluster_count_warnings=n_count
+    )
+
+
+def smallest_cluster(y: np.ndarray) -> tuple[Any, float]:
+    """The label of the smallest true cluster and its size fraction.
+
+    Ties go to the lowest label, because np.unique sorts and argmin returns
+    the first minimum.
+    """
+    labels, counts = np.unique(np.asarray(y), return_counts=True)
+    index = int(np.argmin(counts))
+    return labels[index].item(), float(counts[index] / counts.sum())
+
+
+def rare_cluster_recall(y: np.ndarray, labels: np.ndarray, rare_label: Any) -> float:
+    """Fraction of the rare true cluster's samples the aligned labels recover.
+
+    Labels are aligned to the truth by Hungarian matching. A true cluster the
+    matching leaves unassigned, which happens whenever there are fewer
+    predicted clusters than true ones, scores 0.
+    """
+    y = np.asarray(y)
+    mask = y == rare_label
+    if not mask.any():
+        raise ValueError(f"rare_label {rare_label!r} does not occur in y.")
+    aligned = align_cluster_labels(y, np.asarray(labels))
+    return float(np.mean(aligned[mask] == rare_label))
+
+
+def labels_by_mode(
+    carve: CARVE,
+    y: np.ndarray,
+    *,
+    candidate_k: tuple[int, ...] | list[int],
+    rare_label: Any | None = None,
+) -> dict[str, dict[int, dict[str, float]]]:
+    """ARI (and rare-cluster recall) of the consensus labels at every k and mode.
+
+    Labels depend only on the consensus matrix a metric is cut from, so
+    they are computed once per mode rather than once per metric.
+    """
+    scores: dict[str, dict[int, dict[str, float]]] = {}
+    for mode in ("default", "generalizability"):
+        per_k: dict[int, dict[str, float]] = {}
+        for k in candidate_k:
+            labels = carve.get_labels(k=int(k), mode=mode)
+            entry = {"ari": float(adjusted_rand_score(y, labels))}
+            if rare_label is not None:
+                entry["rare_recall"] = rare_cluster_recall(y, labels, rare_label)
+            per_k[int(k)] = entry
+        scores[mode] = per_k
+    return scores
 
 
 def _labels_mode(metric_name: str) -> str:
@@ -77,6 +228,7 @@ def run_cell(
     random_state: int,
     n_resamples: int,
     timing_fits: bool = False,
+    thread_cap: int | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Run one (axis point, seed) cell and return its rows.
 
@@ -88,30 +240,33 @@ def run_cell(
     timing_fits, when True, fits CARVE twice more -- once per mode -- purely
     to time each mode's fit separately; those fits' results are discarded
     and never feed metric_rows.
+
+    thread_cap bounds the threads the fit's classifier may use; None leaves
+    every core available, as a single-worker run had before.
     """
-    benchmark_seed = seed + (axis_idx * 10000) + random_state
+    cell_seed = benchmark_seed(seed, axis_idx, random_state)
     candidate_k = list(scenario.candidate_k)
 
     X, y = simulate(
-        scenario, axis_value=axis_value, axis_label=axis_label, seed=benchmark_seed
+        scenario, axis_value=axis_value, axis_label=axis_label, seed=cell_seed
     )
 
     oracle = build_estimator(
-        scenario.estimator, n_clusters=scenario.k_star, random_state=benchmark_seed
+        scenario.estimator, n_clusters=scenario.k_star, random_state=cell_seed
     )
     oracle_ari = float(adjusted_rand_score(y, oracle.fit_predict(X)))
 
     grids = param_grids(scenario.estimator, candidate_k)
-    carve = CARVE(
-        estimator_param_grids=grids,
+    fit = fit_carve(
+        X,
+        grids=grids,
         n_resamples=n_resamples,
         n_trees=scenario.n_trees,
-        n_jobs=1,
-        random_state=benchmark_seed,
+        random_state=cell_seed,
+        thread_cap=thread_cap,
     )
-    t0 = time.perf_counter()
-    carve.fit(X)
-    t_default_s = time.perf_counter() - t0
+    carve = fit.carve
+    t_default_s = fit.fit_seconds
 
     context = {
         "run_id": run_id,
@@ -130,18 +285,13 @@ def run_cell(
     # --- CARVE metrics -----------------------------------------------------
     # ari_at_k depends only on the consensus matrix a metric is cut from, so
     # labels are computed once per mode rather than once per metric.
-    ari_by_mode: dict[str, dict[int, float]] = {}
-    for mode in ("default", "generalizability"):
-        ari_by_mode[mode] = {
-            k: float(adjusted_rand_score(y, carve.get_labels(k=k, mode=mode)))
-            for k in candidate_k
-        }
+    scores_by_mode = labels_by_mode(carve, y, candidate_k=candidate_k)
 
     for metric_name in CARVE_METRICS_ALL:
         measure = metric_measure(metric_name)
         rule = metric_rule(metric_name)
         selected_k = int(carve.get_k(measure=measure, rule=rule))
-        aris = ari_by_mode[_labels_mode(metric_name)]
+        scores = scores_by_mode[_labels_mode(metric_name)]
 
         results = carve.estimator_results_
         for k in candidate_k:
@@ -154,7 +304,7 @@ def run_cell(
                     "metric_value": value,
                     "is_selected": k == selected_k,
                     "selects_true_k": k == scenario.k_star,
-                    "ari_at_k": aris[k],
+                    "ari_at_k": scores[k]["ari"],
                 }
             )
 
@@ -162,7 +312,7 @@ def run_cell(
     labels_by_k = {
         k: np.asarray(
             build_estimator(
-                scenario.estimator, n_clusters=k, random_state=benchmark_seed
+                scenario.estimator, n_clusters=k, random_state=cell_seed
             ).fit_predict(X),
             dtype=np.int32,
         )
@@ -179,7 +329,7 @@ def run_cell(
                 labels_by_k[k],
                 metric_name,
                 spec=scenario.estimator,
-                random_state=benchmark_seed,
+                random_state=cell_seed,
             )
             values.append(value)
             errors.append(error)
@@ -222,11 +372,12 @@ def run_cell(
                     n_resamples=n_resamples,
                     n_trees=scenario.n_trees,
                     n_jobs=1,
-                    random_state=benchmark_seed,
+                    random_state=cell_seed,
                 )
-                t0 = time.perf_counter()
-                timer.fit(X, mode=mode)
-                elapsed = time.perf_counter() - t0
+                with cpu_cap(thread_cap):
+                    t0 = time.perf_counter()
+                    timer.fit(X, mode=mode)
+                    elapsed = time.perf_counter() - t0
                 if mode == "stability":
                     t_stability_s = elapsed
                 else:
@@ -343,6 +494,7 @@ def run_scenario(
 
     run_id = previous_manifest["run_id"] if previous_manifest else uuid.uuid4().hex[:12]
     started = time.perf_counter()
+    _, thread_cap = thread_cap_for(n_jobs)
 
     def _one(axis_idx, axis_value, axis_label, seed):
         rows, runtime_row = run_cell(
@@ -355,6 +507,7 @@ def run_scenario(
             random_state=random_state,
             n_resamples=n_resamples,
             timing_fits=timing_fits,
+            thread_cap=thread_cap,
         )
         write_checkpoint(rd, axis_label, seed, rows)
         write_runtime_checkpoint(rd, axis_label, seed, [runtime_row])
