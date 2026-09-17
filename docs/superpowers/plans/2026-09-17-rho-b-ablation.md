@@ -1,14 +1,14 @@
 # Rho and B Sensitivity Ablation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> For agentic workers: REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Measure how CARVE's selections, scores and cluster recovery respond to the subsampling proportion rho and the resample count B, on the six simulation scenarios and the Klein case study, and produce the SI figures, table, notebook and manuscript drafts that answer reviewer comments R4.4 and R1.3.
+Goal: Measure how CARVE's selections, scores and cluster recovery respond to the subsampling proportion rho and the resample count B, on the six simulation scenarios and the Klein case study, and produce the SI figures, table, notebook and manuscript drafts that answer reviewer comments R4.4 and R1.3.
 
-**Architecture:** A dedicated ablation runner in `src/benchmarks/_ablation.py` enumerates cells keyed by (study, difficulty, dataset, rho, B, replicate), fits CARVE once per cell through fit-and-score code shared with `run_cell`, and checkpoints six typed parquet frames per run directory. A summary module turns those frames into per-setting statistics that two figure functions, one table renderer and a read-only notebook consume. Configuration lives in `_registry.py` as a frozen `Ablation`; nothing under `src/carve/` changes and no published scenario output moves.
+Architecture: A dedicated ablation runner in `src/benchmarks/_ablation.py` enumerates cells keyed by (study, difficulty, dataset, rho, B, replicate), fits CARVE once per cell through fit-and-score code shared with `run_cell`, and checkpoints six typed parquet frames per run directory. A summary module turns those frames into per-setting statistics that two figure functions, one table renderer and a read-only notebook consume. Configuration lives in `_registry.py` as a frozen `Ablation`; nothing under `src/carve/` changes and no published scenario output moves.
 
-**Tech Stack:** Python 3.13, numpy, pandas, pyarrow parquet, joblib (loky), scikit-learn, matplotlib, nbformat, pytest, ruff 0.16.4.
+Tech Stack: Python 3.13, numpy, pandas, pyarrow parquet, joblib (loky), scikit-learn, matplotlib, nbformat, pytest, ruff 0.16.4.
 
-**Spec:** `docs/superpowers/specs/2026-09-16-rho-b-ablation-design.md`
+Spec: `docs/superpowers/specs/2026-09-16-rho-b-ablation-design.md`
 
 ## Global Constraints
 
@@ -62,15 +62,15 @@ The study (Klein) has `difficulty == ""` and `dataset == 0`; it has one dataset.
 
 ### Task 1: Ablation configuration types and `Study.not_two`
 
-**Files:**
+Files:
 - Modify: `src/benchmarks/_types.py` (after `Study`, before `Manifest`; `Study` gains a field)
 - Modify: `src/benchmarks/_studies.py:501-509` (`STUDIES["klein"]`)
 - Test: `tests/benchmarks/test_benchmarks_types.py`, `tests/benchmarks/test_studies.py`, `tests/benchmarks/test_notebooks.py`
 
-**Interfaces:**
+Interfaces:
 - Produces: `ArmScale(difficulties, datasets, replicates, study_replicates)`, `AblationScale(rho_arm, b_arm, similarity_draws, study_scale, n_total=None)`, `Ablation(name, scenarios, study, rho_grid, b_grid, rho_default, b_default, scales, default_scale)`; `Study.not_two: bool = False`.
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] Step 1: Write the failing tests
 
 Append to `tests/benchmarks/test_benchmarks_types.py` (extend the import to include `Ablation, AblationScale, ArmScale`):
 
@@ -191,12 +191,12 @@ def test_klein_notebook_not_two_agrees_with_the_study():
     assert ("not_two=True" in source) == STUDIES["klein"].not_two
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] Step 2: Run the tests to verify they fail
 
 Run: `.venv/bin/pytest tests/benchmarks/test_benchmarks_types.py tests/benchmarks/test_studies.py -k "ArmScale or AblationScale or TestAblation or NotTwo or excludes_k_two" -q`
 Expected: ImportError on `ArmScale` (collection error) — the test file cannot import the new names.
 
-- [ ] **Step 3: Add the dataclasses and the Study field**
+- [ ] Step 3: Add the dataclasses and the Study field
 
 In `src/benchmarks/_types.py`, add `not_two: bool = False` as the last field of `Study`, directly after `preprocessing: PreprocessingSpec | None = None`, and extend the class docstring's last paragraph with:
 
@@ -319,12 +319,12 @@ In `src/benchmarks/_studies.py`, add `not_two=True,` as the last argument of `ST
         not_two=True,
 ```
 
-- [ ] **Step 4: Run the tests**
+- [ ] Step 4: Run the tests
 
 Run: `.venv/bin/pytest tests/benchmarks/test_benchmarks_types.py tests/benchmarks/test_studies.py tests/benchmarks/test_notebooks.py -q`
 Expected: all pass.
 
-- [ ] **Step 5: Lint and commit**
+- [ ] Step 5: Lint and commit
 
 ```bash
 .venv/bin/ruff check src/ && .venv/bin/ruff format src/
@@ -338,15 +338,15 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ### Task 2: Register the rho_b ablation
 
-**Files:**
+Files:
 - Modify: `src/benchmarks/_registry.py` (imports; new section after `PUBLISHED_RANDOM_STATE`)
 - Test: `tests/benchmarks/test_registry.py`
 
-**Interfaces:**
+Interfaces:
 - Consumes: `Ablation`, `AblationScale`, `ArmScale` from Task 1.
 - Produces: `REPLICATE_SEED_SPACING: int`, `SIMILARITY_SEED_OFFSET: int`, `package_defaults() -> tuple[float, int]`, `ABLATION_SCALES: dict[str, AblationScale]`, `ABLATIONS: dict[str, Ablation]`, `validate_ablation(ablation) -> None`, `max_benchmark_seed_offset(ablation) -> int`.
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] Step 1: Write the failing tests
 
 Append to `tests/benchmarks/test_registry.py` (extend the `from benchmarks._registry import (...)` block with `ABLATIONS, REPLICATE_SEED_SPACING, SIMILARITY_SEED_OFFSET, package_defaults, validate_ablation`; add `import dataclasses` and `from benchmarks._types import AblationScale, ArmScale`):
 
@@ -446,12 +446,12 @@ class TestAblationRegistry:
             validate_ablation(ABLATIONS["rho_b"])
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] Step 2: Run the tests to verify they fail
 
 Run: `.venv/bin/pytest tests/benchmarks/test_registry.py -q`
 Expected: ImportError on `ABLATIONS`.
 
-- [ ] **Step 3: Add the registry section**
+- [ ] Step 3: Add the registry section
 
 In `src/benchmarks/_registry.py`, change the import to `from ._types import Ablation, AblationScale, ArmScale, Axis, EstimatorSpec, Scenario` and append after `PUBLISHED_RANDOM_STATE`:
 
@@ -600,12 +600,12 @@ for _ablation in ABLATIONS.values():
 
 Note `DIFFICULTY_AXIS.labels` is already a tuple `("easy", "medium", "hard")`, so `ArmScale.difficulties` receives it as is.
 
-- [ ] **Step 4: Run the tests**
+- [ ] Step 4: Run the tests
 
 Run: `.venv/bin/pytest tests/benchmarks/test_registry.py tests/benchmarks/test_artifacts.py -q`
 Expected: all pass (the artifacts tests confirm `config_hash` is untouched).
 
-- [ ] **Step 5: Lint and commit**
+- [ ] Step 5: Lint and commit
 
 ```bash
 .venv/bin/ruff check src/ && .venv/bin/ruff format src/
@@ -619,11 +619,11 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ### Task 3: Shared fit-and-score code in `_run.py`, with the thread cap
 
-**Files:**
+Files:
 - Modify: `src/benchmarks/_run.py` (imports; new helpers before `run_cell`; `run_cell` lines 92-146 and 190-220; `run_scenario` lines 349-368)
 - Test: `tests/benchmarks/test_run.py`
 
-**Interfaces:**
+Interfaces:
 - Produces:
   - `benchmark_seed(seed: int, axis_idx: int, random_state: int) -> int`
   - `cpu_cap(cap: int | None)` context manager
@@ -636,7 +636,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
   - `rare_cluster_recall(y, labels, rare_label) -> float`
   - `run_cell(..., thread_cap: int | None = None)`
 
-- [ ] **Step 1: Record the current `run_cell` output for the before/after comparison**
+- [ ] Step 1: Record the current `run_cell` output for the before/after comparison
 
 Run (scratch only, nothing committed):
 
@@ -657,7 +657,7 @@ PY
 
 Expected: `85 rows saved` (13 CARVE metrics plus 4 classical indices, times 5 candidate k).
 
-- [ ] **Step 2: Write the failing tests**
+- [ ] Step 2: Write the failing tests
 
 Append to `tests/benchmarks/test_run.py` (extend the `from benchmarks._run import ...` block with `CLUSTER_COUNT_WARNING, benchmark_seed, cpu_cap, fit_carve, labels_by_mode, rare_cluster_recall, smallest_cluster, thread_cap_for`; add `import os`, `from joblib import Parallel, cpu_count, delayed`, `from benchmarks._estimators import param_grids`):
 
@@ -842,12 +842,12 @@ Note on `test_re_emits_other_warnings`: `pytest.warns` installs an `always` filt
 
 One behavior change for scenario runs to be aware of: `run_cell` now goes through `fit_carve`, so cluster-count warnings during a scenario fit are counted and swallowed rather than printed. The metric rows are unchanged (Step 6 checks this).
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [ ] Step 3: Run the tests to verify they fail
 
 Run: `.venv/bin/pytest tests/benchmarks/test_run.py -q -k "BenchmarkSeed or SmallestCluster or RareCluster or CpuCap or FitCarve or LabelsByMode"`
 Expected: ImportError on `benchmark_seed`.
 
-- [ ] **Step 4: Add the helpers and rewire `run_cell` and `run_scenario`**
+- [ ] Step 4: Add the helpers and rewire `run_cell` and `run_scenario`
 
 In `src/benchmarks/_run.py`, extend the imports:
 
@@ -1086,12 +1086,12 @@ In `run_scenario`, after `started = time.perf_counter()` add
 
 and pass `thread_cap=thread_cap` to `run_cell` inside `_one`. Update the module docstring's second paragraph to end with: `Each fit is also capped at its share of the machine's threads (see cpu_cap), which changes nothing at n_jobs=1.`
 
-- [ ] **Step 5: Run the tests**
+- [ ] Step 5: Run the tests
 
 Run: `.venv/bin/pytest tests/benchmarks/test_run.py tests/benchmarks/test_cli.py -q`
 Expected: all pass, including the existing `TestRunCell` and `TestRunScenario` classes.
 
-- [ ] **Step 6: Compare `run_cell` output against the recording from Step 1**
+- [ ] Step 6: Compare `run_cell` output against the recording from Step 1
 
 ```bash
 .venv/bin/python - <<'PY'
@@ -1110,7 +1110,7 @@ PY
 
 Expected: `identical`. If it prints anything else, the refactor changed a computation; find the difference before continuing.
 
-- [ ] **Step 7: Lint and commit**
+- [ ] Step 7: Lint and commit
 
 ```bash
 .venv/bin/ruff check src/ && .venv/bin/ruff format src/
@@ -1124,11 +1124,11 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ### Task 4: Ablation artifacts
 
-**Files:**
+Files:
 - Modify: `src/benchmarks/_artifacts.py` (schemas after `RUNTIME_SCHEMA`; `_canonical_config`; new functions after `read_runtimes`; `build_manifest`; `write_manifest`)
 - Test: `tests/benchmarks/test_artifacts.py`
 
-**Interfaces:**
+Interfaces:
 - Produces:
   - `CELL_KEY: tuple[str, ...]`
   - `ABLATION_CURVE_SCHEMA`, `ABLATION_SELECTION_SCHEMA`, `ABLATION_AT_K_SCHEMA`, `ABLATION_CELL_SCHEMA`, `ABLATION_DATASET_SCHEMA`, `ABLATION_SIMILARITY_SCHEMA`, and `ABLATION_SCHEMAS: dict[str, tuple[str, ...]]` keyed `curves, selection, at_k, cells, datasets, similarity`
@@ -1139,7 +1139,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
   - `read_frames(rd) -> dict[str, DataFrame]` (one frame per schema name; empty frames carry the schema columns)
   - `write_manifest(rd, manifest)` now accepts a `Manifest` or a mapping
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] Step 1: Write the failing tests
 
 Append to `tests/benchmarks/test_artifacts.py` (extend the import with `ABLATION_SCHEMAS, CELL_KEY, ablation_dir, provenance, read_frames, scenario_identity, write_frame`):
 
@@ -1237,12 +1237,12 @@ class TestProvenance:
         assert json.loads(path.read_text()) == {"run_id": "r1", "ablation": "rho_b"}
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] Step 2: Run the tests to verify they fail
 
 Run: `.venv/bin/pytest tests/benchmarks/test_artifacts.py -q`
 Expected: ImportError on `ABLATION_SCHEMAS`.
 
-- [ ] **Step 3: Implement**
+- [ ] Step 3: Implement
 
 In `src/benchmarks/_artifacts.py`, add `from collections.abc import Mapping` to the imports, and after `RUNTIME_SCHEMA`:
 
@@ -1431,12 +1431,12 @@ In `build_manifest`, replace the `peak_rss_bytes=...` through `platform={...}` a
 
 with the docstring gaining `Accepts a Manifest or any mapping, so the ablation writes the same atomic file.`
 
-- [ ] **Step 4: Run the tests**
+- [ ] Step 4: Run the tests
 
 Run: `.venv/bin/pytest tests/benchmarks/test_artifacts.py tests/benchmarks/test_run.py -q`
 Expected: all pass. `TestConfigHash` passing is the check that the split did not move the hash.
 
-- [ ] **Step 5: Lint and commit**
+- [ ] Step 5: Lint and commit
 
 ```bash
 .venv/bin/ruff check src/ && .venv/bin/ruff format src/
@@ -1450,11 +1450,11 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ### Task 5: Cells, units, seeds and arm views (`_ablation_cells.py`)
 
-**Files:**
+Files:
 - Create: `src/benchmarks/_ablation_cells.py`
 - Test: `tests/benchmarks/test_ablation_cells.py`
 
-**Interfaces:**
+Interfaces:
 - Consumes: `Ablation`, `AblationScale` (Task 1); `ABLATIONS`, `SCENARIOS`, `PUBLISHED_RANDOM_STATE`, `REPLICATE_SEED_SPACING`, `SIMILARITY_SEED_OFFSET` (Task 2); `benchmark_seed` is re-implemented here as `_benchmark_seed` with the same arithmetic so this module does not import `_run` (a test pins the two equal); `CELL_KEY` (Task 4).
 - Produces:
   - `STUDY_DIFFICULTY = ""`, `STUDY_DATASET = 0`, `REFERENCE_RATIO = 1.0`
@@ -1468,7 +1468,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
   - `scenario_at_scale(scenario, scale: AblationScale) -> Scenario`
   - `cells_frame(cells) -> DataFrame`, `arm_view(frames, *, ablation, scale, arm) -> dict[str, DataFrame]`
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] Step 1: Write the failing tests
 
 Create `tests/benchmarks/test_ablation_cells.py`:
 
@@ -1744,12 +1744,12 @@ class TestArmView:
         assert list(frame.columns) == list(CELL_KEY)
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] Step 2: Run the tests to verify they fail
 
 Run: `.venv/bin/pytest tests/benchmarks/test_ablation_cells.py -q`
 Expected: ModuleNotFoundError for `benchmarks._ablation_cells`.
 
-- [ ] **Step 3: Create the module**
+- [ ] Step 3: Create the module
 
 Create `src/benchmarks/_ablation_cells.py`:
 
@@ -2006,12 +2006,12 @@ def arm_view(
 
 Note `enumerate_cells`'s `_order` looks up `SCENARIOS[cell.study]`; a test that uses a scenario not in the registry must monkeypatch `benchmarks._ablation_cells.SCENARIOS` (Task 6 does).
 
-- [ ] **Step 4: Run the tests**
+- [ ] Step 4: Run the tests
 
 Run: `.venv/bin/pytest tests/benchmarks/test_ablation_cells.py -q`
 Expected: all pass.
 
-- [ ] **Step 5: Lint and commit**
+- [ ] Step 5: Lint and commit
 
 ```bash
 .venv/bin/ruff check src/ && .venv/bin/ruff format src/
@@ -2025,11 +2025,11 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ### Task 6: Unit executors and the runner (`_ablation.py`)
 
-**Files:**
+Files:
 - Create: `src/benchmarks/_ablation.py`
 - Test: `tests/benchmarks/test_ablation.py`
 
-**Interfaces:**
+Interfaces:
 - Consumes: Task 5's names; `fit_carve`, `labels_by_mode`, `smallest_cluster`, `thread_cap_for`, `_labels_mode` (Task 3); `write_frame`, `read_frames`, `ablation_dir`, `provenance`, `write_manifest`, `scenario_identity`, `ABLATION_SCHEMAS` (Task 4); `select_best_row_by_rule` from `carve._selection`; `split_subsample_indices` from `carve._utils`.
 - Produces:
   - `ablation_config(ablation, scale) -> dict`, `ablation_hash(ablation, scale) -> str`
@@ -2039,7 +2039,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
   - `run_unit(unit, *, ablation, scale, data, thread_cap) -> dict[str, list[dict]]`
   - `run_ablation(ablation, *, scale=None, root, n_jobs=-1, resume=True, verbose=0, units=None) -> Path`
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] Step 1: Write the failing tests
 
 Create `tests/benchmarks/test_ablation.py`:
 
@@ -2391,12 +2391,12 @@ class TestRunAblation:
         assert not np.allclose(by_rep[0], by_rep[1])
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] Step 2: Run the tests to verify they fail
 
 Run: `.venv/bin/pytest tests/benchmarks/test_ablation.py -q`
 Expected: ModuleNotFoundError for `benchmarks._ablation`.
 
-- [ ] **Step 3: Create the module**
+- [ ] Step 3: Create the module
 
 Create `src/benchmarks/_ablation.py`:
 
@@ -2849,12 +2849,12 @@ def run_ablation(
     return rd
 ```
 
-- [ ] **Step 4: Run the tests**
+- [ ] Step 4: Run the tests
 
 Run: `.venv/bin/pytest tests/benchmarks/test_ablation.py -q` (allow a few minutes; the module fixture fits sixteen small CARVE runs).
 Expected: all pass. If `test_curves_cover_every_metric_and_k` fails because `metric_se` is NaN for every metric, check that `estimator_results_` carries `ari_stability_se` (it does, `_runner.py` "ari_stability_se") and that `metric_measure` strips the suffix. If any test raises a `UserWarning` about cluster counts, `fit_carve`'s interception is not covering the fit; do not add a `filterwarnings` mark.
 
-- [ ] **Step 5: Lint and commit**
+- [ ] Step 5: Lint and commit
 
 ```bash
 .venv/bin/ruff check src/ && .venv/bin/ruff format src/
@@ -2868,15 +2868,15 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ### Task 7: CLI entry
 
-**Files:**
+Files:
 - Modify: `src/benchmarks/run.py`
 - Test: `tests/benchmarks/test_cli.py`
 
-**Interfaces:**
+Interfaces:
 - Consumes: `ABLATIONS` (Task 2), `run_ablation` (Task 6), `timing_units` (Task 5).
 - Produces: `python -m benchmarks.run --ablation NAME [--scale S] [--timing-batch] [--n-jobs N] [--no-resume] [--root R]`; `--list` prints `ablation:<name>` lines after the scenarios; `--n-jobs` defaults to `None` and resolves to 1 for scenarios and -1 for an ablation.
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] Step 1: Write the failing tests
 
 Append to `tests/benchmarks/test_cli.py` (add `import benchmarks.run as run_module` and `from benchmarks._registry import ABLATIONS`):
 
@@ -2943,12 +2943,12 @@ class TestAblationCli:
         assert len(kwargs["units"]) == 22
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] Step 2: Run the tests to verify they fail
 
 Run: `.venv/bin/pytest tests/benchmarks/test_cli.py -q`
 Expected: the new tests fail (`--ablation` unrecognized, `_resolve_n_jobs` missing).
 
-- [ ] **Step 3: Extend the CLI**
+- [ ] Step 3: Extend the CLI
 
 In `src/benchmarks/run.py`, extend the imports:
 
@@ -3023,12 +3023,12 @@ In `main`, after the `--list` block prints scenarios, add `for name in sorted(AB
 
 Replace `n_jobs=args.n_jobs` in the scenario loop with `n_jobs=_resolve_n_jobs(args)`. Update the "Nothing to do" message to name `--ablation` as well.
 
-- [ ] **Step 4: Run the tests**
+- [ ] Step 4: Run the tests
 
 Run: `.venv/bin/pytest tests/benchmarks/test_cli.py -q`
 Expected: all pass.
 
-- [ ] **Step 5: Lint and commit**
+- [ ] Step 5: Lint and commit
 
 ```bash
 .venv/bin/ruff check src/ && .venv/bin/ruff format src/
@@ -3042,11 +3042,11 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ### Task 8: Summaries (`_ablation_summary.py`)
 
-**Files:**
+Files:
 - Create: `src/benchmarks/_ablation_summary.py`
 - Test: `tests/benchmarks/test_ablation_summary.py`
 
-**Interfaces:**
+Interfaces:
 - Consumes: `CELL_KEY` (Task 4); `GENERALIZABILITY_METRICS`, `CARVE_METRICS_ALL` (registry); `wilson_ci` from `_tables`.
 - Produces (every function returns a new DataFrame; `x` is `"subsample_ratio"` or `"n_resamples"`; rows with `study == POOLED` pool the simulated studies only):
   - `HEADLINE_METRICS = ("ari_stability_1se", "ari_generalizability_1se")`, `POOLED = "pooled"`
@@ -3061,7 +3061,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
   - `diagnostics_summary(cells, *, x)` -> `[x, study, fit_seconds, consensus_nan_fraction, n_cluster_count_warnings]`
   - `table_rows(view, *, x, study, metrics=HEADLINE_METRICS)` -> `[setting, metric_name, recovery, recovery_lo, recovery_hi, ari_mean, agreement, study_modal, study_share]`
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] Step 1: Write the failing tests
 
 Create `tests/benchmarks/test_ablation_summary.py`:
 
@@ -3306,12 +3306,12 @@ class TestTableRows:
         assert row["agreement"] == 1.0
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] Step 2: Run the tests to verify they fail
 
 Run: `.venv/bin/pytest tests/benchmarks/test_ablation_summary.py -q`
 Expected: ModuleNotFoundError.
 
-- [ ] **Step 3: Create the module**
+- [ ] Step 3: Create the module
 
 Create `src/benchmarks/_ablation_summary.py`:
 
@@ -3566,12 +3566,12 @@ def table_rows(
     ].sort_values(["setting", "metric_name"], ignore_index=True)
 ```
 
-- [ ] **Step 4: Run the tests**
+- [ ] Step 4: Run the tests
 
 Run: `.venv/bin/pytest tests/benchmarks/test_ablation_summary.py -q`
 Expected: all pass. A `FutureWarning` or `DeprecationWarning` from pandas here (for instance about `groupby(...).agg` on an empty group or `observed=`) fails the suite; fix the call, do not add a filter.
 
-- [ ] **Step 5: Lint and commit**
+- [ ] Step 5: Lint and commit
 
 ```bash
 .venv/bin/ruff check src/ && .venv/bin/ruff format src/
@@ -3585,17 +3585,17 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ### Task 9: The two SI figures
 
-**Files:**
+Files:
 - Create: `src/benchmarks/figures/_ablation.py`
 - Modify: `src/benchmarks/figures/__init__.py`, `tests/benchmarks/figures/test_figure_contract.py` (`EXPECTED`)
 - Modify: `tests/benchmarks/_helpers.py` (synthetic frames builder)
 - Test: `tests/benchmarks/figures/test_ablation.py`
 
-**Interfaces:**
+Interfaces:
 - Consumes: `arm_view`, `REFERENCE_RATIO` (Task 5); every summary (Task 8); `SCENARIO_TITLES` from `figures/_benchmarking_examples.py`; theme names `CARVE_LINEWIDTH, REFERENCE_LINEWIDTH, FALLBACK_COLOR, FOREGROUND_COLOR, FONT_SIZES, cluster_colors, metric_color, save_figure, style_axes, theme_context`; `grouped_legend` from `_panels`.
 - Produces: `figure_ablation_rho(frames, *, ablation, scale, save=True, out_dir=None) -> Figure` (nine panels, file `si_fig_ablation_rho.png`), `figure_ablation_b(frames, *, ablation, scale, save=True, out_dir=None) -> Figure` (eight panels, file `si_fig_ablation_b.png`), both under `BENCHMARKING_DIR`; `STUDY_TITLES`; test helper `synthetic_ablation_frames(ablation, scale, *, seed=0) -> dict[str, DataFrame]`.
 
-- [ ] **Step 1: Add the synthetic frames builder to the test helpers**
+- [ ] Step 1: Add the synthetic frames builder to the test helpers
 
 Append to `tests/benchmarks/_helpers.py`:
 
@@ -3704,7 +3704,7 @@ def synthetic_ablation_frames(ablation, scale: str, *, seed: int = 0) -> dict:
     return {name: frame[list(ABLATION_SCHEMAS[name])] for name, frame in frames.items()}
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [ ] Step 2: Write the failing tests
 
 Create `tests/benchmarks/figures/test_ablation.py`:
 
@@ -3778,12 +3778,12 @@ class TestFigureAblationB:
 
 Add `"figure_ablation_rho"` and `"figure_ablation_b"` to `EXPECTED` in `tests/benchmarks/figures/test_figure_contract.py` and change its docstring count sentence if it names a number.
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [ ] Step 3: Run the tests to verify they fail
 
 Run: `.venv/bin/pytest tests/benchmarks/figures/test_ablation.py tests/benchmarks/figures/test_figure_contract.py -q`
 Expected: ImportError on `figure_ablation_b`; the contract tests fail for the two new names.
 
-- [ ] **Step 4: Create the figure module and export it**
+- [ ] Step 4: Create the figure module and export it
 
 Create `src/benchmarks/figures/_ablation.py`:
 
@@ -4131,12 +4131,12 @@ def figure_ablation_b(
 
 In `src/benchmarks/figures/__init__.py`, add `from ._ablation import figure_ablation_b, figure_ablation_rho` and both names to `__all__` (alphabetical order).
 
-- [ ] **Step 5: Run the tests**
+- [ ] Step 5: Run the tests
 
 Run: `.venv/bin/pytest tests/benchmarks/figures/test_ablation.py tests/benchmarks/figures/test_figure_contract.py tests/benchmarks/test_theme.py -q`
 Expected: all pass. If `test_marks_the_default_rho_on_every_sweep_panel` counts wrong, check that `axvline` produces a `Line2D` with two equal x values (it does) and that the Klein shares panel is the only one skipped. If matplotlib warns about `tight_layout` with the figure legend, place the legend after `tight_layout` (as written) and do not filter the warning.
 
-- [ ] **Step 6: Lint and commit**
+- [ ] Step 6: Lint and commit
 
 ```bash
 .venv/bin/ruff check src/ && .venv/bin/ruff format src/
@@ -4150,16 +4150,16 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ### Task 10: The SI table
 
-**Files:**
+Files:
 - Modify: `src/benchmarks/_tables.py` (append)
 - Modify: `.gitignore` (add `results/tables/`)
 - Test: `tests/benchmarks/test_tables.py`
 
-**Interfaces:**
+Interfaces:
 - Consumes: `table_rows`, `HEADLINE_METRICS` (Task 8, imported lazily inside the writer because `_ablation_summary` imports `wilson_ci` from this module); `arm_view` (Task 5); `synthetic_ablation_frames` (Task 9 helper).
 - Produces: `ESTIMATOR_SHORT_NAMES`, `render_ablation_tex(rows_by_arm, *, metrics, caption, label, study_title) -> str`, `write_ablation_table(frames, *, ablation, scale, out_dir, name="si_table_ablation") -> Path`.
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] Step 1: Write the failing tests
 
 Append to `tests/benchmarks/test_tables.py` (extend the `_tables` import with `render_ablation_tex, write_ablation_table`):
 
@@ -4201,12 +4201,12 @@ class TestAblationTable:
         assert r"\begin{table}" in path.read_text()
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] Step 2: Run the tests to verify they fail
 
 Run: `.venv/bin/pytest tests/benchmarks/test_tables.py -q -k Ablation`
 Expected: ImportError on `render_ablation_tex`.
 
-- [ ] **Step 3: Implement**
+- [ ] Step 3: Implement
 
 Append to `src/benchmarks/_tables.py`:
 
@@ -4325,12 +4325,12 @@ def write_ablation_table(
 
 Add `results/tables/` to `.gitignore` after `results/runs/`.
 
-- [ ] **Step 4: Run the tests**
+- [ ] Step 4: Run the tests
 
 Run: `.venv/bin/pytest tests/benchmarks/test_tables.py tests/benchmarks/test_tables_cli.py -q`
 Expected: all pass.
 
-- [ ] **Step 5: Lint and commit**
+- [ ] Step 5: Lint and commit
 
 ```bash
 .venv/bin/ruff check src/ && .venv/bin/ruff format src/
@@ -4344,15 +4344,15 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ### Task 11: The notebook
 
-**Files:**
+Files:
 - Create: `notebooks/Resampling_Ablation.ipynb` (built by the script below; the script itself is not committed)
 - Modify: `tests/benchmarks/test_notebooks.py` (`NOTEBOOKS`, pins)
 
-**Interfaces:**
+Interfaces:
 - Consumes: everything above; `REPO_ROOT` from `benchmarks.figures._paths`.
 - Produces: a notebook that reads one run directory and shows every summary, the two figures and the table.
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] Step 1: Write the failing tests
 
 In `tests/benchmarks/test_notebooks.py`, add `"ablation": REPO_ROOT / "notebooks" / "Resampling_Ablation.ipynb",` to `NOTEBOOKS`, and append:
 
@@ -4376,12 +4376,12 @@ def test_ablation_notebook_computes_nothing():
         assert forbidden not in source
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] Step 2: Run the tests to verify they fail
 
 Run: `.venv/bin/pytest tests/benchmarks/test_notebooks.py -q`
 Expected: the parametrized notebook tests error on the missing file; the two new tests fail.
 
-- [ ] **Step 3: Build the notebook**
+- [ ] Step 3: Build the notebook
 
 Run this script once from `code/` (it is scratch; do not commit it):
 
@@ -4619,14 +4619,14 @@ print("written")
 PY
 ```
 
-- [ ] **Step 4: Run the notebook tests**
+- [ ] Step 4: Run the notebook tests
 
 Run: `.venv/bin/pytest tests/benchmarks/test_notebooks.py -q`
 Expected: all pass (including `test_no_sys_path_manipulation`, `test_imports_come_from_the_installed_package` and `test_no_gridspec_layout_in_notebooks` for the new notebook).
 
 The notebook is executed in Task 13, after the dev run exists.
 
-- [ ] **Step 5: Commit**
+- [ ] Step 5: Commit
 
 ```bash
 git add notebooks/Resampling_Ablation.ipynb tests/benchmarks/test_notebooks.py
@@ -4639,12 +4639,12 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ### Task 12: Manuscript drafts (outside the repo)
 
-**Files:**
+Files:
 - Create: `../_claude_playground/rho_b_ablation/manuscript_drafts.tex`
 
 No tests; a LaTeX file of draft paragraphs the author moves into the manuscript by hand. Nothing is written under `../overleaf/`.
 
-- [ ] **Step 1: Write the drafts**
+- [ ] Step 1: Write the drafts
 
 Create `/Users/kaiwycik/GitHub/CARVE/_claude_playground/rho_b_ablation/manuscript_drafts.tex`:
 
@@ -4709,7 +4709,7 @@ We varied one parameter at a time. The subsampling proportion $\rho$ took the va
 % material to follow whatever lands first.
 ```
 
-- [ ] **Step 2: Check the arithmetic in the drafts**
+- [ ] Step 2: Check the arithmetic in the drafts
 
 Run:
 
@@ -4720,7 +4720,7 @@ r=(5**0.5-1)/2; print(round(r,3), round(r*r,3), round(1-r,3), round(100*r*r,1), 
 
 Expected: `0.618 0.382 0.382 38.2 4.0`, matching the numbers in the drafts (0.38 n, about 38 co-samples, about 4 at rho = 0.2).
 
-- [ ] **Step 3: Record the file**
+- [ ] Step 3: Record the file
 
 This file is outside the git repository; nothing to commit. Note its path in the final summary (Task 14).
 
@@ -4728,11 +4728,11 @@ This file is outside the git repository; nothing to commit. Note its path in the
 
 ### Task 13: Dev run, notebook execution, published-result checks and the timing check
 
-**Files:** none committed except the executed notebook's cleaned source (unchanged) and, if a check fails, the fix it needs.
+Files: none committed except the executed notebook's cleaned source (unchanged) and, if a check fails, the fix it needs.
 
 These steps run on the author's machine from `code/`. They are the spec's section 10 verification list. The dev run takes about an hour; do not claim any of the checks passed without the command output in front of you.
 
-- [ ] **Step 1: Run the dev scale**
+- [ ] Step 1: Run the dev scale
 
 ```bash
 cd /Users/kaiwycik/GitHub/CARVE/code
@@ -4762,7 +4762,7 @@ PY
 
 Expected: `cells 228` (204 simulated plus 24 Klein) and every frame non-empty; the NaN fraction is largest at rho = 0.2 and B = 10; zero NaN metric values (the consensus metrics come back finite, spec section 12).
 
-- [ ] **Step 2: Execute the notebook into scratch**
+- [ ] Step 2: Execute the notebook into scratch
 
 ```bash
 .venv/bin/jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=1800 \
@@ -4772,7 +4772,7 @@ ls vis/benchmarking/si_fig_ablation_rho.png vis/benchmarking/si_fig_ablation_b.p
 
 Expected: the executed copy lands in `/tmp/ablation_nb/`, both figures and the table exist. Open the two PNGs (Read tool) and check every panel has data and a legend entry; fix the figure module if a panel is blank. Do not execute the notebook in place: the committed notebook stays output-free until the publication run (spec section 8).
 
-- [ ] **Step 3: The published Klein selection at the defaults**
+- [ ] Step 3: The published Klein selection at the defaults
 
 ```bash
 .venv/bin/python - <<'PY'
@@ -4794,7 +4794,7 @@ PY
 
 Expected: `AgglomerativeClustering` at `selected_k == 4` for `ari_generalizability_1se` (the manuscript's Klein result, `_studies.py` comment and memory `carve-config-drift-pattern`), in about six minutes. If it is not, the Klein path differs from the notebook's (`fit_or_load_carve` with `random_state=42`, `n_jobs=-1`); compare the grids and seed before touching anything else.
 
-- [ ] **Step 4: Simulation cells at the defaults match the scenario runs**
+- [ ] Step 4: Simulation cells at the defaults match the scenario runs
 
 Only where a full-scale scenario run from the current code exists under `results/runs/<scenario>/` (the manifest's `n_seeds` is 20 and `n_resamples` 100; as of 2026-09-16 that is gaussians, t_dist, t_dist_noise and swiss_rolls). For one such scenario:
 
@@ -4829,7 +4829,7 @@ PY
 
 Expected: `mismatching metrics: 0`. A mismatch means the ablation's default cell is not the published fit: check `carve_seed` for replicate 0 against `benchmark_seed(dataset, axis_idx, 42)` and that `scenario_at_scale` at publication returns the scenario unchanged.
 
-- [ ] **Step 5: The timing check**
+- [ ] Step 5: The timing check
 
 Runs the fixed 22-cell batch at each candidate worker count into a scratch root. Each pass takes on the order of 15 minutes; run the five passes one after another with `run_in_background` and wait for each to exit.
 
@@ -4850,7 +4850,7 @@ PY
 
 Expected: one line per value; the smallest wall clock names the publication `--n-jobs`. Record the five numbers in the final summary. Re-derive the publication cost: from the dev manifests' `fit_seconds`, the per-fit time at n = 500 scales to n = 1,500 roughly linearly for KMeans and Ward and faster for spectral; the spec's estimate is 90 h of wall clock on 11 workers. State the new estimate.
 
-- [ ] **Step 6: Commit nothing from this task unless a check required a fix**
+- [ ] Step 6: Commit nothing from this task unless a check required a fix
 
 If a check in Steps 1 to 4 required a code change, it was made with a test in the task that owns the file, and is committed there with its own message.
 
@@ -4858,7 +4858,7 @@ If a check in Steps 1 to 4 required a code change, it was made with a test in th
 
 ### Task 14: Full suite, lint, spec walk-through and handoff
 
-- [ ] **Step 1: Run both test legs in the foreground**
+- [ ] Step 1: Run both test legs in the foreground
 
 ```bash
 cd /Users/kaiwycik/GitHub/CARVE/code
@@ -4869,11 +4869,11 @@ cd /Users/kaiwycik/GitHub/CARVE/code
 
 Expected: ruff clean; every test passes; no new warnings (the suite runs with `filterwarnings = error`). Budget 20 to 25 minutes for the benchmarks leg.
 
-- [ ] **Step 2: Walk the spec**
+- [ ] Step 2: Walk the spec
 
 Open `docs/superpowers/specs/2026-09-16-rho-b-ablation-design.md` and confirm each section has landed: 4.1 grids and scales (Task 2), 4.2 seeds (Tasks 2, 5), 4.3 configuration (Task 6), 5 outcomes (Tasks 6, 8), 7.1 to 7.5 (Tasks 1 to 7), 8 figures, table and notebook (Tasks 9 to 11), 9 drafts (Task 12), 10 verification (Task 13), 13 out of scope (nothing under `src/carve/` changed: `git diff main --stat -- src/carve` is empty).
 
-- [ ] **Step 3: Update the open note**
+- [ ] Step 3: Update the open note
 
 In `docs/superpowers/notes/2026-09-17-forest-thread-oversubscription.md`, change the `Status:` line to `Status: fixed in the rho-b-ablation branch (cpu_cap in benchmarks/_run.py, Task 3 of docs/superpowers/plans/2026-09-17-rho-b-ablation.md)`, and commit:
 
@@ -4884,7 +4884,7 @@ git commit -m "docs(notes): forest-thread oversubscription is fixed on this bran
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 4: Hand off**
+- [ ] Step 4: Hand off
 
 Report to the author, in outcome terms:
 
