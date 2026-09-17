@@ -7,6 +7,7 @@ notebooks/case_studies/carve_state_saves/
 results/backup*/
 results/legacy/
 results/runs/
+results/tables/
 
 Anirban processing/ 
 

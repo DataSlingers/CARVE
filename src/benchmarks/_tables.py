@@ -9,7 +9,7 @@ rather than printed for copy-paste, so the supplementary tables stop drifting
 from what the code produces.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -283,5 +283,131 @@ def write_tables(
     path = out_dir / f"{name}.tex"
     path.write_text(
         render_grouped_tex(summarize(df, metrics=metrics), caption=caption, label=label)
+    )
+    return path
+
+
+# --- The rho/B ablation table -----------------------------------------------
+ESTIMATOR_SHORT_NAMES: dict[str, str] = {
+    "AgglomerativeClustering": "Ward",
+    "SpectralClustering": "Spectral",
+    "KMeans": "KMeans",
+}
+
+_ARM_HEADINGS: dict[str, str] = {"rho": r"$\rho$", "b": "$B$"}
+
+
+def _fmt(value: float, decimals: int) -> str:
+    return "" if pd.isna(value) else f"{value:.{decimals}f}"
+
+
+def _modal(text: object, share: float) -> str:
+    if pd.isna(share) or not isinstance(text, str):
+        return ""
+    estimator, k = text.split(", ")
+    return f"{ESTIMATOR_SHORT_NAMES.get(estimator, estimator)}, ${k}$ ({share:.2f})"
+
+
+def render_ablation_tex(
+    rows_by_arm: Mapping[str, pd.DataFrame],
+    *,
+    metrics: Sequence[str] = ("ari_stability_1se", "ari_generalizability_1se"),
+    caption: str,
+    label: str,
+    study_title: str,
+    decimals: int = 3,
+) -> str:
+    """Two sub-tables, one row per rho value and one per B value.
+
+    Per headline selector: pooled k* recovery with its Wilson interval, the
+    pooled mean ARI of the selected labels, in the B sub-table the pooled
+    replicate agreement, and the study's modal selection with its share.
+    """
+    lines = [
+        r"\begin{table}[ht]",
+        r"\centering",
+        f"\\caption{{{_tex_escape(caption)}}}",
+        f"\\label{{{label}}}",
+    ]
+    for arm in ("rho", "b"):
+        rows = rows_by_arm[arm]
+        with_agreement = arm == "b"
+        per_metric = 4 if with_agreement else 3
+        lines += [
+            f"\\begin{{tabular}}{{l{'c' * per_metric * len(metrics)}}}",
+            r"\hline",
+        ]
+        head = [""] + [
+            f"\\multicolumn{{{per_metric}}}{{c}}{{{_tex_escape(METRIC_DISPLAY_NAMES.get(m, m))}}}"
+            for m in metrics
+        ]
+        lines.append(" & ".join(head) + r" \\")
+        sub = [_ARM_HEADINGS[arm]]
+        for _ in metrics:
+            sub += ["$k$-rec [95\\% CI]", "ARI"]
+            if with_agreement:
+                sub.append("Agreement")
+            sub.append(f"{_tex_escape(study_title)} modal (share)")
+        lines += [" & ".join(sub) + r" \\", r"\hline"]
+        for setting in sorted(rows["setting"].unique()):
+            cells = [f"{setting:g}"]
+            for metric in metrics:
+                match = rows[
+                    (rows["setting"] == setting) & (rows["metric_name"] == metric)
+                ]
+                if match.empty:
+                    cells += [""] * per_metric
+                    continue
+                row = match.iloc[0]
+                cells.append(
+                    f"{_fmt(row['recovery'], 2)} [{_fmt(row['recovery_lo'], 2)}, "
+                    f"{_fmt(row['recovery_hi'], 2)}]"
+                )
+                cells.append(_fmt(row["ari_mean"], decimals))
+                if with_agreement:
+                    cells.append(_fmt(row["agreement"], 2))
+                cells.append(_modal(row["study_modal"], row["study_share"]))
+            lines.append(" & ".join(cells) + r" \\")
+        lines += [r"\hline", r"\end{tabular}"]
+        if arm == "rho":
+            lines.append(r"\vspace{1em}")
+    lines.append(r"\end{table}")
+    return "\n".join(lines) + "\n"
+
+
+def write_ablation_table(
+    frames: Mapping[str, pd.DataFrame],
+    *,
+    ablation,
+    scale: str,
+    out_dir: Path,
+    name: str = "si_table_ablation",
+    caption: str = "Sensitivity of CARVE's selections to the subsampling proportion and the resample count.",
+    label: str = "tab:ablation_rho_b",
+) -> Path:
+    """Summarize a run's two arms and write the .tex fragment."""
+    # Imported here: _ablation_summary imports wilson_ci from this module.
+    from ._ablation_cells import arm_view
+    from ._ablation_summary import table_rows
+
+    rows = {
+        "rho": table_rows(
+            arm_view(frames, ablation=ablation, scale=scale, arm="rho"),
+            x="subsample_ratio",
+            study=ablation.study,
+        ),
+        "b": table_rows(
+            arm_view(frames, ablation=ablation, scale=scale, arm="b"),
+            x="n_resamples",
+            study=ablation.study,
+        ),
+    }
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{name}.tex"
+    path.write_text(
+        render_ablation_tex(
+            rows, caption=caption, label=label, study_title=ablation.study.capitalize()
+        )
     )
     return path
