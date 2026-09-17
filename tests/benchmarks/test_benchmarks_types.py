@@ -6,6 +6,9 @@ import pytest
 from benchmarks._types import (
     KNOWN_ESTIMATORS,
     KNOWN_PREPROCESSORS,
+    Ablation,
+    AblationScale,
+    ArmScale,
     Axis,
     EstimatorSpec,
     Manifest,
@@ -309,3 +312,100 @@ def test_study_requires_a_nonempty_scale_map():
             scales={},
             default_scale="dev",
         )
+
+
+def _arm(**kw):
+    base = dict(difficulties=("easy",), datasets=(0, 1), replicates=1, study_replicates=1)
+    base.update(kw)
+    return ArmScale(**base)
+
+
+def _scale(**kw):
+    base = dict(rho_arm=_arm(), b_arm=_arm(), similarity_draws=2, study_scale="dev")
+    base.update(kw)
+    return AblationScale(**base)
+
+
+def _ablation(**kw):
+    base = dict(
+        name="probe",
+        scenarios=("gaussians",),
+        study="klein",
+        rho_grid=(0.5, 0.618),
+        b_grid=(10, 100),
+        rho_default=0.618,
+        b_default=100,
+        scales={"dev": _scale()},
+        default_scale="dev",
+    )
+    base.update(kw)
+    return Ablation(**base)
+
+
+class TestArmScale:
+    def test_rejects_an_empty_dataset_list(self):
+        with pytest.raises(ValueError, match="dataset"):
+            _arm(datasets=())
+
+    def test_rejects_repeated_datasets(self):
+        with pytest.raises(ValueError, match="repeat"):
+            _arm(datasets=(0, 0))
+
+    def test_rejects_zero_replicates(self):
+        with pytest.raises(ValueError, match="replicates"):
+            _arm(replicates=0)
+
+
+class TestAblationScale:
+    def test_rejects_zero_similarity_draws(self):
+        with pytest.raises(ValueError, match="similarity_draws"):
+            _scale(similarity_draws=0)
+
+    def test_n_total_defaults_to_none(self):
+        assert _scale().n_total is None
+
+
+class TestAblation:
+    def test_constructs(self):
+        assert _ablation().name == "probe"
+
+    def test_rejects_a_default_rho_missing_from_its_grid(self):
+        with pytest.raises(ValueError, match="rho_default"):
+            _ablation(rho_default=0.7)
+
+    def test_rejects_a_default_b_missing_from_its_grid(self):
+        with pytest.raises(ValueError, match="b_default"):
+            _ablation(b_default=50)
+
+    def test_rejects_an_unsorted_rho_grid(self):
+        with pytest.raises(ValueError, match="increasing"):
+            _ablation(rho_grid=(0.618, 0.5))
+
+    def test_rejects_rho_outside_the_open_unit_interval(self):
+        with pytest.raises(ValueError, match=r"\(0, 1\)"):
+            _ablation(rho_grid=(0.618, 1.0))
+
+    def test_rejects_b_below_two(self):
+        with pytest.raises(ValueError, match="at least 2"):
+            _ablation(b_grid=(1, 100))
+
+    def test_rejects_an_undeclared_default_scale(self):
+        with pytest.raises(ValueError, match="default_scale"):
+            _ablation(default_scale="publication")
+
+    def test_rejects_repeated_scenarios(self):
+        with pytest.raises(ValueError, match="repeat"):
+            _ablation(scenarios=("gaussians", "gaussians"))
+
+
+class TestStudyNotTwo:
+    def test_defaults_to_false(self):
+        study = Study(
+            name="demo",
+            loader=lambda subsample: (None, None, {}),
+            estimator=EstimatorSpec(name="kmeans"),
+            candidate_k=(2, 3),
+            scales={"dev": 100},
+            default_scale="dev",
+        )
+        assert study.not_two is False

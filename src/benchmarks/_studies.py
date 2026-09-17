@@ -506,6 +506,9 @@ STUDIES: dict[str, Study] = {
         scales={"dev": 400, "publication": 0.5},
         default_scale="publication",
         partners=(EstimatorSpec(name="spectral"),),
+        # The manuscript's headline selection (Ward at k=4, generalizability,
+        # 1SE) excludes k=2; the Klein notebook and the ablation read it here.
+        not_two=True,
     ),
     "levine32": Study(
         name="levine32",

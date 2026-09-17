@@ -115,6 +115,13 @@ def test_klein_prepare_composite_uses_the_generalizability_selection():
     assert "not_two=True" in source
 
 
+def test_klein_notebook_not_two_agrees_with_the_study():
+    from benchmarks._studies import STUDIES
+
+    source = _code(NOTEBOOKS["klein"])
+    assert ("not_two=True" in source) == STUDIES["klein"].not_two
+
+
 def test_cusanovich_notebook_reads_its_config_from_studies():
     source = _code(NOTEBOOKS["cusanovich"])
     # Configuration must be read from STUDIES, not restated. Four manuscript

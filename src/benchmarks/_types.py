@@ -213,6 +213,10 @@ class Study:
     and preprocessing, when set, is the option set a randomized fit draws
     its pipelines from; both live here so a notebook reads them rather than
     restating them.
+
+    not_two is the study's selection setting: True excludes k=2 from every
+    selection made on its fits, as the Klein notebook does for the
+    manuscript's headline result.
     """
 
     name: str
@@ -227,6 +231,7 @@ class Study:
     k_star: int | None = None
     n_resamples: int = 100
     preprocessing: PreprocessingSpec | None = None
+    not_two: bool = False
 
     def __post_init__(self) -> None:
         if not self.candidate_k and not self.resolutions:
@@ -240,6 +245,114 @@ class Study:
             raise ValueError(
                 f"Study {self.name!r}: default_scale {self.default_scale!r} is "
                 f"not among the declared scales {sorted(self.scales)}."
+            )
+
+
+@dataclass(frozen=True)
+class ArmScale:
+    """How much of the grid one ablation arm runs at one scale.
+
+    difficulties and datasets name the simulated cells; replicates is the
+    number of CARVE fits with distinct seeds per simulated cell, and
+    study_replicates the same for the case study, which has one dataset.
+    """
+
+    difficulties: tuple[str, ...]
+    datasets: tuple[int, ...]
+    replicates: int
+    study_replicates: int
+
+    def __post_init__(self) -> None:
+        if not self.difficulties:
+            raise ValueError("ArmScale: declare at least one difficulty.")
+        if not self.datasets:
+            raise ValueError("ArmScale: declare at least one dataset.")
+        if len(set(self.datasets)) != len(self.datasets):
+            raise ValueError(f"ArmScale: datasets repeat: {self.datasets}.")
+        if self.replicates < 1 or self.study_replicates < 1:
+            raise ValueError(
+                "ArmScale: replicates and study_replicates must be at least 1."
+            )
+
+
+@dataclass(frozen=True)
+class AblationScale:
+    """One scale of an ablation: how much runs, not what is measured.
+
+    n_total overrides the simulated sample count at a development scale;
+    None keeps each scenario's own. study_scale names the case study's scale
+    (a key of Study.scales).
+    """
+
+    rho_arm: ArmScale
+    b_arm: ArmScale
+    similarity_draws: int
+    study_scale: str
+    n_total: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.similarity_draws < 1:
+            raise ValueError("AblationScale: similarity_draws must be at least 1.")
+        if self.n_total is not None and self.n_total < 1:
+            raise ValueError("AblationScale: n_total must be at least 1 or None.")
+
+
+@dataclass(frozen=True)
+class Ablation:
+    """A sensitivity study over CARVE's subsampling proportion and resample count.
+
+    The rho arm sweeps rho_grid at b_default; the B arm sweeps b_grid at
+    rho_default. The defaults are fields so the configuration is complete
+    on its own; the registry fills them from CARVE's own defaults. Scenario
+    and study names are checked against the registry there, not here, so
+    this module stays a leaf.
+    """
+
+    name: str
+    scenarios: tuple[str, ...]
+    study: str
+    rho_grid: tuple[float, ...]
+    b_grid: tuple[int, ...]
+    rho_default: float
+    b_default: int
+    scales: Mapping[str, AblationScale]
+    default_scale: str
+
+    def __post_init__(self) -> None:
+        if not self.scenarios:
+            raise ValueError(f"Ablation {self.name!r}: declare at least one scenario.")
+        if len(set(self.scenarios)) != len(self.scenarios):
+            raise ValueError(
+                f"Ablation {self.name!r}: scenarios repeat: {self.scenarios}."
+            )
+        if list(self.rho_grid) != sorted(set(self.rho_grid)):
+            raise ValueError(
+                f"Ablation {self.name!r}: rho_grid must be strictly increasing."
+            )
+        if any(not 0.0 < rho < 1.0 for rho in self.rho_grid):
+            raise ValueError(f"Ablation {self.name!r}: every rho must lie in (0, 1).")
+        if list(self.b_grid) != sorted(set(self.b_grid)):
+            raise ValueError(
+                f"Ablation {self.name!r}: b_grid must be strictly increasing."
+            )
+        if any(b < 2 for b in self.b_grid):
+            raise ValueError(f"Ablation {self.name!r}: every B must be at least 2.")
+        if self.rho_default not in self.rho_grid:
+            raise ValueError(
+                f"Ablation {self.name!r}: rho_default {self.rho_default} is not in "
+                f"rho_grid {self.rho_grid}."
+            )
+        if self.b_default not in self.b_grid:
+            raise ValueError(
+                f"Ablation {self.name!r}: b_default {self.b_default} is not in "
+                f"b_grid {self.b_grid}."
+            )
+        if not self.scales:
+            raise ValueError(f"Ablation {self.name!r}: declare at least one scale.")
+        if self.default_scale not in self.scales:
+            raise ValueError(
+                f"Ablation {self.name!r}: default_scale {self.default_scale!r} is not "
+                f"among the declared scales {sorted(self.scales)}."
             )
 
 
