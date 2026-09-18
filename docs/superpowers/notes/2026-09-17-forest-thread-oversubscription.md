@@ -3,7 +3,7 @@
 Date: 2026-09-17
 Found while: designing the rho/B ablation
 (`docs/superpowers/specs/2026-09-16-rho-b-ablation-design.md`, section 2)
-Status: open; the fix is scheduled as part of that ablation's implementation
+Status: fixed in the rho-b-ablation branch (cpu_cap in benchmarks/_run.py, Task 3 of docs/superpowers/plans/2026-09-17-rho-b-ablation.md)
 
 ## Issue
 
