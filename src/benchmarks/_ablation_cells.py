@@ -8,8 +8,10 @@ per-dataset records and per-(dataset, rho) similarity draws; each has its
 own checkpoint file, named from its key, so resume is a file-existence
 check and needs no filename parsing.
 
-This module imports no carve code, so the notebook and the table can read
-a run through it without paying for the runner's imports.
+This module imports no carve code directly (the registry it imports reads
+CARVE's defaults off the class at import time); what it avoids is the
+runner's imports, so the notebook and the table can read a run through it
+without paying for those.
 """
 
 import dataclasses

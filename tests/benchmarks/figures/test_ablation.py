@@ -19,8 +19,28 @@ RHO_B = ABLATIONS["rho_b"]
 
 
 @pytest.fixture(scope="module")
-def frames():
-    return synthetic_ablation_frames(RHO_B, "dev", seed=1)
+def frames(tmp_path_factory):
+    # Written as checkpoint files and read back, so the figures meet the
+    # dtypes a real run directory produces (see synthetic_ablation_frames).
+    return synthetic_ablation_frames(
+        RHO_B, "dev", seed=1, tmp_path=tmp_path_factory.mktemp("ablation_frames")
+    )
+
+
+class TestSyntheticFrames:
+    def test_carry_what_a_run_directory_produces(self, frames):
+        # The premise of every figure test below: the frames went through
+        # parquet and read_frames, so one undefined selection has made
+        # selected_k float64 for the whole run (the production shape that
+        # crashed both figures) while at_k stays typed past the study
+        # cells' empty files. A helper that handed the figures in-memory
+        # frames again would fail here.
+        selection = frames["selection"]
+        assert selection["selected_k"].dtype.kind == "f"
+        assert selection["selected_k"].isna().sum() == 1
+        assert selection.loc[selection["selected_k"].isna(), "study"].tolist() == [RHO_B.study]
+        assert frames["at_k"]["k"].dtype.kind == "i"
+        assert frames["at_k"]["ari_at_k"].dtype.kind == "f"
 
 
 class TestFigureAblationRho:

@@ -106,7 +106,15 @@ ABLATION_CELL_SCHEMA: tuple[str, ...] = CELL_KEY + (
     "carve_random_state",
     "n_samples",
     "fit_seconds",
+    # Largest fraction of never-co-sampled (NaN) entries over the
+    # configurations' consensus matrices: the stability one, built from
+    # training pairs, and the generalizability one, built from test-set
+    # pairs. The second is far sparser at the grid ends (a pair is never
+    # co-tested with probability (1 - (1 - rho)^2)^B, 0.37 at rho 0.9 and
+    # B 100), and get_labels fills those entries with 0.5 before cutting
+    # the generalizability-mode labels that ari_selected scores.
     "consensus_nan_fraction",
+    "consensus_generalizability_nan_fraction",
     "n_cluster_count_warnings",
 )
 
@@ -315,6 +323,9 @@ def write_frame(
     os.close(fd)
     try:
         frame.to_parquet(tmp_name, index=False)
+        # mkstemp creates the file owner-read-only; give the checkpoint
+        # the mode manifest.json has.
+        os.chmod(tmp_name, 0o644)
         os.replace(tmp_name, path)
     except BaseException:
         Path(tmp_name).unlink(missing_ok=True)
@@ -327,15 +338,22 @@ def read_frames(rd: Path) -> dict[str, pd.DataFrame]:
 
     Files are named <schema>__<unit>.parquet. A schema with no file yet
     comes back as an empty frame with its columns, so a partial run reads.
+
+    Empty files are left out of the concatenation: their columns come back
+    from parquet as nulls, and pandas 3 no longer excludes empty entries
+    when it determines a concat result dtype, so the empty at_k file every
+    study cell writes would otherwise turn every at_k column object for
+    the whole run. When every file is empty the schema-only frame is
+    returned, as when there is none.
     """
     frames: dict[str, pd.DataFrame] = {}
     for name, schema in ABLATION_SCHEMAS.items():
         paths = sorted(Path(rd).glob(f"{name}__*.parquet"))
-        if not paths:
+        parts = [part for part in map(pd.read_parquet, paths) if not part.empty]
+        if not parts:
             frames[name] = pd.DataFrame(columns=list(schema))
             continue
-        frame = pd.concat([pd.read_parquet(p) for p in paths], ignore_index=True)
-        frames[name] = frame[list(schema)]
+        frames[name] = pd.concat(parts, ignore_index=True)[list(schema)]
     return frames
 
 

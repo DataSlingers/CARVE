@@ -1,11 +1,12 @@
 """The rho/B ablation runner: configuration hash, unit executors, run loop.
 
-Each unit runs in a loky worker and returns rows for the frames it owns;
-the parent writes them. Every CARVE fit runs on one worker with its forest
-capped at the worker's share of the cores (see _run.cpu_cap). Nothing here
-saves a fitted CARVE: 120 Klein fits of n-by-n consensus matrices would
-cost far more disk than the rows the analysis reads, and the fit cache's
-filename does not distinguish rho or the seed.
+Each unit runs in a loky worker, which computes the rows for the frames it
+owns and writes them itself (_run_and_write); the parent only schedules
+units and writes the manifest. Every CARVE fit runs on one worker with its
+forest capped at the worker's share of the cores (see _run.cpu_cap).
+Nothing here saves a fitted CARVE: 120 Klein fits of n-by-n consensus
+matrices would cost far more disk than the rows the analysis reads, and
+the fit cache's filename does not distinguish rho or the seed.
 """
 
 import dataclasses
@@ -349,21 +350,30 @@ def cell_rows(
                     }
                 )
 
-    nan_fraction = max(
-        float(np.isnan(np.asarray(M, dtype=float)).mean())
-        for M in carve.consensus_matrices_
-    )
+    # Both consensus matrices, not only the stability one: the
+    # generalizability consensus is built from test-set pairs and is far
+    # sparser at the grid ends, and it is the matrix the generalizability-
+    # mode labels behind ari_selected and ari_at_k are cut from. Nothing
+    # fitted is saved, so this cannot be recovered after the run.
     cells = [
         {
             **key,
             "carve_random_state": int(seed),
             "n_samples": int(X.shape[0]),
             "fit_seconds": fit.fit_seconds,
-            "consensus_nan_fraction": nan_fraction,
+            "consensus_nan_fraction": _max_nan_fraction(carve.consensus_matrices_),
+            "consensus_generalizability_nan_fraction": _max_nan_fraction(
+                carve.consensus_generalizability_matrices_
+            ),
             "n_cluster_count_warnings": int(fit.n_cluster_count_warnings),
         }
     ]
     return {"curves": curves, "selection": selection, "at_k": at_k, "cells": cells}
+
+
+def _max_nan_fraction(matrices) -> float:
+    """Largest NaN fraction over one fit's per-configuration consensus matrices."""
+    return max(float(np.isnan(np.asarray(M, dtype=float)).mean()) for M in matrices)
 
 
 def run_unit(
@@ -421,6 +431,14 @@ def run_ablation(
     Provenance across resumes follows run_scenario: a resumed run keeps the
     manifest's run_id and adds its wall clock; resume=False mints a new id.
     units overrides what runs (the timing batch); resume still applies.
+
+    The manifest is written twice: with status "running" before the pool
+    starts, carrying the wall clock accumulated so far, and with status
+    "complete" and the cumulative wall clock once every unit is done. An
+    interrupted run therefore still has a manifest -- the notebook locates
+    a run by it, and the publication cost is derived from its wall clock --
+    and a resume reads run_id and the previous wall clock from whichever
+    of the two it finds.
     """
     scale = ablation.default_scale if scale is None else scale
     if scale not in ablation.scales:
@@ -461,6 +479,27 @@ def run_ablation(
         )
 
     run_id = previous["run_id"] if previous else uuid.uuid4().hex[:12]
+    carried = float(previous["wall_clock_s"]) if previous is not None else 0.0
+
+    def _manifest(status: str, wall_clock_s: float) -> dict[str, Any]:
+        return {
+            "run_id": run_id,
+            "status": status,
+            "ablation": ablation.name,
+            "scale": scale,
+            "config_hash": cfg_hash,
+            "anchor_set": ACTIVE_ANCHOR_SET_NAME,
+            "n_jobs": int(n_jobs),
+            "workers": int(workers),
+            "thread_cap": int(thread_cap),
+            "cores": int(cpu_count()),
+            "n_units": len(all_units),
+            "wall_clock_s": float(wall_clock_s),
+            "config": ablation_config(ablation, scale),
+            **provenance(),
+        }
+
+    write_manifest(rd, _manifest("running", carried))
     started = time.perf_counter()
     if pending:
         Parallel(n_jobs=n_jobs)(
@@ -474,26 +513,6 @@ def run_ablation(
             )
             for unit in tqdm(pending, desc=f"ablation {ablation.name}", leave=False)
         )
-    elapsed = time.perf_counter() - started
-    if previous is not None:
-        elapsed += float(previous["wall_clock_s"])
-
-    write_manifest(
-        rd,
-        {
-            "run_id": run_id,
-            "ablation": ablation.name,
-            "scale": scale,
-            "config_hash": cfg_hash,
-            "anchor_set": ACTIVE_ANCHOR_SET_NAME,
-            "n_jobs": int(n_jobs),
-            "workers": int(workers),
-            "thread_cap": int(thread_cap),
-            "cores": int(cpu_count()),
-            "n_units": len(all_units),
-            "wall_clock_s": float(elapsed),
-            "config": ablation_config(ablation, scale),
-            **provenance(),
-        },
-    )
+    elapsed = carried + (time.perf_counter() - started)
+    write_manifest(rd, _manifest("complete", elapsed))
     return rd

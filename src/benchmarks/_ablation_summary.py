@@ -242,14 +242,25 @@ def similarity_summary(similarity: pd.DataFrame) -> pd.DataFrame:
 def study_selection_shares(
     selection: pd.DataFrame, *, x: str, metric: str, study: str
 ) -> pd.DataFrame:
-    """Share of replicates selecting each (estimator, k) at each setting."""
+    """Share of replicates selecting each (estimator, k) at each setting.
+
+    Undefined selections (Task 6's all-NaN-measure rows) are missing data,
+    as in the other summaries: they are dropped before counting, so n is
+    the number of defined replicates and the shares at a setting sum to
+    one. selected_k comes back as an int. One undefined row anywhere in a
+    run makes the frame's selected_k column float64 (read_frames
+    concatenates that cell's file with the int64 ones), and the figure's
+    "k=4" labels and the table's modal choice must not read "k=4.0".
+    """
     rows = selection[
         (selection["study"] == study) & (selection["metric_name"] == metric)
     ]
+    rows = rows[rows["selected_estimator"].notna() & rows["selected_k"].notna()]
     counts = rows.groupby(
         [x, "selected_estimator", "selected_k"], as_index=False
     ).size()
     counts = counts.rename(columns={"size": "count"})
+    counts["selected_k"] = counts["selected_k"].astype(int)
     totals = rows.groupby(x, as_index=False).size().rename(columns={"size": "n"})
     out = counts.merge(totals, on=x)
     out["share"] = out["count"] / out["n"]
@@ -284,10 +295,21 @@ def study_ari_summary(
 
 
 def diagnostics_summary(cells: pd.DataFrame, *, x: str) -> pd.DataFrame:
-    """Mean fit time, NaN fraction and cluster-count warnings per setting and study."""
+    """Mean fit time, NaN fraction of each consensus matrix and cluster-count
+    warnings per setting and study.
+
+    The two NaN fractions are reported side by side because they diverge
+    where the study looks: the generalizability consensus, cut for the
+    generalizability-mode labels, is a third undefined at rho 0.9 and B
+    100 while the stability one is nearly full.
+    """
     return cells.groupby([x, "study"], as_index=False).agg(
         fit_seconds=("fit_seconds", "mean"),
         consensus_nan_fraction=("consensus_nan_fraction", "mean"),
+        consensus_generalizability_nan_fraction=(
+            "consensus_generalizability_nan_fraction",
+            "mean",
+        ),
         n_cluster_count_warnings=("n_cluster_count_warnings", "mean"),
     )
 

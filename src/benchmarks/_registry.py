@@ -430,8 +430,11 @@ PUBLISHED_RANDOM_STATE: int = 42
 # random_state + b + B and the P_test pipeline at random_state + b + 2B.
 # Replicate fits of one dataset are spaced by this much so no two share a
 # subsample; the spacing also clears the largest benchmark seed offset
-# (two axis steps of 10,000 plus the dataset index), so cells of different
-# datasets never collide either.
+# (two axis steps of 10,000 plus the dataset index), so the seed windows
+# of different replicate indices never intersect, whichever datasets they
+# belong to. Within one replicate index, the windows of different datasets
+# may overlap, as in the published benchmark (spec 4.2): they draw
+# subsamples of different data.
 REPLICATE_SEED_SPACING: int = 1_000_000
 
 # Subsample-versus-full similarity draws seed from base + this + draw; it

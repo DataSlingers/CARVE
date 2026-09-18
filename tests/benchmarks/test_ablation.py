@@ -221,6 +221,21 @@ class TestCellRows:
         )
         assert row["n_samples"] == 120
         assert 0.0 <= row["consensus_nan_fraction"] <= 1.0
+        assert 0.0 <= row["consensus_generalizability_nan_fraction"] <= 1.0
+
+    def test_cell_row_records_the_generalizability_matrix_separately(self):
+        # The two NaN fractions come from different matrices. At rho 0.5
+        # a training pair and a test pair are equally likely, so the two
+        # fractions agree only by chance; at rho 0.9 with a small B the
+        # test set (a tenth of the samples) leaves most pairs never
+        # co-tested while the training subsamples cover almost every pair,
+        # so the generalizability fraction must be the larger one by far.
+        # A cell_rows that recorded the stability matrix twice would fail.
+        unit = Unit("cell", Cell("tiny", "easy", 0, 0.9, 8, 0))
+        rows = cell_rows(unit, ablation=TINY_ABLATION, scale="dev", data=None, thread_cap=None)
+        row = rows["cells"][0]
+        assert row["consensus_nan_fraction"] < 0.1
+        assert row["consensus_generalizability_nan_fraction"] > 0.5
 
     def test_study_cell_has_no_at_k_rows_and_honors_not_two(self):
         X, y, _ = _blobs(None)
@@ -322,7 +337,68 @@ class TestRunAblation:
         assert manifest["scale"] == "dev"
         assert manifest["workers"] == 1
         assert manifest["n_units"] == len(units)
+        assert manifest["status"] == "complete"
         assert "git_sha" in manifest and "thread_cap" in manifest
+
+    def test_manifest_exists_with_status_running_before_the_first_unit(
+        self, tmp_path, monkeypatch
+    ):
+        # An interrupted run must still have a manifest: the notebook finds
+        # a run by globbing for one, and the publication cost is read off
+        # its wall clock. So the manifest is written before the pool
+        # starts, with status "running", and flips to "complete" at the end.
+        units = [u for u in enumerate_units(TINY_ABLATION, "dev") if u.kind == "dataset"][:1]
+        rd = ablation_module.ablation_dir(
+            tmp_path, TINY_ABLATION.name, "dev", ablation_hash(TINY_ABLATION, "dev")
+        )
+        seen = []
+        original = ablation_module.run_unit
+
+        def observing(unit, **kwargs):
+            manifest_path = rd / "manifest.json"
+            assert manifest_path.exists()
+            seen.append(json.loads(manifest_path.read_text()))
+            return original(unit, **kwargs)
+
+        monkeypatch.setattr(ablation_module, "run_unit", observing)
+        run_ablation(TINY_ABLATION, scale="dev", root=tmp_path, n_jobs=1, units=units)
+        assert len(seen) == 1
+        during = seen[0]
+        assert during["status"] == "running"
+        assert during["wall_clock_s"] == 0.0
+        assert during["n_units"] == 1
+        assert "git_sha" in during and "config" in during
+        after = json.loads((rd / "manifest.json").read_text())
+        assert after["status"] == "complete"
+        assert after["run_id"] == during["run_id"]
+        assert after["wall_clock_s"] > 0.0
+
+    def test_resume_reads_run_id_and_wall_clock_from_a_running_manifest(
+        self, completed, tmp_path
+    ):
+        # A crash leaves the "running" manifest behind; resuming from it
+        # must keep its run_id and add to its wall clock exactly as
+        # resuming from a "complete" one does.
+        import shutil
+
+        root, rd = completed
+        new_root = tmp_path / "runs"
+        shutil.copytree(root, new_root)
+        new_rd = new_root / rd.relative_to(root)
+        manifest_path = new_rd / "manifest.json"
+        interrupted = json.loads(manifest_path.read_text())
+        interrupted["status"] = "running"
+        interrupted["wall_clock_s"] = 100.0
+        manifest_path.write_text(json.dumps(interrupted))
+        unit = next(u for u in enumerate_units(TINY_ABLATION, "dev") if u.kind == "dataset")
+        for path in unit_paths(new_rd, unit).values():
+            path.unlink()
+
+        run_ablation(TINY_ABLATION, scale="dev", root=new_root, n_jobs=1)
+        after = json.loads(manifest_path.read_text())
+        assert after["status"] == "complete"
+        assert after["run_id"] == interrupted["run_id"]
+        assert after["wall_clock_s"] > 100.0
 
     def test_run_directory_nests_scale_and_hash(self, completed):
         root, rd = completed
@@ -361,6 +437,9 @@ class TestRunAblation:
         shutil.copytree(root, new_root)
         new_rd = new_root / rd.relative_to(root)
         unit = next(u for u in enumerate_units(TINY_ABLATION, "dev") if u.kind == "cell")
+        originals = {
+            name: pd.read_parquet(path) for name, path in unit_paths(rd, unit).items()
+        }
         for path in unit_paths(new_rd, unit).values():
             path.unlink()
 
@@ -374,6 +453,15 @@ class TestRunAblation:
         monkeypatch.setattr(ablation_module, "run_unit", counting)
         run_ablation(TINY_ABLATION, scale="dev", root=new_root, n_jobs=1)
         assert calls == [unit]
+        # A resumed run equals an uninterrupted one: the recomputed unit's
+        # four frames match what the first run wrote, value for value.
+        # fit_seconds is wall time and the one column that legitimately
+        # differs between two fits of the same cell.
+        for name, path in unit_paths(new_rd, unit).items():
+            pd.testing.assert_frame_equal(
+                pd.read_parquet(path).drop(columns="fit_seconds", errors="ignore"),
+                originals[name].drop(columns="fit_seconds", errors="ignore"),
+            )
 
     def test_resume_keeps_the_run_id_and_accumulates_wall_clock(self, completed, tmp_path):
         import shutil

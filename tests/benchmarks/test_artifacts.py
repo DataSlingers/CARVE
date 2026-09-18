@@ -2,6 +2,7 @@
 
 import dataclasses
 import json
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -346,7 +347,8 @@ class TestAblationSchemas:
         assert ABLATION_SCHEMAS["at_k"] == CELL_KEY + ("mode", "k", "ari_at_k", "rare_recall_at_k")
         assert ABLATION_SCHEMAS["cells"] == CELL_KEY + (
             "carve_random_state", "n_samples", "fit_seconds",
-            "consensus_nan_fraction", "n_cluster_count_warnings",
+            "consensus_nan_fraction", "consensus_generalizability_nan_fraction",
+            "n_cluster_count_warnings",
         )
         assert ABLATION_SCHEMAS["datasets"] == (
             "study", "difficulty", "dataset", "n_samples", "k_star",
@@ -363,7 +365,8 @@ class TestAblationFrames:
             "study": "gaussians", "difficulty": "medium", "dataset": 0,
             "subsample_ratio": 0.618, "n_resamples": 100, "replicate": 0,
             "carve_random_state": 10042, "n_samples": 1500, "fit_seconds": 1.0,
-            "consensus_nan_fraction": 0.0, "n_cluster_count_warnings": 0,
+            "consensus_nan_fraction": 0.0, "consensus_generalizability_nan_fraction": 0.0,
+            "n_cluster_count_warnings": 0,
         }
         row.update(overrides)
         return row
@@ -374,11 +377,16 @@ class TestAblationFrames:
         assert list(frame.columns) == list(ABLATION_SCHEMAS["cells"])
 
     def test_write_frame_is_atomic_on_a_failed_write(self, tmp_path, monkeypatch):
-        # A worker killed mid-write (or, here, a write that simply fails)
-        # must not leave a truncated file at the final path -- unit_done is
-        # existence-only, so a resumed run would otherwise treat a
-        # half-written parquet file as a completed unit.
-        def boom(self, *args, **kwargs):
+        # A worker killed mid-write (or, here, a write that fails after
+        # putting bytes on disk) must not leave a file at the final path:
+        # unit_done is existence-only, so a resumed run would otherwise
+        # treat a half-written parquet file as a completed unit. The mock
+        # writes junk to whatever path it is handed before raising, so a
+        # write_frame that wrote straight to the final path would leave
+        # that junk behind and fail the existence assertion; a mock that
+        # only raised could not tell the two apart.
+        def boom(self, target, *args, **kwargs):
+            Path(target).write_bytes(b"not parquet")
             raise OSError("disk full")
 
         monkeypatch.setattr(pd.DataFrame, "to_parquet", boom)
@@ -411,6 +419,37 @@ class TestAblationFrames:
         frames = read_frames(tmp_path)
         assert sorted(frames["cells"]["dataset"]) == [0, 1]
         assert frames["curves"].empty
+
+    def _at_k_row(self):
+        return {
+            "study": "gaussians", "difficulty": "medium", "dataset": 0,
+            "subsample_ratio": 0.618, "n_resamples": 100, "replicate": 0,
+            "mode": "default", "k": 5, "ari_at_k": 0.9, "rare_recall_at_k": 1.0,
+        }
+
+    def test_read_frames_keeps_dtypes_past_an_empty_part(self, tmp_path):
+        # Every study cell writes an empty at_k file, whose columns come
+        # back from parquet as nulls. pandas 3 no longer leaves empty
+        # entries out when it determines a concat result dtype, so one such
+        # file would turn every at_k column object for the whole run (the
+        # dev run had all ten object-typed); read_frames must skip empty
+        # parts before concatenating.
+        at_k = ABLATION_SCHEMAS["at_k"]
+        write_frame(tmp_path / "at_k__study.parquet", [], at_k)
+        write_frame(tmp_path / "at_k__sim.parquet", [self._at_k_row()], at_k)
+        frame = read_frames(tmp_path)["at_k"]
+        assert len(frame) == 1
+        assert frame["k"].dtype.kind == "i"
+        assert frame["ari_at_k"].dtype.kind == "f"
+        assert frame["dataset"].dtype.kind == "i"
+
+    def test_read_frames_all_empty_parts_give_the_schema_frame(self, tmp_path):
+        at_k = ABLATION_SCHEMAS["at_k"]
+        write_frame(tmp_path / "at_k__study_a.parquet", [], at_k)
+        write_frame(tmp_path / "at_k__study_b.parquet", [], at_k)
+        frame = read_frames(tmp_path)["at_k"]
+        assert frame.empty
+        assert list(frame.columns) == list(at_k)
 
     def test_ablation_dir_nests_name_scale_and_hash(self, tmp_path):
         rd = ablation_dir(tmp_path, "rho_b", "dev", "abc123")

@@ -196,6 +196,27 @@ class TestUndefinedSelections:
                       & (out[X] == 0.2)].iloc[0]
         assert stab_02["n"] == 4
 
+    def test_study_selection_shares_count_only_defined_rows(self):
+        # At 0.618 one replicate is defined and one undefined: n is 1 and
+        # the one share is 1.0, not n = 2 and a share of 0.5 that would
+        # leave the setting's shares summing below one. The all-undefined
+        # setting emits no row. selected_k comes back as an int although
+        # the input column is float64 (the NaN rows force that dtype, as
+        # read_frames does on a run with one undefined cell): the figure
+        # labels bars from it and must not read "k=5.0".
+        rows = _undefined_gini_rows()
+        assert rows["selected_k"].dtype.kind == "f"
+        out = study_selection_shares(
+            rows, x=X, metric="consensus_gini_stability", study="gaussians"
+        )
+        assert set(out[X]) == {0.618}
+        assert len(out) == 1
+        assert out["n"].iloc[0] == 1
+        assert out["count"].iloc[0] == 1
+        assert out["share"].iloc[0] == 1.0
+        assert out["selected_k"].dtype.kind == "i"
+        assert out["selected_k"].iloc[0] == 5
+
 
 class TestSpreadSummary:
     def test_mean_sd_across_replicates(self):
@@ -349,8 +370,16 @@ class TestStudyAriSummary:
         assert unchanged["n"] == 2
 
     def test_excludes_other_studies(self):
+        # The gaussians rows share the x set {0.2, 0.618} with klein, so
+        # the settings alone cannot tell a filtered summary from an
+        # unfiltered one. n and the mean can: klein has two replicates at
+        # 0.7 per (x, metric); without the study filter each row would also
+        # count the four gaussians rows at 0.5 or 0.9.
         out = study_ari_summary(_selection(), x=X, study="klein", metrics=HEADLINE_METRICS)
         assert set(out[X]) == {0.2, 0.618}
+        assert len(out) == 4
+        assert (out["n"] == 2).all()
+        assert out["ari_mean"].tolist() == pytest.approx([0.7] * 4)
 
     def test_drops_undefined_selections_rather_than_counting_them(self):
         selection = _selection().copy()
@@ -372,23 +401,34 @@ class TestStudyAriSummary:
 
 class TestDiagnosticsSummary:
     def test_means_per_setting_and_study(self):
-        # fit_seconds and consensus_nan_fraction differ between the two
+        # fit_seconds and both NaN fractions differ between the two
         # replicates being averaged, so "take first" and "mean" disagree
-        # and the assertions can tell them apart.
+        # and the assertions can tell them apart. The generalizability
+        # fraction is set well above the stability one, as it is on a real
+        # fit, so a summary that read the wrong column would also fail.
         cells = pd.DataFrame([
             {**_key(rho=0.2, rep=0), "carve_random_state": 1, "n_samples": 100,
-             "fit_seconds": 1.0, "consensus_nan_fraction": 0.08, "n_cluster_count_warnings": 0},
+             "fit_seconds": 1.0, "consensus_nan_fraction": 0.08,
+             "consensus_generalizability_nan_fraction": 0.30, "n_cluster_count_warnings": 0},
             {**_key(rho=0.2, rep=1), "carve_random_state": 1, "n_samples": 100,
-             "fit_seconds": 3.0, "consensus_nan_fraction": 0.12, "n_cluster_count_warnings": 1},
+             "fit_seconds": 3.0, "consensus_nan_fraction": 0.12,
+             "consensus_generalizability_nan_fraction": 0.40, "n_cluster_count_warnings": 1},
             {**_key(rho=0.618, rep=0), "carve_random_state": 1, "n_samples": 100,
-             "fit_seconds": 6.0, "consensus_nan_fraction": 0.0, "n_cluster_count_warnings": 0},
+             "fit_seconds": 6.0, "consensus_nan_fraction": 0.0,
+             "consensus_generalizability_nan_fraction": 0.0, "n_cluster_count_warnings": 0},
             {**_key(rho=0.618, rep=1), "carve_random_state": 1, "n_samples": 100,
-             "fit_seconds": 6.2, "consensus_nan_fraction": 0.02, "n_cluster_count_warnings": 1},
+             "fit_seconds": 6.2, "consensus_nan_fraction": 0.02,
+             "consensus_generalizability_nan_fraction": 0.04, "n_cluster_count_warnings": 1},
         ])
         out = diagnostics_summary(cells, x=X)
+        assert list(out.columns) == [
+            X, "study", "fit_seconds", "consensus_nan_fraction",
+            "consensus_generalizability_nan_fraction", "n_cluster_count_warnings",
+        ]
         row = out[out[X] == 0.2].iloc[0]
         assert row["fit_seconds"] == pytest.approx(2.0)  # mean of 1.0 and 3.0, not 1.0
         assert row["consensus_nan_fraction"] == pytest.approx(0.10)  # mean of 0.08 and 0.12
+        assert row["consensus_generalizability_nan_fraction"] == pytest.approx(0.35)
         assert row["n_cluster_count_warnings"] == pytest.approx(0.5)
 
 

@@ -270,11 +270,14 @@ class TestWriteTables:
 class TestAblationTable:
     @pytest.fixture(scope="class")
     @classmethod
-    def frames(cls):
+    def frames(cls, tmp_path_factory):
         from benchmarks._registry import ABLATIONS
         from tests.benchmarks._helpers import synthetic_ablation_frames
 
-        return ABLATIONS["rho_b"], synthetic_ablation_frames(ABLATIONS["rho_b"], "dev", seed=2)
+        return ABLATIONS["rho_b"], synthetic_ablation_frames(
+            ABLATIONS["rho_b"], "dev", seed=2,
+            tmp_path=tmp_path_factory.mktemp("ablation_frames"),
+        )
 
     def test_renders_two_sub_tables_with_every_setting(self, frames):
         ablation, data = frames

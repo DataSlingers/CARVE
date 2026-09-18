@@ -202,59 +202,89 @@ def make_carve_spy() -> type:
     return SpyCARVE
 
 
-def synthetic_ablation_frames(ablation, scale: str, *, seed: int = 0) -> dict:
-    """Every ablation frame for every cell at a scale, with random values.
+def synthetic_ablation_frames(
+    ablation, scale: str, *, seed: int = 0, tmp_path: Path | None = None
+) -> dict:
+    """Every ablation frame for every unit at a scale, with random values,
+    written as the runner's checkpoint files and read back through
+    read_frames.
 
     Shapes follow the runner exactly (one row per cell, metric, estimator
-    and k; at_k for simulations only; similarity per rho-arm dataset,
-    including the refit reference), so figures and tables can be exercised
-    without a fit.
+    and k; at_k for simulations only, so a study cell writes an empty at_k
+    file; similarity per rho-arm dataset, including the refit reference).
+    Each unit's rows go through write_frame to the paths unit_paths gives
+    it, and the frames come back through read_frames, so they carry what a
+    real run directory produces rather than what an in-memory DataFrame
+    would: an empty at_k part per study cell, and one undefined selection
+    (the all-NaN guard's row shape, on a non-headline metric of a study
+    B-arm cell) that makes selected_k float64 for the whole run. Figures
+    and tables are then exercised against the frames they will meet.
+
+    tmp_path is the directory the checkpoints are written to; None uses a
+    temporary directory that is removed once the frames are in memory.
     """
+    import tempfile
+
     from benchmarks._ablation_cells import (
         REFERENCE_RATIO,
-        enumerate_cells,
+        STUDY_DATASET,
+        STUDY_DIFFICULTY,
+        Cell,
+        Unit,
         carve_seed,
+        enumerate_units,
+        unit_paths,
     )
-    from benchmarks._artifacts import ABLATION_SCHEMAS
+    from benchmarks._ablation_summary import HEADLINE_METRICS
+    from benchmarks._artifacts import ABLATION_SCHEMAS, read_frames, write_frame
     from benchmarks._registry import CARVE_METRICS_ALL
 
     rng = np.random.default_rng(seed)
-    cells = enumerate_cells(ablation, scale)
-    rho_cells = enumerate_cells(ablation, scale, arm="rho")
     draws = ablation.scales[scale].similarity_draws
+    undefined_metric = "consensus_gini_stability"
+    assert undefined_metric in CARVE_METRICS_ALL
+    assert undefined_metric not in HEADLINE_METRICS
+    undefined_cell = Cell(
+        ablation.study,
+        STUDY_DIFFICULTY,
+        STUDY_DATASET,
+        float(ablation.rho_default),
+        int(next(b for b in ablation.b_grid if b != ablation.b_default)),
+        0,
+    )
 
     def _estimators(cell):
         if cell.study == ablation.study:
             return ("AgglomerativeClustering", "SpectralClustering"), tuple(range(2, 11))
         return ("KMeans",), (3, 4, 5, 6, 7)
 
-    datasets, cells_rows, curves, selection, at_k, similarity = [], [], [], [], [], []
-    seen = set()
-    for cell in cells:
-        key = cell.key()
-        is_study = cell.study == ablation.study
+    def _dataset(cell, is_study):
+        return {
+            "study": cell.study, "difficulty": cell.difficulty, "dataset": cell.dataset,
+            "n_samples": 500,
+            "k_star": np.nan if is_study else 5.0,
+            "oracle_ari": np.nan if is_study else 0.9,
+            "rare_label": np.nan if is_study else 0.0,
+            "rare_fraction": np.nan if is_study else 0.1,
+        }
+
+    def _similarity(cell):
         estimators, ks = _estimators(cell)
-        dataset_id = (cell.study, cell.difficulty, cell.dataset)
-        if dataset_id not in seen:
-            seen.add(dataset_id)
-            datasets.append(
-                {
-                    "study": cell.study, "difficulty": cell.difficulty, "dataset": cell.dataset,
-                    "n_samples": 500,
-                    "k_star": np.nan if is_study else 5.0,
-                    "oracle_ari": np.nan if is_study else 0.9,
-                    "rare_label": np.nan if is_study else 0.0,
-                    "rare_fraction": np.nan if is_study else 0.1,
-                }
-            )
-        cells_rows.append(
+        return [
             {
-                **key, "carve_random_state": carve_seed(cell, ablation=ablation),
-                "n_samples": 500, "fit_seconds": float(rng.uniform(1, 5)),
-                "consensus_nan_fraction": float(rng.uniform(0, 0.05)),
-                "n_cluster_count_warnings": int(rng.integers(0, 3)),
+                "study": cell.study, "difficulty": cell.difficulty, "dataset": cell.dataset,
+                "subsample_ratio": float(cell.subsample_ratio), "estimator": estimator,
+                "k": k, "draw": draw, "ari": float(rng.uniform(0.5, 1.0)),
             }
-        )
+            for estimator in estimators
+            for k in ks
+            for draw in range(draws)
+        ]
+
+    def _cell(cell, is_study):
+        key = cell.key()
+        estimators, ks = _estimators(cell)
+        curves, selection, at_k = [], [], []
         for metric in CARVE_METRICS_ALL:
             for estimator in estimators:
                 for k in ks:
@@ -265,15 +295,16 @@ def synthetic_ablation_frames(ablation, scale: str, *, seed: int = 0) -> dict:
                             "metric_se": float(rng.uniform(0.01, 0.05)) if metric.startswith("ari_") else np.nan,
                         }
                     )
-            selection.append(
-                {
-                    **key, "metric_name": metric,
-                    "selected_estimator": estimators[int(rng.integers(len(estimators)))],
-                    "selected_k": int(rng.choice(ks)),
-                    "k_star": np.nan if is_study else 5.0,
-                    "ari_selected": float(rng.uniform(0, 1)),
-                }
-            )
+            row = {
+                **key, "metric_name": metric,
+                "selected_estimator": estimators[int(rng.integers(len(estimators)))],
+                "selected_k": int(rng.choice(ks)),
+                "k_star": np.nan if is_study else 5.0,
+                "ari_selected": float(rng.uniform(0, 1)),
+            }
+            if cell == undefined_cell and metric == undefined_metric:
+                row.update(selected_estimator=None, selected_k=np.nan, ari_selected=np.nan)
+            selection.append(row)
         if not is_study:
             for mode in ("default", "generalizability"):
                 for k in ks:
@@ -284,23 +315,38 @@ def synthetic_ablation_frames(ablation, scale: str, *, seed: int = 0) -> dict:
                             "rare_recall_at_k": float(rng.uniform(0, 1)),
                         }
                     )
-    for dataset_id in dict.fromkeys((c.study, c.difficulty, c.dataset) for c in rho_cells):
-        study, difficulty, dataset = dataset_id
-        estimators, ks = _estimators(next(c for c in rho_cells if (c.study, c.difficulty, c.dataset) == dataset_id))
-        for rho in (*ablation.rho_grid, REFERENCE_RATIO):
-            for estimator in estimators:
-                for k in ks:
-                    for draw in range(draws):
-                        similarity.append(
-                            {
-                                "study": study, "difficulty": difficulty, "dataset": dataset,
-                                "subsample_ratio": float(rho), "estimator": estimator, "k": k,
-                                "draw": draw, "ari": float(rng.uniform(0.5, 1.0)),
-                            }
-                        )
-    frames = {
-        "curves": pd.DataFrame(curves), "selection": pd.DataFrame(selection),
-        "at_k": pd.DataFrame(at_k), "cells": pd.DataFrame(cells_rows),
-        "datasets": pd.DataFrame(datasets), "similarity": pd.DataFrame(similarity),
-    }
-    return {name: frame[list(ABLATION_SCHEMAS[name])] for name, frame in frames.items()}
+        cells = [
+            {
+                **key, "carve_random_state": carve_seed(cell, ablation=ablation),
+                "n_samples": 500, "fit_seconds": float(rng.uniform(1, 5)),
+                "consensus_nan_fraction": float(rng.uniform(0, 0.05)),
+                "consensus_generalizability_nan_fraction": float(rng.uniform(0, 0.4)),
+                "n_cluster_count_warnings": int(rng.integers(0, 3)),
+            }
+        ]
+        return {"curves": curves, "selection": selection, "at_k": at_k, "cells": cells}
+
+    def _unit_frames(unit: Unit) -> dict:
+        is_study = unit.cell.study == ablation.study
+        if unit.kind == "dataset":
+            return {"datasets": [_dataset(unit.cell, is_study)]}
+        if unit.kind == "similarity":
+            return {"similarity": _similarity(unit.cell)}
+        return _cell(unit.cell, is_study)
+
+    def _write_and_read(rd: Path) -> dict:
+        units = enumerate_units(ablation, scale)
+        assert Unit("cell", undefined_cell) in units
+        assert REFERENCE_RATIO in {
+            u.cell.subsample_ratio for u in units if u.kind == "similarity"
+        }
+        for unit in units:
+            rows = _unit_frames(unit)
+            for name, path in unit_paths(rd, unit).items():
+                write_frame(path, rows[name], ABLATION_SCHEMAS[name])
+        return read_frames(rd)
+
+    if tmp_path is not None:
+        return _write_and_read(Path(tmp_path))
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        return _write_and_read(Path(tmp_dir))

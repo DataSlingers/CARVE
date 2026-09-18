@@ -193,9 +193,14 @@ def _study_shares(
 ) -> None:
     """Stacked bars: share of replicates selecting each (estimator, k)."""
     shares = study_selection_shares(selection, x=x, metric=metric, study=study)
-    shares["choice"] = (
-        shares["selected_estimator"] + ", k=" + shares["selected_k"].astype(str)
-    )
+    # study_selection_shares returns selected_k as an int, even when an
+    # undefined selection elsewhere in the run has made the selection
+    # frame's column float64; the ":d" format relies on that and would
+    # raise on a float rather than label a bar "k=4.0".
+    shares["choice"] = [
+        f"{estimator}, k={k:d}"
+        for estimator, k in zip(shares["selected_estimator"], shares["selected_k"])
+    ]
     choices = sorted(
         shares["choice"].unique(),
         key=lambda c: (c.split(", k=")[0], int(c.split("k=")[1])),
