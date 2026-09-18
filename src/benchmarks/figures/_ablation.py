@@ -398,12 +398,18 @@ def figure_ablation_rho(
                 _reference(ax, ablation.rho_default)
                 ax.set_xlabel(RHO_LABEL)
             style_axes(ax)
-        # The merged legend below the grid can run to many rows (every study,
-        # every headline metric variant, the per-choice bars of panel H, and
-        # the two Klein similarity lines), so tight_layout reserves a fixed
-        # bottom strip for it rather than letting a tall legend grow upward
-        # from just below the canvas into row 3's axes.
-        fig.tight_layout(rect=(0.0, 0.20, 1.0, 1.0))
+        # The merged legend below the grid can run to several rows (every
+        # study, every headline metric variant, the per-choice bars of
+        # panel H, and the two Klein similarity lines), so tight_layout
+        # reserves a fixed bottom strip for it rather than letting a tall
+        # legend grow upward from just below the canvas into row 3's axes.
+        # 0.11 of the figure height is the dev run's five-row legend
+        # (results/runs/ablation_rho_b/dev/908d5949eb5d) plus a bit of
+        # headroom above it; it also clears the larger, uniform-random
+        # legend the unit tests' synthetic frames produce (panel H's
+        # per-choice bars explode without real structure to concentrate
+        # selections), with roughly 0.1 inch to spare there.
+        fig.tight_layout(rect=(0.0, 0.11, 1.0, 1.0))
         grouped_legend(fig, axes, y_offset=0.01, ncol=4)
         if save:
             save_figure(
@@ -507,8 +513,12 @@ def figure_ablation_b(
             style_axes(ax)
         # Same reasoning as figure_ablation_rho: reserve a fixed bottom strip
         # so a tall merged legend (studies, headline metrics, the guide line
-        # and panel H's per-choice bars) cannot grow upward into row 4.
-        fig.tight_layout(rect=(0.0, 0.16, 1.0, 1.0))
+        # and panel H's per-choice bars) cannot grow upward into row 4. 0.06
+        # of the figure height is the dev run's four-row legend
+        # (results/runs/ablation_rho_b/dev/908d5949eb5d) plus headroom; the
+        # unit tests' synthetic frames produce a shorter legend here than the
+        # rho figure does, so this value clears them too, with room to spare.
+        fig.tight_layout(rect=(0.0, 0.06, 1.0, 1.0))
         grouped_legend(fig, axes, y_offset=0.01, ncol=4)
         if save:
             save_figure(
