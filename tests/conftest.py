@@ -21,13 +21,43 @@ _HAS_GRAPH = all(
 )
 
 
+def _has_r_m3c() -> bool:
+    """True when rpy2 imports and the R package M3C is installed.
+
+    Both halves are checked because they fail independently: the benchmarks
+    CI job has neither, a developer machine may have rpy2 from the
+    [notebooks] extra without ever running `make m3c-setup`, and importing
+    rpy2 without a working R raises rather than returning False.
+    """
+    if importlib.util.find_spec("rpy2") is None:
+        return False
+    try:
+        import rpy2.robjects as ro
+
+        return bool(ro.r('isTRUE(requireNamespace("M3C", quietly=TRUE))')[0])
+    except Exception:
+        return False
+
+
+_HAS_R_M3C = _has_r_m3c()
+
+
 def pytest_collection_modifyitems(config, items):
-    if _HAS_GRAPH:
+    skips = {}
+    if not _HAS_GRAPH:
+        skips["requires_graph"] = pytest.mark.skip(
+            reason="requires the [graph] extra (igraph + leidenalg)"
+        )
+    if not _HAS_R_M3C:
+        skips["requires_r"] = pytest.mark.skip(
+            reason="requires rpy2 and the R package M3C (make m3c-setup)"
+        )
+    if not skips:
         return
-    skip = pytest.mark.skip(reason="requires the [graph] extra (igraph + leidenalg)")
     for item in items:
-        if "requires_graph" in item.keywords:
-            item.add_marker(skip)
+        for keyword, mark in skips.items():
+            if keyword in item.keywords:
+                item.add_marker(mark)
 
 
 @pytest.fixture()
