@@ -14,11 +14,13 @@ import resource
 import subprocess
 import sys
 import tempfile
+import warnings
 from collections.abc import Mapping
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from ._registry import ACTIVE_ANCHOR_SET_NAME
@@ -160,6 +162,50 @@ _TRACKED_PACKAGES = (
     "joblib",
     "carve-validate",
 )
+
+
+def fingerprint(X: np.ndarray) -> str:
+    """A digest of X's values, for checking a cache against the data it holds."""
+    return hashlib.sha1(
+        np.ascontiguousarray(np.asarray(X, dtype=np.float64)).tobytes()
+    ).hexdigest()
+
+
+def fingerprint_path(cache_path: Path) -> Path:
+    """Where the digest sidecar for a cache file lives."""
+    return cache_path.with_name(cache_path.name + ".x-sha1")
+
+
+def check_fingerprint(cache_path: Path, X: np.ndarray) -> None:
+    """Refuse to serve a cached result against a different X.
+
+    A cached result is only valid for the matrix it was computed on. The hECA
+    development embedding changes under one scale name (subsample-first until
+    the pooled cache exists, pooled after), which is exactly the case a
+    scale-keyed filename cannot catch. A cache written before this check
+    existed has no record to compare against; it is served with a warning
+    rather than discarded, since a fit can be hours of compute.
+
+    Shared by fit_or_load_carve and run_or_load_m3c. It lives here rather
+    than in either caller because a second copy of a correctness check is how
+    the two drift apart.
+    """
+    sidecar = fingerprint_path(cache_path)
+    if not sidecar.is_file():
+        warnings.warn(
+            f"{cache_path} carries no fingerprint of the X it was computed on, "
+            "so it cannot be checked against the X passed now. Pass force=True "
+            "to recompute if the data has changed since it was cached.",
+            stacklevel=3,
+        )
+        return
+    if sidecar.read_text().strip() != fingerprint(X):
+        raise ValueError(
+            f"{cache_path} was fit on a different X than the one passed now "
+            "(the fingerprint differs). Serving it would report results for "
+            "data it never saw. Pass force=True to refit on this X, or load "
+            "the data the cache was fit on."
+        )
 
 
 def scenario_identity(scenario: Scenario) -> dict[str, Any]:

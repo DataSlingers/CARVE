@@ -4,6 +4,7 @@ import dataclasses
 import json
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -14,8 +15,11 @@ from benchmarks._artifacts import (
     CELL_KEY,
     ablation_dir,
     build_manifest,
+    check_fingerprint,
     completed_cells,
     config_hash,
+    fingerprint,
+    fingerprint_path,
     peak_rss_bytes,
     promote,
     provenance,
@@ -476,3 +480,43 @@ class TestProvenance:
     def test_write_manifest_accepts_a_mapping(self, tmp_path):
         path = write_manifest(tmp_path, {"run_id": "r1", "ablation": "rho_b"})
         assert json.loads(path.read_text()) == {"run_id": "r1", "ablation": "rho_b"}
+
+
+class TestFingerprint:
+    def test_same_values_give_the_same_digest(self):
+        X = np.arange(12, dtype=float).reshape(4, 3)
+        assert fingerprint(X) == fingerprint(X.copy())
+
+    def test_a_different_x_of_the_same_shape_gives_a_different_digest(self):
+        # Same shape deliberately: a shape check alone would pass this, which
+        # is exactly what the fingerprint exists to catch.
+        X = np.arange(12, dtype=float).reshape(4, 3)
+        Y = X.copy()
+        Y[0, 0] += 1.0
+        assert fingerprint(X) != fingerprint(Y)
+
+    def test_sidecar_sits_beside_the_cache_file(self, tmp_path):
+        cache = tmp_path / "klein.carve"
+        assert fingerprint_path(cache) == tmp_path / "klein.carve.x-sha1"
+
+    def test_check_raises_when_the_recorded_digest_differs(self, tmp_path):
+        cache = tmp_path / "klein.carve"
+        X = np.arange(12, dtype=float).reshape(4, 3)
+        Y = X.copy()
+        Y[0, 0] += 1.0
+        fingerprint_path(cache).write_text(fingerprint(X))
+        with pytest.raises(ValueError, match="fit on a different X"):
+            check_fingerprint(cache, Y)
+
+    def test_check_warns_when_no_digest_was_recorded(self, tmp_path):
+        cache = tmp_path / "klein.carve"
+        X = np.arange(12, dtype=float).reshape(4, 3)
+        with pytest.warns(UserWarning, match="carries no fingerprint"):
+            check_fingerprint(cache, X)
+
+    def test_check_is_silent_when_the_digest_matches(self, tmp_path, recwarn):
+        cache = tmp_path / "klein.carve"
+        X = np.arange(12, dtype=float).reshape(4, 3)
+        fingerprint_path(cache).write_text(fingerprint(X))
+        check_fingerprint(cache, X)
+        assert len(recwarn) == 0
