@@ -5,7 +5,7 @@ things: marker size, the embedding, the axis labels, and panel F. Those are
 parameters here; the remaining 174 lines are shared.
 """
 
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -161,13 +161,25 @@ def composite_color_maps(
     return true_cmap, carve_cmap, comparison_cmap
 
 
-def ari_table(inputs: CompositeInputs) -> pd.DataFrame:
+_ARI_ROW_COLUMNS: tuple[str, ...] = ("method", "metric", "ari", "k")
+
+
+def ari_table(
+    inputs: CompositeInputs,
+    *,
+    extra_rows: Sequence[Mapping[str, Any]] | None = None,
+) -> pd.DataFrame:
     """ARI of each selection against the reported labels.
 
     Shared by the Levine and hECA figures, whose panel F is this table
     rendered as a lollipop chart rather than an alluvial -- the ARI table is
     the number both case studies exist to report, so a fix to one must reach
     both rather than living in two copies that can drift apart.
+
+    extra_rows appends comparators that do not come out of best_df, which is
+    the CVI sweep's own output and has no room for a tool that is not a CVI.
+    The Klein M3C figure passes M3C's two rows here. Levine and hECA pass
+    nothing and are unaffected.
     """
     rows = [
         {
@@ -186,6 +198,15 @@ def ari_table(inputs: CompositeInputs) -> pd.DataFrame:
                 "k": int(row["k"]),
             }
         )
+    for extra in extra_rows or ():
+        missing = [name for name in _ARI_ROW_COLUMNS if name not in extra]
+        if missing:
+            raise ValueError(
+                f"An extra ARI row is missing {missing}. Every row needs "
+                f"{list(_ARI_ROW_COLUMNS)}, so the lollipop can color it by "
+                "metric and annotate it with k."
+            )
+        rows.append({name: extra[name] for name in _ARI_ROW_COLUMNS})
     return pd.DataFrame(rows)
 
 

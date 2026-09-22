@@ -493,3 +493,37 @@ class TestPrepareComposite:
         assert carve.get_labels_calls == [
             {"measure": "generalizability", "rule": "quantile", "not_two": True}
         ]
+
+
+class TestAriTableExtraRows:
+    def test_default_is_unchanged(self, inputs):
+        from benchmarks.figures._case_study import ari_table
+
+        assert "M3C" not in ari_table(inputs)["method"].tolist()
+
+    def test_extra_rows_are_appended_after_the_cvi_rows(self, inputs):
+        from benchmarks.figures._case_study import ari_table
+
+        extra = [
+            {"method": "M3C", "metric": "m3c_rcsi", "ari": 0.41, "k": 2},
+            {"method": "M3C (k=4)", "metric": "m3c_rcsi", "ari": 0.55, "k": 4},
+        ]
+        table = ari_table(inputs, extra_rows=extra)
+        assert table["method"].tolist()[-2:] == ["M3C", "M3C (k=4)"]
+        assert table["ari"].tolist()[-2:] == [0.41, 0.55]
+
+    def test_extra_rows_keep_the_frame_s_columns(self, inputs):
+        from benchmarks.figures._case_study import ari_table
+
+        base = ari_table(inputs)
+        table = ari_table(
+            inputs,
+            extra_rows=[{"method": "M3C", "metric": "m3c_rcsi", "ari": 0.41, "k": 2}],
+        )
+        assert list(table.columns) == list(base.columns)
+
+    def test_rejects_a_row_missing_a_column(self, inputs):
+        from benchmarks.figures._case_study import ari_table
+
+        with pytest.raises(ValueError, match="ari"):
+            ari_table(inputs, extra_rows=[{"method": "M3C", "k": 2}])
