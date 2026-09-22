@@ -518,9 +518,18 @@ class TestAriTableExtraRows:
         base = ari_table(inputs)
         table = ari_table(
             inputs,
-            extra_rows=[{"method": "M3C", "metric": "m3c_rcsi", "ari": 0.41, "k": 2}],
+            extra_rows=[
+                {
+                    "method": "M3C",
+                    "metric": "m3c_rcsi",
+                    "ari": 0.41,
+                    "k": 2,
+                    "stray": "x",
+                }
+            ],
         )
         assert list(table.columns) == list(base.columns)
+        assert "stray" not in table.columns
 
     def test_rejects_a_row_missing_a_column(self, inputs):
         from benchmarks.figures._case_study import ari_table
