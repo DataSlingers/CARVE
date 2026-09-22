@@ -51,6 +51,11 @@ METRIC_COLORS: dict[str, str] = {
     "davies_bouldin": "#A8389E",
     "calinski_harabasz": "#D6292E",
     "gap": "#F28522",
+    # M3C's RCSI. Okabe-Ito blue, from the same Okabe-Ito family as CARVE's own
+    # measures above, but distinct from both of them and from the four
+    # classical indices, because it is neither a CARVE criterion nor a
+    # geometric CVI and must not be mistaken for either.
+    "m3c_rcsi": "#0072B2",
     # Grey, not black: the published figures (Fig 4, S2 Fig) draw the oracle
     # reference as a grey dashed line, distinct from the black axis text and
     # spines it would otherwise be confused with.

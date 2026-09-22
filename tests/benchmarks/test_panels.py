@@ -61,6 +61,7 @@ AX_FIRST_FUNCTIONS = (
     "carve_lines",
     "pipeline_lines",
     "cvi_lines",
+    "m3c_lines",
     "alluvial",
     "ari_lollipop",
     "runtime_lines",
@@ -1237,3 +1238,54 @@ class TestPanelLetter:
     def test_uses_the_theme_font_size(self, ax):
         panel_letter(ax, "B")
         assert ax.texts[0].get_fontsize() == FONT_SIZES["panel_letter"]
+
+
+class TestM3CLines:
+    @pytest.fixture
+    def scores(self):
+        return pd.DataFrame(
+            {
+                "K": [2, 3, 4, 5],
+                "RCSI": [0.05, 0.27, 0.66, 0.51],
+                "RCSI_SE": [0.01, 0.02, 0.03, 0.03],
+                "MONTECARLO_P": [0.42, 0.08, 0.01, 0.02],
+            }
+        )
+
+    def test_draws_one_line_over_k(self, scores):
+        from benchmarks._panels import m3c_lines
+
+        _, ax = plt.subplots()
+        m3c_lines(ax, scores, selected_k=4)
+        assert len(ax.lines) >= 1
+        x, y = ax.lines[0].get_data()
+        np.testing.assert_array_equal(x, [2, 3, 4, 5])
+        np.testing.assert_allclose(y, [0.05, 0.27, 0.66, 0.51])
+
+    def test_marks_the_selected_k(self, scores):
+        from benchmarks._panels import m3c_lines
+
+        _, ax = plt.subplots()
+        m3c_lines(ax, scores, selected_k=4)
+        verticals = [
+            line.get_xdata()[0]
+            for line in ax.lines
+            if line.get_linestyle() == "--" and len(set(line.get_xdata())) == 1
+        ]
+        assert 4 in verticals
+
+    def test_draws_error_bars_from_rcsi_se(self, scores):
+        from benchmarks._panels import m3c_lines
+
+        _, ax = plt.subplots()
+        m3c_lines(ax, scores, selected_k=4)
+        assert len(ax.containers) >= 1
+
+    def test_uses_the_theme_color_not_the_fallback(self, scores):
+        from benchmarks._panels import m3c_lines
+        from benchmarks._theme import FALLBACK_COLOR, metric_color
+
+        assert metric_color("m3c_rcsi") != FALLBACK_COLOR
+        _, ax = plt.subplots()
+        m3c_lines(ax, scores, selected_k=4)
+        assert ax.lines[0].get_color() == metric_color("m3c_rcsi")

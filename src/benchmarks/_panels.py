@@ -582,6 +582,52 @@ def cvi_lines(
     return style_axes(ax)
 
 
+def m3c_lines(
+    ax: Axes,
+    scores: pd.DataFrame,
+    *,
+    selected_k: int,
+    title: str | None = None,
+) -> Axes:
+    """Plot M3C's RCSI over K with its own error bars, marking the selection.
+
+    RCSI is M3C's selection statistic: the mean difference, on the log scale,
+    between the reference stability scores and the real one at each K. It is
+    drawn unnormalized, unlike cvi_lines' indices, because it has a
+    meaningful zero -- RCSI at or below zero means the real data is no more
+    stable at that K than M3C's Monte Carlo reference.
+
+    The error bars are plus or minus 1.96 RCSI_SE, which is M3C's own plot
+    idiom, and the dashed vertical marks the selected K the way cvi_lines and
+    carve_lines mark theirs.
+    """
+    ordered = scores.sort_values("K")
+    color = metric_color("m3c_rcsi")
+
+    ax.errorbar(
+        ordered["K"].to_numpy(),
+        ordered["RCSI"].to_numpy(dtype=float),
+        yerr=1.96 * ordered["RCSI_SE"].to_numpy(dtype=float),
+        marker="o",
+        markersize=4.5,
+        linewidth=1.6,
+        color=color,
+        ecolor=color,
+        elinewidth=1.0,
+        capsize=3.0,
+        label="M3C RCSI",
+    )
+    ax.axhline(0.0, color=FOREGROUND_COLOR, linestyle=":", linewidth=1.0, alpha=0.5)
+    ax.axvline(int(selected_k), color=color, linestyle="--", linewidth=1.0, alpha=0.6)
+
+    ax.set_xlabel("Number of clusters $k$", fontsize=FONT_SIZES["axis_label"])
+    ax.set_ylabel("RCSI", fontsize=FONT_SIZES["axis_label"])
+    if title:
+        ax.set_title(title, fontsize=FONT_SIZES["title"])
+    ax.legend(fontsize=FONT_SIZES["legend"], frameon=False)
+    return style_axes(ax)
+
+
 def _stack_segments(
     sizes: Sequence[int], gap_frac: float = 0.015
 ) -> list[tuple[float, float]]:
