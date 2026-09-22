@@ -317,3 +317,29 @@ class TestRunOrLoad:
         run_or_load_m3c(X, cache_path=cache, max_k=4)
         run_or_load_m3c(X, cache_path=cache, max_k=4, force=True)
         assert len(calls) == 2
+
+
+FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "m3c_klein_scores.csv"
+
+
+class TestRecordedKleinScores:
+    """Pin the published Klein numbers against M3C's real output.
+
+    The synthetic frame above fixes the semantics; this fixes the result.
+    Regenerating it means the manuscript numbers moved, which must be a
+    deliberate act rather than a silent one.
+    """
+
+    @pytest.fixture
+    def recorded(self):
+        return pd.read_csv(FIXTURE)
+
+    def test_carries_the_entropy_schema(self, recorded):
+        assert list(validate_scores(recorded).columns) == list(SCORES_COLUMNS)
+
+    def test_sweeps_k_two_through_ten(self, recorded):
+        assert recorded["K"].tolist() == list(range(2, 11))
+
+    def test_selection_is_the_k_the_run_reported(self, recorded):
+        # Step 3 prints this line with the real k substituted. Paste it here.
+        assert select_k_m3c(recorded) == 2
