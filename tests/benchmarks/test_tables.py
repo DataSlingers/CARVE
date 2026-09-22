@@ -527,3 +527,30 @@ class TestRenderM3CTex:
         write_m3c_table(ari_df, out_dir=tmp_path)
         written = pd.read_csv(tmp_path / "si_table_m3c.csv")
         assert written["method"].tolist() == ["CARVE", "Silhouette", "M3C"]
+        assert written["ari"].tolist() == [0.81, 0.42, 0.41]
+        assert written["k"].tolist() == [4, 2, 2]
+        assert written["metric"].tolist() == [
+            "ari_generalizability_1se",
+            "silhouette",
+            "m3c_rcsi",
+        ]
+
+    def test_preserves_math_notation_in_method_names(self):
+        from benchmarks._tables import render_m3c_tex
+
+        ari_df = pd.DataFrame(
+            [
+                {
+                    "method": "M3C (at $k=4$)",
+                    "metric": "m3c_rcsi",
+                    "ari": 0.41,
+                    "k": 4,
+                }
+            ]
+        )
+        tex = render_m3c_tex(ari_df, caption="Test", label="tab:test")
+        # The method name with math should appear verbatim, unescaped
+        assert "M3C (at $k=4$)" in tex
+        # Verify no backslash escaping of the parentheses or dollar signs
+        assert r"M3C \(at" not in tex
+        assert r"\$k" not in tex
