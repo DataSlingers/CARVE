@@ -7,6 +7,7 @@ the requires_r marker, added in Task 3.
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.metrics import adjusted_rand_score
 
 from benchmarks._m3c import (
     M3C_DEFAULTS,
@@ -198,10 +199,14 @@ class TestRunLive:
         assert sorted(result.labels) == [2, 3, 4]
 
     def test_every_label_vector_has_one_entry_per_row_of_x(self, result):
-        # Trivially true once align_assignment has run, which is the point:
-        # the guard itself is tested in TestAlignAssignment, where it can
-        # actually fail. This asserts the live call went through that guard
-        # and produced labels indexed like X, not like X.T.
+        # Cannot actually fail on a live run: any count mismatch would
+        # already have made align_assignment raise inside the class-scoped
+        # fixture, erroring every test in this class before this assertion
+        # runs. It only documents the shape contract, not that
+        # align_assignment fired correctly -- that guard is exercised, and
+        # can actually fail, in TestAlignAssignment. Whether label i
+        # actually belongs to row i of X (as opposed to some other row) is
+        # checked separately by test_recovers_the_planted_partition below.
         assert all(labels.shape == (80,) for labels in result.labels.values())
 
     def test_labels_cover_exactly_k_groups(self, result):
@@ -209,6 +214,16 @@ class TestRunLive:
         # partition at any swept K.
         for k, labels in result.labels.items():
             assert 1 < len(np.unique(labels)) <= k
+
+    def test_recovers_the_planted_partition(self, result):
+        # The one end-to-end check that label i actually belongs to row i
+        # of X, not merely that the label vector has the right length and
+        # group count -- both of which a silently permuted alignment would
+        # still satisfy. The fixture's two blobs sit 3 sigma apart in 50
+        # dimensions, well past anything M3C's consensus clustering could
+        # confuse at K=2, so exact recovery (ARI == 1.0) is the right bar.
+        planted = [0] * 40 + [1] * 40
+        assert adjusted_rand_score(planted, result.labels[2]) == 1.0
 
     def test_selected_k_agrees_with_the_scores_frame(self, result):
         assert result.selected_k == select_k_m3c(result.scores)
