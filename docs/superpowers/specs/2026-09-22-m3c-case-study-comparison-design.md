@@ -74,9 +74,21 @@ The recommended workflow, per the package vignette, is a single call:
 
 ```r
 res <- M3C(mydata)
-res$scores          # K, PAC_REAL, PAC_REF, RCSI, RCSI_SE, MONTECARLO_P
+res$scores          # see the schema note below
 res$assignments     # labels at the selected K
 ```
+
+The scores frame's schema depends on the objective, which is a trap worth stating once. M3C builds
+the frame with columns named PAC_REAL and PAC_REF, and then, under the default
+objective="entropy", renames columns 2 and 3 in place on its last line:
+colnames(real)[2:3] <- c("ENTROPY_REAL", "ENTROPY_REF"). Under the default the frame is therefore
+
+    K, ENTROPY_REAL, ENTROPY_REF, RCSI, RCSI_SE, MONTECARLO_P, NORM_P, P_SCORE
+
+and PAC_REAL and PAC_REF do not exist. They survive only under objective="PAC", which also
+substitutes BETA_P for NORM_P. Code that reads PAC_REAL will raise a KeyError against the default
+run. RCSI, RCSI_SE and MONTECARLO_P are named the same under both objectives, and those are the
+three the selection and the figure use.
 
 with defaults method=1 (Monte Carlo), clusteralg="pam" with Euclidean distance, maxK=10, iters=25,
 repsref=100, repsreal=100, pItem=0.8, objective="entropy", seed=123. The user reads res$scores, takes
@@ -148,7 +160,8 @@ M3C_DEFAULTS = {                  # M3C 1.34.0's published defaults, restated he
 
 @dataclass(frozen=True)
 class M3CResult:
-    scores: pd.DataFrame          # K, PAC_REAL, PAC_REF, RCSI, RCSI_SE, MONTECARLO_P
+    scores: pd.DataFrame          # K, ENTROPY_REAL, ENTROPY_REF, RCSI,
+                                  # RCSI_SE, MONTECARLO_P, NORM_P, P_SCORE
     labels: dict[int, np.ndarray] # assignments per K, in the row order of X
     selected_k: int
     p_value: float                # MONTECARLO_P at selected_k
