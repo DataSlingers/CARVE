@@ -416,3 +416,69 @@ def write_ablation_table(
         )
     )
     return path
+
+
+# --- The Klein M3C comparison table -----------------------------------------------
+#: The default caption. Stated here rather than at the call site so the
+#: notebook and any later caller cannot caption the same table differently.
+M3C_CAPTION: str = (
+    "Selections and their agreement with the reported labels on the Klein "
+    "case study, for CARVE, the four classical validation indices, and M3C "
+    "run at its published defaults."
+)
+
+
+def render_m3c_tex(
+    ari_df: pd.DataFrame,
+    *,
+    caption: str,
+    label: str,
+    decimals: int = 3,
+) -> str:
+    """One row per method: its selected k and its ARI against the reported labels.
+
+    Runtime is deliberately not a column. fit_or_load_carve caches state
+    rather than timings, so a runtime column would be measured under
+    different conditions for CARVE than for M3C; the two runtimes are
+    reported in prose instead.
+    """
+    lines = [
+        r"\begin{table}[ht]",
+        r"\centering",
+        f"\\caption{{{_tex_escape(caption)}}}",
+        f"\\label{{{label}}}",
+        r"\begin{tabular}{lrr}",
+        r"\toprule",
+        r"Method & $k$ & ARI \\",
+        r"\midrule",
+    ]
+    for _, row in ari_df.iterrows():
+        method = str(row["method"])
+        # Method names may already carry math, as "M3C (at $k=4$)" does, so
+        # only names with no math are escaped.
+        rendered = method if "$" in method else _tex_escape(method)
+        lines.append(
+            f"{rendered} & ${int(row['k'])}$ & {_fmt(row['ari'], decimals)} \\\\"
+        )
+    lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
+    return "\n".join(lines) + "\n"
+
+
+def write_m3c_table(
+    ari_df: pd.DataFrame,
+    *,
+    out_dir: Path,
+    name: str = "si_table_m3c",
+    caption: str = M3C_CAPTION,
+    label: str = "tab:klein_m3c",
+    decimals: int = 3,
+) -> Path:
+    """Write the comparison table as .tex, with the underlying frame as .csv."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{name}.tex"
+    path.write_text(
+        render_m3c_tex(ari_df, caption=caption, label=label, decimals=decimals)
+    )
+    ari_df.to_csv(out_dir / f"{name}.csv", index=False)
+    return path

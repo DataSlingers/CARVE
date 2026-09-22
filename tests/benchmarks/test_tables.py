@@ -472,3 +472,58 @@ class TestAblationTable:
             assert (
                 len(cells) == 9
             ), f"B row should have 9 cells, got {len(cells)}: {line}"
+
+
+class TestRenderM3CTex:
+    @pytest.fixture
+    def ari_df(self):
+        return pd.DataFrame(
+            [
+                {"method": "CARVE", "metric": "ari_generalizability_1se", "ari": 0.81, "k": 4},
+                {"method": "Silhouette", "metric": "silhouette", "ari": 0.42, "k": 2},
+                {"method": "M3C", "metric": "m3c_rcsi", "ari": 0.41, "k": 2},
+            ]
+        )
+
+    def test_renders_one_row_per_method(self, ari_df):
+        from benchmarks._tables import render_m3c_tex
+
+        tex = render_m3c_tex(ari_df, caption="Klein comparison.", label="tab:klein_m3c")
+        for method in ("CARVE", "Silhouette", "M3C"):
+            assert method in tex
+
+    def test_carries_the_caption_and_label(self, ari_df):
+        from benchmarks._tables import render_m3c_tex
+
+        tex = render_m3c_tex(ari_df, caption="Klein comparison.", label="tab:klein_m3c")
+        assert r"\caption{Klein comparison.}" in tex
+        assert r"\label{tab:klein_m3c}" in tex
+
+    def test_escapes_latex_specials_in_the_caption(self, ari_df):
+        from benchmarks._tables import render_m3c_tex
+
+        tex = render_m3c_tex(ari_df, caption="50% of cells", label="tab:x")
+        assert r"50\% of cells" in tex
+
+    def test_rounds_ari_to_the_requested_precision(self, ari_df):
+        from benchmarks._tables import render_m3c_tex
+
+        tex = render_m3c_tex(
+            ari_df, caption="c", label="l", decimals=2
+        )
+        assert "0.81" in tex
+        assert "0.810" not in tex
+
+    def test_writes_a_tex_file(self, ari_df, tmp_path):
+        from benchmarks._tables import write_m3c_table
+
+        path = write_m3c_table(ari_df, out_dir=tmp_path)
+        assert path == tmp_path / "si_table_m3c.tex"
+        assert r"\begin{table}" in path.read_text()
+
+    def test_writes_a_csv_beside_the_tex(self, ari_df, tmp_path):
+        from benchmarks._tables import write_m3c_table
+
+        write_m3c_table(ari_df, out_dir=tmp_path)
+        written = pd.read_csv(tmp_path / "si_table_m3c.csv")
+        assert written["method"].tolist() == ["CARVE", "Silhouette", "M3C"]
