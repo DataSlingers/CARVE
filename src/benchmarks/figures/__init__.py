@@ -19,6 +19,7 @@ from ._carve_output import figure_carve_output_klein, figure_carve_output_levine
 from ._case_study import CompositeInputs, composite_figure, prepare_composite
 from ._cusanovich_results import figure_cusanovich_results
 from ._heca_results import figure_heca_results
+from ._klein_m3c import figure_klein_m3c
 from ._klein_results import figure_klein_results
 from ._levine_results import figure_levine_results
 from ._paths import BENCHMARKING_DIR, CASE_STUDY_DIR, VIS_ROOT, figure_path
@@ -41,6 +42,7 @@ __all__ = [
     "figure_carve_output_levine",
     "figure_cusanovich_results",
     "figure_heca_results",
+    "figure_klein_m3c",
     "figure_klein_results",
     "figure_levine_results",
     "figure_path",

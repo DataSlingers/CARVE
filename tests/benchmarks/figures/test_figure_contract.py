@@ -16,6 +16,7 @@ EXPECTED = (
     "figure_levine_results",
     "figure_carve_output_klein",
     "figure_carve_output_levine",
+    "figure_klein_m3c",
     "figure_cusanovich_results",
     "figure_heca_results",
     "figure_study_scaling",
@@ -25,7 +26,7 @@ EXPECTED = (
 )
 
 # Figures not yet implemented. Tasks 9 through 12 each removed their own
-# figures from this set as they landed; it is now empty, since all thirteen
+# figures from this set as they landed; it is now empty, since all fourteen
 # manuscript figures exist, as does the case-study reference-label overview
 # (figure_reference_scatter), a notebook figure held to the same contract.
 # It is a one-way ratchet from here: re-adding a name would silence that
@@ -38,7 +39,7 @@ def test_not_yet_implemented_is_empty():
     assert NOT_YET_IMPLEMENTED == frozenset()
 
 
-def test_all_fourteen_figures_are_exported():
+def test_all_expected_figures_are_exported():
     assert set(figures.__all__) >= set(EXPECTED) - NOT_YET_IMPLEMENTED
 
 
