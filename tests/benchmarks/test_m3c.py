@@ -236,3 +236,84 @@ class TestRunLive:
         assert result.config["maxK"] == 4
         assert result.config["iters"] == 5
         assert result.config["clusteralg"] == "pam"
+
+
+from pathlib import Path
+
+from benchmarks._m3c import m3c_cache_path, run_or_load_m3c
+
+
+def stub_result() -> M3CResult:
+    return M3CResult(
+        scores=scores_frame(),
+        labels={2: np.zeros(6, dtype=int), 3: np.arange(6) % 3, 4: np.arange(6) % 4},
+        selected_k=4,
+        p_value=0.01,
+        runtime_s=2.0,
+        config={"maxK": 4, "clusteralg": "pam"},
+        m3c_version="1.34.0",
+        r_version="R version 4.5.1 (2025-06-13)",
+    )
+
+
+class TestCachePath:
+    def test_encodes_study_and_scale(self):
+        path = m3c_cache_path(
+            study_name="klein", scale="publication", root=Path("/tmp"), config={"maxK": 10}
+        )
+        assert path.name.startswith("m3c_klein_publication_")
+        assert path.suffix == ".parquet"
+
+    def test_a_different_config_gives_a_different_path(self):
+        base = dict(study_name="klein", scale="publication", root=Path("/tmp"))
+        a = m3c_cache_path(**base, config={"maxK": 10})
+        b = m3c_cache_path(**base, config={"maxK": 17})
+        assert a != b
+
+
+class TestRunOrLoad:
+    def test_runs_once_then_serves_the_cache(self, tmp_path, monkeypatch):
+        calls = []
+
+        def fake_run(X, **kwargs):
+            calls.append(X)
+            return stub_result()
+
+        monkeypatch.setattr("benchmarks._m3c.run_m3c", fake_run)
+        X = np.arange(18, dtype=float).reshape(6, 3)
+        cache = tmp_path / "m3c.parquet"
+
+        first = run_or_load_m3c(X, cache_path=cache, max_k=4)
+        second = run_or_load_m3c(X, cache_path=cache, max_k=4)
+
+        assert len(calls) == 1
+        assert second.selected_k == first.selected_k == 4
+        assert second.p_value == pytest.approx(0.01)
+        assert second.m3c_version == "1.34.0"
+        pd.testing.assert_frame_equal(second.scores, first.scores)
+        np.testing.assert_array_equal(second.labels[3], first.labels[3])
+
+    def test_refuses_a_cache_computed_on_a_different_x(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("benchmarks._m3c.run_m3c", lambda X, **kw: stub_result())
+        X = np.arange(18, dtype=float).reshape(6, 3)
+        # Same shape deliberately, so only the fingerprint can catch it.
+        Y = X.copy()
+        Y[0, 0] += 1.0
+        cache = tmp_path / "m3c.parquet"
+
+        run_or_load_m3c(X, cache_path=cache, max_k=4)
+        with pytest.raises(ValueError, match="fit on a different X"):
+            run_or_load_m3c(Y, cache_path=cache, max_k=4)
+
+    def test_force_recomputes(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "benchmarks._m3c.run_m3c",
+            lambda X, **kw: (calls.append(X), stub_result())[1],
+        )
+        X = np.arange(18, dtype=float).reshape(6, 3)
+        cache = tmp_path / "m3c.parquet"
+
+        run_or_load_m3c(X, cache_path=cache, max_k=4)
+        run_or_load_m3c(X, cache_path=cache, max_k=4, force=True)
+        assert len(calls) == 2

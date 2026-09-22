@@ -7,22 +7,29 @@ runs M3C at its published defaults, and returns the scores and labels as
 plain pandas and numpy.
 
 This module is a leaf. It imports the standard library, numpy and pandas,
-and nothing else from this package. rpy2 is imported inside functions
-(run_m3c and its two small rpy2-touching helpers) rather than at module
-scope: rpy2 lives in the [notebooks] extra, the benchmarks CI job installs
+and the cache-fingerprint helpers from ._artifacts -- the one import it
+takes from this package, since _artifacts imports only ._registry and
+._types, so no cycle appears. rpy2 is imported inside functions (run_m3c
+and its two small rpy2-touching helpers) rather than at module scope: rpy2
+lives in the [notebooks] extra, the benchmarks CI job installs
 [dev,graph,benchmarks], and a module-level import would break collection of
 every test here.
 """
 
+import hashlib
+import json
 import time
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
 import numpy as np
 import pandas as pd
+
+from ._artifacts import check_fingerprint, fingerprint, fingerprint_path
 
 #: M3C 1.30.0's published defaults, restated here rather than left to R. A
 #: Bioconductor release that changes one of these then shows up as a diff in
@@ -354,3 +361,87 @@ def run_m3c(
         m3c_version=m3c_version,
         r_version=r_version,
     )
+
+
+def m3c_cache_path(
+    *, study_name: str, scale: str, root: Path, config: Mapping[str, Any]
+) -> Path:
+    """Where a study's M3C result is cached, per scale and per configuration.
+
+    The config hash is part of the filename for the same reason
+    carve_cache_path carries a run key: run_or_load_m3c loads whatever file
+    sits at the path it is handed, so two runs that differ in maxK or in the
+    inner algorithm must not share a name.
+    """
+    key = hashlib.sha1(
+        json.dumps(dict(config), sort_keys=True, default=str).encode()
+    ).hexdigest()[:8]
+    return Path(root) / f"m3c_{study_name}_{scale}_{key}.parquet"
+
+
+def _write_cache(path: Path, result: M3CResult, X: np.ndarray) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    result.scores.to_parquet(path, index=False)
+    pd.DataFrame(result.labels).to_parquet(_labels_path(path), index=False)
+    _sidecar_path(path).write_text(
+        json.dumps(
+            {
+                "selected_k": result.selected_k,
+                "p_value": result.p_value,
+                "runtime_s": result.runtime_s,
+                "config": dict(result.config),
+                "m3c_version": result.m3c_version,
+                "r_version": result.r_version,
+            },
+            indent=2,
+            default=str,
+        )
+    )
+    fingerprint_path(path).write_text(fingerprint(X))
+
+
+def _labels_path(path: Path) -> Path:
+    return path.with_name(path.stem + ".labels.parquet")
+
+
+def _sidecar_path(path: Path) -> Path:
+    return path.with_name(path.stem + ".json")
+
+
+def _read_cache(path: Path) -> M3CResult:
+    scores = validate_scores(pd.read_parquet(path))
+    labels_frame = pd.read_parquet(_labels_path(path))
+    meta = json.loads(_sidecar_path(path).read_text())
+    return M3CResult(
+        scores=scores.reset_index(drop=True),
+        labels={
+            int(column): labels_frame[column].to_numpy(dtype=int)
+            for column in labels_frame.columns
+        },
+        selected_k=int(meta["selected_k"]),
+        p_value=float(meta["p_value"]),
+        runtime_s=float(meta["runtime_s"]),
+        config=meta["config"],
+        m3c_version=str(meta["m3c_version"]),
+        r_version=str(meta["r_version"]),
+    )
+
+
+def run_or_load_m3c(
+    X: np.ndarray, *, cache_path: Path, force: bool = False, **kwargs: Any
+) -> M3CResult:
+    """Run M3C on X, caching the result, and serve the cache on later calls.
+
+    A Klein run is about eight minutes, so the cache is what makes
+    regenerating the figure practical. The fingerprint guard is the same one
+    fit_or_load_carve uses: a cached result is never served against a matrix
+    it was not computed on.
+    """
+    cache_path = Path(cache_path)
+    if cache_path.is_file() and not force:
+        check_fingerprint(cache_path, X)
+        return _read_cache(cache_path)
+
+    result = run_m3c(X, **kwargs)
+    _write_cache(cache_path, result, X)
+    return result
