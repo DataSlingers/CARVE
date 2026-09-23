@@ -123,6 +123,20 @@ def test_klein_notebook_not_two_agrees_with_the_study():
     assert ("not_two=True" in source) == STUDIES["klein"].not_two
 
 
+def test_klein_draws_and_analyzes_the_same_embedding():
+    # The notebook fits one PCA, draws it as the reference scatter, and hands
+    # it to prepare_composite. Dropping the embedding= argument would make
+    # prepare_composite fit its own PCA: same algorithm, same seed, so the two
+    # figures would still look right side by side and nothing would fail --
+    # which is why this is pinned rather than left to inspection. The reference
+    # scatter must draw what the composite analyzes, not a second projection
+    # that happens to agree today.
+    source = _code(NOTEBOOKS["klein"])
+    assert "Z = PCA(n_components=2, random_state=RANDOM_SEED)" in source
+    assert "figure_reference_scatter(\n        Z," in source
+    assert "embedding=Z," in source
+
+
 def test_cusanovich_notebook_reads_its_config_from_studies():
     source = _code(NOTEBOOKS["cusanovich"])
     # Configuration must be read from STUDIES, not restated. Four manuscript
