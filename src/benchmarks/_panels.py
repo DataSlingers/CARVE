@@ -582,6 +582,56 @@ def cvi_lines(
     return style_axes(ax)
 
 
+def _monte_carlo_p_floor(values: np.ndarray) -> int | None:
+    """The iteration count implied by a MONTECARLO_P column, if self-consistent.
+
+    M3C computes MONTECARLO_P as (count + 1) / (iters + 1) for a
+    non-negative integer count, so every value the same run produces is an
+    integer multiple of 1 / (iters + 1). Hypothesizing iters + 1 from the
+    column's smallest value only recovers the true denominator when some
+    K's count is 0 -- the theoretical floor -- so the hypothesis is
+    confirmed against every other value in the column before it is trusted.
+    That confirmation is what rules out a coincidental reduced fraction
+    (Klein's K=7 carries 2/26 == 1/13) being mistaken for the floor: it
+    would require every other row to also be an exact multiple of 1/13,
+    which a genuine run at iters=25 does not produce.
+
+    Returns None when the column does not round-trip this way, including
+    when it is empty or degenerate.
+    """
+    values = np.asarray(values, dtype=float)
+    values = values[np.isfinite(values) & (values > 0)]
+    if values.size == 0:
+        return None
+    denom = round(1.0 / float(values.min()))
+    if denom < 2:
+        return None
+    multiples = values * denom
+    if np.any(np.abs(multiples - np.round(multiples)) > 1e-6):
+        return None
+    return denom - 1
+
+
+def _monte_carlo_p_label(scores: pd.DataFrame, selected_k: int) -> str:
+    """The Monte Carlo p-value annotation text for m3c_lines' Panel A.
+
+    Read from the scores frame at selected_k rather than a separate
+    parameter, the way RCSI and RCSI_SE already are. M3C's p is
+    (count + 1) / (iters + 1), so at the vignette's default iters=25 the
+    smallest attainable value is 1/26 = 0.038462 -- identical for every K
+    whose real stability beat all 25 Monte Carlo references. A bare
+    "p = 0.038" there would read as a precise estimate rather than a floor,
+    so _monte_carlo_p_floor recovers the iteration count from the column
+    itself and the note is qualified only when selected_k's own value sits
+    exactly at that floor.
+    """
+    p_value = float(scores.loc[scores["K"] == selected_k, "MONTECARLO_P"].iloc[0])
+    iters = _monte_carlo_p_floor(scores["MONTECARLO_P"].to_numpy(dtype=float))
+    if iters is not None and np.isclose(p_value, 1.0 / (iters + 1), rtol=1e-6):
+        return f"Monte Carlo $p$ = {p_value:.3f} (smallest attainable at {iters} iterations)"
+    return f"Monte Carlo $p$ = {p_value:.3f}"
+
+
 def m3c_lines(
     ax: Axes,
     scores: pd.DataFrame,
@@ -599,7 +649,9 @@ def m3c_lines(
 
     The error bars are plus or minus 1.96 RCSI_SE, which is M3C's own plot
     idiom, and the dashed vertical marks the selected K the way cvi_lines and
-    carve_lines mark theirs.
+    carve_lines mark theirs. The Monte Carlo p-value at selected_k is
+    annotated in the corner, per the spec's Reporting section; see
+    _monte_carlo_p_label for how a floor value is worded honestly.
     """
     ordered = scores.sort_values("K")
     color = metric_color("m3c_rcsi")
@@ -619,6 +671,16 @@ def m3c_lines(
     )
     ax.axhline(0.0, color=FOREGROUND_COLOR, linestyle=":", linewidth=1.0, alpha=0.5)
     ax.axvline(int(selected_k), color=color, linestyle="--", linewidth=1.0, alpha=0.6)
+
+    ax.annotate(
+        _monte_carlo_p_label(scores, selected_k),
+        xy=(0.97, 0.95),
+        xycoords="axes fraction",
+        ha="right",
+        va="top",
+        fontsize=FONT_SIZES["legend"],
+        color=FOREGROUND_COLOR,
+    )
 
     ax.set_xlabel("Number of clusters $k$", fontsize=FONT_SIZES["axis_label"])
     ax.set_ylabel("RCSI", fontsize=FONT_SIZES["axis_label"])
