@@ -4,12 +4,12 @@ Every function returns a Figure and, unless save=False, writes it under its
 exact manuscript filename at 300 dpi. Four of these figures previously had no
 savefig at all and were right-click-saved out of Jupyter output.
 
-_scenario_overview and _reference_scatter are the two modules here that are
-not manuscript figures. The first draws the per-family view the benchmarking
-notebook's sections carry, built from the same primitives the manuscript
-figures use, and so defaults to save=False. The second is the case-study
-notebooks' opening view of their reference labels, and saves alongside the
-composites it precedes.
+_scenario_overview, _scenario_dashboard and _reference_scatter are the three
+modules here that are not manuscript figures. The first two draw the
+per-family views the benchmarking notebook's sections carry, built from the
+same primitives the manuscript figures use, and so default to save=False.
+The second is the case-study notebooks' opening view of their reference
+labels, and saves alongside the composites it precedes.
 """
 
 from ._ablation import figure_ablation_b, figure_ablation_rho
@@ -25,6 +25,7 @@ from ._levine_results import figure_levine_results
 from ._paths import BENCHMARKING_DIR, CASE_STUDY_DIR, VIS_ROOT, figure_path
 from ._reference_scatter import figure_reference_scatter
 from ._scaling import figure_scaling_ari, figure_scaling_runtime
+from ._scenario_dashboard import figure_scenario_dashboard
 from ._scenario_overview import figure_scenario_overview
 from ._study_scaling import figure_study_scaling
 
@@ -49,6 +50,7 @@ __all__ = [
     "figure_reference_scatter",
     "figure_scaling_ari",
     "figure_scaling_runtime",
+    "figure_scenario_dashboard",
     "figure_scenario_overview",
     "figure_study_scaling",
     "prepare_composite",
