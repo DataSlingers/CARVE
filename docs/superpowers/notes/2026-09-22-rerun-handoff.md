@@ -77,18 +77,27 @@ partway through at the author's request. As of this branch's tip:
 The spec's E4 figures were projected from the pre-branch manifests, before
 the eigensolver fix, the `n_trees` unification, swiss_rolls moving to
 spectral, or the calibrated anchors. The three completed dev-scale runs give
-real per-cell timings on this branch's code instead. Script (adapted from
-the plan's Step 1 to skip scenarios with no complete run):
+real per-cell timings on this branch's code instead. The script below skips
+any scenario with no complete run, and treats `gaussians_dimensionality`
+differently from the other two: it is a `TIMED_SCENARIOS` member, so each of
+its cells also runs two extra CARVE fits purely to time them
+(`t_stability_s`, `t_generalizability_s`), more than doubling a cell's cost
+over `t_default_s` alone. `wall_clock_s`, at this scenario class's `n_jobs=1`,
+is the serial sum of all three timing columns plus fixed per-run overhead,
+so it is used directly for that row instead of `t_default_s`:
 
 ```python
 import json
 from pathlib import Path
 
 from benchmarks._artifacts import read_runtimes, widest_run
-from benchmarks._registry import SCENARIOS
+from benchmarks._registry import SCENARIOS, TIMED_SCENARIOS
 
 ROOT = Path("results/runs")
-print(f"{'scenario':26s} {'s/cell':>8s} {'cells':>6s} {'dev CPU-h':>10s} {'20x100 CPU-h':>13s}")
+print(
+    f"{'scenario':26s} {'s/cell':>8s} {'cells':>6s} {'dev CPU-h':>10s} "
+    f"{'20x100 CPU-h':>13s}  basis"
+)
 total = 0.0
 skipped = []
 for name in SCENARIOS:
@@ -99,14 +108,22 @@ for name in SCENARIOS:
         continue
     manifest = json.loads((rd / "manifest.json").read_text())
     runtimes = read_runtimes(rd)
-    per_cell = float(runtimes["t_default_s"].mean())
     cells = len(runtimes)
-    dev_h = per_cell * cells / 3600
+    if name in TIMED_SCENARIOS:
+        dev_h = manifest["wall_clock_s"] / 3600
+        basis = "wall_clock_s (n_jobs=1)"
+    else:
+        dev_h = float(runtimes["t_default_s"].sum()) / 3600
+        basis = "sum(t_default_s)"
+    per_cell_s = dev_h * 3600 / cells
     # B and the dataset count both scale the cost linearly.
     scale = (20 / manifest["n_seeds"]) * (100 / manifest["n_resamples"])
     full_h = dev_h * scale
     total += full_h
-    print(f"{name:26s} {per_cell:8.2f} {cells:6d} {dev_h:10.3f} {full_h:13.1f}")
+    print(
+        f"{name:26s} {per_cell_s:8.2f} {cells:6d} {dev_h:10.3f} "
+        f"{full_h:13.1f}  {basis}"
+    )
 print(f"{'TOTAL (measured scenarios only)':26s} {'':8s} {'':6s} {'':10s} {total:13.1f}")
 if skipped:
     print(f"skipped (no complete run): {', '.join(sorted(skipped))}")
@@ -115,13 +132,27 @@ if skipped:
 Output:
 
 ```
-scenario                     s/cell  cells  dev CPU-h  20x100 CPU-h
-gaussians                     87.17      9      0.218          14.5
-circles                       87.95      9      0.220          14.7
-gaussians_dimensionality      39.29      9      0.098           6.5
-TOTAL (measured scenarios only)                                     35.7
+scenario                     s/cell  cells  dev CPU-h  20x100 CPU-h  basis
+gaussians                     87.17      9      0.218          14.5  sum(t_default_s)
+circles                       87.95      9      0.220          14.7  sum(t_default_s)
+gaussians_dimensionality      87.34      9      0.218          14.6  wall_clock_s (n_jobs=1)
+TOTAL (measured scenarios only)                                     43.7
 skipped (no complete run): gaussians_samples, moons, swiss_rolls, t_dist, t_dist_noise
 ```
+
+`gaussians_dimensionality`'s corrected per-cell cost (87.3 s) lands almost
+exactly on `gaussians`' and `circles`' (87.2 s and 88.0 s) — the earlier,
+`t_default_s`-only figure for this row (39.3 s/cell, 6.5 CPU-h at 20x100)
+undercounted it by more than half by leaving out the two timed fits.
+
+For `gaussians` and `circles`, which are not `TIMED_SCENARIOS` members and
+run no extra timed fits, `t_default_s` alone is the whole per-cell cost.
+Checked against parallelism: summed over their 9 cells, `t_default_s` comes
+to 784.6 s (gaussians) and 791.5 s (circles), against manifest `wall_clock_s`
+of 94.3 s and 114.5 s at `n_jobs=-1` — an 8.3x and 6.9x speedup across 9
+concurrently scheduled cells on an 11-core machine, short of 9x because the
+classifier's own internal `n_jobs=-1` threading inside each cell
+oversubscribes the cores. That gap is expected, not a discrepancy to chase.
 
 The linear scaling in `B` and in the dataset count is an approximation: the
 classifier's cost per resample is roughly constant, but consensus matrix
@@ -136,13 +167,15 @@ caution than the three measured rows above. The measured `gaussians` and
 `circles` numbers (14.5 and 14.7 CPU-h) alone already account for close to
 40% of the 75 CPU-h difficulty-scenario total, leaving `t_dist`,
 `t_dist_noise`, `moons` and `swiss_rolls` to share roughly 46 CPU-h between
-them, unsplit by the spec. And the measured `gaussians_dimensionality`
-number (6.5 CPU-h) sits well under either end of the spec's 23-34 CPU-h
-range for the scaling pair, which was projected from the old code's timings
-at the old `n_trees` split and without the eigensolver fix. Do not treat 23
-and 34 as calibrated per-scenario figures; `gaussians_samples` in particular
-could turn out cheaper or more expensive than either number once it is
-actually measured.
+them, unsplit by the spec. The corrected `gaussians_dimensionality` number
+(14.6 CPU-h) sits below the spec's 23-34 CPU-h range for the scaling pair,
+but only by a third to a half, not by the factor of three to five the
+uncorrected `t_default_s`-only figure implied. Do not treat 23 and 34 as
+calibrated per-scenario figures; `gaussians_samples` sweeps `n_total` up to
+10,000, well past this scenario's fixed 1,500, and is itself also a
+`TIMED_SCENARIOS` member running the same two extra timed fits per cell, so
+its measured cost is plausibly higher than `gaussians_dimensionality`'s, not
+lower.
 
 The author's own dev run (below) replaces every projected row in this note
 once it completes. Nothing here should be used for capacity planning beyond
@@ -189,14 +222,36 @@ to the staged validation or the publication run:
    check is for. The gate is that nothing raises, no panel is empty, and
    every generated `.tex` fragment compiles.
 
-4. Look at the `circles` and `gaussians_samples` dashboards
-   (`vis/benchmarking/scenario_dashboard_circles.png` and
-   `..._gaussians_samples.png`) and `vis/benchmarking/benchmarking_results.png`
-   in the scratch output. These are the two places most likely to show a
-   problem: circles is one of the two scenarios whose difficulty axis was
-   never verified to separate under the fixed solver (see Open item below),
-   and gaussians_samples is a scaling scenario that has not run to completion
-   even once on this code yet.
+4. Look at the `circles` and `gaussians_samples` dashboards and
+   `vis/benchmarking/benchmarking_results.png`. These are the two places
+   most likely to show a problem: circles is one of the two scenarios whose
+   difficulty axis was never verified to separate under the fixed solver
+   (see Open item below), and gaussians_samples is a scaling scenario that
+   has not run to completion even once on this code yet.
+
+   `benchmarking_results.png` is written to `vis/benchmarking/` by the
+   executed notebook itself (`figure_benchmarking_results` defaults to
+   `save=True`), so it is on disk in the scratch output directly. The two
+   scenario dashboards are not: the notebook's `scenario_dashboard(name)`
+   wrapper calls `figure_scenario_dashboard(name, frame)` without
+   `save=True`, which defaults to `save=False`, so the executed notebook
+   only shows them inline in its own output — open the executed `.ipynb` in
+   the scratch directory to see them there. To also get them as standalone
+   PNG files, call the figure function directly with `save=True`:
+
+   ```python
+   from pathlib import Path
+
+   from benchmarks._artifacts import read_run, widest_run
+   from benchmarks.figures import figure_scenario_dashboard
+
+   for name in ("circles", "gaussians_samples"):
+       frame = read_run(widest_run(Path("results/runs"), name))
+       figure_scenario_dashboard(name, frame, save=True)
+   ```
+
+   which writes `vis/benchmarking/scenario_dashboard_circles.png` and
+   `..._gaussians_samples.png`.
 
 ## Staged validation against PUBLISHED_ANCHORS
 
@@ -227,14 +282,22 @@ Cost: this is a full 3-anchor x 20-dataset x B=100 run of `gaussians`,
 `t_dist` and `t_dist_noise`, at `n_trees=100`. The spec's E4 puts the whole
 three-scenario pass at about 7 CPU-h, scaled from the old manifests at that
 forest size. The measured `gaussians` dev-scale number above, scaled the
-same way, comes to 14.5 CPU-h for `gaussians` alone — at `n_trees=500`
-rather than the 100 this staged run actually uses, and forest size is not
-supposed to be the bottleneck (registry comment on `_N_TREES`), but that gap
-is wide enough that budgeting only 7 CPU-h for all three scenarios combined
-looks optimistic. Treat 7 CPU-h as the spec's own estimate, not a number this
-session re-derived and confirmed; watch the actual wall clock when the
-regression suite runs and update this expectation from that, rather than
-from either projection.
+same way, comes to 14.5 CPU-h for `gaussians` alone — well above what a
+one-third share of a 7 CPU-h total would suggest. Two factors likely explain
+part of the gap, neither of them cleanly separable from the dev-scale
+numbers alone: `n_trees` moved from 100 (this staged run's forest size) to
+500 in the measured figure, and `t_default_s` bundles fixed per-cell costs —
+simulating the dataset, the classical indices, the gap statistic's reference
+sets, the oracle fit — that do not scale with `B` at all, so extrapolating
+linearly from this dev run's B=10 to the staged run's B=100 overstates
+whatever part of the cost actually is B-dependent. Both push in the
+direction of the measured number overstating the staged run's true cost, but
+not by how much. Treat 7 CPU-h as the spec's own estimate and 14.5 CPU-h as
+an upper bound that is not directly comparable to it, rather than reconciling
+the two by assumption; the evidence that settles this is the author's own
+dev run (which already ran `gaussians` at this branch's actual `n_trees=500`
+and `CALIBRATED_ANCHORS`) and the actual wall clock of the first of these
+three staged-validation scenarios once it runs.
 
 ## Publication run
 
@@ -265,17 +328,21 @@ are long, both want the machine's cores, and running them together corrupts
 whichever one is trying to measure wall-clock time.
 
 ```
-python -m benchmarks.run --scenario gaussians_dimensionality --no-resume   # measured: ~6.5 CPU-h
+python -m benchmarks.run --scenario gaussians_dimensionality --no-resume   # measured: ~14.6 CPU-h (wall_clock_s; the two extra timed fits dominate)
 python -m benchmarks.run --scenario gaussians_samples --no-resume          # projected (spec E4, combined with the above at 23-34 CPU-h for the pair)
 ```
 
 Since both run serially at one worker, wall clock is close to the CPU-h
-figure for each. The spec's combined 23-34 CPU-h estimate for the pair looks
-high next to the 6.5 CPU-h `gaussians_dimensionality` measured above, so
-"two to three days" (the spec's wall-clock estimate for the pair) may be
-pessimistic; do not shorten the scheduled window on that basis alone, since
-`gaussians_samples` sweeps a much larger `n_total` (up to 10,000, versus the
-difficulty scenarios' fixed 1,500) and has not been measured at all yet.
+figure for each. `gaussians_dimensionality`'s corrected 14.6 CPU-h sits
+within a third to a half of the spec's 23-34 CPU-h range for the pair,
+rather than well under it, so there is no basis here for shortening "two to
+three days" (the spec's wall-clock estimate for the pair). If anything,
+`gaussians_samples` is likely to cost at least as much per cell as
+`gaussians_dimensionality`, plausibly more: it is also a `TIMED_SCENARIOS`
+member running the same two extra timed fits, and it sweeps `n_total` up to
+10,000, well past the difficulty scenarios' and `gaussians_dimensionality`'s
+fixed 1,500. It has not been measured at all yet; keep the full scheduled
+window until it has.
 
 ## After the run finishes
 
@@ -346,15 +413,16 @@ decision, not something to patch inside this branch's plan.
 
 ## Known issue, not fixed here
 
-`_theme.py`'s CARVE Generalizability color (`#0072B2`) is also
+`_theme.py`'s CARVE Generalizability color is now `#0072B2`, which is also
 `PIPELINE_COLORS[0]`, the first entry in the Cusanovich case study's
-per-pipeline palette. `figures/_cusanovich_results.py` draws CARVE metric
+per-pipeline palette. This branch introduced the collision: Generalizability
+was `#56B4E9` before this branch's contrast re-step moved it onto `#0072B2`
+to clear the 3:1 contrast floor, and `#0072B2` was already the pipeline
+palette's first color. `figures/_cusanovich_results.py` draws CARVE metric
 colors in panel C and pipeline colors in panel D of the same composite
-figure, so blue reads as CARVE Generalizability in one panel and as the
-first preprocessing pipeline in the other. This was already true before this
-branch re-stepped Generalizability's color to clear a contrast floor; it is
-recorded in `_theme.py`'s own comment rather than fixed, since the pipeline
-palette belongs to the Cusanovich case study, outside this spec's scope. If
-the ambiguity ever matters for that figure, the fix is re-stepping
-`PIPELINE_COLORS[0]` and re-running the five pipeline colors through a CVD
-check.
+figure, so blue now reads as CARVE Generalizability in one panel and as the
+first preprocessing pipeline in the other. Recorded in `_theme.py`'s own
+comment rather than fixed here, since the pipeline palette belongs to the
+Cusanovich case study, outside this spec's scope. If the ambiguity ever
+matters for that figure, the fix is re-stepping `PIPELINE_COLORS[0]` and
+re-running the five pipeline colors through a CVD check.
