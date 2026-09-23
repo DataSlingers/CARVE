@@ -9,16 +9,20 @@ from benchmarks._registry import CARVE_METRICS_ALL, CVI_METRICS, METRIC_DISPLAY_
 from benchmarks._theme import (
     CLUSTER_CMAP_NAME,
     CLUSTER_PALETTE,
+    COMPARATOR_DASHES,
+    DEFAULT_DASHES,
     FONT_SIZES,
     MEASURE_LINESTYLES,
     METRIC_COLORS,
     PIPELINE_CMAP_NAME,
     PIPELINE_COLORS,
     RC_PARAMS,
+    SEQUENTIAL_CMAP_NAME,
     apply_theme,
     cluster_cmap,
     cluster_colors,
     metric_color,
+    metric_dashes,
     metric_linestyle,
     metric_linewidth,
     save_figure,
@@ -44,11 +48,14 @@ class TestLineStyle:
             assert metric_linestyle(metric) == "-"
 
     def test_the_oracle_and_every_index_are_dashed(self):
+        # Not "== '--'": a comparator's own style is now its (offset, dashes)
+        # pair (see TestComparatorDashes), so "dashed" means "not solid"
+        # rather than one shared literal.
         for metric in ("baseline_oracle", *CVI_METRICS):
-            assert metric_linestyle(metric) == "--"
+            assert metric_linestyle(metric) != "-"
 
     def test_an_unknown_metric_is_dashed_rather_than_raising(self):
-        assert metric_linestyle("not_a_metric") == "--"
+        assert metric_linestyle("not_a_metric") != "-"
 
     def test_reference_series_are_drawn_thinner_than_carve(self):
         for metric in ("baseline_oracle", *CVI_METRICS):
@@ -69,8 +76,10 @@ class TestLineStyle:
         it is deliberately not solid; only the ari_* selection curves are.
         """
         for metric in CARVE_METRICS_ALL:
-            expected = "-" if metric.startswith("ari_") else "--"
-            assert metric_linestyle(metric) == expected
+            if metric.startswith("ari_"):
+                assert metric_linestyle(metric) == "-"
+            else:
+                assert metric_linestyle(metric) != "-"
 
 
 class TestPalette:
@@ -89,17 +98,39 @@ class TestPalette:
         colors = [METRIC_COLORS[m] for m in PLOTTED_METRICS]
         assert len(set(colors)) == len(colors)
 
-    def test_the_four_indices_carry_the_published_figure_hues(self):
-        """Fig 4's own values: Silhouette pink, DB purple, CH red, Gap orange.
+    def test_the_comparator_hues_are_the_re_stepped_values(self):
+        """Silhouette keeps its published pink. The other three move.
 
-        Pinned because the pre-rebuild code assigned these four positionally
-        from the caller's metric order, which is why the published Fig 4 and
-        the published Klein panel disagree about which index is which color.
+        The published set failed the normal-vision separation floor on the
+        Silhouette/Davies-Bouldin pair (dE 13.6 against a floor of 15) and
+        the 3:1 contrast floor on Gap. Each replacement stays inside the
+        comparator family -- pink, purple, red, orange -- so the figure
+        remains recognizable.
         """
         assert METRIC_COLORS["silhouette"] == "#E0457B"
-        assert METRIC_COLORS["davies_bouldin"] == "#A8389E"
-        assert METRIC_COLORS["calinski_harabasz"] == "#D6292E"
-        assert METRIC_COLORS["gap"] == "#F28522"
+        assert METRIC_COLORS["davies_bouldin"] == "#6A2C91"
+        assert METRIC_COLORS["calinski_harabasz"] == "#B01B20"
+        assert METRIC_COLORS["gap"] == "#C96A05"
+
+    def test_carve_generalizability_clears_the_contrast_floor(self):
+        """#56B4E9 sat at 2.25:1 against the chart surface, which made the
+        palest line on the page a headline series. #0072B2 is Okabe-Ito's
+        blue, so the series stays blue."""
+        for metric in (
+            "ari_generalizability",
+            "ari_generalizability_1se",
+            "ari_generalizability_quant",
+        ):
+            assert METRIC_COLORS[metric] == "#0072B2"
+
+    def test_carve_stability_and_the_oracle_are_unchanged(self):
+        for metric in (
+            "ari_stability",
+            "ari_stability_1se",
+            "ari_stability_quant",
+        ):
+            assert METRIC_COLORS[metric] == "#009E73"
+        assert METRIC_COLORS["baseline_oracle"] == "#595959"
 
     def test_metric_color_falls_back_without_raising(self):
         assert metric_color("not_a_metric").startswith("#")
@@ -217,9 +248,19 @@ class TestPipelinePalette:
         assert len(set(colors)) == n
 
     def test_no_pipeline_color_is_a_criterion_color(self):
+        """Disjoint except the one deliberate, documented overlap.
+
+        Task 10 re-stepped CARVE generalizability onto Okabe-Ito's blue
+        (#0072B2) to clear a contrast floor -- the same hue PIPELINE_COLORS
+        already used as its first entry, for the same reason (the safest
+        blue in the eight-color set). The two never share an axes:
+        pipeline_lines draws only PIPELINE_COLORS, never a metric color, so
+        the shared hue is not a readable ambiguity. Anything past that one
+        entry overlapping would still be a bug.
+        """
         pipeline = {color.lower() for color in PIPELINE_COLORS}
         metric = {color.lower() for color in METRIC_COLORS.values()}
-        assert not pipeline & metric
+        assert pipeline & metric <= {"#0072b2"}
 
     def test_the_two_criteria_have_their_own_line_styles(self):
         assert MEASURE_LINESTYLES == {"stability": "-", "generalizability": "--"}
@@ -302,3 +343,35 @@ class TestSaveFigure:
         save_figure(fig, tmp_path / "a" / "b" / "c.png")
         assert (tmp_path / "a" / "b").is_dir()
         plt.close(fig)
+
+
+class TestComparatorDashes:
+    def test_every_comparator_has_its_own_pattern(self):
+        """Four warm hues cannot all clear the CVD separation threshold
+        pairwise, so hue does the work it can and dash carries the rest."""
+        patterns = [COMPARATOR_DASHES[m] for m in CVI_METRICS]
+        assert len(set(patterns)) == len(patterns)
+
+    def test_carve_series_are_solid(self):
+        for metric in ("ari_stability_1se", "ari_generalizability_1se"):
+            assert metric_dashes(metric) is None
+            assert metric_linestyle(metric) == "-"
+
+    def test_a_comparator_linestyle_carries_its_dashes(self):
+        style = metric_linestyle("silhouette")
+        assert style == (0, COMPARATOR_DASHES["silhouette"])
+
+    def test_an_unknown_metric_falls_back_to_a_dashed_default(self):
+        assert metric_linestyle("not_a_metric") == (0, DEFAULT_DASHES)
+
+
+class TestSequentialRamp:
+    def test_the_ramp_is_registered_and_monotone_in_lightness(self):
+        """P(k-hat = k) is a magnitude, so it takes one hue light to dark.
+        A rainbow encodes ordering with hue, which reads as category."""
+        import matplotlib as mpl
+
+        cmap = mpl.colormaps[SEQUENTIAL_CMAP_NAME]
+        samples = [cmap(v / 8) for v in range(9)]
+        luminance = [0.2126 * r + 0.7152 * g + 0.0722 * b for r, g, b, _ in samples]
+        assert luminance == sorted(luminance, reverse=True)

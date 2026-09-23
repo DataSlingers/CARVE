@@ -16,7 +16,7 @@ from typing import Any
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
-from matplotlib.colors import ListedColormap, to_hex
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap, to_hex
 from matplotlib.figure import Figure
 
 # Okabe-Ito, which is colorblind-safe and already what two of the three
@@ -25,9 +25,9 @@ METRIC_COLORS: dict[str, str] = {
     "ari_stability_1se": "#009E73",
     "ari_stability": "#009E73",
     "ari_stability_quant": "#009E73",
-    "ari_generalizability_1se": "#56B4E9",
-    "ari_generalizability": "#56B4E9",
-    "ari_generalizability_quant": "#56B4E9",
+    "ari_generalizability_1se": "#0072B2",
+    "ari_generalizability": "#0072B2",
+    "ari_generalizability_quant": "#0072B2",
     "ari_average_1se": "#E69F00",
     "ari_average": "#E69F00",
     "ari_average_quant": "#E69F00",
@@ -35,22 +35,30 @@ METRIC_COLORS: dict[str, str] = {
     "consensus_gini_stability": "#6E6E6E",
     "consensus_ce_stability": "#4F4F4F",
     "accuracy_generalizability": "#7BC8F0",
-    # The four classical indices, in the published Fig 4's hues: pink,
-    # purple, red, orange. These are the literal values the figure was drawn
-    # with (lines_pallette_contrastive_other in the pre-rebuild plotting
-    # module), not an approximation of them.
+    # The four classical indices, in the published Fig 4's families: pink,
+    # purple, red, orange. Three of the four moved from the literal
+    # published values after the dataviz validator flagged two failures
+    # against a light chart surface: Silhouette #E0457B and Davies-Bouldin
+    # #A8389E were dE 13.6 apart in normal vision, below the floor of 15, so
+    # full-color readers could not separate them either -- visible in the
+    # published t-distributed panel; and Gap #F28522 sat at 2.51:1 contrast,
+    # below the 3:1 floor. Each replacement is a deeper step of the same
+    # hue, so the figure stays recognizable and the family assignment is
+    # unchanged. Silhouette keeps its published value.
+    #
+    # The re-stepped set passes every check: lightness band, chroma floor,
+    # CVD separation at worst adjacent dE 8.7 protan and 8.6 tritan,
+    # normal-vision floor at worst adjacent dE 16.2, and contrast at or above
+    # 3:1 for all seven series.
     #
     # That module assigned the four positionally, in whatever order a caller
     # listed its metrics, so the published figures disagree with each other
-    # about which index is which color: Fig 4 draws Gap orange and
-    # Davies-Bouldin purple, while the Klein and Levine panels draw Gap
-    # purple and Davies-Bouldin red. One index cannot have two colors across
-    # one paper. Fig 4's assignment is the one adopted here, so the case
-    # study panels change rather than Fig 4.
+    # about which index is which color. Fig 4's assignment is the one adopted
+    # here, so the case study panels change rather than Fig 4.
     "silhouette": "#E0457B",
-    "davies_bouldin": "#A8389E",
-    "calinski_harabasz": "#D6292E",
-    "gap": "#F28522",
+    "davies_bouldin": "#6A2C91",
+    "calinski_harabasz": "#B01B20",
+    "gap": "#C96A05",
     # M3C's RCSI. Paul Tol muted indigo, used because the Okabe-Ito palette
     # is exhausted -- its blue is already PIPELINE_COLORS[0] -- and the metric
     # and pipeline palettes must stay disjoint. RCSI is neither a CARVE
@@ -196,10 +204,16 @@ if CLUSTER_CMAP_NAME not in mpl.colormaps:
 # evenly spaced points, one per pipeline in sorted label order, so a
 # ListedColormap of exactly these colors gives each of up to five pipelines
 # its own entry. Okabe-Ito hues, tab10's brown and Paul Tol's high-contrast
-# yellow, none of them a METRIC_COLORS value, so a pipeline line is never read
-# as a criterion. The yellow was the candidate that kept every pair apart under
+# yellow. The yellow was the candidate that kept every pair apart under
 # simulated color-vision deficiency; the brown is low in chroma and closest to
 # the vermillion, which predates it.
+#
+# The first entry, Okabe-Ito blue, is also CARVE generalizability's color
+# (METRIC_COLORS) since Task 10 re-stepped that series onto it to clear a
+# contrast floor -- the one deliberate exception to "never a METRIC_COLORS
+# value" here. The two never share an axes (pipeline_lines draws only this
+# palette, never a metric color), so the shared hue is not a readable
+# ambiguity; see TestPipelinePalette.test_no_pipeline_color_is_a_criterion_color.
 PIPELINE_COLORS: tuple[str, ...] = (
     "#0072B2",
     "#D55E00",
@@ -211,6 +225,26 @@ PIPELINE_CMAP_NAME: str = "carve_pipeline"
 if PIPELINE_CMAP_NAME not in mpl.colormaps:
     mpl.colormaps.register(
         ListedColormap(list(PIPELINE_COLORS), name=PIPELINE_CMAP_NAME)
+    )
+
+# One hue, light to dark, for magnitude. P(k-hat = k) is a proportion, so it
+# takes a sequential ramp; a diverging or rainbow map would encode its
+# ordering with hue, which reads as category. The hue is CARVE stability's
+# green, so the heatmap belongs to the same figure as the curves above it.
+SEQUENTIAL_COLORS: tuple[str, ...] = (
+    "#F4FBF8",
+    "#D6F0E5",
+    "#ABE0CB",
+    "#74CBAC",
+    "#3FB48D",
+    "#149A71",
+    "#007A57",
+    "#00573E",
+)
+SEQUENTIAL_CMAP_NAME: str = "carve_sequential"
+if SEQUENTIAL_CMAP_NAME not in mpl.colormaps:
+    mpl.colormaps.register(
+        LinearSegmentedColormap.from_list(SEQUENTIAL_CMAP_NAME, list(SEQUENTIAL_COLORS))
     )
 
 # The per-pipeline panel draws both criteria for every pipeline on one axes;
@@ -272,10 +306,38 @@ def metric_color(metric: str) -> str:
 # inherits it instead of silently defaulting to dashed.
 CARVE_ARI_PREFIX: str = "ari_"
 
+# Hue alone cannot separate four comparator series under color-vision
+# deficiency -- four warm hues never clear the threshold pairwise, whatever
+# steps they take -- so each carries a distinct dash pattern as well. The
+# patterns are in points, alternating on and off, and are ordered so no two
+# read alike at the 1.2pt reference line width.
+DEFAULT_DASHES: tuple[float, ...] = (4.0, 1.6)
+COMPARATOR_DASHES: dict[str, tuple[float, ...]] = {
+    "silhouette": (4.0, 1.6),
+    "davies_bouldin": (1.4, 1.4),
+    "calinski_harabasz": (5.5, 1.6, 1.2, 1.6),
+    "gap": (2.6, 1.4, 1.4, 1.4),
+    # The oracle keeps the long dash the published figures draw it with.
+    "baseline_oracle": (5.0, 2.0),
+}
 
-def metric_linestyle(metric: str) -> str:
-    """Return the line style for a metric: solid for CARVE, dashed for the rest."""
-    return "-" if metric.startswith(CARVE_ARI_PREFIX) else "--"
+
+def metric_dashes(metric: str) -> tuple[float, ...] | None:
+    """The dash pattern for a metric, or None for CARVE's solid curves."""
+    if metric.startswith(CARVE_ARI_PREFIX):
+        return None
+    return COMPARATOR_DASHES.get(metric, DEFAULT_DASHES)
+
+
+def metric_linestyle(metric: str) -> str | tuple[int, tuple[float, ...]]:
+    """Return the line style for a metric: solid for CARVE, dashed for the rest.
+
+    A comparator's style is its own (offset, dashes) pair rather than the
+    shared "--", so the four classical indices separate from each other in
+    grayscale and under color-vision deficiency, not only from CARVE.
+    """
+    dashes = metric_dashes(metric)
+    return "-" if dashes is None else (0, dashes)
 
 
 # The same separation as the line style, carried by weight. The reference
