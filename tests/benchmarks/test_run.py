@@ -16,7 +16,7 @@ from joblib import Parallel, cpu_count, delayed
 
 from benchmarks._artifacts import SCHEMA, read_run
 from benchmarks._estimators import param_grids
-from benchmarks._registry import CARVE_METRICS_ALL, CVI_METRICS
+from benchmarks._registry import CARVE_METRICS_ALL, CVI_METRICS, SCENARIOS
 from benchmarks._run import (
     CLUSTER_COUNT_WARNING,
     benchmark_seed,
@@ -26,6 +26,7 @@ from benchmarks._run import (
     rare_cluster_recall,
     run_cell,
     run_scenario,
+    scenario_n_jobs,
     smallest_cluster,
     thread_cap_for,
 )
@@ -627,6 +628,33 @@ class TestCpuCap:
         workers, cap = thread_cap_for(-1)
         assert workers == cpu_count()
         assert cap == 1
+
+
+class TestScenarioNJobs:
+    def test_a_timed_scenario_is_forced_serial(self):
+        """The scaling scenarios time their fits. Concurrent workers change
+        those timings, so the runtime curves they feed are only meaningful
+        at one worker."""
+        for name in ("gaussians_samples", "gaussians_dimensionality"):
+            assert scenario_n_jobs(SCENARIOS[name], None) == 1
+
+    def test_a_difficulty_scenario_takes_every_worker(self):
+        """--all previously defaulted to 1 for every scenario, which turns
+        a seven-hour job into a three-day one."""
+        assert scenario_n_jobs(SCENARIOS["gaussians"], None) == -1
+
+    def test_an_explicit_request_overrides_both(self):
+        assert scenario_n_jobs(SCENARIOS["gaussians"], 4) == 4
+        assert scenario_n_jobs(SCENARIOS["gaussians_samples"], 4) == 4
+
+    def test_run_scenario_resolves_it(self, tiny_scenario, tmp_path):
+        # n_resamples=10, not the brief's 2: below roughly 7 resamples the
+        # stability measures come back all-NaN and CARVE.get_k raises (see
+        # TestRunScenario.test_manifest_is_complete_after_the_pool above).
+        # This test runs a full, real pool, so it needs a safe n_resamples.
+        rd = run_scenario(tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1)
+        manifest = json.loads((rd / "manifest.json").read_text())
+        assert manifest["n_jobs"] == -1
 
 
 class TestFitCarve:

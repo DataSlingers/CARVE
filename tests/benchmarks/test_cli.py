@@ -11,7 +11,14 @@ from benchmarks.run import _parser, main
 
 @pytest.fixture(scope="module")
 def gaussians_run(tmp_path_factory):
-    """One reduced gaussians run through the CLI: (exit code, root)."""
+    """One reduced gaussians run through the CLI: (exit code, root).
+
+    --n-jobs 1 pinned explicitly: "gaussians" is a difficulty scenario, so
+    since Task 9 it otherwise resolves to -1 and this three-cell run pays a
+    real loky pool's startup cost for no benefit -- this fixture only needs
+    a completed run, not the n_jobs resolution, which
+    test_scenarios_default_to_per_scenario_resolution covers on a mock.
+    """
     root = tmp_path_factory.mktemp("cli")
     code = main(
         [
@@ -23,6 +30,8 @@ def gaussians_run(tmp_path_factory):
             "1",
             "--n-resamples",
             "20",
+            "--n-jobs",
+            "1",
         ]
     )
     return code, root
@@ -89,6 +98,19 @@ def test_the_code_version_is_checked_by_default(monkeypatch):
     assert captured["allow_code_change"] is False
 
 
+def test_scenarios_default_to_per_scenario_resolution(monkeypatch):
+    """The CLI hands None down and the runner decides, because one flag
+    cannot be right for both the difficulty scenarios and the timed pair."""
+    captured = {}
+    monkeypatch.setattr(
+        "benchmarks.run.run_scenario",
+        lambda scenario, **kwargs: captured.update(kwargs)
+        or Path("results/runs/x/y"),
+    )
+    main(["--scenario", "gaussians"])
+    assert captured["n_jobs"] is None
+
+
 class TestAblationCli:
     def test_listing_includes_ablations(self, capsys):
         assert main(["--list"]) == 0
@@ -105,9 +127,13 @@ class TestAblationCli:
         assert "exclusive" in capsys.readouterr().err
 
     def test_n_jobs_defaults_differ_by_mode(self):
+        # A scenario's default is None, not a number: the runner decides
+        # per scenario class (see test_scenarios_default_to_per_scenario_
+        # resolution below), because one flag cannot be right for both the
+        # difficulty scenarios and the timed pair.
         args = _parser().parse_args(["--scenario", "gaussians"])
         assert args.n_jobs is None
-        assert run_module._resolve_n_jobs(args) == 1
+        assert run_module._resolve_n_jobs(args) is None
         args = _parser().parse_args(["--ablation", "rho_b"])
         assert run_module._resolve_n_jobs(args) == -1
         args = _parser().parse_args(["--ablation", "rho_b", "--n-jobs", "6"])

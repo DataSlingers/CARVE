@@ -18,13 +18,13 @@ DEFAULT_ROOT = Path("results/runs")
 DEFAULT_PUBLISHED_ROOT = Path("results/published")
 
 
-def _resolve_n_jobs(args: argparse.Namespace) -> int:
-    """Scenarios keep one worker by default: the scaling scenarios time their
-    fits, and concurrent workers change those timings. An ablation runs on
-    every core."""
+def _resolve_n_jobs(args: argparse.Namespace) -> int | None:
+    """An ablation runs on every core; a scenario's worker count is the
+    runner's decision, because it depends on whether the scenario times its
+    fits. None means "you decide"."""
     if args.n_jobs is not None:
         return int(args.n_jobs)
-    return -1 if args.ablation else 1
+    return -1 if args.ablation else None
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -67,7 +67,9 @@ def _parser() -> argparse.ArgumentParser:
         "--n-jobs",
         type=int,
         default=None,
-        help="Defaults to 1 for scenarios and -1 for an ablation.",
+        help="Workers for the outer loop. Defaults to -1 for an ablation and, "
+        "for a scenario, to -1 unless the scenario times its fits, in which "
+        "case 1.",
     )
     parser.add_argument("--random-state", type=int, default=PUBLISHED_RANDOM_STATE)
     parser.add_argument("--no-resume", action="store_true")

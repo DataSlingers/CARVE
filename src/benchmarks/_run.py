@@ -103,6 +103,27 @@ def thread_cap_for(n_jobs: int) -> tuple[int, int]:
     return workers, max(1, cpu_count() // workers)
 
 
+def scenario_n_jobs(scenario: Scenario, requested: int | None) -> int:
+    """Resolve the worker count for one scenario.
+
+    One flag cannot be right for both halves of the suite. The six
+    difficulty scenarios want every core; the two scaling scenarios time
+    their fits, and a pool of concurrent workers changes exactly the number
+    they exist to measure. Deciding here rather than at the CLI is what
+    makes --all correct and fast at the same time: it previously defaulted
+    to one worker for everything, which is right for two scenarios and turns
+    the other six from seven hours into three days.
+
+    An explicit request always wins, so a caller can still force a serial
+    difficulty run or a parallel timing run when they know why.
+    """
+    from ._registry import TIMED_SCENARIOS
+
+    if requested is not None:
+        return int(requested)
+    return 1 if scenario.name in TIMED_SCENARIOS else -1
+
+
 @dataclass(frozen=True)
 class CarveFit:
     """One CARVE fit with what the benchmarks record about it."""
@@ -411,7 +432,7 @@ def run_scenario(
     scenario: Scenario,
     *,
     root: Path,
-    n_jobs: int = 1,
+    n_jobs: int | None = None,
     random_state: int = PUBLISHED_RANDOM_STATE,
     n_seeds: int | None = None,
     n_resamples: int = 100,
@@ -469,7 +490,13 @@ def run_scenario(
     mode-specific fits that feed the runtime sidecar (see run_cell). Left at
     its default of None, it defers to TIMED_SCENARIOS: only the scaling
     scenarios are timed unless the caller overrides it explicitly.
+
+    n_jobs left at its default of None is likewise resolved per scenario
+    class by scenario_n_jobs: every core for a difficulty scenario, one
+    worker for a scenario whose fits are timed.
     """
+    n_jobs = scenario_n_jobs(scenario, n_jobs)
+
     from ._registry import TIMED_SCENARIOS
 
     if timing_fits is None:
