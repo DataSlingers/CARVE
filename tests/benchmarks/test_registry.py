@@ -8,6 +8,7 @@ from benchmarks._registry import (
     ABLATIONS,
     ACTIVE_ANCHOR_SET_NAME,
     ACTIVE_ANCHORS,
+    BASELINE_METRIC,
     CALIBRATED_ANCHORS,
     CARVE_METRICS_ALL,
     CVI_METRICS,
@@ -19,6 +20,7 @@ from benchmarks._registry import (
     SCALING_AXES,
     SCENARIOS,
     SIMILARITY_SEED_OFFSET,
+    TABLE_ROW_GROUPS,
     metric_measure,
     metric_rule,
     package_defaults,
@@ -338,3 +340,42 @@ class TestAblationRegistry:
         monkeypatch.setattr(registry, "SIMILARITY_SEED_OFFSET", 10)
         with pytest.raises(ValueError, match="SIMILARITY_SEED_OFFSET"):
             validate_ablation(ABLATIONS["rho_b"])
+
+
+class TestTableRowGroups:
+    def test_the_groups_reproduce_the_committed_s2_table(self):
+        """Row order and grouping are part of the manuscript's layout.
+
+        Deriving them from a sorted set, which is what table_metrics did,
+        means a new metric silently reorders every supplementary table.
+        """
+        assert TABLE_ROW_GROUPS == (
+            ("baseline_oracle",),
+            ("ari_stability_1se", "ari_generalizability_1se"),
+            ("davies_bouldin", "silhouette", "gap", "calinski_harabasz"),
+            (
+                "ari_stability_quant",
+                "consensus_gini_stability",
+                "ari_stability",
+                "ari_generalizability_quant",
+                "ari_generalizability",
+                "accuracy_generalizability",
+            ),
+        )
+
+    def test_no_metric_appears_twice(self):
+        flat = [m for group in TABLE_ROW_GROUPS for m in group]
+        assert len(flat) == len(set(flat))
+
+    def test_every_group_member_is_a_known_metric(self):
+        known = set(CARVE_METRICS_ALL) | set(CVI_METRICS) | {BASELINE_METRIC}
+        for group in TABLE_ROW_GROUPS:
+            assert set(group) <= known
+
+    def test_the_excluded_metrics_are_absent(self):
+        """EXCLUDED_METRICS drops the three ari_average variants, PAC and
+        CE, which is why the published tables do not carry them."""
+        from benchmarks.tables import EXCLUDED_METRICS
+
+        flat = {m for group in TABLE_ROW_GROUPS for m in group}
+        assert flat & EXCLUDED_METRICS == set()

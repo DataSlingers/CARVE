@@ -136,6 +136,13 @@ class TestTableMetrics:
         assert table_metrics()[0] == "baseline_oracle"
 
 
+def test_table_metrics_follows_the_declared_groups():
+    from benchmarks._registry import TABLE_ROW_GROUPS
+    from benchmarks.tables import table_metrics
+
+    assert table_metrics() == tuple(m for group in TABLE_ROW_GROUPS for m in group)
+
+
 class TestExcludedMetrics:
     def test_matches_the_published_exclusion_list(self):
         assert EXCLUDED_METRICS == frozenset({

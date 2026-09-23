@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ._registry import CARVE_METRICS_ALL, CVI_METRICS
+from ._registry import TABLE_ROW_GROUPS
 from ._tables import write_tables
 
 EXCLUDED_METRICS: frozenset[str] = frozenset(
@@ -56,15 +56,12 @@ TABLE_CAPTIONS: dict[str, str] = {
 
 
 def table_metrics() -> tuple[str, ...]:
-    """Metrics that appear in the manuscript tables, in a stable order.
+    """Metrics that appear in the manuscript tables, in the published order.
 
-    "baseline_oracle" leads the tuple so it renders as the tables' first
-    data row, matching every published S2-S9 table.
+    Flattens TABLE_ROW_GROUPS, so the order a table renders in and the order
+    a caller requests are one declaration rather than two that can drift.
     """
-    return (
-        "baseline_oracle",
-        *(m for m in (*CARVE_METRICS_ALL, *CVI_METRICS) if m not in EXCLUDED_METRICS),
-    )
+    return tuple(metric for group in TABLE_ROW_GROUPS for metric in group)
 
 
 # render_grouped_tex escapes the whole caption through _tex_escape before

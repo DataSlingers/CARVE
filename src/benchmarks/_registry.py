@@ -100,6 +100,31 @@ METRIC_LEGEND_NAMES: dict[str, str] = {
     "baseline_oracle": "Baseline (Oracle k*)",
 }
 
+# The supplementary tables' row order and grouping, as the committed S2
+# table prints them. Four groups, separated by a rule: the oracle, the two
+# headline CARVE selectors, the four classical indices, then the remaining
+# CARVE selectors.
+#
+# Declared rather than derived. table_metrics previously built its order
+# from sorted(CARVE_METRICS_ALL) plus CVI_METRICS, so the generated
+# fragment's rows were in a different order from the manuscript's and adding
+# a metric would have silently reordered all eight tables. The three
+# ari_average variants, PAC and CE are absent because tables.EXCLUDED_METRICS
+# drops them, which is what the published tables do.
+TABLE_ROW_GROUPS: tuple[tuple[str, ...], ...] = (
+    (BASELINE_METRIC,),
+    ("ari_stability_1se", "ari_generalizability_1se"),
+    ("davies_bouldin", "silhouette", "gap", "calinski_harabasz"),
+    (
+        "ari_stability_quant",
+        "consensus_gini_stability",
+        "ari_stability",
+        "ari_generalizability_quant",
+        "ari_generalizability",
+        "accuracy_generalizability",
+    ),
+)
+
 N_REFERENCE_DATASETS: int = 10
 
 
