@@ -299,6 +299,25 @@ def _marked(
     return text
 
 
+# The committed S2 table and the manuscript prose write these two CVI names
+# with an en dash; METRIC_DISPLAY_NAMES keeps the plain hyphen because
+# figure legends read it too. Table-only, so it lives here rather than
+# there.
+_TABLE_EN_DASH_NAMES: dict[str, str] = {
+    "davies_bouldin": "Davies--Bouldin",
+    "calinski_harabasz": "Calinski--Harabasz",
+}
+
+
+def _table_display_name(metric: str) -> str:
+    """The row label render_paired_tex writes for a metric.
+
+    _tex_escape has no rule for "-", so the en dash survives escaping
+    unchanged.
+    """
+    return _TABLE_EN_DASH_NAMES.get(metric, METRIC_DISPLAY_NAMES.get(metric, metric))
+
+
 def _sub_table(
     summary: pd.DataFrame,
     groups: Sequence[Sequence[str]],
@@ -331,7 +350,7 @@ def _sub_table(
             match = summary[summary["metric"] == metric]
             if match.empty:
                 continue
-            cells = [_tex_escape(METRIC_DISPLAY_NAMES.get(metric, metric))]
+            cells = [_tex_escape(_table_display_name(metric))]
             for axis_label in axis_labels:
                 row = match[match["axis_label"] == axis_label]
                 if row.empty:
@@ -368,10 +387,6 @@ def render_paired_tex(
     quantities into one unranked grid. The numbers were right; the layout
     was not, and every fragment had to be reshaped by hand before it could
     go into the manuscript.
-
-    k-recovery has two decimals rather than three throughout, as the
-    published tables do: with 20 datasets a proportion can only take
-    multiples of 0.05, so a third decimal is always zero.
     """
     axis_labels = list(dict.fromkeys(summary["axis_label"]))
     groups = [
@@ -390,7 +405,7 @@ def render_paired_tex(
     ]
     lines += _sub_table(summary, groups, axis_labels, "ari_mean", decimals)
     lines.append(r"\quad")
-    lines += _sub_table(summary, groups, axis_labels, "k_recovery", 2)
+    lines += _sub_table(summary, groups, axis_labels, "k_recovery", decimals)
     lines.extend([r"}", r"\end{table}"])
     return "\n".join(lines) + "\n"
 

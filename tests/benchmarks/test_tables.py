@@ -7,6 +7,7 @@ import pytest
 from benchmarks._artifacts import SCHEMA
 from benchmarks._registry import METRIC_DISPLAY_NAMES, TABLE_ROW_GROUPS
 from benchmarks._tables import (
+    _table_display_name,
     _tex_escape,
     render_ablation_tex,
     render_grouped_tex,
@@ -384,15 +385,41 @@ class TestPairedTex:
         assert all(cell == "" for cell in cells[1:])
 
     def test_rows_follow_the_declared_groups(self, paired_summary):
+        """Positions must be looked up by the name the renderer actually
+        writes: davies_bouldin and calinski_harabasz render with an en dash,
+        not the plain hyphen METRIC_DISPLAY_NAMES carries, so looking those
+        two up by METRIC_DISPLAY_NAMES would silently drop them from the
+        check instead of covering all eight rows."""
         out = render_paired_tex(paired_summary, caption="c", label="tab:x")
         left = out.split(r"\quad")[0]
         positions = [
-            left.index(METRIC_DISPLAY_NAMES[m])
+            left.index(_table_display_name(m))
             for group in TABLE_ROW_GROUPS
             for m in group
-            if METRIC_DISPLAY_NAMES[m] in left
+            if _table_display_name(m) in left
         ]
+        assert len(positions) == len(paired_summary)
         assert positions == sorted(positions)
+
+    def test_the_cvi_row_labels_use_an_en_dash(self, paired_summary):
+        """Matches the committed S2 table and the manuscript prose, which
+        both write Davies-Bouldin and Calinski-Harabasz with an en dash.
+        METRIC_DISPLAY_NAMES keeps the plain hyphen, since figure legends
+        read it too; the en dash is table-only."""
+        out = render_paired_tex(paired_summary, caption="c", label="tab:x")
+        assert "Davies--Bouldin" in out
+        assert "Davies-Bouldin" not in out
+        assert "Calinski--Harabasz" in out
+        assert "Calinski-Harabasz" not in out
+
+    def test_k_recovery_uses_the_same_decimals_as_ari_mean(self, paired_summary):
+        """The committed table prints k-recovery to three decimals (1.000,
+        0.550, 0.700, ...), not two. ari_stability_1se's k-recovery is the
+        unique best (1.0) in its column, so it is bold in the right-hand
+        table."""
+        out = render_paired_tex(paired_summary, caption="c", label="tab:x")
+        right = out.split(r"\quad")[1]
+        assert r"\textbf{1.000}" in right
 
     def test_a_metric_missing_from_the_summary_is_skipped(self, paired_summary):
         """A run that produced no rows for one metric must not leave a row
