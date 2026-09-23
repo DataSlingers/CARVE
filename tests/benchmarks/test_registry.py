@@ -165,8 +165,17 @@ class TestScenarios:
         assert scenario.candidate_k == (3, 4, 5, 6, 7)
         assert scenario.n_seeds == 20
 
-    def test_swiss_rolls_uses_the_estimator_the_benchmark_actually_ran(self):
-        assert SCENARIOS["swiss_rolls"].estimator.name == "agglomerative"
+    @pytest.mark.parametrize("name", ("circles", "moons", "swiss_rolls"))
+    def test_the_rff_family_shares_one_estimator(self, name):
+        """All three RFF-embedded scenarios run self-tuning spectral.
+
+        swiss_rolls ran Ward because spectral lost to it by 0.22 ARI at the
+        easy anchor -- which was the which='SM' eigensolver failing to
+        converge, not a property of the data. With the shift-invert solver,
+        oracle ARI at k*=5 over 20 datasets is 1.000/0.900/0.834 for spectral
+        against 0.982/0.860/0.752 for Ward, and spectral is 30x faster.
+        """
+        assert SCENARIOS[name].estimator.name == "spectral"
 
     def test_gaussians_uses_kmeans(self):
         assert SCENARIOS["gaussians"].estimator.name == "kmeans"

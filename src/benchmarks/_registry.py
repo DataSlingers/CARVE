@@ -356,11 +356,14 @@ _ESTIMATORS: dict[str, str] = {
     "t_dist_noise": "agglomerative",
     "circles": "spectral",
     "moons": "spectral",
-    # The published S1 Fig panel was drawn with "spectral", but the benchmark
-    # that produced Table S7 ran agglomerative, and S3 Text says Ward. The
-    # results were correct; only the illustration disagreed. Agglomerative is
-    # what the numbers came from.
-    "swiss_rolls": "agglomerative",
+    # The published S1 Fig panel was drawn with "spectral" while the
+    # benchmark that produced Table S7 ran agglomerative, and S3 Text said
+    # Ward. Ward was chosen because spectral scored worse here -- which was
+    # carve.cluster's which="SM" eigensolver failing to converge at n=1500,
+    # not the data. With the shift-invert solver spectral wins at every
+    # difficulty and runs 30x faster, so the illustration was right and the
+    # numbers were not.
+    "swiss_rolls": "spectral",
     "gaussians_dimensionality": "kmeans",
     "gaussians_samples": "kmeans",
 }

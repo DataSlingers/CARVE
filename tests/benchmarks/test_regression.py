@@ -7,6 +7,7 @@ benchmark. Run one with:
         tests/benchmarks/test_regression.py -k gaussians -v
 """
 
+import dataclasses
 import os
 from pathlib import Path
 
@@ -16,6 +17,7 @@ import pytest
 from benchmarks._artifacts import read_run
 from benchmarks._registry import (
     GENERALIZABILITY_METRICS,
+    PUBLISHED_ANCHORS,
     PUBLISHED_RANDOM_STATE,
     SCENARIOS,
 )
@@ -39,11 +41,13 @@ OLD_TO_NEW = {
 
 # Scenario name in the registry -> committed CSV stem.
 #
-# The full anchor set has six scenarios, but only four are checked for exact
-# reproduction here. circles and moons both run spectral clustering at
-# n=1500, and carve.cluster.SpectralClustering accepts a random_state but
-# never threads it into the sparse ARPACK eigensolver it uses at that size --
-# ARPACK draws its starting vector from the global numpy RNG instead. Verified
+# The full anchor set has six scenarios, but only three are checked for exact
+# reproduction here. circles and moons both ran spectral clustering at
+# n=1500, and carve.cluster.SpectralClustering accepted a random_state but
+# never threaded it into the sparse ARPACK eigensolver it used at that size --
+# ARPACK drew its starting vector from the global numpy RNG instead. That
+# describes the which="SM" solver Task 1 replaced with shift-invert; the
+# committed circles/moons numbers came from the replaced solver. Verified
 # directly: with identical data and an identical random_state, repeated
 # oracle fits on moons/easy gave ARIs of 0.814, 0.814, 1.0, 1.0, while seeding
 # np.random before each fit made them identical. The committed circles/moons
@@ -52,16 +56,27 @@ OLD_TO_NEW = {
 # reconstructed -- not a flaky test to work around. This has been reported to
 # the author separately.
 #
-# The remaining four scenarios use k-means and agglomerative clustering,
+# The remaining three scenarios use k-means and agglomerative clustering,
 # which are deterministic here, and they still exercise every shared code
 # path: the runner, the artifact layer, the seed derivation, the classical
 # indices, and the CARVE metric extraction.
+#
+# swiss_rolls was in this set until it moved to spectral clustering. Its
+# committed CSV was produced by Ward, so it is no longer a comparable
+# oracle for this scenario.
 UNAFFECTED = {
     "gaussians": "results_gaussian",
     "t_dist": "results_t_dist",
     "t_dist_noise": "results_t_dist_noise",
-    "swiss_rolls": "results_swiss_rolls",
 }
+
+# The committed CSVs above were produced under PUBLISHED_ANCHORS and this
+# tree count -- the notebook cells for these three scenarios omitted
+# n_trees and got Scenario's old default of 100 (see the _N_TREES comment
+# in _registry.py). Pinned here as a named constant, not read from
+# SCENARIOS, so this oracle stays reproducible after later branch changes
+# to n_trees or ACTIVE_ANCHORS.
+_PUBLISHED_N_TREES: int = 100
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("CARVE_RUN_REGRESSION") != "1",
@@ -106,14 +121,25 @@ def scenario_run(tmp_path_factory):
     benchmark_seed = seed + axis_idx * 10000 + random_state, so any other
     base seed simulates entirely different data and cannot match the
     committed CSVs.
+
+    Each run also uses dataclasses.replace to pin anchors and n_trees to
+    PUBLISHED_ANCHORS and _PUBLISHED_N_TREES rather than reading them off
+    SCENARIOS[scenario_name] directly, so this oracle keeps comparing
+    against the configuration that produced the committed CSVs even as
+    later changes move ACTIVE_ANCHORS or _N_TREES in the live registry.
     """
     roots: dict[str, Path] = {}
 
     def _run(scenario_name: str) -> Path:
         if scenario_name not in roots:
             roots[scenario_name] = tmp_path_factory.mktemp(scenario_name)
-        return run_scenario(
+        scenario = dataclasses.replace(
             SCENARIOS[scenario_name],
+            anchors=PUBLISHED_ANCHORS[scenario_name],
+            n_trees=_PUBLISHED_N_TREES,
+        )
+        return run_scenario(
+            scenario,
             root=roots[scenario_name],
             n_jobs=-1,
             random_state=PUBLISHED_RANDOM_STATE,

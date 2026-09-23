@@ -33,8 +33,14 @@ class TestFigureBenchmarkingExamples:
         plt.close(fig)
 
     def test_uses_the_swiss_roll_estimator_the_benchmark_actually_ran(self):
-        """S1 was drawn with spectral while the results came from agglomerative."""
-        assert REGISTRY["swiss_rolls"].estimator.name == "agglomerative"
+        """S1 was drawn with spectral; swiss_rolls now runs spectral too.
+
+        The published mismatch (S1 drawn with spectral, Table S7 built from
+        agglomerative/Ward) was the which="SM" eigensolver failing to
+        converge, not two legitimate choices -- see _registry.py's
+        _ESTIMATORS comment.
+        """
+        assert REGISTRY["swiss_rolls"].estimator.name == "spectral"
 
     def test_is_deterministic_for_a_fixed_seed(self):
         first = figure_benchmarking_examples(scenarios=("gaussians",), seed=3, save=False)
