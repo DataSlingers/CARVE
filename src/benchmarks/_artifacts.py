@@ -266,6 +266,69 @@ def run_dir(root: Path, scenario_name: str, cfg_hash: str) -> Path:
     return path
 
 
+def widest_run(
+    root: Path, scenario_name: str, *, require_complete: bool = True
+) -> Path:
+    """The run directory holding the widest sweep for a scenario.
+
+    Run directories are named by configuration hash, so sorting them
+    lexically picks an arbitrary one when a scenario has been run at more
+    than one scale. Selecting on the manifest's sweep size instead means a
+    reduced exploratory run never silently shadows a full one.
+
+    This is the one resolver. The CLI's --tables path took the lexically
+    last directory with a warning while the notebook took the widest sweep,
+    so the two disagreed: S4 regenerated from the CLI was the 5-dataset run
+    and the notebook's panel was the 20-dataset one, with nothing marking
+    the difference.
+
+    A tie raises rather than choosing. Two equally wide runs of one scenario
+    differ in something the sweep size does not capture -- an anchor set, a
+    random_state -- and picking either silently is how a mixture gets into a
+    figure.
+
+    require_complete skips runs whose manifest still says "running", which
+    is what an interrupted run leaves behind. Pass False to inspect one.
+    Manifests written before status was introduced have none at all and are
+    always skipped: the archived run tree predates this resolver.
+    """
+    candidates: list[tuple[tuple[int, int], Path]] = []
+    for path in sorted((Path(root) / scenario_name).glob("*/")):
+        if not path.is_dir():
+            continue
+        manifest_path = path / "manifest.json"
+        if not manifest_path.exists():
+            continue
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        if require_complete and manifest.get("status") != "complete":
+            continue
+        candidates.append(
+            ((int(manifest["n_seeds"]), int(manifest["n_resamples"])), path)
+        )
+
+    if not candidates:
+        raise FileNotFoundError(
+            f"No {'complete ' if require_complete else ''}run for "
+            f"{scenario_name!r} under {root}. Produce one with: "
+            f"python -m benchmarks.run --scenario {scenario_name}"
+        )
+
+    widest = max(size for size, _ in candidates)
+    matching = [path for size, path in candidates if size == widest]
+    if len(matching) > 1:
+        raise RuntimeError(
+            f"{scenario_name}: {len(matching)} equally wide runs at "
+            f"{widest[0]} datasets x B={widest[1]} "
+            f"({', '.join(p.name for p in matching)}). They differ in something "
+            "the sweep size does not capture; read their manifests and remove "
+            "or archive the one you do not want."
+        )
+    return matching[0]
+
+
 def _checkpoint_path(rd: Path, axis_label: str, seed: int) -> Path:
     return Path(rd) / f"cell__{axis_label}__{seed:04d}.parquet"
 

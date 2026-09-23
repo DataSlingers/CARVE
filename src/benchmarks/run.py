@@ -6,7 +6,6 @@ and tables are produced separately from the artifacts this writes.
 
 import argparse
 import sys
-import warnings
 from pathlib import Path
 
 from ._ablation import run_ablation
@@ -127,22 +126,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.tables:
-        from ._artifacts import read_run
+        from ._artifacts import read_run, widest_run
         from .tables import write_all_tables
 
         frames = {}
         for name in sorted(SCENARIOS):
-            candidates = sorted(Path(args.root).glob(f"{name}/*/"))
-            if not candidates:
+            try:
+                frames[name] = read_run(widest_run(Path(args.root), name))
+            except FileNotFoundError:
                 continue
-            if len(candidates) > 1:
-                warnings.warn(
-                    f"{name}: {len(candidates)} run directories found under "
-                    f"{args.root!r}; using {candidates[-1]} and ignoring the "
-                    "rest.",
-                    stacklevel=2,
-                )
-            frames[name] = read_run(candidates[-1])
         paths = write_all_tables(frames, Path(args.tables))
         for path in paths:
             print(path)

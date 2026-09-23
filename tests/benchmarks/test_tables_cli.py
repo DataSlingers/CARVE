@@ -1,7 +1,8 @@
 """Tests for manuscript table generation."""
 
+import json
+
 import pandas as pd
-import pytest
 
 from benchmarks._artifacts import SCHEMA
 from benchmarks.run import main
@@ -12,6 +13,8 @@ from benchmarks.tables import (
     table_metrics,
     write_all_tables,
 )
+
+from ._helpers import _fake_run
 
 METRICS = ("ari_stability_1se", "ari_average_1se", "silhouette")
 
@@ -34,15 +37,30 @@ def _frame(scenario):
 
 
 def _write_run_dir(root, scenario, cfg_hash, frame):
-    """Write the one artifact read_run needs: a cell__*.parquet checkpoint.
+    """Write a cell__*.parquet checkpoint plus a manifest.json.
 
-    read_run globs cell__*.parquet and concatenates them -- it does not
-    require a manifest.json (only promote does) -- so this is enough to
-    drive the --tables CLI path end to end without running a real scenario.
+    read_run itself only needs the checkpoint -- it globs cell__*.parquet
+    and concatenates them -- but the --tables CLI now locates a run
+    directory through widest_run, which reads the manifest to compare
+    sweep widths and requires status "complete". n_seeds and n_resamples
+    are fixed placeholders: no test here needs two directories to differ
+    in width, since widest_run's own width-selection behavior is covered
+    directly in test_artifacts.py.
     """
     rd = root / scenario / cfg_hash
     rd.mkdir(parents=True, exist_ok=True)
     frame.to_parquet(rd / "cell__easy__0000.parquet", index=False)
+    (rd / "manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": cfg_hash,
+                "status": "complete",
+                "scenario": scenario,
+                "n_seeds": 3,
+                "n_resamples": 20,
+            }
+        )
+    )
     return rd
 
 
@@ -148,34 +166,18 @@ class TestTablesCli:
         assert fragment.exists()
         assert "\\begin{tabular}" in fragment.read_text()
 
-    def test_warns_when_a_scenario_has_multiple_run_directories(self, tmp_path):
+    def test_tables_reads_the_widest_run_not_the_lexically_last(self, tmp_path, monkeypatch):
+        """The CLI and the notebook must agree about which run they read."""
         root = tmp_path / "runs"
-        _write_run_dir(root, "gaussians", "aaaaaaaa", _frame("gaussians"))
-        _write_run_dir(root, "gaussians", "bbbbbbbb", _frame("gaussians"))
+        _fake_run(root, "gaussians", "zzz", n_seeds=5, n_resamples=20)
+        _fake_run(root, "gaussians", "aaa", n_seeds=20, n_resamples=100)
 
-        with pytest.warns(UserWarning, match="gaussians.*2 run directories"):
-            main(["--tables", str(tmp_path / "tables"), "--root", str(root)])
+        seen = {}
 
-    def test_does_not_warn_with_a_single_run_directory(self, tmp_path, recwarn):
-        root = tmp_path / "runs"
-        _write_run_dir(root, "gaussians", "aaaaaaaa", _frame("gaussians"))
+        def _fake_read_run(rd):
+            seen["path"] = rd
+            return pd.DataFrame(columns=list(SCHEMA))
 
-        main(["--tables", str(tmp_path / "tables"), "--root", str(root)])
-
-        messages = [str(w.message) for w in recwarn.list]
-        assert not any("run directories found" in m for m in messages)
-
-    def test_uses_the_lexicographically_last_run_directory(self, tmp_path):
-        # The chosen frame's k_star is written into the caption, so two runs
-        # with different k_star reveal which one was read.
-        root = tmp_path / "runs"
-        _write_run_dir(root, "gaussians", "aaaaaaaa", _frame("gaussians").assign(k_star=5))
-        _write_run_dir(root, "gaussians", "bbbbbbbb", _frame("gaussians").assign(k_star=7))
-        out = tmp_path / "tables"
-
-        with pytest.warns(UserWarning, match="using .*bbbbbbbb"):
-            main(["--tables", str(out), "--root", str(root)])
-
-        fragment = (out / f"{TABLE_NAMES['gaussians']}.tex").read_text()
-        assert "k^\\star = 7" in fragment
-        assert "k^\\star = 5" not in fragment
+        monkeypatch.setattr("benchmarks._artifacts.read_run", _fake_read_run)
+        main(["--tables", str(tmp_path / "out"), "--root", str(root)])
+        assert seen["path"].name == "aaa"

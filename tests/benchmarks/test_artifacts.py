@@ -30,10 +30,13 @@ from benchmarks._artifacts import (
     scenario_identity,
     write_checkpoint,
     write_frame,
+    widest_run,
     write_manifest,
     write_runtime_checkpoint,
 )
 from benchmarks._registry import ACTIVE_ANCHOR_SET_NAME, SCENARIOS
+
+from ._helpers import _fake_run
 
 
 def _row(**overrides):
@@ -246,6 +249,50 @@ class TestManifest:
 
         payload = json.loads(path.read_text())
         assert payload["run_id"] == "r1"
+
+
+class TestWidestRun:
+    def test_picks_the_widest_sweep_not_the_lexically_last(self, tmp_path):
+        """The CLI took the lexically last directory and the notebook took
+        the widest sweep, so S4 regenerated from the CLI was the 5-dataset
+        run while the notebook showed the 20-dataset one."""
+        _fake_run(tmp_path, "t_dist_noise", "zzz", n_seeds=5, n_resamples=20)
+        wide = _fake_run(tmp_path, "t_dist_noise", "aaa", n_seeds=20, n_resamples=100)
+        assert widest_run(tmp_path, "t_dist_noise") == wide
+
+    def test_breaks_a_seed_tie_on_the_resample_count(self, tmp_path):
+        _fake_run(tmp_path, "gaussians", "aaa", n_seeds=20, n_resamples=20)
+        wide = _fake_run(tmp_path, "gaussians", "bbb", n_seeds=20, n_resamples=100)
+        assert widest_run(tmp_path, "gaussians") == wide
+
+    def test_raises_on_a_tie(self, tmp_path):
+        _fake_run(tmp_path, "gaussians", "aaa", n_seeds=20, n_resamples=100)
+        _fake_run(tmp_path, "gaussians", "bbb", n_seeds=20, n_resamples=100)
+        with pytest.raises(RuntimeError, match="equally wide"):
+            widest_run(tmp_path, "gaussians")
+
+    def test_skips_an_incomplete_run(self, tmp_path):
+        done = _fake_run(tmp_path, "gaussians", "aaa", n_seeds=5, n_resamples=20)
+        _fake_run(
+            tmp_path, "gaussians", "bbb", n_seeds=20, n_resamples=100, status="running"
+        )
+        assert widest_run(tmp_path, "gaussians") == done
+
+    def test_can_be_asked_for_an_incomplete_run(self, tmp_path):
+        _fake_run(tmp_path, "gaussians", "aaa", n_seeds=5, n_resamples=20)
+        running = _fake_run(
+            tmp_path, "gaussians", "bbb", n_seeds=20, n_resamples=100, status="running"
+        )
+        assert widest_run(tmp_path, "gaussians", require_complete=False) == running
+
+    def test_names_the_command_when_there_is_no_run(self, tmp_path):
+        with pytest.raises(FileNotFoundError, match="benchmarks.run --scenario moons"):
+            widest_run(tmp_path, "moons")
+
+    def test_ignores_a_directory_with_no_manifest(self, tmp_path):
+        done = _fake_run(tmp_path, "gaussians", "aaa", n_seeds=5, n_resamples=20)
+        (tmp_path / "gaussians" / "orphan").mkdir()
+        assert widest_run(tmp_path, "gaussians") == done
 
 
 class TestPromote:

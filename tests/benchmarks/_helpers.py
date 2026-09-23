@@ -1,11 +1,35 @@
 """Helpers shared across the benchmarks test files."""
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
+
+
+def _fake_run(root, scenario, cfg, *, n_seeds, n_resamples, status="complete"):
+    """Write a run directory's manifest.json without running anything.
+
+    Used by test_artifacts.py (widest_run) and test_tables_cli.py (the
+    --tables CLI), both of which only need a manifest to resolve, never a
+    real checkpoint.
+    """
+    rd = root / scenario / cfg
+    rd.mkdir(parents=True)
+    (rd / "manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": cfg,
+                "status": status,
+                "scenario": scenario,
+                "n_seeds": n_seeds,
+                "n_resamples": n_resamples,
+            }
+        )
+    )
+    return rd
 
 
 class StubCarve:
