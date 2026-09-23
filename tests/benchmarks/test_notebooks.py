@@ -72,6 +72,40 @@ def test_anchor_dicts_live_in_the_registry_not_the_notebook():
     assert "anchor_settings_gaussians" not in _code(NOTEBOOKS["benchmarking"])
 
 
+def test_benchmarking_uses_the_shared_run_resolver():
+    """The notebook had its own run_dir() helper that duplicated the
+    selection rule, which is how it and the CLI came to disagree."""
+    source = _code(NOTEBOOKS["benchmarking"])
+    assert "widest_run" in source
+    assert "def run_dir" not in source
+
+
+def test_benchmarking_draws_a_dashboard_per_scenario():
+    # A plain substring count of "scenario_dashboard(" also matches the
+    # helper's `def scenario_dashboard(` and the imported
+    # `figure_scenario_dashboard(`, so six section cells (not eight) would
+    # still pass a >= 8 threshold. Assert each scenario has its own literal
+    # call instead.
+    from benchmarks._registry import SCENARIOS
+
+    source = _code(NOTEBOOKS["benchmarking"])
+    for name in SCENARIOS:
+        assert f'scenario_dashboard("{name}")' in source
+
+
+def test_benchmarking_has_no_inline_summary_table():
+    """The sections are visual. summarize() still runs, as the engine
+    behind the manuscript tables, but not in a notebook cell."""
+    source = _code(NOTEBOOKS["benchmarking"])
+    assert "scenario_report" not in source
+    assert "SUMMARY_COLUMNS" not in source
+
+
+def test_benchmarking_still_writes_the_manuscript_tables():
+    source = _code(NOTEBOOKS["benchmarking"])
+    assert "write_all_tables" in source
+
+
 @pytest.mark.parametrize("name", ["klein", "levine", "motivation"])
 def test_loader_code_is_not_duplicated_in_case_study_notebooks(name):
     source = _code(NOTEBOOKS[name])
