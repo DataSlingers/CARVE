@@ -28,11 +28,13 @@ from benchmarks._panels import (
     axis_arrows,
     carve_lines,
     cluster_color_map,
+    criterion_curves,
     cvi_lines,
     grouped_legend,
     k_hat_heatmap,
     metric_legend,
     metric_lines,
+    normalized_criterion,
     panel_letter,
     pipeline_lines,
     runtime_lines,
@@ -1460,4 +1462,166 @@ class TestKHatHeatmap:
             k_star=5,
         )
         assert ax.get_images()[0].get_cmap().name == SEQUENTIAL_CMAP_NAME
+        plt.close(fig)
+
+
+def _criterion_frame():
+    """Two metrics on wildly different scales, three datasets, k in 3..7.
+
+    silhouette runs 0.1-0.5; calinski_harabasz runs 900-4100. Raw, the first
+    is a flat line at the bottom of any axis the second fits on.
+    """
+    rows = []
+    shapes = {
+        "silhouette": {3: 0.10, 4: 0.30, 5: 0.50, 6: 0.28, 7: 0.12},
+        "calinski_harabasz": {3: 900.0, 4: 2600.0, 5: 4100.0, 6: 2400.0, 7: 1100.0},
+    }
+    for metric, by_k in shapes.items():
+        for seed in range(3):
+            for k, value in by_k.items():
+                rows.append(
+                    {
+                        "axis_label": "medium",
+                        "axis_value": 1,
+                        "seed": seed,
+                        "metric_name": metric,
+                        "k": k,
+                        "metric_value": value,
+                        "is_selected": k == 5,
+                        "selects_true_k": k == 5,
+                        "ari_at_k": {3: 0.4, 4: 0.7, 5: 0.9, 6: 0.6, 7: 0.3}[k],
+                        "oracle_ari": 0.85,
+                        "k_star": 5,
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
+class TestNormalizedCriterion:
+    def test_each_metric_spans_zero_to_one(self):
+        """Criteria live on incompatible scales -- silhouette in [-1, 1],
+        inverted Davies-Bouldin in (0, 1], Calinski-Harabasz in the
+        thousands, gap a log ratio. Raw on one axis, six of seven flatten."""
+        out = normalized_criterion(
+            _criterion_frame(),
+            metrics=["silhouette", "calinski_harabasz"],
+            axis_label="medium",
+        )
+        for metric in ("silhouette", "calinski_harabasz"):
+            values = out.loc[out["metric_name"] == metric, "value"]
+            assert values.min() == pytest.approx(0.0)
+            assert values.max() == pytest.approx(1.0)
+
+    def test_normalization_preserves_shape(self):
+        """Both metrics peak at k=5 in this frame, and must still after."""
+        out = normalized_criterion(
+            _criterion_frame(),
+            metrics=["silhouette", "calinski_harabasz"],
+            axis_label="medium",
+        )
+        for metric in ("silhouette", "calinski_harabasz"):
+            sub = out.loc[out["metric_name"] == metric].set_index("k")["value"]
+            assert sub.idxmax() == 5
+
+    def test_normalizes_within_a_dataset_before_averaging(self):
+        """A dataset whose criterion is ten times another's would otherwise
+        dominate the mean and drag the averaged curve onto its own shape."""
+        frame = _criterion_frame()
+        loud = frame["seed"] == 0
+        frame.loc[loud, "metric_value"] = frame.loc[loud, "metric_value"] * 10.0
+        out = normalized_criterion(
+            frame, metrics=["silhouette"], axis_label="medium"
+        )
+        sub = out.loc[out["metric_name"] == "silhouette"].set_index("k")["value"]
+        # Every dataset has the same shape, so scaling one changes nothing.
+        assert sub.loc[5] == pytest.approx(1.0)
+        assert sub.loc[3] == pytest.approx(0.0)
+
+    def test_a_flat_criterion_is_mid_scale_not_a_division_by_zero(self):
+        """min == max means the criterion said nothing about k. 0.5 is the
+        honest rendering; 0/0 is a RuntimeWarning that filterwarnings=error
+        turns into a failure."""
+        rows = [
+            {
+                "axis_label": "medium",
+                "axis_value": 1,
+                "seed": 0,
+                "metric_name": "gap",
+                "k": k,
+                "metric_value": 2.0,
+                "is_selected": k == 5,
+                "selects_true_k": k == 5,
+                "ari_at_k": 0.5,
+                "oracle_ari": 0.8,
+                "k_star": 5,
+            }
+            for k in (3, 4, 5, 6, 7)
+        ]
+        out = normalized_criterion(
+            pd.DataFrame(rows), metrics=["gap"], axis_label="medium"
+        )
+        assert out["value"].tolist() == pytest.approx([0.5] * 5)
+
+
+class TestCriterionCurves:
+    def test_draws_one_line_per_metric_plus_the_reference(self):
+        fig, ax = plt.subplots()
+        criterion_curves(
+            ax,
+            _criterion_frame(),
+            metrics=["silhouette", "calinski_harabasz"],
+            axis_label="medium",
+            candidate_k=(3, 4, 5, 6, 7),
+            k_star=5,
+        )
+        labels = [line.get_label() for line in ax.get_lines()]
+        assert "Silhouette" in labels
+        assert "Calinski-Harabasz" in labels
+        assert any("ARI" in str(label) for label in labels)
+        plt.close(fig)
+
+    def test_the_reference_shares_the_axis(self):
+        """Normalized criteria and ARI are both in [0, 1], so a second y
+        axis is unnecessary -- and a dual-axis chart invites reading a
+        crossing that is an artifact of two scales."""
+        fig, ax = plt.subplots()
+        criterion_curves(
+            ax,
+            _criterion_frame(),
+            metrics=["silhouette"],
+            axis_label="medium",
+            candidate_k=(3, 4, 5, 6, 7),
+            k_star=5,
+        )
+        assert ax.get_shared_x_axes().get_siblings(ax) == [ax]
+        assert len(fig.axes) == 1
+        plt.close(fig)
+
+    def test_marks_each_metrics_selected_k(self):
+        fig, ax = plt.subplots()
+        criterion_curves(
+            ax,
+            _criterion_frame(),
+            metrics=["silhouette"],
+            axis_label="medium",
+            candidate_k=(3, 4, 5, 6, 7),
+            k_star=5,
+        )
+        marks = [c for c in ax.collections if c.get_label() == "_selected"]
+        assert len(marks) == 1
+        assert marks[0].get_offsets()[0][0] == pytest.approx(5.0)
+        plt.close(fig)
+
+    def test_the_reference_can_be_turned_off(self):
+        fig, ax = plt.subplots()
+        criterion_curves(
+            ax,
+            _criterion_frame(),
+            metrics=["silhouette"],
+            axis_label="medium",
+            candidate_k=(3, 4, 5, 6, 7),
+            k_star=5,
+            show_ari_reference=False,
+        )
+        assert not any("ARI" in str(line.get_label()) for line in ax.get_lines())
         plt.close(fig)

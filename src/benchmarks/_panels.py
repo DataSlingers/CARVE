@@ -383,6 +383,154 @@ def k_hat_heatmap(
     return ax
 
 
+CRITERION_REFERENCE_LABEL: str = r"ARI at $k$ (reference)"
+
+
+def normalized_criterion(
+    df: pd.DataFrame,
+    *,
+    metrics: Sequence[str],
+    axis_label: str,
+) -> pd.DataFrame:
+    """Each criterion min-max normalized over k within a dataset, then averaged.
+
+    Returns long-form rows of (metric_name, k, value).
+
+    Normalization is what makes seven criteria comparable on one axis.
+    Silhouette lives in [-1, 1], inverted Davies-Bouldin in (0, 1],
+    Calinski-Harabasz runs to the thousands and the gap statistic is a log
+    ratio; drawn raw, six of the seven collapse into a line at the bottom of
+    whatever axis the largest one needs. The panel's question is which k each
+    criterion prefers, and that is a property of the curve's shape, which
+    normalization preserves exactly.
+
+    Within a dataset, then averaged -- not the other way round. Averaging
+    raw values first lets one dataset whose criterion happens to be an order
+    of magnitude larger dominate the mean and drag the averaged curve onto
+    its own shape.
+
+    A criterion that is flat across k normalizes to 0.5 rather than dividing
+    by zero. Flat means the criterion expressed no preference, and 0.5 draws
+    that as the flat line it is.
+    """
+    cell = df.loc[df["axis_label"] == axis_label]
+    out: list[dict[str, Any]] = []
+    for metric in metrics:
+        sub = cell.loc[cell["metric_name"] == metric]
+        if sub.empty:
+            continue
+        per_seed = []
+        for _, group in sub.groupby("seed"):
+            values = group.set_index("k")["metric_value"].astype(float).sort_index()
+            span = values.max() - values.min()
+            if not np.isfinite(span) or span <= 0:
+                per_seed.append(pd.Series(0.5, index=values.index))
+            else:
+                per_seed.append((values - values.min()) / span)
+        averaged = pd.concat(per_seed, axis=1).mean(axis=1)
+        out.extend(
+            {"metric_name": metric, "k": int(k), "value": float(v)}
+            for k, v in averaged.items()
+        )
+    return pd.DataFrame(out, columns=["metric_name", "k", "value"])
+
+
+def criterion_curves(
+    ax: Axes,
+    df: pd.DataFrame,
+    *,
+    metrics: Sequence[str],
+    axis_label: str,
+    candidate_k: Sequence[int],
+    k_star: int,
+    show_ari_reference: bool = True,
+    title: str | None = None,
+) -> Axes:
+    """Why each method chose the k it chose, for one point on the axis.
+
+    Every criterion is normalized to [0, 1] over the candidate k, so the
+    shapes are comparable; the mean ARI of the labels at each k is drawn on
+    the same axis as a grey reference, which is what turns "this criterion
+    peaked at the wrong k" into "and here is what that cost". Both series
+    are proportions in [0, 1], so no second y axis is needed -- and a
+    dual-axis panel would invite reading a crossing that is an artifact of
+    two independent scales.
+
+    Each metric's selected k is marked on its own curve. The gap statistic's
+    mark will not sit on its maximum: Tibshirani's rule takes the smallest k
+    with Gap(k) >= Gap(k+1) - s(k+1), not an argmax. That is the panel
+    showing the rule at work.
+    """
+    metrics = [m for m in metrics if m != BASELINE_METRIC]
+    candidate_k = list(candidate_k)
+    cell = df.loc[df["axis_label"] == axis_label]
+
+    if show_ari_reference:
+        ari = (
+            cell.drop_duplicates(subset=["seed", "metric_name", "k"])
+            .groupby("k")["ari_at_k"]
+            .mean()
+            .reindex(candidate_k)
+        )
+        ax.plot(
+            candidate_k,
+            ari.to_numpy(),
+            color=FALLBACK_COLOR,
+            linewidth=6.0,
+            alpha=0.22,
+            solid_capstyle="round",
+            zorder=1,
+            label=CRITERION_REFERENCE_LABEL,
+        )
+
+    curves = normalized_criterion(cell, metrics=metrics, axis_label=axis_label)
+    selected = cell.loc[cell["is_selected"].astype(bool)]
+
+    for metric in metrics:
+        sub = curves.loc[curves["metric_name"] == metric]
+        if sub.empty:
+            continue
+        values = sub.set_index("k")["value"].reindex(candidate_k)
+        ax.plot(
+            candidate_k,
+            values.to_numpy(),
+            color=metric_color(metric),
+            linewidth=metric_linewidth(metric),
+            linestyle=metric_linestyle(metric),
+            zorder=2,
+            label=_display(metric),
+        )
+        picks = selected.loc[selected["metric_name"] == metric, "k"]
+        if picks.empty:
+            continue
+        # The modal selection across datasets, which is the k this panel's
+        # averaged curve is being read as having chosen.
+        modal = int(picks.mode().iloc[0])
+        if modal in candidate_k:
+            ax.scatter(
+                [modal],
+                [values.loc[modal]],
+                s=46.0,
+                marker="D",
+                facecolor=metric_color(metric),
+                edgecolor="#FFFFFF",
+                linewidth=0.9,
+                zorder=3,
+                label="_selected",
+            )
+
+    if k_star in candidate_k:
+        ax.axvline(k_star, color=FOREGROUND_COLOR, linewidth=1.2, alpha=0.45, zorder=0)
+
+    ax.set_xticks(candidate_k)
+    ax.set_xlabel("$k$", fontsize=FONT_SIZES["axis_label"])
+    ax.set_ylabel("Normalized criterion", fontsize=FONT_SIZES["axis_label"])
+    ax.set_ylim(-0.05, 1.05)
+    if title is not None:
+        ax.set_title(title, fontsize=FONT_SIZES["title"])
+    return style_axes(ax)
+
+
 RUNTIME_COLS: tuple[str, str] = ("t_stability_s", "t_generalizability_s")
 RUNTIME_LABELS: tuple[str, str] = ("CARVE Stability", "CARVE Generalizability")
 _RUNTIME_METRIC_FOR_COLOR = {
