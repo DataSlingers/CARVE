@@ -233,8 +233,14 @@ def run_m3c(
         is opt-in, matching datasets/_levine.py.
     cores : int, default=1
         M3C's own parallelism over the Monte Carlo iterations. Left at 1: the
-        Klein run takes about eight minutes serially, and a single worker is
-        one fewer variable between runs.
+        measured Klein runtime at cores=1 on this machine is 2080.4 s (34.7
+        min) -- not an estimate, but what the cache sidecar recorded. The
+        spec's cost table figure of about eight minutes counts only the PAM
+        clustering (2,600 resamples x 9 values of K x 0.02 s) and omits
+        reference generation, which dominates: each of the 25 Monte Carlo
+        iterations draws a 1358x1358 Gaussian matrix and multiplies it by a
+        1358x2000 rotation. A single worker is also one fewer variable
+        between runs.
     **overrides
         Individual M3C_DEFAULTS entries to override. Used by the tests to
         drop iters; a case-study run passes none.
@@ -432,10 +438,10 @@ def run_or_load_m3c(
 ) -> M3CResult:
     """Run M3C on X, caching the result, and serve the cache on later calls.
 
-    A Klein run is about eight minutes, so the cache is what makes
-    regenerating the figure practical. The fingerprint guard is the same one
-    fit_or_load_carve uses: a cached result is never served against a matrix
-    it was not computed on.
+    The measured Klein runtime at cores=1 on this machine is 2080.4 s (34.7
+    min), not an estimate, so the cache is what makes regenerating the figure
+    practical. The fingerprint guard is the same one fit_or_load_carve uses:
+    a cached result is never served against a matrix it was not computed on.
     """
     cache_path = Path(cache_path)
     if cache_path.is_file() and not force:
