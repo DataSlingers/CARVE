@@ -88,6 +88,33 @@ class TestCriterionReferenceLegend:
             assert ax.get_legend() is None
         plt.close(fig)
 
+    def test_the_reference_legend_sits_outside_the_axes_data_rectangle(
+        self, gaussians_frame
+    ):
+        """A legend placed inside the panel can be crossed by a curve.
+
+        candidate_k is centered on k_star for every registered scenario, so
+        an in-panel "lower center" placement sits exactly on the one k
+        every criterion's curve is normalized toward: a criterion that
+        fails to prefer k* troughs there, and min-max normalization puts
+        every such curve at 0 simultaneously, right where the legend text
+        would be. Anchoring the legend below the axes' own data rectangle
+        rules that out regardless of what the curves do.
+        """
+        fig = figure_scenario_dashboard("gaussians", gaussians_frame)
+        fig.canvas.draw()
+        n_points = len(SCENARIOS["gaussians"].axis)
+        leftmost = fig.axes[n_points + 1]
+        legend = leftmost.get_legend()
+        assert legend is not None
+
+        axes_bbox = leftmost.get_window_extent()
+        legend_bbox = legend.get_window_extent()
+        # Display y increases upward, so "outside, below the axes" means
+        # the legend's own top sits at or below the axes' bottom edge.
+        assert legend_bbox.y1 <= axes_bbox.y0
+        plt.close(fig)
+
 
 class TestScalingScenarios:
     def test_a_scaling_scenario_labels_its_own_axis(self):

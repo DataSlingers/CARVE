@@ -102,7 +102,7 @@ def figure_scenario_dashboard(
             4,
             n_cols,
             height_ratios=(1.0, 1.25, 1.15, 1.0),
-            hspace=0.42,
+            hspace=0.52,
             wspace=0.28,
         )
 
@@ -178,6 +178,16 @@ def figure_scenario_dashboard(
         # rather than once per axis point. criterion_curves omits the line
         # entirely when a cell has no classical-index rows, so this is a
         # no-op then.
+        #
+        # Placed below the axes' data rectangle (bbox_to_anchor y < 0, in
+        # the panel's own axes fraction), not inside it. candidate_k is
+        # centered on k_star for every registered scenario, so an in-panel
+        # "lower center" placement sits exactly on the one k every curve is
+        # normalized toward -- a criterion that fails to prefer k* troughs
+        # there, and min-max normalization puts every such curve at 0
+        # simultaneously, so the legend text would sit right on top of the
+        # point where the curves converge. Anchoring outside the data
+        # rectangle entirely means no curve shape can ever collide with it.
         handles, texts = criterion_axes[0].get_legend_handles_labels()
         reference = [
             (handle, text)
@@ -189,7 +199,8 @@ def figure_scenario_dashboard(
             criterion_axes[0].legend(
                 [ref_handle],
                 [ref_label],
-                loc="lower center",
+                loc="upper center",
+                bbox_to_anchor=(0.5, -0.23),
                 frameon=False,
                 fontsize=FONT_SIZES["legend"],
             )
