@@ -32,6 +32,7 @@ from ._theme import (
     FOREGROUND_COLOR,
     MEASURE_LINESTYLES,
     PIPELINE_CMAP_NAME,
+    SEQUENTIAL_CMAP_NAME,
     cluster_colors,
     metric_color,
     metric_linestyle,
@@ -273,6 +274,113 @@ def metric_lines(
     if show_legend:
         ax.legend(fontsize=FONT_SIZES["legend"], frameon=False)
     return style_axes(ax)
+
+
+def k_hat_selection_matrix(
+    df: pd.DataFrame,
+    *,
+    metrics: Sequence[str],
+    axis_label: str,
+    candidate_k: Sequence[int],
+) -> np.ndarray:
+    """P(k-hat = k) as a metrics-by-k array, NaN where a metric has no rows.
+
+    Row order follows metrics and column order follows candidate_k, both as
+    given, so the caller's ordering is the figure's ordering. A metric with
+    no rows in this cell is an all-NaN row rather than a dropped one: a
+    dropped row would slide every metric below it up by one and silently
+    mislabel the axis.
+    """
+    cell = df.loc[df["axis_label"] == axis_label]
+    matrix = np.full((len(metrics), len(candidate_k)), np.nan)
+    for row, metric in enumerate(metrics):
+        selected = cell.loc[
+            (cell["metric_name"] == metric) & cell["is_selected"].astype(bool)
+        ]
+        if selected.empty:
+            continue
+        counts = selected["k"].value_counts()
+        total = float(counts.sum())
+        for column, k in enumerate(candidate_k):
+            matrix[row, column] = float(counts.get(k, 0)) / total
+    return matrix
+
+
+def k_hat_heatmap(
+    ax: Axes,
+    df: pd.DataFrame,
+    *,
+    metrics: Sequence[str],
+    axis_label: str,
+    candidate_k: Sequence[int],
+    k_star: int,
+    annotate: bool = True,
+    title: str | None = None,
+) -> Axes:
+    """How often each method chose each k, as a metrics-by-k heatmap.
+
+    This is the k-recovery column of the supplementary tables drawn rather
+    than tabulated. A mean ARI hides the shape of a method's selections: a
+    method that picks k* half the time and k*+2 the other half scores the
+    same as one that always picks something in between, and only this panel
+    separates them.
+
+    The oracle is not drawn. It has no selected k -- it is fit once per cell
+    at k_star -- so a row for it would be either empty or a tautological
+    column of ones.
+    """
+    metrics = [m for m in metrics if m != BASELINE_METRIC]
+    candidate_k = list(candidate_k)
+    matrix = k_hat_selection_matrix(
+        df, metrics=metrics, axis_label=axis_label, candidate_k=candidate_k
+    )
+
+    ax.imshow(
+        matrix,
+        cmap=SEQUENTIAL_CMAP_NAME,
+        vmin=0.0,
+        vmax=1.0,
+        aspect="auto",
+        interpolation="nearest",
+    )
+
+    ax.set_xticks(range(len(candidate_k)))
+    ax.set_xticklabels([str(k) for k in candidate_k], fontsize=FONT_SIZES["tick"])
+    ax.set_yticks(range(len(metrics)))
+    ax.set_yticklabels([_display(m) for m in metrics], fontsize=FONT_SIZES["tick"])
+    ax.set_xlabel("$k$", fontsize=FONT_SIZES["axis_label"])
+
+    if k_star in candidate_k:
+        ax.axvline(
+            candidate_k.index(k_star),
+            color=FOREGROUND_COLOR,
+            linewidth=1.2,
+            alpha=0.55,
+        )
+
+    if annotate:
+        for row in range(matrix.shape[0]):
+            for column in range(matrix.shape[1]):
+                value = matrix[row, column]
+                if np.isnan(value) or value < 0.005:
+                    continue
+                # Light text on the dark end of the ramp, dark on the light
+                # end. A single ink color is unreadable at one end or the
+                # other, and the threshold sits where the ramp crosses.
+                ax.text(
+                    column,
+                    row,
+                    f"{value:.2f}".lstrip("0") or "0",
+                    ha="center",
+                    va="center",
+                    fontsize=FONT_SIZES["tick"] * 0.85,
+                    color="#FFFFFF" if value > 0.55 else FOREGROUND_COLOR,
+                )
+
+    if title is not None:
+        ax.set_title(title, fontsize=FONT_SIZES["title"])
+    ax.grid(False)
+    return ax
 
 
 RUNTIME_COLS: tuple[str, str] = ("t_stability_s", "t_generalizability_s")

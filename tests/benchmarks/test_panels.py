@@ -30,6 +30,7 @@ from benchmarks._panels import (
     cluster_color_map,
     cvi_lines,
     grouped_legend,
+    k_hat_heatmap,
     metric_legend,
     metric_lines,
     panel_letter,
@@ -41,6 +42,7 @@ from benchmarks._theme import (
     FONT_SIZES,
     FOREGROUND_COLOR,
     PIPELINE_COLORS,
+    SEQUENTIAL_CMAP_NAME,
     cluster_colors,
     metric_color,
 )
@@ -1345,3 +1347,117 @@ class TestM3CLines:
             "0.038" in t and "smallest attainable at 25 iterations" in t
             for t in texts
         )
+
+
+def _selection_frame():
+    """Three datasets, two metrics, k in 3..7, with known selections.
+
+    stability picks k=5 twice and k=6 once; silhouette picks k=7 every time.
+    """
+    rows = []
+    picks = {"ari_stability_1se": [5, 5, 6], "silhouette": [7, 7, 7]}
+    for metric, chosen in picks.items():
+        for seed, pick in enumerate(chosen):
+            for k in (3, 4, 5, 6, 7):
+                rows.append(
+                    {
+                        "axis_label": "medium",
+                        "axis_value": 1,
+                        "seed": seed,
+                        "metric_name": metric,
+                        "k": k,
+                        "metric_value": float(k),
+                        "is_selected": k == pick,
+                        "selects_true_k": k == 5,
+                        "ari_at_k": 0.5,
+                        "oracle_ari": 0.8,
+                        "k_star": 5,
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
+class TestKHatHeatmap:
+    def test_cell_values_are_selection_proportions(self):
+        fig, ax = plt.subplots()
+        k_hat_heatmap(
+            ax,
+            _selection_frame(),
+            metrics=["ari_stability_1se", "silhouette"],
+            axis_label="medium",
+            candidate_k=(3, 4, 5, 6, 7),
+            k_star=5,
+        )
+        image = ax.get_images()[0].get_array()
+        # Rows follow the metrics argument; columns follow candidate_k.
+        assert image[0].tolist() == pytest.approx([0.0, 0.0, 2 / 3, 1 / 3, 0.0])
+        assert image[1].tolist() == pytest.approx([0.0, 0.0, 0.0, 0.0, 1.0])
+        plt.close(fig)
+
+    def test_each_row_sums_to_one(self):
+        """Every dataset selects exactly one k per metric, so a row that does
+        not sum to 1 means selections were dropped or double counted."""
+        fig, ax = plt.subplots()
+        k_hat_heatmap(
+            ax,
+            _selection_frame(),
+            metrics=["ari_stability_1se", "silhouette"],
+            axis_label="medium",
+            candidate_k=(3, 4, 5, 6, 7),
+            k_star=5,
+        )
+        image = ax.get_images()[0].get_array()
+        for row in image:
+            assert float(row.sum()) == pytest.approx(1.0)
+        plt.close(fig)
+
+    def test_k_star_is_ruled(self):
+        fig, ax = plt.subplots()
+        k_hat_heatmap(
+            ax,
+            _selection_frame(),
+            metrics=["ari_stability_1se"],
+            axis_label="medium",
+            candidate_k=(3, 4, 5, 6, 7),
+            k_star=5,
+        )
+        # k*=5 is the third of five candidates, so the rule sits at x=2.
+        assert [line.get_xdata()[0] for line in ax.get_lines()] == [2.0]
+        plt.close(fig)
+
+    def test_a_metric_with_no_rows_is_an_empty_row_not_a_missing_one(self):
+        """Row order must match the metrics argument, so a dashboard's
+        heatmap rows line up with the curves above them even when one metric
+        produced nothing for this cell."""
+        fig, ax = plt.subplots()
+        k_hat_heatmap(
+            ax,
+            _selection_frame(),
+            metrics=["ari_stability_1se", "gap", "silhouette"],
+            axis_label="medium",
+            candidate_k=(3, 4, 5, 6, 7),
+            k_star=5,
+        )
+        image = ax.get_images()[0].get_array()
+        assert image.shape == (3, 5)
+        # ax.imshow stores its data as a masked array (NaN cells masked).
+        # np.isnan(image[1]).all() on a fully masked row evaluates to the
+        # np.ma.masked singleton rather than True, which is falsy -- so the
+        # bare version of this assertion fails unconditionally on a fully
+        # masked row, whatever the underlying data actually holds.
+        # np.ma.getdata reads the underlying values directly.
+        assert np.isnan(np.ma.getdata(image)[1]).all()
+        plt.close(fig)
+
+    def test_uses_the_theme_ramp(self):
+        fig, ax = plt.subplots()
+        k_hat_heatmap(
+            ax,
+            _selection_frame(),
+            metrics=["ari_stability_1se"],
+            axis_label="medium",
+            candidate_k=(3, 4, 5, 6, 7),
+            k_star=5,
+        )
+        assert ax.get_images()[0].get_cmap().name == SEQUENTIAL_CMAP_NAME
+        plt.close(fig)
