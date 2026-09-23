@@ -59,6 +59,20 @@ class TestTableNames:
         assert len(set(TABLE_NAMES.values())) == len(TABLE_NAMES)
 
 
+def test_dimensionality_caption_names_the_feature_dimension():
+    """The axis is p, the ambient feature dimension, not embed_dim.
+
+    _registry's comment on _AXES says so and the manuscript's S3 Fig says
+    "feature dimension p"; the caption said "embedding dimension", which is
+    a different quantity that this scenario holds fixed at 64.
+    """
+    from benchmarks.tables import TABLE_CAPTIONS
+
+    caption = TABLE_CAPTIONS["gaussians_dimensionality"]
+    assert "feature dimension" in caption
+    assert "embedding dimension" not in caption
+
+
 class TestWriteAllTables:
     def test_writes_one_fragment_per_scenario(self, tmp_path):
         frames = {"gaussians": _frame("gaussians"), "moons": _frame("moons")}

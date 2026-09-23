@@ -323,7 +323,6 @@ _SHARED: dict[str, dict[str, Any]] = {
         "p": 50,
         "corr_type": "ar1",
         "embed_dim": 64,
-        "center_box": 3.0,
     },
     # Axis is "p" — n_total and embed_dim are the SCALING_CONSTANTS values.
     "gaussians_dimensionality": {
@@ -366,20 +365,14 @@ _ESTIMATORS: dict[str, str] = {
     "gaussians_samples": "kmeans",
 }
 
-# n_trees sizes the random forest behind CARVE's generalizability computation.
-# The published benchmark did not use one value everywhere: notebook cells
-# 29, 35, and 41 pass n_trees=500 for circles, moons, and swiss_rolls; cells
-# 11, 17, 23, 48, and 53 omit it and get Scenario's default of 100.
-_N_TREES: dict[str, int] = {
-    "gaussians": 100,
-    "t_dist": 100,
-    "t_dist_noise": 100,
-    "circles": 500,
-    "moons": 500,
-    "swiss_rolls": 500,
-    "gaussians_dimensionality": 100,
-    "gaussians_samples": 100,
-}
+# One forest size for every scenario. The published benchmark did not use
+# one value everywhere -- notebook cells 29, 35 and 41 passed n_trees=500
+# for circles, moons and swiss rolls while cells 11, 17, 23, 48 and 53
+# omitted it and got Scenario's default of 100 -- but that split tracked
+# which cell an argument was typed into, not anything about the data. 500 is
+# the better generalizability estimate; the cost is linear in a term that is
+# not the bottleneck.
+_N_TREES: dict[str, int] = dict.fromkeys(_ESTIMATORS, 500)
 
 _AXES: dict[str, Axis] = {
     "gaussians": DIFFICULTY_AXIS,

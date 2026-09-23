@@ -50,7 +50,7 @@ TABLE_CAPTIONS: dict[str, str] = {
         "Gaussian mixtures over sample size: ARI at the selected k and k-recovery."
     ),
     "gaussians_dimensionality": (
-        "Gaussian mixtures over embedding dimension: ARI at the selected k and k-recovery."
+        "Gaussian mixtures over feature dimension: ARI at the selected k and k-recovery."
     ),
 }
 

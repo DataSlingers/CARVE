@@ -184,16 +184,26 @@ class TestScenarios:
                 kwargs = scenario.sim_kwargs(value, label)
                 assert "k" not in kwargs
 
-    @pytest.mark.parametrize("name", ("circles", "moons", "swiss_rolls"))
-    def test_n_trees_is_500_for_the_scenarios_the_notebook_ran_with_500_trees(self, name):
+    @pytest.mark.parametrize("name", DIFFICULTY_SCENARIOS + SCALING_SCENARIOS)
+    def test_n_trees_is_500_everywhere(self, name):
+        """One forest size for every scenario.
+
+        The published benchmark ran 500 trees on circles, moons and swiss
+        rolls and 100 elsewhere, decided by which notebook cell happened to
+        pass the argument rather than by anything about the data. 500 is the
+        better generalizability estimate and the cost is linear in a term
+        that is not the bottleneck.
+        """
         assert SCENARIOS[name].n_trees == 500
 
-    @pytest.mark.parametrize(
-        "name",
-        ("gaussians", "t_dist", "t_dist_noise", "gaussians_dimensionality", "gaussians_samples"),
-    )
-    def test_n_trees_defaults_to_100_for_the_remaining_scenarios(self, name):
-        assert SCENARIOS[name].n_trees == 100
+    def test_swiss_rolls_does_not_restate_the_simulator_default(self):
+        """center_box=3.0 is simulate_clusters's own default.
+
+        Restating it made the key read as a deliberate choice for this
+        scenario when it is not one, and it was the only scenario that set
+        it.
+        """
+        assert "center_box" not in SCENARIOS["swiss_rolls"].shared
 
 
 class TestPublishedRandomState:
