@@ -1609,18 +1609,47 @@ class TestNormalizedCriterion:
             assert sub.idxmax() == 5
 
     def test_normalizes_within_a_dataset_before_averaging(self):
-        """A dataset whose criterion is ten times another's would otherwise
-        dominate the mean and drag the averaged curve onto its own shape."""
-        frame = _criterion_frame()
-        loud = frame["seed"] == 0
-        frame.loc[loud, "metric_value"] = frame.loc[loud, "metric_value"] * 10.0
+        """A loud dataset must not out-vote a quiet one on where the peak is.
+
+        Two datasets, k in 3..7: a quiet one shaped 0.1/0.2/0.5/0.2/0.1
+        (peaks at k=5) appears twice (seeds 1 and 2); a loud one shaped
+        1/10/2/1/1 -- ten times the quiet one's amplitude -- appears once
+        (seed 0) and peaks at k=4 instead.
+
+        Normalized within each dataset first, both datasets vote in [0, 1]
+        regardless of their raw scale: the quiet shape normalizes to
+        [0, 0.25, 1, 0.25, 0] and the loud one to [0, 1, 1/9, 0, 0]. Two
+        quiet votes for k=5 outvote the loud dataset's one vote for k=4, so
+        the average peaks at k=5:
+            k=4: (0.25 + 0.25 + 1) / 3 = 0.5
+            k=5: (1 + 1 + 1/9) / 3 = 19/27 ~ 0.7037
+
+        Averaging the raw values first instead lets the loud dataset's
+        absolute scale dominate the mean before normalization ever sees it:
+        the raw mean curve is {3: 0.4, 4: 10.4/3, 5: 1.0, 6: 1.4/3, 7: 0.4},
+        which once normalized peaks at k=4 -- the loud dataset's own peak,
+        not the two-vote winner k=5.
+        """
+        quiet = {3: 0.1, 4: 0.2, 5: 0.5, 6: 0.2, 7: 0.1}
+        loud = {3: 1.0, 4: 10.0, 5: 2.0, 6: 1.0, 7: 1.0}
+        rows = [
+            {
+                "axis_label": "medium",
+                "seed": seed,
+                "metric_name": "silhouette",
+                "k": k,
+                "metric_value": value,
+            }
+            for seed, shape in ((0, loud), (1, quiet), (2, quiet))
+            for k, value in shape.items()
+        ]
         out = normalized_criterion(
-            frame, metrics=["silhouette"], axis_label="medium"
+            pd.DataFrame(rows), metrics=["silhouette"], axis_label="medium"
         )
         sub = out.loc[out["metric_name"] == "silhouette"].set_index("k")["value"]
-        # Every dataset has the same shape, so scaling one changes nothing.
-        assert sub.loc[5] == pytest.approx(1.0)
-        assert sub.loc[3] == pytest.approx(0.0)
+        assert sub.idxmax() == 5
+        assert sub.loc[4] == pytest.approx(0.5)
+        assert sub.loc[5] == pytest.approx(19 / 27)
 
     def test_a_flat_criterion_is_mid_scale_not_a_division_by_zero(self):
         """min == max means the criterion said nothing about k. 0.5 is the
