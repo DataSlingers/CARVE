@@ -207,12 +207,59 @@ def align_assignment(
     return by_name.to_numpy(dtype=int)
 
 
+def check_own_selection(
+    top_level_assignments: np.ndarray,
+    assignments_at_selected_k: np.ndarray,
+    *,
+    selected_k: int,
+) -> None:
+    """Cross-check select_k_m3c's choice against M3C's own R-side selection.
+
+    M3C's R source (M3C(), the top of its return list) computes
+    ``optk <- which.max(real$RCSI) + 1`` and then
+    ``assignments <- as.numeric(allresults[[optk]]$assignments)``: the
+    partition at its own selected K, values only, in the original column
+    order, res$realdataresults being the same ``allresults`` list under
+    another name. If Python's ``selected_k`` (from select_k_m3c) equals R's
+    ``optk``, then ``res$realdataresults[[selected_k]]$assignments`` is the
+    exact same named vector ``as.numeric()`` stripped to produce
+    ``res$assignments`` -- same object, same column order, no realignment
+    needed on either side. So run_m3c passes this function both vectors
+    fetched raw (before align_assignment's name-based reindex onto X's
+    rows), in that same original order, and a genuine disagreement here can
+    only mean select_k_m3c and R's which.max(RCSI) + 1 chose different K.
+
+    Pure, so it is testable without R: it takes two plain arrays already
+    pulled from R and never touches rpy2 itself.
+    """
+    top = np.asarray(top_level_assignments)
+    at_k = np.asarray(assignments_at_selected_k)
+    if top.shape != at_k.shape or not np.array_equal(top, at_k):
+        raise RuntimeError(
+            "M3C's own selection disagrees with the one recovered from the "
+            f"scores frame. res$assignments (M3C's top-level partition, at "
+            f"its own which.max(RCSI) + 1) does not match "
+            f"res$realdataresults[[{selected_k}]]$assignments (the partition "
+            f"at selected_k={selected_k}, select_k_m3c's RCSI-argmax reading "
+            "of the scores frame). If the two selections agreed, these would "
+            "be the same R vector read two ways and would match exactly."
+        )
+
+
+#: run_m3c's own defaults for max_k and cores, named so
+#: run_or_load_m3c._expected_config can mirror them without duplicating the
+#: literals -- the config-drift pattern this project has already been bitten
+#: by elsewhere.
+_DEFAULT_MAX_K = 10
+_DEFAULT_CORES = 1
+
+
 def run_m3c(
     X: np.ndarray,
     *,
-    max_k: int = 10,
+    max_k: int = _DEFAULT_MAX_K,
     allow_install: bool = False,
-    cores: int = 1,
+    cores: int = _DEFAULT_CORES,
     verbose: bool = False,
     **overrides: Any,
 ) -> M3CResult:
@@ -326,22 +373,34 @@ def run_m3c(
         runtime_s = time.perf_counter() - started
 
         scores = validate_scores(ro.r("res$scores"))
+        selected_k = select_k_m3c(scores)
+
         labels = {}
+        raw_by_k = {}
         for k in range(2, int(max_k) + 1):
             # realdataresults is indexed by K itself, so element 1 is unset
             # and element k holds the K=k result. assignments is the named
             # vector in the original column order; ordered_annotation is
             # permuted by the dendrogram order and would scramble the mapping.
-            assignment = ro.r(f"res$realdataresults[[{k}]]$assignments")
+            assignment = np.asarray(ro.r(f"res$realdataresults[[{k}]]$assignments"))
             names_from_r = ro.r(f"names(res$realdataresults[[{k}]]$assignments)")
-            labels[k] = align_assignment(
-                np.asarray(assignment), list(names_from_r), names, k=k
-            )
+            raw_by_k[k] = assignment
+            labels[k] = align_assignment(assignment, list(names_from_r), names, k=k)
+
+        # The spec's cross-check: what M3C itself selected (res$assignments,
+        # its own which.max(RCSI) + 1) against the partition already pulled
+        # above at Python's selected_k, both still in the original column
+        # order raw_by_k carries -- no realignment needed for this
+        # comparison, since a true agreement means the two are the same R
+        # vector read two ways. See check_own_selection's docstring.
+        top_level_assignments = np.asarray(ro.r("res$assignments"))
+        check_own_selection(
+            top_level_assignments, raw_by_k[selected_k], selected_k=selected_k
+        )
 
         m3c_version = str(ro.r('as.character(packageVersion("M3C"))')[0])
         r_version = str(ro.r("R.version.string")[0])
 
-    selected_k = select_k_m3c(scores)
     reported_k = int(len(np.unique(labels[selected_k])))
     if reported_k != selected_k:
         warnings.warn(

@@ -115,7 +115,7 @@ class TestResult:
             result.selected_k = 5
 
 
-from benchmarks._m3c import align_assignment, run_m3c
+from benchmarks._m3c import align_assignment, check_own_selection, run_m3c
 
 
 class TestAlignAssignment:
@@ -150,6 +150,50 @@ class TestAlignAssignment:
             np.array([1.0, 2.0]), ["c0", "c1"], ["c0", "c1"], k=2
         )
         assert out.dtype.kind == "i"
+
+
+class TestCheckOwnSelection:
+    """The spec's cross-check: M3C's own selection against select_k_m3c's.
+
+    Pure, tested without R. The two vectors this receives are both meant to
+    be the same original-column-order reading of res$realdataresults[[k]]
+    for k = selected_k -- one via res$assignments (M3C's own which.max(RCSI)
+    + 1), one via res$realdataresults[[selected_k]]$assignments directly.
+    When Python's selected_k agrees with M3C's own choice, both calls read
+    the identical R vector, so an exact element-wise match is the right bar,
+    not merely matching cluster counts or a permutation-invariant score.
+    """
+
+    def test_silent_when_the_two_selections_agree(self):
+        # Same values, same order -- the case where selected_k really is
+        # M3C's own optk, so both reads pulled the identical vector.
+        partition = np.array([1, 1, 2, 2, 3, 3])
+        check_own_selection(partition, partition.copy(), selected_k=3)
+
+    def test_raises_on_a_genuine_disagreement(self):
+        # Two different partitions of the same 6 samples -- not a relabeling
+        # of the same groups, an actually different grouping. This is the
+        # shape a real disagreement would take: M3C's top-level assignments
+        # came from a different K than the one select_k_m3c recovered from
+        # the scores frame.
+        top_level = np.array([1, 1, 1, 2, 2, 2])
+        at_selected_k = np.array([1, 2, 1, 2, 1, 2])
+        with pytest.raises(RuntimeError, match="disagrees"):
+            check_own_selection(top_level, at_selected_k, selected_k=4)
+
+    def test_raises_when_the_lengths_differ(self):
+        # Can't happen if both really came from the same K's assignments,
+        # but a shape mismatch is exactly as much a disagreement as a value
+        # mismatch, and should not be waved through by a naive elementwise
+        # comparison that only checks the overlapping prefix.
+        with pytest.raises(RuntimeError, match="disagrees"):
+            check_own_selection(np.array([1, 1, 2]), np.array([1, 1, 2, 2]), selected_k=2)
+
+    def test_names_the_selected_k_in_the_message(self):
+        with pytest.raises(RuntimeError, match=r"selected_k=7"):
+            check_own_selection(
+                np.array([1, 2, 3]), np.array([3, 2, 1]), selected_k=7
+            )
 
 
 class TestRunGuards:
@@ -225,7 +269,18 @@ class TestRunLive:
         planted = [0] * 40 + [1] * 40
         assert adjusted_rand_score(planted, result.labels[2]) == 1.0
 
-    def test_selected_k_agrees_with_the_scores_frame(self, result):
+    def test_selected_k_is_recomputed_from_the_scores_frame_by_construction(
+        self, result
+    ):
+        # Restates the definition of selected_k (run_m3c sets it directly
+        # from select_k_m3c(scores)) rather than checking anything new --
+        # the same caveat as test_every_label_vector_has_one_entry_per_row_of_x
+        # above. The actual cross-check against M3C's own selection is
+        # check_own_selection, called inside run_m3c before this fixture
+        # returns: a disagreement there would already have raised and
+        # errored every test in this class, the same way an align_assignment
+        # failure would have. check_own_selection's ability to fail is
+        # exercised directly, without R, in TestCheckOwnSelection.
         assert result.selected_k == select_k_m3c(result.scores)
 
     def test_records_the_r_side_versions(self, result):
