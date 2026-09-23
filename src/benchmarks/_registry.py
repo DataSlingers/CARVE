@@ -283,6 +283,185 @@ PUBLISHED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
     },
 }
 
+# Regenerated 2026-09-23 by _calibrate.calibrate_scenario, against the
+# documented bands in TARGET_ARI_BANDS, with the shift-invert eigensolver
+# and each scenario's final estimator in place. Run with the calibration
+# module's defaults: n_seeds=20, random_state=PUBLISHED_RANDOM_STATE (42),
+# max_iter=25. The achieved mean oracle ARI and its spread over the 20
+# calibration datasets are recorded per anchor; the full comparison against
+# PUBLISHED_ANCHORS is in
+# docs/superpowers/notes/2026-09-22-calibration-comparison.md.
+#
+# Two knobs, because no single parameter controls difficulty on every
+# scenario -- see _calibrate.CALIBRATION_KNOBS. The four scale-driven
+# scenarios carry their published cluster_scale vector times a multiplier,
+# so the unequal per-cluster scales survive; circles and moons carry an
+# absolute embed_param. All eighteen anchors landed in their target band on
+# the first calibration run -- no band needed widening.
+CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
+    # Knob: cluster_scale multiplier. The published vector was [4.0] * 5 at
+    # easy, [4.5] * 5 at medium and [4.6] * 5 at hard.
+    "gaussians": {
+        # multiplier 0.8250000000000001, ARI 0.984 +/- 0.004
+        "easy": {
+            "cluster_scale": [3.3000000000000003] * 5,
+            "cluster_size_dirichlet_alpha": 0.9,
+        },
+        # multiplier 1.00625, ARI 0.862 +/- 0.022
+        "medium": {
+            "cluster_scale": [4.528125] * 5,
+            "cluster_size_dirichlet_alpha": 0.5,
+        },
+        # multiplier 1.00625, ARI 0.740 +/- 0.163
+        "hard": {
+            "cluster_scale": [4.62875] * 5,
+            "cluster_size_dirichlet_alpha": 0.1,
+        },
+    },
+    # Knob: cluster_scale multiplier. The published vectors were
+    # [3.5, 1.0, 1.0, 1.0, 1.0] at easy, [3.0, 1.5, 1.0, 1.0, 1.0] at
+    # medium and [4.0, 3.0, 2.0, 1.0, 1.0] at hard.
+    "t_dist": {
+        # multiplier 1.55, ARI 0.935 +/- 0.034
+        "easy": {
+            "cluster_scale": [5.425, 1.55, 1.55, 1.55, 1.55],
+            "cluster_size_dirichlet_alpha": 0.9,
+            "t_df": 5,
+        },
+        # multiplier 1.1875, ARI 0.811 +/- 0.114
+        "medium": {
+            "cluster_scale": [3.5625, 1.78125, 1.1875, 1.1875, 1.1875],
+            "cluster_size_dirichlet_alpha": 0.3,
+            "t_df": 3,
+        },
+        # multiplier 1.00625, ARI 0.726 +/- 0.137
+        "hard": {
+            "cluster_scale": [4.025, 3.0187500000000003, 2.0125, 1.00625, 1.00625],
+            "cluster_size_dirichlet_alpha": 0.1,
+            "t_df": 3,
+        },
+    },
+    # Knob: cluster_scale multiplier. The published vector was [1.0] * 5 at
+    # easy, [1.1, 1.0, 1.0, 1.0, 1.0] at medium and hard.
+    "t_dist_noise": {
+        # multiplier 0.8250000000000001, ARI 0.995 +/- 0.003
+        "easy": {
+            "cluster_scale": [0.8250000000000001] * 5,
+            "cluster_size_dirichlet_alpha": 0.9,
+            "t_df": 5,
+            "corr_strength": 0.1,
+            "noise_dims": 512,
+        },
+        # multiplier 1.00625, ARI 0.846 +/- 0.037
+        "medium": {
+            "cluster_scale": [
+                1.1068750000000003,
+                1.00625,
+                1.00625,
+                1.00625,
+                1.00625,
+            ],
+            "cluster_size_dirichlet_alpha": 0.3,
+            "t_df": 4,
+            "corr_strength": 0.3,
+            "noise_dims": 1280,
+        },
+        # multiplier 1.00625, ARI 0.711 +/- 0.090
+        "hard": {
+            "cluster_scale": [
+                1.1068750000000003,
+                1.00625,
+                1.00625,
+                1.00625,
+                1.00625,
+            ],
+            "cluster_size_dirichlet_alpha": 0.1,
+            "t_df": 3,
+            "corr_strength": 0.5,
+            "noise_dims": 1536,
+        },
+    },
+    # Knob: embed_param, absolute. The published values were 12.0, 7.3 and
+    # 6.0, all past the 4.0 saturation point the shift-invert solver exposed.
+    "circles": {
+        # embed_param 3.5, ARI 0.981 +/- 0.084
+        "easy": {
+            "cluster_scale": [4.08, 4.08, 3.0, 3.0, 3.0],
+            "cluster_size_dirichlet_alpha": 0.9,
+            "corr_strength": 0.1,
+            "embed_param": 3.5,
+        },
+        # embed_param 3.0, ARI 0.800 +/- 0.186
+        "medium": {
+            "cluster_scale": [4.08, 4.08, 3.0, 3.0, 3.0],
+            "cluster_size_dirichlet_alpha": 0.61,
+            "corr_strength": 0.23,
+            "embed_param": 3.0,
+        },
+        # embed_param 3.25, ARI 0.724 +/- 0.282
+        "hard": {
+            "cluster_scale": [4.38, 4.08, 4.08, 4.08, 4.08],
+            "cluster_size_dirichlet_alpha": 0.35,
+            "corr_strength": 0.20,
+            "embed_param": 3.25,
+        },
+    },
+    # Knob: embed_param, absolute. The published values were 10.7, 5.7 and
+    # 14.5, all past or straddling the saturation point.
+    "moons": {
+        # embed_param 3.5, ARI 0.967 +/- 0.102
+        "easy": {
+            "cluster_scale": [5.5, 3.97, 3.97, 3.97, 3.97],
+            "cluster_size_dirichlet_alpha": 0.67,
+            "corr_strength": 0.39,
+            "embed_param": 3.5,
+        },
+        # embed_param 3.0, ARI 0.842 +/- 0.168
+        "medium": {
+            "cluster_scale": [4.8, 4.06, 4.06, 4.06, 4.06],
+            "cluster_size_dirichlet_alpha": 0.57,
+            "corr_strength": 0.30,
+            "embed_param": 3.0,
+        },
+        # embed_param 3.5, ARI 0.766 +/- 0.204
+        "hard": {
+            "cluster_scale": [4.06, 2.65, 2.65, 2.65, 2.65],
+            "cluster_size_dirichlet_alpha": 0.10,
+            "corr_strength": 0.16,
+            "embed_param": 3.5,
+        },
+    },
+    # Knob: cluster_scale multiplier. The published vector was [1.0] * 5 at
+    # easy, [2.0, 2.0, 1.0, 1.0, 1.0] at medium and hard.
+    "swiss_rolls": {
+        # multiplier 1.55, ARI 1.000 +/- 0.000
+        "easy": {
+            "cluster_scale": [1.55] * 5,
+            "cluster_size_dirichlet_alpha": 0.9,
+            "corr_strength": 0.1,
+            "embed_param": 8.0,
+        },
+        # multiplier 1.1875, ARI 0.889 +/- 0.144
+        "medium": {
+            "cluster_scale": [2.375, 2.375, 1.1875, 1.1875, 1.1875],
+            "cluster_size_dirichlet_alpha": 0.7,
+            "corr_strength": 0.1,
+            "embed_param": 5.0,
+        },
+        # multiplier 1.55, ARI 0.739 +/- 0.264
+        "hard": {
+            "cluster_scale": [3.1, 3.1, 1.55, 1.55, 1.55],
+            "cluster_size_dirichlet_alpha": 0.5,
+            "corr_strength": 0.3,
+            "embed_param": 5.0,
+        },
+    },
+    # The two scaling scenarios are carried over: TARGET_ARI_BANDS is keyed
+    # on easy/medium/hard and they sweep n and p.
+    "gaussians_dimensionality": PUBLISHED_ANCHORS["gaussians_dimensionality"],
+    "gaussians_samples": PUBLISHED_ANCHORS["gaussians_samples"],
+}
+
 # other_settings_* from the same notebook cells. For the two scaling
 # scenarios the notebook's other_settings carries none of n_total, p, or
 # embed_dim — parse_range_and_simulate (benchmarking_simulation_helpers.py)
@@ -344,11 +523,11 @@ _SHARED: dict[str, dict[str, Any]] = {
 
 # The calibration notebook that produced PUBLISHED_ANCHORS was lost; see
 # _calibrate.py, which defines a documented replacement search. Both sets are
-# kept so a regenerated calibration can be compared against what the
+# kept so the regenerated calibration can be compared against what the
 # manuscript reported, and reverted to. ACTIVE_ANCHOR_SET_NAME is recorded in
 # every run manifest so no artifact is ambiguous about which produced it.
-ACTIVE_ANCHORS: dict[str, dict[str, dict[str, Any]]] = PUBLISHED_ANCHORS
-ACTIVE_ANCHOR_SET_NAME: str = "PUBLISHED_ANCHORS"
+ACTIVE_ANCHORS: dict[str, dict[str, dict[str, Any]]] = CALIBRATED_ANCHORS
+ACTIVE_ANCHOR_SET_NAME: str = "CALIBRATED_ANCHORS"
 
 _ESTIMATORS: dict[str, str] = {
     "gaussians": "kmeans",

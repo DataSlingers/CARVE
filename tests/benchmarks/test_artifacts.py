@@ -33,7 +33,7 @@ from benchmarks._artifacts import (
     write_manifest,
     write_runtime_checkpoint,
 )
-from benchmarks._registry import SCENARIOS
+from benchmarks._registry import ACTIVE_ANCHOR_SET_NAME, SCENARIOS
 
 
 def _row(**overrides):
@@ -183,7 +183,10 @@ class TestManifest:
         )
         path = write_manifest(rd, manifest)
         payload = json.loads(path.read_text())
-        assert payload["anchor_set"] == "PUBLISHED_ANCHORS"
+        # build_manifest reads whichever anchor set is active, not a fixed
+        # name -- this test's intent is that provenance tracks that switch,
+        # not that the published set stays active forever.
+        assert payload["anchor_set"] == ACTIVE_ANCHOR_SET_NAME
         assert payload["peak_rss_unit"] == "bytes"
         assert payload["config"]["k_star"] == 5
         assert "numpy" in payload["package_versions"]

@@ -8,6 +8,7 @@ from benchmarks._registry import (
     ABLATIONS,
     ACTIVE_ANCHOR_SET_NAME,
     ACTIVE_ANCHORS,
+    CALIBRATED_ANCHORS,
     CARVE_METRICS_ALL,
     CVI_METRICS,
     DIFFICULTY_AXIS,
@@ -145,9 +146,33 @@ class TestAnchors:
     def test_active_anchors_are_named_so_provenance_is_unambiguous(self):
         assert ACTIVE_ANCHOR_SET_NAME in {"PUBLISHED_ANCHORS", "CALIBRATED_ANCHORS"}
 
-    def test_active_anchors_default_to_the_published_set(self):
-        assert ACTIVE_ANCHORS is PUBLISHED_ANCHORS
-        assert ACTIVE_ANCHOR_SET_NAME == "PUBLISHED_ANCHORS"
+    def test_active_anchors_are_the_calibrated_set(self):
+        """Every difficulty anchor is regenerated through _calibrate.py.
+
+        The published anchors missed their own documented bands on circles
+        and moons, and the eigensolver fix moved the three RFF scenarios
+        further. A half-published, half-calibrated set would leave "easy"
+        meaning a different ARI on different scenarios, which is the
+        inconsistency this removes.
+        """
+        assert ACTIVE_ANCHORS is CALIBRATED_ANCHORS
+        assert ACTIVE_ANCHOR_SET_NAME == "CALIBRATED_ANCHORS"
+
+    def test_published_anchors_are_kept_for_comparison(self):
+        """PUBLISHED_ANCHORS stays in the file so the calibration can be
+        compared against what the manuscript reported, and reverted to."""
+        assert set(PUBLISHED_ANCHORS) == set(SCENARIOS)
+        assert PUBLISHED_ANCHORS is not CALIBRATED_ANCHORS
+
+    @pytest.mark.parametrize("name", DIFFICULTY_SCENARIOS)
+    def test_calibrated_anchors_cover_every_difficulty_label(self, name):
+        assert set(CALIBRATED_ANCHORS[name]) == set(DIFFICULTY_AXIS.labels)
+
+    @pytest.mark.parametrize("name", SCALING_SCENARIOS)
+    def test_the_scaling_scenarios_keep_their_published_anchors(self, name):
+        """TARGET_ARI_BANDS is keyed on easy/medium/hard, so the two scaling
+        scenarios have no band to calibrate against and are carried over."""
+        assert CALIBRATED_ANCHORS[name] == PUBLISHED_ANCHORS[name]
 
 
 class TestScenarios:
