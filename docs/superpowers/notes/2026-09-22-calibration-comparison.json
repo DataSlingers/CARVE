@@ -1,0 +1,404 @@
+{
+  "gaussians": {
+    "easy": {
+      "anchor": {
+        "cluster_scale": [
+          3.3000000000000003,
+          3.3000000000000003,
+          3.3000000000000003,
+          3.3000000000000003,
+          3.3000000000000003
+        ],
+        "cluster_size_dirichlet_alpha": 0.9
+      },
+      "knob_value": 0.8250000000000001,
+      "achieved_ari": 0.9839768255258308,
+      "achieved_sd": 0.0039291579029622405,
+      "target": [
+        0.9,
+        1.0
+      ],
+      "in_band": true
+    },
+    "medium": {
+      "anchor": {
+        "cluster_scale": [
+          4.528125,
+          4.528125,
+          4.528125,
+          4.528125,
+          4.528125
+        ],
+        "cluster_size_dirichlet_alpha": 0.5
+      },
+      "knob_value": 1.00625,
+      "achieved_ari": 0.8620047839821512,
+      "achieved_sd": 0.02167881090843386,
+      "target": [
+        0.8,
+        0.9
+      ],
+      "in_band": true
+    },
+    "hard": {
+      "anchor": {
+        "cluster_scale": [
+          4.62875,
+          4.62875,
+          4.62875,
+          4.62875,
+          4.62875
+        ],
+        "cluster_size_dirichlet_alpha": 0.1
+      },
+      "knob_value": 1.00625,
+      "achieved_ari": 0.7402220656073537,
+      "achieved_sd": 0.16268972634919812,
+      "target": [
+        0.7,
+        0.8
+      ],
+      "in_band": true
+    }
+  },
+  "t_dist": {
+    "easy": {
+      "anchor": {
+        "cluster_scale": [
+          5.425,
+          1.55,
+          1.55,
+          1.55,
+          1.55
+        ],
+        "cluster_size_dirichlet_alpha": 0.9,
+        "t_df": 5
+      },
+      "knob_value": 1.55,
+      "achieved_ari": 0.9348725149001622,
+      "achieved_sd": 0.03412163310552193,
+      "target": [
+        0.9,
+        1.0
+      ],
+      "in_band": true
+    },
+    "medium": {
+      "anchor": {
+        "cluster_scale": [
+          3.5625,
+          1.78125,
+          1.1875,
+          1.1875,
+          1.1875
+        ],
+        "cluster_size_dirichlet_alpha": 0.3,
+        "t_df": 3
+      },
+      "knob_value": 1.1875,
+      "achieved_ari": 0.8106648258575108,
+      "achieved_sd": 0.11364134668582815,
+      "target": [
+        0.8,
+        0.9
+      ],
+      "in_band": true
+    },
+    "hard": {
+      "anchor": {
+        "cluster_scale": [
+          4.025,
+          3.0187500000000003,
+          2.0125,
+          1.00625,
+          1.00625
+        ],
+        "cluster_size_dirichlet_alpha": 0.1,
+        "t_df": 3
+      },
+      "knob_value": 1.00625,
+      "achieved_ari": 0.7263782282988573,
+      "achieved_sd": 0.1373115425520641,
+      "target": [
+        0.7,
+        0.8
+      ],
+      "in_band": true
+    }
+  },
+  "t_dist_noise": {
+    "easy": {
+      "anchor": {
+        "cluster_scale": [
+          0.8250000000000001,
+          0.8250000000000001,
+          0.8250000000000001,
+          0.8250000000000001,
+          0.8250000000000001
+        ],
+        "cluster_size_dirichlet_alpha": 0.9,
+        "t_df": 5,
+        "corr_strength": 0.1,
+        "noise_dims": 512
+      },
+      "knob_value": 0.8250000000000001,
+      "achieved_ari": 0.994932184586992,
+      "achieved_sd": 0.003445067572928712,
+      "target": [
+        0.9,
+        1.0
+      ],
+      "in_band": true
+    },
+    "medium": {
+      "anchor": {
+        "cluster_scale": [
+          1.1068750000000003,
+          1.00625,
+          1.00625,
+          1.00625,
+          1.00625
+        ],
+        "cluster_size_dirichlet_alpha": 0.3,
+        "t_df": 4,
+        "corr_strength": 0.3,
+        "noise_dims": 1280
+      },
+      "knob_value": 1.00625,
+      "achieved_ari": 0.845870015420933,
+      "achieved_sd": 0.03718083843302777,
+      "target": [
+        0.8,
+        0.9
+      ],
+      "in_band": true
+    },
+    "hard": {
+      "anchor": {
+        "cluster_scale": [
+          1.1068750000000003,
+          1.00625,
+          1.00625,
+          1.00625,
+          1.00625
+        ],
+        "cluster_size_dirichlet_alpha": 0.1,
+        "t_df": 3,
+        "corr_strength": 0.5,
+        "noise_dims": 1536
+      },
+      "knob_value": 1.00625,
+      "achieved_ari": 0.7114745598749541,
+      "achieved_sd": 0.09033142108356412,
+      "target": [
+        0.7,
+        0.8
+      ],
+      "in_band": true
+    }
+  },
+  "circles": {
+    "easy": {
+      "anchor": {
+        "cluster_scale": [
+          4.08,
+          4.08,
+          3.0,
+          3.0,
+          3.0
+        ],
+        "cluster_size_dirichlet_alpha": 0.9,
+        "corr_strength": 0.1,
+        "embed_param": 3.5
+      },
+      "knob_value": 3.5,
+      "achieved_ari": 0.9812736975840558,
+      "achieved_sd": 0.08374657033854015,
+      "target": [
+        0.9,
+        1.0
+      ],
+      "in_band": true
+    },
+    "medium": {
+      "anchor": {
+        "cluster_scale": [
+          4.08,
+          4.08,
+          3.0,
+          3.0,
+          3.0
+        ],
+        "cluster_size_dirichlet_alpha": 0.61,
+        "corr_strength": 0.23,
+        "embed_param": 3.0
+      },
+      "knob_value": 3.0,
+      "achieved_ari": 0.8001383008539911,
+      "achieved_sd": 0.18638869208108785,
+      "target": [
+        0.8,
+        0.9
+      ],
+      "in_band": true
+    },
+    "hard": {
+      "anchor": {
+        "cluster_scale": [
+          4.38,
+          4.08,
+          4.08,
+          4.08,
+          4.08
+        ],
+        "cluster_size_dirichlet_alpha": 0.35,
+        "corr_strength": 0.2,
+        "embed_param": 3.25
+      },
+      "knob_value": 3.25,
+      "achieved_ari": 0.7240889504233183,
+      "achieved_sd": 0.2823057416153482,
+      "target": [
+        0.7,
+        0.8
+      ],
+      "in_band": true
+    }
+  },
+  "moons": {
+    "easy": {
+      "anchor": {
+        "cluster_scale": [
+          5.5,
+          3.97,
+          3.97,
+          3.97,
+          3.97
+        ],
+        "cluster_size_dirichlet_alpha": 0.67,
+        "corr_strength": 0.39,
+        "embed_param": 3.5
+      },
+      "knob_value": 3.5,
+      "achieved_ari": 0.9667258227939973,
+      "achieved_sd": 0.10244442033979598,
+      "target": [
+        0.9,
+        1.0
+      ],
+      "in_band": true
+    },
+    "medium": {
+      "anchor": {
+        "cluster_scale": [
+          4.8,
+          4.06,
+          4.06,
+          4.06,
+          4.06
+        ],
+        "cluster_size_dirichlet_alpha": 0.57,
+        "corr_strength": 0.3,
+        "embed_param": 3.0
+      },
+      "knob_value": 3.0,
+      "achieved_ari": 0.842010826785361,
+      "achieved_sd": 0.16829020671671505,
+      "target": [
+        0.8,
+        0.9
+      ],
+      "in_band": true
+    },
+    "hard": {
+      "anchor": {
+        "cluster_scale": [
+          4.06,
+          2.65,
+          2.65,
+          2.65,
+          2.65
+        ],
+        "cluster_size_dirichlet_alpha": 0.1,
+        "corr_strength": 0.16,
+        "embed_param": 3.5
+      },
+      "knob_value": 3.5,
+      "achieved_ari": 0.7660351508336984,
+      "achieved_sd": 0.2042504298164913,
+      "target": [
+        0.7,
+        0.8
+      ],
+      "in_band": true
+    }
+  },
+  "swiss_rolls": {
+    "easy": {
+      "anchor": {
+        "cluster_scale": [
+          1.55,
+          1.55,
+          1.55,
+          1.55,
+          1.55
+        ],
+        "cluster_size_dirichlet_alpha": 0.9,
+        "corr_strength": 0.1,
+        "embed_param": 8.0
+      },
+      "knob_value": 1.55,
+      "achieved_ari": 1.0,
+      "achieved_sd": 0.0,
+      "target": [
+        0.9,
+        1.0
+      ],
+      "in_band": true
+    },
+    "medium": {
+      "anchor": {
+        "cluster_scale": [
+          2.375,
+          2.375,
+          1.1875,
+          1.1875,
+          1.1875
+        ],
+        "cluster_size_dirichlet_alpha": 0.7,
+        "corr_strength": 0.1,
+        "embed_param": 5.0
+      },
+      "knob_value": 1.1875,
+      "achieved_ari": 0.8886686339897469,
+      "achieved_sd": 0.14361161363820008,
+      "target": [
+        0.8,
+        0.9
+      ],
+      "in_band": true
+    },
+    "hard": {
+      "anchor": {
+        "cluster_scale": [
+          3.1,
+          3.1,
+          1.55,
+          1.55,
+          1.55
+        ],
+        "cluster_size_dirichlet_alpha": 0.5,
+        "corr_strength": 0.3,
+        "embed_param": 5.0
+      },
+      "knob_value": 1.55,
+      "achieved_ari": 0.7394559556726337,
+      "achieved_sd": 0.26370536103900616,
+      "target": [
+        0.7,
+        0.8
+      ],
+      "in_band": true
+    }
+  }
+}

@@ -6,8 +6,10 @@ difficulty scenarios, with the shift-invert spectral eigensolver
 (09b810c), `n_trees=500` everywhere (2265c4a), `swiss_rolls` on spectral
 (945593e), and the per-scenario calibration knobs of `_calibrate.py`
 (7558d50) all in place.
-Raw output: `.superpowers/sdd/2026-09-22-benchmarking-uniformity-and-notebook/scratch/calibration-<scenario>.json`
-and the matching `.txt` transcript, one pair per scenario.
+Raw output: `2026-09-22-calibration-comparison.json`, keyed by scenario then
+difficulty label, holding each cell's `calibrate_scenario` result exactly
+as recorded (anchor, knob_value, achieved_ari, achieved_sd, target,
+in_band).
 
 ## What changed since the 2026-09-01 note
 
@@ -80,7 +82,7 @@ unchanged.
 
 Exact knob values and cluster_scale/embed_param entries, to full floating
 point precision, are recorded in `src/benchmarks/_registry.py`'s
-`CALIBRATED_ANCHORS` comments and the raw JSON in the scratch directory
+`CALIBRATED_ANCHORS` comments and in `2026-09-22-calibration-comparison.json`
 cited above; the table rounds to three decimals for readability only.
 
 ## How far the regenerated values sit from the published ones
