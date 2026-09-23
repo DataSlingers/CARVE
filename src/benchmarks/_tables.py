@@ -16,7 +16,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from ._registry import BASELINE_METRIC, METRIC_DISPLAY_NAMES
+from ._registry import BASELINE_METRIC, METRIC_DISPLAY_NAMES, TABLE_ROW_GROUPS
 
 _QUANTILES = (0.05, 0.25, 0.50, 0.75, 0.95)
 
@@ -268,6 +268,133 @@ def render_grouped_tex(
     return "\n".join(lines) + "\n"
 
 
+def _ranked(values: Sequence[float]) -> tuple[float | None, float | None]:
+    """The best and second-best finite values in a column.
+
+    Second-best is None when the best is tied, matching the committed S2
+    table: three cells at 0.932 are all bold and nothing in that column is
+    underlined. Marking a runner-up below a tied first place would say the
+    column has a clear ordering when it does not.
+    """
+    finite = sorted({float(v) for v in values if pd.notna(v)}, reverse=True)
+    if not finite:
+        return None, None
+    best = finite[0]
+    if sum(1 for v in values if pd.notna(v) and float(v) == best) > 1:
+        return best, None
+    return best, (finite[1] if len(finite) > 1 else None)
+
+
+def _marked(
+    value: float, best: float | None, second: float | None, decimals: int
+) -> str:
+    """One cell, bold if best in its column and underlined if second."""
+    if pd.isna(value):
+        return ""
+    text = f"{value:.{decimals}f}"
+    if best is not None and float(value) == best:
+        return rf"\textbf{{{text}}}"
+    if second is not None and float(value) == second:
+        return rf"\underline{{{text}}}"
+    return text
+
+
+def _sub_table(
+    summary: pd.DataFrame,
+    groups: Sequence[Sequence[str]],
+    axis_labels: Sequence[str],
+    column: str,
+    decimals: int,
+) -> list[str]:
+    """One of the pair: rows by metric group, columns by axis label."""
+    lines = [
+        f"\\begin{{tabular}}{{l{'c' * len(axis_labels)}}}",
+        r"\toprule",
+        "Metric & " + " & ".join(_tex_escape(str(a)) for a in axis_labels) + r" \\",
+        r"\midrule",
+    ]
+
+    # Ranking is per column and excludes the oracle, which is the reference
+    # the rest are measured against rather than a competitor.
+    ranks: dict[str, tuple[float | None, float | None]] = {}
+    for axis_label in axis_labels:
+        candidates = summary[
+            (summary["axis_label"] == axis_label)
+            & (summary["metric"] != BASELINE_METRIC)
+        ][column]
+        ranks[axis_label] = _ranked(candidates.tolist())
+
+    for index, group in enumerate(groups):
+        if index:
+            lines.append(r"\midrule")
+        for metric in group:
+            match = summary[summary["metric"] == metric]
+            if match.empty:
+                continue
+            cells = [_tex_escape(METRIC_DISPLAY_NAMES.get(metric, metric))]
+            for axis_label in axis_labels:
+                row = match[match["axis_label"] == axis_label]
+                if row.empty:
+                    cells.append("")
+                    continue
+                value = row.iloc[0][column]
+                if metric == BASELINE_METRIC:
+                    cells.append("" if pd.isna(value) else f"{value:.{decimals}f}")
+                else:
+                    best, second = ranks[axis_label]
+                    cells.append(_marked(value, best, second, decimals))
+            lines.append(" & ".join(cells) + r" \\")
+
+    lines.extend([r"\bottomrule", r"\end{tabular}"])
+    return lines
+
+
+def render_paired_tex(
+    summary: pd.DataFrame,
+    *,
+    caption: str,
+    label: str,
+    decimals: int = 3,
+) -> str:
+    """The manuscript's shape: mean ARI and k-recovery side by side.
+
+    Two tabulars inside one resizebox, separated by \\quad, the left giving
+    mean ARI at the selected k and the right the proportion of datasets
+    where that k was k*. Rows follow TABLE_ROW_GROUPS with a rule between
+    groups; bold marks the best value in a column and underline the
+    second-best.
+
+    This replaces render_grouped_tex's single flat table, which merged both
+    quantities into one unranked grid. The numbers were right; the layout
+    was not, and every fragment had to be reshaped by hand before it could
+    go into the manuscript.
+
+    k-recovery has two decimals rather than three throughout, as the
+    published tables do: with 20 datasets a proportion can only take
+    multiples of 0.05, so a third decimal is always zero.
+    """
+    axis_labels = list(dict.fromkeys(summary["axis_label"]))
+    groups = [
+        [m for m in group if m in set(summary["metric"])] for group in TABLE_ROW_GROUPS
+    ]
+    groups = [group for group in groups if group]
+
+    lines = [
+        r"\begin{table}[H]",
+        r"\centering",
+        r"\scriptsize",
+        r"\setlength{\tabcolsep}{3pt}",
+        f"\\caption{{{_tex_escape(caption)}}}",
+        f"\\label{{{label}}}",
+        r"\resizebox{\textwidth}{!}{%",
+    ]
+    lines += _sub_table(summary, groups, axis_labels, "ari_mean", decimals)
+    lines.append(r"\quad")
+    lines += _sub_table(summary, groups, axis_labels, "k_recovery", 2)
+    lines.extend([r"}", r"\end{table}"])
+    return "\n".join(lines) + "\n"
+
+
 def write_tables(
     df: pd.DataFrame,
     out_dir: Path,
@@ -282,7 +409,7 @@ def write_tables(
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{name}.tex"
     path.write_text(
-        render_grouped_tex(summarize(df, metrics=metrics), caption=caption, label=label)
+        render_paired_tex(summarize(df, metrics=metrics), caption=caption, label=label)
     )
     return path
 

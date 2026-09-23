@@ -5,10 +5,12 @@ import pandas as pd
 import pytest
 
 from benchmarks._artifacts import SCHEMA
+from benchmarks._registry import METRIC_DISPLAY_NAMES, TABLE_ROW_GROUPS
 from benchmarks._tables import (
     _tex_escape,
     render_ablation_tex,
     render_grouped_tex,
+    render_paired_tex,
     summarize,
     summary_stats,
     wilson_ci,
@@ -265,6 +267,145 @@ class TestWriteTables:
         )
         assert path.name == "S2_table.tex"
         assert "\\begin{table}" in path.read_text()
+
+
+@pytest.fixture
+def paired_summary():
+    """A summary with a known best and second-best per column.
+
+    Carries one metric per TABLE_ROW_GROUPS group, including group 4
+    (ari_stability_quant), so all four groups render and the three internal
+    rules are exercised. ari_stability_quant's values (0.700, 0.30) sit
+    below both the best and the second-best in each column, so the other
+    assertions in this class are unaffected by its presence.
+    """
+    rows = []
+    values = {
+        "baseline_oracle": (0.914, float("nan")),
+        "ari_stability_1se": (0.932, 1.000),
+        "ari_generalizability_1se": (0.868, 0.550),
+        "davies_bouldin": (0.928, 0.950),
+        "silhouette": (0.900, 0.700),
+        "gap": (0.851, 0.650),
+        "calinski_harabasz": (0.640, 0.000),
+        "ari_stability_quant": (0.700, 0.30),
+    }
+    for metric, (ari, recovery) in values.items():
+        rows.append(
+            {
+                "axis_label": "easy",
+                "metric": metric,
+                "display_name": METRIC_DISPLAY_NAMES[metric],
+                "n_datasets": 20,
+                "ari_mean": ari,
+                "ari_sd": 0.05,
+                "k_recovery": recovery,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+class TestPairedTex:
+    def test_two_tabulars_inside_one_resizebox(self, paired_summary):
+        out = render_paired_tex(paired_summary, caption="c", label="tab:x")
+        assert out.count(r"\begin{tabular}") == 2
+        assert r"\resizebox{\textwidth}{!}{" in out
+        assert r"\quad" in out
+
+    def test_booktabs_rules(self, paired_summary):
+        out = render_paired_tex(paired_summary, caption="c", label="tab:x")
+        assert r"\toprule" in out
+        assert r"\bottomrule" in out
+        assert r"\hline" not in out
+
+    def test_one_midrule_between_each_pair_of_row_groups(self, paired_summary):
+        """Four groups means three internal rules, plus the header's, per
+        sub-table."""
+        out = render_paired_tex(paired_summary, caption="c", label="tab:x")
+        assert out.count(r"\midrule") == 2 * (1 + 3)
+
+    def test_the_best_in_a_column_is_bold(self, paired_summary):
+        out = render_paired_tex(paired_summary, caption="c", label="tab:x")
+        assert r"\textbf{0.932}" in out
+
+    def test_the_second_best_is_underlined(self, paired_summary):
+        out = render_paired_tex(paired_summary, caption="c", label="tab:x")
+        assert r"\underline{0.928}" in out
+
+    def test_the_oracle_is_never_ranked(self, paired_summary):
+        """It is the reference the others are measured against, not a
+        competitor. The committed tables leave it unmarked."""
+        out = render_paired_tex(paired_summary, caption="c", label="tab:x")
+        assert r"\textbf{0.914}" not in out
+        assert r"\underline{0.914}" not in out
+
+    def test_ties_for_best_are_all_bold_with_no_underline(self):
+        """Matching the committed S2 table: three cells at 0.932 are all
+        bold and nothing is underlined in that column."""
+        rows = [
+            {
+                "axis_label": "easy",
+                "metric": m,
+                "display_name": METRIC_DISPLAY_NAMES[m],
+                "n_datasets": 20,
+                "ari_mean": v,
+                "ari_sd": 0.05,
+                "k_recovery": 0.5,
+            }
+            for m, v in (
+                ("ari_stability_1se", 0.932),
+                ("ari_stability_quant", 0.932),
+                ("ari_stability", 0.932),
+                ("silhouette", 0.800),
+            )
+        ]
+        out = render_paired_tex(
+            pd.DataFrame(rows), caption="c", label="tab:x"
+        )
+        assert out.count(r"\textbf{0.932}") == 3
+        assert r"\underline{" not in out
+
+    def test_the_oracles_recovery_cells_are_blank(self, paired_summary):
+        """The oracle has no selected k, so k-recovery is NaN. The published
+        tables print an empty cell, not the literal nan.
+
+        Every cell after the metric name in the right-hand table's oracle
+        row must be empty -- not merely free of the literal string "nan",
+        which a row with only some cells blank would also satisfy.
+        """
+        out = render_paired_tex(paired_summary, caption="c", label="tab:x")
+        right = out.split(r"\quad")[1]
+        oracle_row = next(
+            line for line in right.splitlines() if "Baseline (Oracle)" in line
+        )
+        body = oracle_row[: -len(r" \\")]
+        cells = body.split(" & ")
+        assert cells[0] == "Baseline (Oracle)"
+        assert all(cell == "" for cell in cells[1:])
+
+    def test_rows_follow_the_declared_groups(self, paired_summary):
+        out = render_paired_tex(paired_summary, caption="c", label="tab:x")
+        left = out.split(r"\quad")[0]
+        positions = [
+            left.index(METRIC_DISPLAY_NAMES[m])
+            for group in TABLE_ROW_GROUPS
+            for m in group
+            if METRIC_DISPLAY_NAMES[m] in left
+        ]
+        assert positions == sorted(positions)
+
+    def test_a_metric_missing_from_the_summary_is_skipped(self, paired_summary):
+        """A run that produced no rows for one metric must not leave a row
+        of the literal nan."""
+        out = render_paired_tex(paired_summary, caption="c", label="tab:x")
+        assert "nan" not in out
+
+    def test_the_caption_and_label_survive(self, paired_summary):
+        out = render_paired_tex(
+            paired_summary, caption="Gaussian mixtures.", label="tab:s2"
+        )
+        assert r"\caption{Gaussian mixtures.}" in out
+        assert r"\label{tab:s2}" in out
 
 
 class TestAblationTable:
