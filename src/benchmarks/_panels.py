@@ -428,7 +428,7 @@ def k_hat_heatmap(
     return ax
 
 
-CRITERION_REFERENCE_LABEL: str = r"ARI at $k$ (reference)"
+CRITERION_REFERENCE_LABEL: str = r"ARI at $k$ (base estimator)"
 
 
 def normalized_criterion(
@@ -494,12 +494,27 @@ def criterion_curves(
     """Why each method chose the k it chose, for one point on the axis.
 
     Every criterion is normalized to [0, 1] over the candidate k, so the
-    shapes are comparable; the mean ARI of the labels at each k is drawn on
-    the same axis as a grey reference, which is what turns "this criterion
-    peaked at the wrong k" into "and here is what that cost". Both series
-    are proportions in [0, 1], so no second y axis is needed -- and a
-    dual-axis panel would invite reading a crossing that is an artifact of
-    two independent scales.
+    shapes are comparable; the base estimator's own ARI at each k is drawn
+    on the same axis as a grey reference, which is what turns "this
+    criterion peaked at the wrong k" into "and here is what that cost".
+
+    The reference is the mean, over seeds, of the classical indices'
+    ari_at_k rows (CVI_METRICS) -- never every drawn metric's rows averaged
+    together, whether or not a metric is actually drawn. The runner cuts
+    CARVE's stability and generalizability metrics from two different
+    resampled consensus matrices; the four classical indices instead share
+    one direct fit of the base estimator at each k, so only they agree on
+    what "the ARI at k" means (see _run.run_cell). Averaging across those
+    families would not be one quantity -- mixing in, say, an undrawn
+    ari_generalizability_quant row would pull the line toward a labeling
+    this panel never shows a curve for. At k = k_star this reference meets
+    the oracle's own ARI, since both come from the same estimator fit at
+    the same k with the same seed. Nothing is drawn when the cell carries
+    no classical-index rows.
+
+    Both series are proportions in [0, 1], so no second y axis is needed --
+    and a dual-axis panel would invite reading a crossing that is an
+    artifact of two independent scales.
 
     Each metric's selected k is marked on its own curve. The gap statistic's
     mark will not sit on its maximum: Tibshirani's rule takes the smallest k
@@ -511,22 +526,21 @@ def criterion_curves(
     cell = df.loc[df["axis_label"] == axis_label]
 
     if show_ari_reference:
-        ari = (
-            cell.drop_duplicates(subset=["seed", "metric_name", "k"])
-            .groupby("k")["ari_at_k"]
-            .mean()
-            .reindex(candidate_k)
+        base = cell.loc[cell["metric_name"].isin(CVI_METRICS)].drop_duplicates(
+            subset=["seed", "k"]
         )
-        ax.plot(
-            candidate_k,
-            ari.to_numpy(),
-            color=FALLBACK_COLOR,
-            linewidth=6.0,
-            alpha=0.22,
-            solid_capstyle="round",
-            zorder=1,
-            label=CRITERION_REFERENCE_LABEL,
-        )
+        if not base.empty:
+            ari = base.groupby("k")["ari_at_k"].mean().reindex(candidate_k)
+            ax.plot(
+                candidate_k,
+                ari.to_numpy(),
+                color=FALLBACK_COLOR,
+                linewidth=6.0,
+                alpha=0.22,
+                solid_capstyle="round",
+                zorder=1,
+                label=CRITERION_REFERENCE_LABEL,
+            )
 
     curves = normalized_criterion(cell, metrics=metrics, axis_label=axis_label)
     selected = cell.loc[cell["is_selected"].astype(bool)]

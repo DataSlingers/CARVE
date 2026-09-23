@@ -1739,3 +1739,50 @@ class TestCriterionCurves:
         )
         assert not any("ARI" in str(line.get_label()) for line in ax.get_lines())
         plt.close(fig)
+
+    def test_the_reference_only_averages_classical_index_rows(self):
+        """The grey band is the base estimator's own ARI at k, not every
+        drawn-or-not metric's ari_at_k averaged together.
+
+        The runner cuts ari_generalizability_quant's labels from the
+        generalizability consensus matrix, a different labeling from the
+        classical indices' shared direct fit of the base estimator at k
+        (see _run.run_cell). An undrawn row of it here, sharing this cell's
+        (seed, k), must not move the reference even though silhouette is
+        drawn: deduplicating on (seed, metric_name, k) without filtering to
+        the classical indices averaged silhouette's 0.5 with
+        ari_generalizability_quant's 0.95 into a flat 0.725; the reference
+        must stay at silhouette's own 0.5.
+        """
+        rows = []
+        for k in (3, 4, 5, 6, 7):
+            for metric_name, ari_at_k in (
+                ("silhouette", 0.5),
+                ("ari_generalizability_quant", 0.95),
+            ):
+                rows.append(
+                    {
+                        "axis_label": "medium",
+                        "seed": 0,
+                        "metric_name": metric_name,
+                        "k": k,
+                        "metric_value": float(k),
+                        "is_selected": k == 5,
+                        "ari_at_k": ari_at_k,
+                        "k_star": 5,
+                    }
+                )
+        fig, ax = plt.subplots()
+        criterion_curves(
+            ax,
+            pd.DataFrame(rows),
+            metrics=["silhouette"],
+            axis_label="medium",
+            candidate_k=(3, 4, 5, 6, 7),
+            k_star=5,
+        )
+        reference = next(
+            line for line in ax.get_lines() if "ARI" in str(line.get_label())
+        )
+        np.testing.assert_allclose(reference.get_ydata(), [0.5] * 5)
+        plt.close(fig)
