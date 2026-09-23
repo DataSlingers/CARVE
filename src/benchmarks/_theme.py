@@ -211,9 +211,17 @@ if CLUSTER_CMAP_NAME not in mpl.colormaps:
 # The first entry, Okabe-Ito blue, is also CARVE generalizability's color
 # (METRIC_COLORS) since Task 10 re-stepped that series onto it to clear a
 # contrast floor -- the one deliberate exception to "never a METRIC_COLORS
-# value" here. The two never share an axes (pipeline_lines draws only this
-# palette, never a metric color), so the shared hue is not a readable
-# ambiguity; see TestPipelinePalette.test_no_pipeline_color_is_a_criterion_color.
+# value" here. The collision is visible, not merely theoretical:
+# figures/_cusanovich_results.py draws carve_lines (metric colors) in panel
+# C and pipeline_lines (this palette) in panel D of the same Figure, so
+# blue reads as CARVE Generalizability in one panel and the first pipeline
+# in the panel beside it. Accepted rather than fixed here because Task 10's
+# spec fixes generalizability's color and this palette belongs to that
+# case-study figure, outside that task's scope; see
+# TestPipelinePalette.test_no_pipeline_color_is_a_criterion_color for the
+# one overlap the test still allows. If the ambiguity ever matters, the fix
+# is re-stepping this entry and re-running the five pipeline colors through
+# a CVD check.
 PIPELINE_COLORS: tuple[str, ...] = (
     "#0072B2",
     "#D55E00",
