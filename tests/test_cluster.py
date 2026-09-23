@@ -278,6 +278,51 @@ class TestNonConvex:
         labels = SpectralClustering(n_clusters=2, random_state=0).fit_predict(X)
         assert adjusted_rand_score(y_true, labels) > 0.9
 
+    def test_sparse_path_is_deterministic_on_a_hard_five_cluster_problem(self):
+        """n=1500, k=5 is where which='SM' without a start vector flips.
+
+        The existing n=1000, k=2 test passes on the broken solver. Seven of
+        eleven repeated fits of this problem returned a different partition
+        before the fix, 412 of 1500 points reassigned.
+        """
+        from sklearn.datasets import make_blobs
+
+        X, _ = make_blobs(
+            n_samples=1500, centers=5, n_features=2, cluster_std=2.4, random_state=7
+        )
+        first = SpectralClustering(n_clusters=5, random_state=42).fit_predict(X)
+        for _ in range(4):
+            repeat = SpectralClustering(n_clusters=5, random_state=42).fit_predict(X)
+            np.testing.assert_array_equal(first, repeat)
+
+    def test_sparse_path_converges_on_well_separated_five_cluster_blobs(self):
+        """n=1500, k=5, well-separated blobs: the broken solver both flips
+        and undershoots the true partition, not just flips between two
+        otherwise-good answers.
+
+        Measured over 10 repeated fits with which='SM' (no start vector):
+        ARI ranged 0.67-1.00 and 7 of 10 partitions differed from the first
+        fit. Shift-invert at sigma=0 scored ARI=1.0000 on all 10 repeats,
+        identical partitions throughout. The circles case from the plan does
+        not separate the two solvers on this toolchain (ARI=1.0 on both,
+        every repeat); this dataset does.
+        """
+        from sklearn.datasets import make_blobs
+
+        X, y_true = make_blobs(
+            n_samples=1500,
+            centers=5,
+            n_features=2,
+            cluster_std=1.5,
+            center_box=(-20, 20),
+            random_state=7,
+        )
+        first = SpectralClustering(n_clusters=5, random_state=42).fit_predict(X)
+        assert adjusted_rand_score(y_true, first) > 0.99
+        for _ in range(4):
+            repeat = SpectralClustering(n_clusters=5, random_state=42).fit_predict(X)
+            np.testing.assert_array_equal(first, repeat)
+
 
 # -----------------------------------------------------------------------
 # build_knn_graph

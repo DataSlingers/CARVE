@@ -260,7 +260,9 @@ class SpectralClustering(BaseEstimator, ClusterMixin):
             Ws = csr_matrix(W) if not _issparse(W) else W
             Lsym = diags(np.ones(n)) - Dinv @ Ws @ Dinv
             try:
-                vals, vecs = eigsh(Lsym, k=k, which="SM", tol=1e-4, maxiter=5000)
+                vals, vecs = eigsh(
+                    Lsym, k=k, sigma=0.0, which="LM", tol=1e-4, maxiter=5000
+                )
             except ArpackNoConvergence as e:
                 ev = getattr(e, "eigenvectors", None)
                 ew = getattr(e, "eigenvalues", None)
