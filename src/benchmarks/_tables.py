@@ -324,8 +324,16 @@ def _sub_table(
     axis_labels: Sequence[str],
     column: str,
     decimals: int,
+    *,
+    trailing_percent: bool = False,
 ) -> list[str]:
-    """One of the pair: rows by metric group, columns by axis label."""
+    """One of the pair: rows by metric group, columns by axis label.
+
+    trailing_percent closes the tabular with ``\\end{tabular}%`` instead of
+    a bare ``\\end{tabular}``, matching the committed table: the ``%``
+    suppresses the space LaTeX would otherwise put before the following
+    ``\\quad``. Only the first (left) sub-table of a pair uses it.
+    """
     lines = [
         f"\\begin{{tabular}}{{l{'c' * len(axis_labels)}}}",
         r"\toprule",
@@ -333,13 +341,21 @@ def _sub_table(
         r"\midrule",
     ]
 
-    # Ranking is per column and excludes the oracle, which is the reference
-    # the rest are measured against rather than a competitor.
+    # Ranking is per column, over the rows this call actually renders --
+    # the metrics in `groups`, i.e. TABLE_ROW_GROUPS intersected with what
+    # is present in `summary` -- and excludes the oracle, which is the
+    # reference the rest are measured against rather than a competitor.
+    # summary can carry metrics outside TABLE_ROW_GROUPS (metrics= wasn't
+    # restricted to the published set), and ranking over those too let an
+    # unrendered value outscore every rendered one, which then rendered as
+    # unmarked instead of bold.
+    rendered_metrics = {metric for group in groups for metric in group}
     ranks: dict[str, tuple[float | None, float | None]] = {}
     for axis_label in axis_labels:
         candidates = summary[
             (summary["axis_label"] == axis_label)
             & (summary["metric"] != BASELINE_METRIC)
+            & (summary["metric"].isin(rendered_metrics))
         ][column]
         ranks[axis_label] = _ranked(candidates.tolist())
 
@@ -364,8 +380,22 @@ def _sub_table(
                     cells.append(_marked(value, best, second, decimals))
             lines.append(" & ".join(cells) + r" \\")
 
-    lines.extend([r"\bottomrule", r"\end{tabular}"])
+    end_tabular = r"\end{tabular}%" if trailing_percent else r"\end{tabular}"
+    lines.extend([r"\bottomrule", end_tabular])
     return lines
+
+
+def _comment_safe(text: str) -> str:
+    """Text safe to place after a single "%" on one line of a .tex file.
+
+    A literal newline would end the LaTeX comment right there, leaving
+    whatever follows as real (un-commented) file content rather than part
+    of the comment, so newlines become spaces. A percent sign is stripped
+    too, defensively -- TABLE_CAPTIONS carries none today, but nothing here
+    should depend on that staying true.
+    """
+    single_line = text.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+    return single_line.replace("%", "")
 
 
 def render_paired_tex(
@@ -387,6 +417,14 @@ def render_paired_tex(
     quantities into one unranked grid. The numbers were right; the layout
     was not, and every fragment had to be reshaped by hand before it could
     go into the manuscript.
+
+    The fragment is the float only -- no \\caption, no \\label. The
+    manuscript never puts either inside a supplementary table: each is an
+    author-written \\paragraph*{Sn Table.}, \\label{Sn_Table}, and caption
+    prose above a caption-free \\begin{table}[H]. caption and label are kept
+    as a single leading LaTeX comment instead, so a generated file can still
+    be identified without adding a second label or an in-float caption a
+    dropped-in fragment would otherwise carry.
     """
     axis_labels = list(dict.fromkeys(summary["axis_label"]))
     groups = [
@@ -395,15 +433,16 @@ def render_paired_tex(
     groups = [group for group in groups if group]
 
     lines = [
+        f"% {label}: {_comment_safe(caption)}",
         r"\begin{table}[H]",
         r"\centering",
         r"\scriptsize",
         r"\setlength{\tabcolsep}{3pt}",
-        f"\\caption{{{_tex_escape(caption)}}}",
-        f"\\label{{{label}}}",
         r"\resizebox{\textwidth}{!}{%",
     ]
-    lines += _sub_table(summary, groups, axis_labels, "ari_mean", decimals)
+    lines += _sub_table(
+        summary, groups, axis_labels, "ari_mean", decimals, trailing_percent=True
+    )
     lines.append(r"\quad")
     lines += _sub_table(summary, groups, axis_labels, "k_recovery", decimals)
     lines.extend([r"}", r"\end{table}"])

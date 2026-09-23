@@ -428,11 +428,88 @@ class TestPairedTex:
         assert "nan" not in out
 
     def test_the_caption_and_label_survive(self, paired_summary):
+        """The manuscript never puts \\caption or \\label inside a
+        supplementary table's float: each is an author-written
+        \\paragraph*{Sn Table.}, \\label{Sn_Table}, and caption prose above a
+        caption-free \\begin{table}[H]. The fragment is the float only --
+        caption and label are carried as one leading LaTeX comment instead,
+        so a generated file can still be identified without adding a second
+        label or an in-float caption a dropped-in fragment would otherwise
+        carry."""
         out = render_paired_tex(
             paired_summary, caption="Gaussian mixtures.", label="tab:s2"
         )
-        assert r"\caption{Gaussian mixtures.}" in out
-        assert r"\label{tab:s2}" in out
+        assert r"\caption" not in out
+        assert r"\label" not in out
+        lines = out.splitlines()
+        assert lines[0] == "% tab:s2: Gaussian mixtures."
+
+    def test_the_first_non_comment_line_opens_the_table_float(self, paired_summary):
+        out = render_paired_tex(paired_summary, caption="c", label="tab:x")
+        first_non_comment = next(
+            line for line in out.splitlines() if not line.startswith("%")
+        )
+        assert first_non_comment == r"\begin{table}[H]"
+
+    def test_a_newline_or_percent_sign_in_the_caption_cannot_escape_the_comment(
+        self, paired_summary
+    ):
+        """A literal newline in the caption must not end the LaTeX comment
+        early and leave un-commented text as the file's second line; a
+        percent sign must not survive into the comment either, defensively,
+        though TABLE_CAPTIONS carries none today."""
+        out = render_paired_tex(
+            paired_summary,
+            caption="Two lines.\nSecond line % with a percent.",
+            label="tab:s2",
+        )
+        lines = out.splitlines()
+        assert lines[0].startswith("%")
+        assert "%" not in lines[0][1:]
+        assert lines[1] == r"\begin{table}[H]"
+
+    def test_the_first_subtable_closes_with_a_percent_the_second_does_not(
+        self, paired_summary
+    ):
+        """Matches the committed table: the trailing "%" after the first
+        \\end{tabular} suppresses the space LaTeX would otherwise insert
+        before \\quad; the second \\end{tabular}, at the end of the pair, is
+        bare."""
+        out = render_paired_tex(paired_summary, caption="c", label="tab:x")
+        assert "\\end{tabular}%\n\\quad" in out
+        assert out.count(r"\end{tabular}%") == 1
+        assert "\\end{tabular}\n}\n\\end{table}" in out
+
+    def test_ranking_excludes_metrics_outside_the_declared_groups(self):
+        """Reviewer's reproduction: a metric present in the summary but
+        outside TABLE_ROW_GROUPS (ari_average is excluded from the published
+        tables entirely) must not enter the ranking for the rows that do
+        render. Before the fix, ari_average's 0.99 outranked every rendered
+        value, so ari_stability_1se's 0.930 -- the best among what actually
+        renders -- came out underlined instead of bold."""
+        rows = [
+            {
+                "axis_label": "easy",
+                "metric": m,
+                "display_name": METRIC_DISPLAY_NAMES.get(m, m),
+                "n_datasets": 20,
+                "ari_mean": v,
+                "ari_sd": 0.05,
+                "k_recovery": 0.5,
+            }
+            for m, v in (
+                ("baseline_oracle", 0.90),
+                ("ari_average", 0.99),
+                ("ari_stability_1se", 0.93),
+                ("ari_generalizability_1se", 0.85),
+            )
+        ]
+        out = render_paired_tex(pd.DataFrame(rows), caption="c", label="tab:x")
+        left = out.split(r"\quad")[0]
+        assert r"\textbf{0.930}" in left
+        assert r"\underline{0.850}" in left
+        assert "0.990" not in left
+        assert r"\underline{0.930}" not in left
 
 
 class TestAblationTable:
