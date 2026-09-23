@@ -8,6 +8,7 @@ import shutil
 import warnings
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 import numpy as np
 import pytest
@@ -259,6 +260,72 @@ class TestRunScenario:
         run_scenario(tiny_scenario, root=root, n_resamples=20, resume=True)
         second = json.loads((rd / "manifest.json").read_text())
         assert second["wall_clock_s"] >= first["wall_clock_s"]
+
+    def test_manifest_exists_before_the_pool_finishes(self, tiny_scenario, tmp_path):
+        """An interrupted scenario must still leave a readable manifest.
+
+        Run directories are located by their manifest, so a scenario killed
+        mid-pool otherwise leaves checkpoints the notebook cannot open. The
+        ablation runner was fixed for this in e720073; the scenario runner
+        was not.
+        """
+        seen = {}
+
+        def _explode(*args, **kwargs):
+            rd = tmp_path / tiny_scenario.name
+            found = list(rd.glob("*/manifest.json"))
+            seen["manifest"] = json.loads(found[0].read_text()) if found else None
+            raise KeyboardInterrupt
+
+        with mock.patch("benchmarks._run.Parallel", side_effect=_explode):
+            with pytest.raises(KeyboardInterrupt):
+                run_scenario(tiny_scenario, root=tmp_path, n_resamples=2, n_seeds=1)
+
+        assert seen["manifest"] is not None
+        assert seen["manifest"]["status"] == "running"
+
+    def test_manifest_is_complete_after_the_pool(self, tiny_scenario, tmp_path):
+        # n_resamples=10, not the brief's 2: below roughly 7 resamples the
+        # stability measures come back all-NaN and CARVE.get_k raises (see
+        # _cell's comment above), which run_cell does not catch. This test
+        # exercises a full, real pool, so it needs a safe n_resamples.
+        rd = run_scenario(tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1)
+        manifest = json.loads((rd / "manifest.json").read_text())
+        assert manifest["status"] == "complete"
+
+    def test_a_resumed_run_keeps_its_run_id_across_the_running_manifest(
+        self, tiny_scenario, run_copy
+    ):
+        """The manifest a resume writes before its pool starts must carry
+        the same run_id as the completed run it is resuming, not a freshly
+        minted one -- so a reader that opens the running manifest mid-resume
+        gets the same provenance the finished manifest will report.
+
+        Deletes one cell checkpoint so the resume has pending work, then
+        patches Parallel to capture the on-disk manifest and abort before
+        any cell runs. (The brief's version of this test compared two runs
+        at different n_seeds, which always land in different content-
+        addressed directories -- config_hash includes n_seeds -- so
+        `second != first` was trivially true and the assertion could never
+        fail. This version resumes the *same* configuration and inspects
+        the running manifest directly.)
+        """
+        root, rd = run_copy
+        first_run_id = json.loads((rd / "manifest.json").read_text())["run_id"]
+        sorted(rd.glob("cell__*.parquet"))[0].unlink()
+
+        seen = {}
+
+        def _explode(*args, **kwargs):
+            seen["manifest"] = json.loads((rd / "manifest.json").read_text())
+            raise KeyboardInterrupt
+
+        with mock.patch("benchmarks._run.Parallel", side_effect=_explode):
+            with pytest.raises(KeyboardInterrupt):
+                run_scenario(tiny_scenario, root=root, n_resamples=20, resume=True)
+
+        assert seen["manifest"]["status"] == "running"
+        assert seen["manifest"]["run_id"] == first_run_id
 
 
 def test_compute_modules_do_not_import_matplotlib_directly():

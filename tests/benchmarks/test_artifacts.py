@@ -194,6 +194,34 @@ class TestManifest:
     def test_peak_rss_is_a_positive_byte_count(self):
         assert peak_rss_bytes() > 1_000_000
 
+    def test_build_manifest_records_a_status(self):
+        manifest = build_manifest(
+            SCENARIOS["gaussians"],
+            run_id="abc123",
+            config_hash="def456",
+            n_seeds=1,
+            n_resamples=2,
+            n_jobs=1,
+            random_state=42,
+            wall_clock_s=1.0,
+            status="running",
+        )
+        assert manifest.status == "running"
+
+    def test_build_manifest_rejects_an_unknown_status(self):
+        with pytest.raises(ValueError, match="status"):
+            build_manifest(
+                SCENARIOS["gaussians"],
+                run_id="abc123",
+                config_hash="def456",
+                n_seeds=1,
+                n_resamples=2,
+                n_jobs=1,
+                random_state=42,
+                wall_clock_s=1.0,
+                status="halfway",
+            )
+
     def test_write_leaves_no_temporary_file_and_the_manifest_parses(self, tmp_path):
         """write_manifest writes through a temp file and os.replace. On
         success that temp file must not survive -- a leftover .tmp file

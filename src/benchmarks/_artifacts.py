@@ -457,6 +457,9 @@ def _package_versions() -> dict[str, str]:
     return versions
 
 
+RUN_STATUSES: frozenset[str] = frozenset({"running", "complete"})
+
+
 def build_manifest(
     scenario: Scenario,
     *,
@@ -467,6 +470,7 @@ def build_manifest(
     n_jobs: int,
     random_state: int,
     wall_clock_s: float,
+    status: str = "complete",
     timing_fits: bool = False,
 ) -> Manifest:
     """Assemble the provenance record for one run.
@@ -476,6 +480,10 @@ def build_manifest(
     mode-specific fits, but it changes no metric a run produces, so it must
     not affect config_hash's content address.
     """
+    if status not in RUN_STATUSES:
+        raise ValueError(
+            f"Unknown run status {status!r}. Valid values are {sorted(RUN_STATUSES)}."
+        )
     config = _canonical_config(
         scenario,
         n_seeds=n_seeds,
@@ -487,6 +495,7 @@ def build_manifest(
         run_id=run_id,
         scenario=scenario.name,
         config_hash=config_hash,
+        status=status,
         anchor_set=ACTIVE_ANCHOR_SET_NAME,
         n_seeds=n_seeds,
         n_resamples=n_resamples,

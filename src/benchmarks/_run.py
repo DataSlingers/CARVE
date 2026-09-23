@@ -423,6 +423,14 @@ def run_scenario(
     Returns the run directory, which is content-addressed on the scenario
     configuration so a changed anchor cannot read a stale result.
 
+    The manifest is written twice: with status "running" before the pool
+    starts, carrying the wall clock accumulated so far, and with status
+    "complete" and the cumulative wall clock once every cell is done. An
+    interrupted run therefore still has a manifest -- the run directory is
+    located by it, and a directory with checkpoints and no manifest cannot
+    be opened at all -- and a resume reads run_id and the previous wall
+    clock from whichever of the two it finds.
+
     Provenance across resumes. When resume=True and the run directory
     already has a manifest.json, this invocation reuses the run_id it
     records rather than minting a new one, so every row on disk -- from
@@ -493,8 +501,31 @@ def run_scenario(
         )
 
     run_id = previous_manifest["run_id"] if previous_manifest else uuid.uuid4().hex[:12]
-    started = time.perf_counter()
+    carried = (
+        float(previous_manifest["wall_clock_s"])
+        if previous_manifest is not None
+        else 0.0
+    )
     _, thread_cap = thread_cap_for(n_jobs)
+
+    def _manifest(status: str, wall_clock_s: float):
+        return build_manifest(
+            scenario,
+            run_id=run_id,
+            config_hash=cfg_hash,
+            n_seeds=n_seeds,
+            n_resamples=n_resamples,
+            n_jobs=n_jobs,
+            random_state=random_state,
+            wall_clock_s=wall_clock_s,
+            status=status,
+            timing_fits=timing_fits,
+        )
+
+    # Before the pool, not after. A scenario killed mid-pool otherwise leaves
+    # a directory of checkpoints with no manifest, which no reader can open.
+    write_manifest(rd, _manifest("running", carried))
+    started = time.perf_counter()
 
     def _one(axis_idx, axis_value, axis_label, seed):
         rows, runtime_row = run_cell(
@@ -518,22 +549,6 @@ def run_scenario(
             for cell in tqdm(pending, desc=scenario.name, leave=False)
         )
 
-    elapsed = time.perf_counter() - started
-    if previous_manifest is not None:
-        elapsed += float(previous_manifest["wall_clock_s"])
-
-    write_manifest(
-        rd,
-        build_manifest(
-            scenario,
-            run_id=run_id,
-            config_hash=cfg_hash,
-            n_seeds=n_seeds,
-            n_resamples=n_resamples,
-            n_jobs=n_jobs,
-            random_state=random_state,
-            wall_clock_s=elapsed,
-            timing_fits=timing_fits,
-        ),
-    )
+    elapsed = carried + (time.perf_counter() - started)
+    write_manifest(rd, _manifest("complete", elapsed))
     return rd

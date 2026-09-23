@@ -368,11 +368,17 @@ class Manifest:
     ru_maxrss in bytes on macOS and kilobytes on Linux. A memory benchmark
     cannot carry a silent factor-of-1024 ambiguity between the machine an
     author ran it on and the machine CI ran it on.
+
+    status is "running" while the pool is in flight and "complete" once every
+    cell is done. It is written before the pool starts so an interrupted run
+    still has a manifest: run directories are located by it, and a directory
+    with checkpoints and no manifest cannot be opened at all.
     """
 
     run_id: str
     scenario: str
     config_hash: str
+    status: str
     anchor_set: str
     n_seeds: int
     n_resamples: int
