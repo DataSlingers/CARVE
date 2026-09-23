@@ -1,5 +1,7 @@
 """Tests for the benchmarks command-line entry point."""
 
+from pathlib import Path
+
 import pytest
 
 import benchmarks.run as run_module
@@ -61,6 +63,30 @@ class TestCli:
         (tmp_path / "empty").mkdir()
         assert main(["--promote", str(tmp_path / "empty")]) == 1
         assert "manifest" in capsys.readouterr().err
+
+
+def test_allow_code_change_reaches_run_scenario(monkeypatch):
+    captured = {}
+
+    def _fake(scenario, **kwargs):
+        captured.update(kwargs)
+        return Path("results/runs/gaussians/abc")
+
+    monkeypatch.setattr("benchmarks.run.run_scenario", _fake)
+    main(["--scenario", "gaussians", "--allow-code-change"])
+    assert captured["allow_code_change"] is True
+
+
+def test_the_code_version_is_checked_by_default(monkeypatch):
+    captured = {}
+
+    def _fake(scenario, **kwargs):
+        captured.update(kwargs)
+        return Path("results/runs/gaussians/abc")
+
+    monkeypatch.setattr("benchmarks.run.run_scenario", _fake)
+    main(["--scenario", "gaussians"])
+    assert captured["allow_code_change"] is False
 
 
 class TestAblationCli:

@@ -327,6 +327,58 @@ class TestRunScenario:
         assert seen["manifest"]["status"] == "running"
         assert seen["manifest"]["run_id"] == first_run_id
 
+    def test_resuming_onto_different_code_raises(self, tiny_scenario, tmp_path):
+        """read_run concatenates whatever checkpoints it finds.
+
+        A run directory is content-addressed on configuration only, so
+        re-running the same config on newer code resumes into the old
+        directory and mixes two code versions' rows in one frame with
+        nothing marking it. git_sha was already recorded and never checked;
+        this is what left the ablation dev run unreadable.
+
+        n_resamples=10, not the brief's 2: see the comment on
+        test_manifest_is_complete_after_the_pool -- these tests run a full,
+        real pool to completion rather than a mocked one.
+        """
+        rd = run_scenario(tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1)
+        manifest = json.loads((rd / "manifest.json").read_text())
+        manifest["git_sha"] = "0" * 40
+        (rd / "manifest.json").write_text(json.dumps(manifest))
+
+        # The brief's own match string, "different code version", never
+        # occurs in its own verbatim error message below (no "different" at
+        # all) and could never pass; matching a phrase the message actually
+        # contains instead.
+        with pytest.raises(RuntimeError, match="concatenate two code versions"):
+            run_scenario(tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1)
+
+    def test_the_override_allows_the_resume(self, tiny_scenario, tmp_path):
+        rd = run_scenario(tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1)
+        manifest = json.loads((rd / "manifest.json").read_text())
+        manifest["git_sha"] = "0" * 40
+        (rd / "manifest.json").write_text(json.dumps(manifest))
+
+        again = run_scenario(
+            tiny_scenario,
+            root=tmp_path,
+            n_resamples=10,
+            n_seeds=1,
+            allow_code_change=True,
+        )
+        assert again == rd
+
+    def test_no_resume_does_not_check_the_code_version(self, tiny_scenario, tmp_path):
+        """resume=False recomputes every cell, so there is nothing to mix."""
+        rd = run_scenario(tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1)
+        manifest = json.loads((rd / "manifest.json").read_text())
+        manifest["git_sha"] = "0" * 40
+        (rd / "manifest.json").write_text(json.dumps(manifest))
+
+        again = run_scenario(
+            tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1, resume=False
+        )
+        assert again == rd
+
 
 def test_compute_modules_do_not_import_matplotlib_directly():
     """Checks each compute module's source for a direct matplotlib import,

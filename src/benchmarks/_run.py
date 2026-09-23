@@ -42,6 +42,7 @@ from ._artifacts import (
     build_manifest,
     completed_cells,
     config_hash,
+    provenance,
     run_dir,
     write_checkpoint,
     write_manifest,
@@ -415,6 +416,7 @@ def run_scenario(
     n_seeds: int | None = None,
     n_resamples: int = 100,
     resume: bool = True,
+    allow_code_change: bool = False,
     verbose: int = 0,
     timing_fits: bool | None = None,
 ) -> Path:
@@ -459,6 +461,10 @@ def run_scenario(
     read guard is still needed for manifests left over from before that
     fix, or from any other source of on-disk corruption.
 
+    allow_code_change permits a resume into a directory whose manifest
+    records a different git_sha. It is off by default: the checkpoints of two
+    code versions are indistinguishable once read_run concatenates them.
+
     timing_fits controls whether each cell additionally runs the two extra,
     mode-specific fits that feed the runtime sidecar (see run_cell). Left at
     its default of None, it defers to TIMED_SCENARIOS: only the scaling
@@ -485,6 +491,21 @@ def run_scenario(
                 f"Could not read manifest at {manifest_path} ({exc}); "
                 "continuing this run with fresh provenance.",
                 stacklevel=2,
+            )
+
+    if previous_manifest is not None and not allow_code_change:
+        recorded = previous_manifest.get("git_sha")
+        current = provenance()["git_sha"]
+        if recorded and current and recorded != current:
+            raise RuntimeError(
+                f"{rd} was produced at git_sha {recorded}, and this process is at "
+                f"{current}. Resuming would concatenate two code versions' "
+                "checkpoints into one frame, because a run directory is "
+                "content-addressed on its configuration and not on the code that "
+                "produced it, and read_run reads whatever it finds. Re-run with "
+                "--no-resume to recompute the directory, or pass "
+                "--allow-code-change if the change provably cannot affect a "
+                "recorded value."
             )
 
     done = completed_cells(rd) if resume else set()

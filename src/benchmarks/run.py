@@ -72,6 +72,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--random-state", type=int, default=PUBLISHED_RANDOM_STATE)
     parser.add_argument("--no-resume", action="store_true")
+    parser.add_argument(
+        "--allow-code-change",
+        action="store_true",
+        help="Resume into a run directory recorded at a different git_sha. Off by "
+        "default, because resuming across code versions mixes their checkpoints.",
+    )
     parser.add_argument("--verbose", action="count", default=0)
     return parser
 
@@ -169,6 +175,7 @@ def main(argv: list[str] | None = None) -> int:
             n_seeds=args.n_seeds,
             n_resamples=args.n_resamples,
             resume=not args.no_resume,
+            allow_code_change=args.allow_code_change,
             verbose=args.verbose,
         )
         print(f"{name}: {rd}")
