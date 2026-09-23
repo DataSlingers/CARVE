@@ -473,6 +473,24 @@ def _sidecar_path(path: Path) -> Path:
     return path.with_name(path.stem + ".json")
 
 
+def _cache_files(path: Path) -> tuple[Path, Path, Path, Path]:
+    """The four files one cached result is spread across, in _write_cache's order."""
+    return (path, _labels_path(path), _sidecar_path(path), fingerprint_path(path))
+
+
+def _cache_is_complete(path: Path) -> bool:
+    """True only when every file a cached result needs is present.
+
+    _write_cache writes its four files non-atomically, so a process killed
+    mid-write can leave path.is_file() true while the labels parquet,
+    sidecar, or fingerprint sidecar is missing. Checking path.is_file() alone
+    (the previous guard) would then hand _read_cache a bare
+    FileNotFoundError from one of the other three files instead of
+    recomputing.
+    """
+    return all(candidate.is_file() for candidate in _cache_files(path))
+
+
 def _read_cache(path: Path) -> M3CResult:
     scores = validate_scores(pd.read_parquet(path))
     labels_frame = pd.read_parquet(_labels_path(path))
@@ -492,6 +510,40 @@ def _read_cache(path: Path) -> M3CResult:
     )
 
 
+def _expected_config(**kwargs: Any) -> dict[str, Any]:
+    """The config run_m3c(X, **kwargs) would record, without running it.
+
+    Mirrors run_m3c's own construction of ``config`` line for line: individual
+    overrides layered onto M3C_DEFAULTS, then maxK and cores pinned from this
+    call's own max_k and cores (or their defaults, kept in sync with
+    run_m3c's signature via _DEFAULT_MAX_K and _DEFAULT_CORES rather than
+    restated as separate literals here).
+
+    m3c_cache_path's filename hash covers whatever dict its own caller
+    passes it -- in practice just {"maxK": ...} -- so a changed M3C_DEFAULTS
+    entry, or a cores value, does not change the filename. This
+    reconstruction is what lets run_or_load_m3c catch that a loaded cache's
+    config no longer matches what this call would produce, without changing
+    the cache's naming scheme.
+    """
+    max_k = kwargs.get("max_k", _DEFAULT_MAX_K)
+    cores = kwargs.get("cores", _DEFAULT_CORES)
+    overrides = {
+        key: value
+        for key, value in kwargs.items()
+        if key not in {"max_k", "allow_install", "cores", "verbose"}
+    }
+    return dict(M3C_DEFAULTS) | overrides | {"maxK": int(max_k), "cores": int(cores)}
+
+
+def _mismatched_config_keys(
+    loaded: Mapping[str, Any], expected: Mapping[str, Any]
+) -> list[str]:
+    """Keys where a loaded cache's config differs from what this call expects."""
+    keys = sorted(set(loaded) | set(expected))
+    return [key for key in keys if loaded.get(key) != expected.get(key)]
+
+
 def run_or_load_m3c(
     X: np.ndarray, *, cache_path: Path, force: bool = False, **kwargs: Any
 ) -> M3CResult:
@@ -501,11 +553,33 @@ def run_or_load_m3c(
     min), not an estimate, so the cache is what makes regenerating the figure
     practical. The fingerprint guard is the same one fit_or_load_carve uses:
     a cached result is never served against a matrix it was not computed on.
+
+    A loaded cache's config is also checked against the config this call
+    would itself produce (_expected_config): m3c_cache_path's filename hash
+    does not cover M3C_DEFAULTS or cores, only whatever config dict its own
+    caller happens to pass it for the filename, so a pinned default changing
+    would otherwise serve a stale result under the new pins with no signal.
     """
     cache_path = Path(cache_path)
-    if cache_path.is_file() and not force:
+    if not force and _cache_is_complete(cache_path):
         check_fingerprint(cache_path, X)
-        return _read_cache(cache_path)
+        result = _read_cache(cache_path)
+        expected = _expected_config(**kwargs)
+        mismatched = _mismatched_config_keys(result.config, expected)
+        if mismatched:
+            details = "; ".join(
+                f"{key}: cached={result.config.get(key)!r}, "
+                f"requested={expected.get(key)!r}"
+                for key in mismatched
+            )
+            raise ValueError(
+                f"{cache_path} was cached with a different M3C configuration "
+                f"than this call would use ({details}). Serving it would "
+                "silently apply the new pins to a stale result. Pass "
+                "force=True to recompute, or call run_or_load_m3c with the "
+                "arguments the cache was written with."
+            )
+        return result
 
     result = run_m3c(X, **kwargs)
     _write_cache(cache_path, result, X)

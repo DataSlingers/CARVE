@@ -298,14 +298,19 @@ from pathlib import Path
 from benchmarks._m3c import m3c_cache_path, run_or_load_m3c
 
 
-def stub_result() -> M3CResult:
+def stub_result(config: dict | None = None) -> M3CResult:
+    # dict(M3C_DEFAULTS) | {"maxK": 4, "cores": 1} is exactly what
+    # run_or_load_m3c(X, cache_path=..., max_k=4) itself now expects
+    # (_expected_config), so the TestRunOrLoad tests that call it with
+    # max_k=4 and no other overrides get a config-guard match by default.
+    # Callers exercising the mismatch path pass an explicit config instead.
     return M3CResult(
         scores=scores_frame(),
         labels={2: np.zeros(6, dtype=int), 3: np.arange(6) % 3, 4: np.arange(6) % 4},
         selected_k=4,
         p_value=0.01,
         runtime_s=2.0,
-        config={"maxK": 4, "clusteralg": "pam"},
+        config=config if config is not None else dict(M3C_DEFAULTS) | {"maxK": 4, "cores": 1},
         m3c_version="1.34.0",
         r_version="R version 4.5.1 (2025-06-13)",
     )
@@ -372,6 +377,74 @@ class TestRunOrLoad:
         run_or_load_m3c(X, cache_path=cache, max_k=4)
         run_or_load_m3c(X, cache_path=cache, max_k=4, force=True)
         assert len(calls) == 2
+
+    def test_serves_the_cache_when_the_config_matches(self, tmp_path, monkeypatch):
+        # dict(M3C_DEFAULTS) | {"maxK": 4, "cores": 1} -- stub_result's
+        # default config -- is exactly what this call itself would produce,
+        # so the config guard is a no-op and the cache is served.
+        monkeypatch.setattr("benchmarks._m3c.run_m3c", lambda X, **kw: stub_result())
+        X = np.arange(18, dtype=float).reshape(6, 3)
+        cache = tmp_path / "m3c.parquet"
+
+        run_or_load_m3c(X, cache_path=cache, max_k=4)
+        served = run_or_load_m3c(X, cache_path=cache, max_k=4)
+        assert served.selected_k == 4
+
+    def test_raises_when_the_cached_config_does_not_match_this_call(
+        self, tmp_path, monkeypatch
+    ):
+        # Reachable in a single call, per the finding this guards against:
+        # the cache is written under one config (here, iters overridden to
+        # 5, as if M3C_DEFAULTS or the call's own kwargs had been different
+        # when it was written), and a later call with unchanged kwargs now
+        # expects the real M3C_DEFAULTS (iters=25). The fingerprint alone
+        # cannot catch this, since X is identical both times -- only the
+        # config guard can.
+        stale = stub_result(config=dict(M3C_DEFAULTS) | {"maxK": 4, "cores": 1, "iters": 5})
+        monkeypatch.setattr("benchmarks._m3c.run_m3c", lambda X, **kw: stale)
+        X = np.arange(18, dtype=float).reshape(6, 3)
+        cache = tmp_path / "m3c.parquet"
+
+        run_or_load_m3c(X, cache_path=cache, max_k=4)
+        with pytest.raises(ValueError, match="different M3C configuration"):
+            run_or_load_m3c(X, cache_path=cache, max_k=4)
+
+    def test_config_mismatch_message_names_the_differing_key(
+        self, tmp_path, monkeypatch
+    ):
+        stale = stub_result(config=dict(M3C_DEFAULTS) | {"maxK": 4, "cores": 1, "iters": 5})
+        monkeypatch.setattr("benchmarks._m3c.run_m3c", lambda X, **kw: stale)
+        X = np.arange(18, dtype=float).reshape(6, 3)
+        cache = tmp_path / "m3c.parquet"
+
+        run_or_load_m3c(X, cache_path=cache, max_k=4)
+        with pytest.raises(ValueError, match=r"iters.*force=True") as excinfo:
+            run_or_load_m3c(X, cache_path=cache, max_k=4)
+        assert "cached=5" in str(excinfo.value)
+        assert "requested=25" in str(excinfo.value)
+
+    def test_recomputes_when_a_cache_file_is_missing(self, tmp_path, monkeypatch):
+        # A process killed mid-write can leave the main parquet in place
+        # while _write_cache's other three files -- the labels parquet, the
+        # JSON sidecar, or the fingerprint sidecar -- never got written.
+        # Checking cache_path.is_file() alone would then hand _read_cache a
+        # bare FileNotFoundError instead of recomputing.
+        calls = []
+        monkeypatch.setattr(
+            "benchmarks._m3c.run_m3c",
+            lambda X, **kw: (calls.append(X), stub_result())[1],
+        )
+        X = np.arange(18, dtype=float).reshape(6, 3)
+        cache = tmp_path / "m3c.parquet"
+
+        run_or_load_m3c(X, cache_path=cache, max_k=4)
+        assert len(calls) == 1
+
+        cache.with_name(cache.stem + ".labels.parquet").unlink()
+
+        result = run_or_load_m3c(X, cache_path=cache, max_k=4)
+        assert len(calls) == 2
+        assert result.selected_k == 4
 
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "m3c_klein_scores.csv"
