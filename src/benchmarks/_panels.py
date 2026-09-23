@@ -198,6 +198,20 @@ def axis_arrows(
     return ax
 
 
+def _dodge_offsets(metrics: Sequence[str], dodge: float) -> dict[str, float]:
+    """Per-metric x offsets, centered on zero.
+
+    Seven methods' per-seed clouds drawn at one x merge into a vertical band
+    that carries no per-method information. Spreading them symmetrically
+    keeps each method's spread readable while leaving the mean lines on the
+    real axis positions.
+    """
+    if dodge <= 0 or len(metrics) < 2:
+        return dict.fromkeys(metrics, 0.0)
+    span = dodge * (len(metrics) - 1)
+    return {metric: -span / 2 + index * dodge for index, metric in enumerate(metrics)}
+
+
 def metric_lines(
     ax: Axes,
     df: pd.DataFrame,
@@ -208,6 +222,9 @@ def metric_lines(
     y_label: str | None = None,
     element_scale: float = 1.0,
     show_legend: bool = True,
+    show_points: bool = False,
+    point_alpha: float = 0.28,
+    dodge: float = 0.0,
 ) -> Axes:
     """Plot mean ARI at the selected k against the axis, one line per metric.
 
@@ -221,8 +238,14 @@ def metric_lines(
     per (axis point, seed) rather than one per (metric, k) -- so it is drawn
     from the deduplicated ``oracle_ari`` column instead of the
     ``is_selected``-filtered rows the other metrics use.
+
+    show_points draws each dataset's own value behind the mean, dodged along
+    x by dodge so seven methods' clouds do not merge into one band. It is
+    off by default: Fig 4 draws means and error bars, and this function is
+    what draws Fig 4.
     """
     selected = df.loc[df["is_selected"]]
+    offsets = _dodge_offsets(list(metrics), dodge)
 
     for metric in metrics:
         if metric == "baseline_oracle":
@@ -245,6 +268,17 @@ def metric_lines(
                 color=metric_color(metric),
                 label=_display(metric),
             )
+            if show_points:
+                ax.scatter(
+                    oracle[x_col].to_numpy(dtype=float) + offsets[metric],
+                    oracle["oracle_ari"].to_numpy(dtype=float),
+                    s=9.0 * element_scale,
+                    color=metric_color(metric),
+                    alpha=point_alpha,
+                    linewidth=0.0,
+                    zorder=1,
+                    label="_points",
+                )
             continue
 
         sub = selected.loc[selected["metric_name"] == metric]
@@ -265,6 +299,17 @@ def metric_lines(
             color=metric_color(metric),
             label=_display(metric),
         )
+        if show_points:
+            ax.scatter(
+                sub[x_col].to_numpy(dtype=float) + offsets[metric],
+                sub["ari_at_k"].to_numpy(dtype=float),
+                s=9.0 * element_scale,
+                color=metric_color(metric),
+                alpha=point_alpha,
+                linewidth=0.0,
+                zorder=1,
+                label="_points",
+            )
 
     ax.set_xlabel(x_label or x_col, fontsize=FONT_SIZES["axis_label"])
     ax.set_ylabel(

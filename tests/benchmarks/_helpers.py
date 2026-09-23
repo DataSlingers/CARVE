@@ -191,6 +191,56 @@ def pipeline_results(
     return pd.DataFrame(rows)
 
 
+def synthetic_run_frame(scenario_name, *, n_seeds=2, metrics=None):
+    """A schema-complete artifact frame for one scenario, cheap to build.
+
+    Covers every axis point, every candidate k and every requested metric,
+    with a selection per (metric, dataset) so is_selected is never all
+    False. Figure tests need shape and completeness, not real numbers, and
+    running the real pipeline for a layout assertion costs minutes per test.
+    """
+    import numpy as np
+    import pandas as pd
+
+    from benchmarks._registry import SCENARIOS
+    from benchmarks.figures._benchmarking_results import DEFAULT_METRICS
+
+    scenario = SCENARIOS[scenario_name]
+    metrics = [
+        m
+        for m in (DEFAULT_METRICS if metrics is None else metrics)
+        if m != "baseline_oracle"
+    ]
+    rng = np.random.default_rng(0)
+    rows = []
+    for axis_idx, axis_value, axis_label in scenario.axis:
+        for seed in range(n_seeds):
+            oracle = 0.9 - 0.1 * axis_idx
+            for metric in metrics:
+                chosen = int(rng.choice(scenario.candidate_k))
+                for k in scenario.candidate_k:
+                    rows.append(
+                        {
+                            "run_id": "synthetic",
+                            "scenario": scenario_name,
+                            "axis_name": scenario.axis.name,
+                            "axis_value": axis_value,
+                            "axis_label": axis_label,
+                            "seed": seed,
+                            "k_star": scenario.k_star,
+                            "estimator": scenario.estimator.name,
+                            "oracle_ari": oracle,
+                            "metric_name": metric,
+                            "k": int(k),
+                            "metric_value": float(rng.uniform(0.1, 0.9)),
+                            "is_selected": k == chosen,
+                            "selects_true_k": k == scenario.k_star,
+                            "ari_at_k": float(rng.uniform(0.3, 0.95)),
+                        }
+                    )
+    return pd.DataFrame(rows)
+
+
 def make_carve_spy() -> type:
     """A CARVE stand-in class that records its constructor and fit kwargs.
 

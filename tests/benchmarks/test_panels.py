@@ -269,6 +269,91 @@ class TestMetricLines:
         assert drawn_yerr == pytest.approx(float(seed_level_sem.iloc[0]), rel=1e-6)
 
 
+@pytest.fixture
+def results_frame():
+    """A three-anchor, three-dataset frame for the two CARVE selectors."""
+    from tests.benchmarks._helpers import synthetic_run_frame
+
+    return synthetic_run_frame(
+        "gaussians",
+        n_seeds=3,
+        metrics=["ari_stability_1se", "ari_generalizability_1se"],
+    )
+
+
+class TestMetricLinePoints:
+    def test_points_are_off_by_default(self, results_frame):
+        """Fig 4 draws means and error bars only. The dashboard asks for the
+        per-seed cloud; the manuscript figure must not change shape.
+
+        ax.errorbar's own error-bar caps are LineCollections and land in
+        ax.collections too, so the absence of the per-seed cloud is checked
+        by its "_points" label rather than by ax.collections being empty.
+        """
+        fig, ax = plt.subplots()
+        metric_lines(ax, results_frame, metrics=["ari_stability_1se"])
+        points = [c for c in ax.collections if c.get_label() == "_points"]
+        assert len(points) == 0
+        plt.close(fig)
+
+    def test_points_draw_one_marker_per_dataset_and_axis_point(
+        self, results_frame
+    ):
+        fig, ax = plt.subplots()
+        metric_lines(
+            ax, results_frame, metrics=["ari_stability_1se"], show_points=True
+        )
+        points = [c for c in ax.collections if c.get_label() == "_points"]
+        drawn = sum(len(c.get_offsets()) for c in points)
+        expected = (
+            results_frame.loc[
+                results_frame["is_selected"]
+                & (results_frame["metric_name"] == "ari_stability_1se")
+            ]
+            .drop_duplicates(subset=["axis_value", "seed"])
+            .shape[0]
+        )
+        assert drawn == expected
+        plt.close(fig)
+
+    def test_dodge_separates_two_metrics_clouds(self, results_frame):
+        """Overplotted at one x, seven methods' clouds merge into a band
+        that says nothing. Dodging spreads them along x instead."""
+        fig, ax = plt.subplots()
+        metric_lines(
+            ax,
+            results_frame,
+            metrics=["ari_stability_1se", "ari_generalizability_1se"],
+            show_points=True,
+            dodge=0.12,
+        )
+        points = [c for c in ax.collections if c.get_label() == "_points"]
+        first, second = points[0], points[1]
+        assert first.get_offsets()[0][0] != second.get_offsets()[0][0]
+        plt.close(fig)
+
+    def test_the_oracle_gets_points_too(self, results_frame):
+        fig, ax = plt.subplots()
+        metric_lines(
+            ax, results_frame, metrics=["baseline_oracle"], show_points=True
+        )
+        points = [c for c in ax.collections if c.get_label() == "_points"]
+        assert len(points) == 1
+        plt.close(fig)
+
+    def test_points_do_not_enter_the_legend(self, results_frame):
+        """One legend entry per method. A second handle for its cloud
+        doubles the legend and makes metric_legend's column arithmetic
+        wrong."""
+        fig, ax = plt.subplots()
+        metric_lines(
+            ax, results_frame, metrics=["ari_stability_1se"], show_points=True
+        )
+        labels = ax.get_legend_handles_labels()[1]
+        assert labels.count("CARVE Stability (1SE)") == 1
+        plt.close(fig)
+
+
 def _runtime_frame():
     return pd.DataFrame(
         {
