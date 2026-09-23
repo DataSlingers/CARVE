@@ -20,7 +20,13 @@ import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
 
-from .._panels import criterion_curves, k_hat_heatmap, metric_legend, metric_lines
+from .._panels import (
+    CRITERION_REFERENCE_LABEL,
+    criterion_curves,
+    k_hat_heatmap,
+    metric_legend,
+    metric_lines,
+)
 from .._registry import PUBLISHED_RANDOM_STATE, SCENARIOS
 from .._theme import FONT_SIZES, save_figure, theme_context
 from ._benchmarking_examples import SCENARIO_TITLES, draw_example_row
@@ -162,6 +168,31 @@ def figure_scenario_dashboard(
             if index:
                 criterion_axes[index].set_ylabel("")
                 heatmap_axes[index].set_yticklabels([])
+
+        # The grey reference band has no entry in the shared foot legend --
+        # metric_legend's grouping only classifies metric names, so a
+        # free-form label like this one cannot surface through it, and a
+        # second figure-level legend would break the "one shared legend"
+        # contract. Naming it on the leftmost criterion panel alone, from
+        # that panel's own handle, is what keeps the label appearing once
+        # rather than once per axis point. criterion_curves omits the line
+        # entirely when a cell has no classical-index rows, so this is a
+        # no-op then.
+        handles, texts = criterion_axes[0].get_legend_handles_labels()
+        reference = [
+            (handle, text)
+            for handle, text in zip(handles, texts)
+            if text == CRITERION_REFERENCE_LABEL
+        ]
+        if reference:
+            ref_handle, ref_label = reference[0]
+            criterion_axes[0].legend(
+                [ref_handle],
+                [ref_label],
+                loc="lower center",
+                frameon=False,
+                fontsize=FONT_SIZES["legend"],
+            )
 
         fig.suptitle(
             SCENARIO_TITLES.get(name, name), fontsize=FONT_SIZES["title"], y=0.995

@@ -58,6 +58,37 @@ class TestLayout:
         plt.close(fig)
 
 
+class TestCriterionReferenceLegend:
+    """The grey reference band in criterion_curves has no name on its own.
+
+    metric_legend's _legend_groups only classifies handles by metric name
+    (see _legend_groups in .._panels), so a free-form label like
+    CRITERION_REFERENCE_LABEL can never surface through the shared foot
+    legend. Naming it needs its own legend, on the leftmost criterion panel
+    only, so the label appears exactly once rather than once per axis
+    point.
+    """
+
+    def test_leftmost_criterion_panel_names_the_reference_line(
+        self, gaussians_frame
+    ):
+        from benchmarks._panels import CRITERION_REFERENCE_LABEL
+
+        fig = figure_scenario_dashboard("gaussians", gaussians_frame)
+        n_points = len(SCENARIOS["gaussians"].axis)
+        criterion_axes = fig.axes[n_points + 1 : 2 * n_points + 1]
+
+        leftmost, *rest = criterion_axes
+        legend = leftmost.get_legend()
+        assert legend is not None
+        assert [t.get_text() for t in legend.get_texts()] == [
+            CRITERION_REFERENCE_LABEL
+        ]
+        for ax in rest:
+            assert ax.get_legend() is None
+        plt.close(fig)
+
+
 class TestScalingScenarios:
     def test_a_scaling_scenario_labels_its_own_axis(self):
         """easy/medium/hard would be a mislabeling on an n or p sweep."""
