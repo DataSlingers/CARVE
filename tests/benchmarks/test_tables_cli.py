@@ -3,8 +3,11 @@
 import json
 
 import pandas as pd
+import pytest
 
 from benchmarks._artifacts import SCHEMA
+from benchmarks._registry import SCALING_TABLE_ROW_GROUPS
+from benchmarks._tables import _table_display_name
 from benchmarks.run import main
 from benchmarks.tables import (
     EXCLUDED_METRICS,
@@ -14,7 +17,7 @@ from benchmarks.tables import (
     write_all_tables,
 )
 
-from ._helpers import _fake_run
+from ._helpers import _fake_run, synthetic_run_frame
 
 METRICS = ("ari_stability_1se", "ari_average_1se", "silhouette")
 
@@ -129,6 +132,58 @@ class TestWriteAllTables:
         paths = write_all_tables({"gaussians": _frame("gaussians")}, tmp_path)
         text = paths[0].read_text()
         assert text.index("Baseline (Oracle)") < text.index("CARVE Stability (1SE)")
+
+
+def _left_body(text):
+    """The left sub-table's rows and rules, between its header and its
+    closing rule: a row as its label, a rule as the \\midrule token."""
+    left = text.split(r"\quad")[0]
+    body = left.split(r"\midrule", 1)[1].split(r"\bottomrule")[0]
+    return [
+        line if line == r"\midrule" else line.split(" & ")[0]
+        for line in body.strip().splitlines()
+    ]
+
+
+class TestScalingTables:
+    """The committed S8 and S9 head their columns with the swept values and
+    order the classical indices differently from S2. A fragment that
+    differs in either needs hand-editing before it can replace them."""
+
+    @pytest.fixture(
+        params=[
+            ("gaussians_samples", r"Metric & 1000 & 5500 & 10000 \\"),
+            ("gaussians_dimensionality", r"Metric & 50 & 525 & 1000 \\"),
+        ],
+        ids=["S8", "S9"],
+    )
+    def fragment(self, request, tmp_path):
+        name, header = request.param
+        frame = synthetic_run_frame(name, n_seeds=2, metrics=table_metrics())
+        [path] = write_all_tables({name: frame}, tmp_path)
+        return path.read_text(), header
+
+    def test_the_header_carries_the_axis_values(self, fragment):
+        text, header = fragment
+        headers = [line for line in text.splitlines() if line.startswith("Metric & ")]
+        assert headers == [header] * 2
+
+    def test_rows_follow_the_declared_scaling_groups(self, fragment):
+        text, _ = fragment
+        expected = []
+        for index, group in enumerate(SCALING_TABLE_ROW_GROUPS):
+            if index:
+                expected.append(r"\midrule")
+            expected.extend(_table_display_name(m) for m in group)
+        assert _left_body(text) == expected
+
+    def test_a_difficulty_table_keeps_its_labels(self, tmp_path):
+        frame = synthetic_run_frame("gaussians", n_seeds=2, metrics=table_metrics())
+        [path] = write_all_tables({"gaussians": frame}, tmp_path)
+        headers = [
+            line for line in path.read_text().splitlines() if line.startswith("Metric & ")
+        ]
+        assert headers == [r"Metric & easy & medium & hard \\"] * 2
 
 
 class TestTableMetrics:

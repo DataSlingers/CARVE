@@ -1,8 +1,10 @@
 """Write the supplementary tables as .tex fragments.
 
 Under their manuscript names, to disk, rather than printed for copy-paste.
-The committed versions have the generated k-star header row stripped by hand,
-which is the drift this ends.
+Each fragment is the caption-free float the manuscript's S2-S9 use, so it
+replaces the committed table without hand-editing. The caption, with k*,
+goes in the fragment's first line as a LaTeX comment that identifies the
+file and never renders.
 """
 
 from collections.abc import Mapping, Sequence
@@ -10,7 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ._registry import TABLE_ROW_GROUPS
+from ._registry import DIFFICULTY_AXIS, SCALING_TABLE_ROW_GROUPS, TABLE_ROW_GROUPS
 from ._tables import write_tables
 
 EXCLUDED_METRICS: frozenset[str] = frozenset(
@@ -64,21 +66,24 @@ def table_metrics() -> tuple[str, ...]:
     return tuple(metric for group in TABLE_ROW_GROUPS for metric in group)
 
 
-# render_grouped_tex escapes the whole caption through _tex_escape before
-# it emits \caption{...}, so LaTeX math handed to write_tables' caption=
-# verbatim -- "$k^\star = 5$" -- comes back mangled: "\$" for the dollar
-# signs, "\textasciicircum{}" for "^", "\textbackslash{}" for the "\" that
-# starts \star. _tex_escape has no notion of math mode; it treats every
-# backslash and special character as literal text to protect, which is
-# correct for the plain-prose captions in TABLE_CAPTIONS but wrong for this
-# one deliberately-inserted math snippet.
-#
-# The placeholder below is plain letters, none of which _tex_escape touches,
-# so it survives the caption's escaping pass unchanged. Substituting the
-# real "$k^\star = ...$" back in afterwards, on the rendered file, is what
-# keeps that k-star header a generated, unescaped math header rather than
-# the garbled text escaping it wholesale would produce.
+# render_paired_tex writes the caption into the fragment's first line, a
+# LaTeX comment, through _comment_safe, which folds newlines into spaces and
+# drops percent signs; nothing escapes it. The placeholder is substituted
+# with "$k^\star = ...$" on the rendered file. It dates from
+# render_grouped_tex, which passed the caption through _tex_escape into
+# \caption{...} and would have mangled the math ("\$" for the dollar signs,
+# "\textasciicircum{}" for "^"); under render_paired_tex the round trip
+# writes exactly what passing the math directly would.
 _K_STAR_PLACEHOLDER = "KSTARPLACEHOLDER"
+
+
+def _axis_value_headers(frame: pd.DataFrame) -> dict[str, str]:
+    """Each axis label's swept value as column header text: 1000, not 1000.0."""
+    pairs = frame[["axis_label", "axis_value"]].drop_duplicates()
+    return {
+        str(label): str(int(value)) if float(value).is_integer() else str(value)
+        for label, value in zip(pairs["axis_label"], pairs["axis_value"])
+    }
 
 
 def write_all_tables(
@@ -87,7 +92,12 @@ def write_all_tables(
     *,
     metrics: Sequence[str] | None = None,
 ) -> list[Path]:
-    """Write one .tex fragment per scenario under its manuscript table name."""
+    """Write one .tex fragment per scenario under its manuscript table name.
+
+    A difficulty scenario's table is headed easy/medium/hard and follows
+    TABLE_ROW_GROUPS. A scaling scenario's is headed with its swept values
+    and follows SCALING_TABLE_ROW_GROUPS, as the committed S8 and S9 are.
+    """
     metrics = tuple(metrics) if metrics is not None else table_metrics()
     written: list[Path] = []
 
@@ -106,6 +116,11 @@ def write_all_tables(
         if not present:
             continue
 
+        if frame["axis_name"].iloc[0] == DIFFICULTY_AXIS.name:
+            groups, headers = TABLE_ROW_GROUPS, None
+        else:
+            groups, headers = SCALING_TABLE_ROW_GROUPS, _axis_value_headers(frame)
+
         k_star = int(frame["k_star"].iloc[0])
         table_name = TABLE_NAMES.get(name, f"{name}_table")
         path = write_tables(
@@ -115,6 +130,8 @@ def write_all_tables(
             caption=(f"{TABLE_CAPTIONS.get(name, name)} {_K_STAR_PLACEHOLDER}."),
             label=f"tab:{table_name.lower()}",
             metrics=present,
+            groups=groups,
+            column_headers=headers,
         )
         path.write_text(
             path.read_text().replace(_K_STAR_PLACEHOLDER, f"$k^\\star = {k_star}$")

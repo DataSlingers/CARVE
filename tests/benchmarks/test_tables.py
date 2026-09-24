@@ -401,6 +401,55 @@ class TestPairedTex:
         assert len(positions) == len(paired_summary)
         assert positions == sorted(positions)
 
+    def test_groups_set_the_row_order_and_the_rules(self, paired_summary):
+        """A table family whose committed layout orders the rows differently
+        passes its own groups; the rules fall between those groups."""
+        groups = (
+            ("baseline_oracle",),
+            ("ari_generalizability_1se", "ari_stability_1se"),
+            ("gap", "calinski_harabasz", "silhouette", "davies_bouldin"),
+            ("ari_stability_quant",),
+        )
+        out = render_paired_tex(
+            paired_summary, caption="c", label="tab:x", groups=groups
+        )
+        left = out.split(r"\quad")[0]
+        body = left.split(r"\midrule", 1)[1].split(r"\bottomrule")[0]
+        tokens = [
+            line if line == r"\midrule" else line.split(" & ")[0]
+            for line in body.strip().splitlines()
+        ]
+        expected = []
+        for index, group in enumerate(groups):
+            if index:
+                expected.append(r"\midrule")
+            expected.extend(_table_display_name(m) for m in group)
+        assert tokens == expected
+
+    def test_column_headers_replace_the_axis_labels(self):
+        """A scaling table heads its columns with the swept values, as the
+        committed S8 and S9 do, not with start/middle/end."""
+        rows = [
+            {
+                "axis_label": label,
+                "metric": "ari_stability_1se",
+                "display_name": METRIC_DISPLAY_NAMES["ari_stability_1se"],
+                "n_datasets": 20,
+                "ari_mean": 0.9,
+                "ari_sd": 0.05,
+                "k_recovery": 0.5,
+            }
+            for label in ("start", "middle", "end")
+        ]
+        out = render_paired_tex(
+            pd.DataFrame(rows),
+            caption="c",
+            label="tab:x",
+            column_headers={"start": "1000", "middle": "5500", "end": "10000"},
+        )
+        headers = [line for line in out.splitlines() if line.startswith("Metric & ")]
+        assert headers == [r"Metric & 1000 & 5500 & 10000 \\"] * 2
+
     def test_the_cvi_row_labels_use_an_en_dash(self, paired_summary):
         """Matches the committed S2 table and the manuscript prose, which
         both write Davies-Bouldin and Calinski-Harabasz with an en dash.

@@ -125,6 +125,25 @@ TABLE_ROW_GROUPS: tuple[tuple[str, ...], ...] = (
     ),
 )
 
+# The scaling tables' order. The committed S8 and S9 order the classical
+# indices Silhouette, Davies-Bouldin, Calinski-Harabasz, Gap, where S2 orders
+# them Davies-Bouldin, Silhouette, Gap, Calinski-Harabasz; the other three
+# groups match S2's. Declared for the same reason as TABLE_ROW_GROUPS, so a
+# regenerated S8 or S9 drops in without reordering.
+SCALING_TABLE_ROW_GROUPS: tuple[tuple[str, ...], ...] = (
+    (BASELINE_METRIC,),
+    ("ari_stability_1se", "ari_generalizability_1se"),
+    ("silhouette", "davies_bouldin", "calinski_harabasz", "gap"),
+    (
+        "ari_stability_quant",
+        "consensus_gini_stability",
+        "ari_stability",
+        "ari_generalizability_quant",
+        "ari_generalizability",
+        "accuracy_generalizability",
+    ),
+)
+
 N_REFERENCE_DATASETS: int = 10
 
 

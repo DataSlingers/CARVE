@@ -18,6 +18,7 @@ from benchmarks._registry import (
     PUBLISHED_RANDOM_STATE,
     REPLICATE_SEED_SPACING,
     SCALING_AXES,
+    SCALING_TABLE_ROW_GROUPS,
     SCENARIOS,
     SIMILARITY_SEED_OFFSET,
     TABLE_ROW_GROUPS,
@@ -379,3 +380,30 @@ class TestTableRowGroups:
 
         flat = {m for group in TABLE_ROW_GROUPS for m in group}
         assert flat & EXCLUDED_METRICS == set()
+
+
+class TestScalingTableRowGroups:
+    def test_the_groups_reproduce_the_committed_s8_and_s9_tables(self):
+        """S8 and S9 order the classical indices Silhouette, Davies-Bouldin,
+        Calinski-Harabasz, Gap; S2 orders them Davies-Bouldin, Silhouette,
+        Gap, Calinski-Harabasz."""
+        assert SCALING_TABLE_ROW_GROUPS == (
+            ("baseline_oracle",),
+            ("ari_stability_1se", "ari_generalizability_1se"),
+            ("silhouette", "davies_bouldin", "calinski_harabasz", "gap"),
+            (
+                "ari_stability_quant",
+                "consensus_gini_stability",
+                "ari_stability",
+                "ari_generalizability_quant",
+                "ari_generalizability",
+                "accuracy_generalizability",
+            ),
+        )
+
+    def test_the_scaling_tables_carry_the_same_rows_as_s2(self):
+        """Only the order differs. A metric added to one declaration and not
+        the other would silently drop a row from one family of tables."""
+        assert [set(g) for g in SCALING_TABLE_ROW_GROUPS] == [
+            set(g) for g in TABLE_ROW_GROUPS
+        ]

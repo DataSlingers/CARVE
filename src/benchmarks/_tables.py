@@ -325,27 +325,32 @@ def _sub_table(
     column: str,
     decimals: int,
     *,
+    headers: Sequence[str] | None = None,
     trailing_percent: bool = False,
 ) -> list[str]:
     """One of the pair: rows by metric group, columns by axis label.
+
+    headers, one per axis label, replace the labels in the header row; None
+    writes the labels themselves.
 
     trailing_percent closes the tabular with ``\\end{tabular}%`` instead of
     a bare ``\\end{tabular}``, matching the committed table: the ``%``
     suppresses the space LaTeX would otherwise put before the following
     ``\\quad``. Only the first (left) sub-table of a pair uses it.
     """
+    headers = list(axis_labels) if headers is None else list(headers)
     lines = [
         f"\\begin{{tabular}}{{l{'c' * len(axis_labels)}}}",
         r"\toprule",
-        "Metric & " + " & ".join(_tex_escape(str(a)) for a in axis_labels) + r" \\",
+        "Metric & " + " & ".join(_tex_escape(str(h)) for h in headers) + r" \\",
         r"\midrule",
     ]
 
     # Ranking is per column, over the rows this call actually renders --
-    # the metrics in `groups`, i.e. TABLE_ROW_GROUPS intersected with what
-    # is present in `summary` -- and excludes the oracle, which is the
+    # the metrics in `groups`, i.e. the declared groups intersected with
+    # what is present in `summary` -- and excludes the oracle, which is the
     # reference the rest are measured against rather than a competitor.
-    # summary can carry metrics outside TABLE_ROW_GROUPS (metrics= wasn't
+    # summary can carry metrics outside the groups (metrics= wasn't
     # restricted to the published set), and ranking over those too let an
     # unrendered value outscore every rendered one, which then rendered as
     # unmarked instead of bold.
@@ -404,14 +409,21 @@ def render_paired_tex(
     caption: str,
     label: str,
     decimals: int = 3,
+    groups: Sequence[Sequence[str]] = TABLE_ROW_GROUPS,
+    column_headers: Mapping[str, str] | None = None,
 ) -> str:
     """The manuscript's shape: mean ARI and k-recovery side by side.
 
     Two tabulars inside one resizebox, separated by \\quad, the left giving
     mean ARI at the selected k and the right the proportion of datasets
-    where that k was k*. Rows follow TABLE_ROW_GROUPS with a rule between
-    groups; bold marks the best value in a column and underline the
-    second-best.
+    where that k was k*. Rows follow groups, TABLE_ROW_GROUPS unless a
+    table family declares its own, with a rule between groups; bold marks
+    the best value in a column and underline the second-best.
+
+    column_headers maps an axis label to the text its column is headed
+    with. The scaling tables head theirs with the swept values (1000, 5500,
+    10000) rather than start/middle/end. A label it does not map keeps its
+    own text.
 
     This replaces render_grouped_tex's single flat table, which merged both
     quantities into one unranked grid. The numbers were right; the layout
@@ -427,10 +439,10 @@ def render_paired_tex(
     dropped-in fragment would otherwise carry.
     """
     axis_labels = list(dict.fromkeys(summary["axis_label"]))
-    groups = [
-        [m for m in group if m in set(summary["metric"])] for group in TABLE_ROW_GROUPS
-    ]
+    present = set(summary["metric"])
+    groups = [[m for m in group if m in present] for group in groups]
     groups = [group for group in groups if group]
+    headers = [(column_headers or {}).get(a, a) for a in axis_labels]
 
     lines = [
         f"% {label}: {_comment_safe(caption)}",
@@ -441,10 +453,18 @@ def render_paired_tex(
         r"\resizebox{\textwidth}{!}{%",
     ]
     lines += _sub_table(
-        summary, groups, axis_labels, "ari_mean", decimals, trailing_percent=True
+        summary,
+        groups,
+        axis_labels,
+        "ari_mean",
+        decimals,
+        headers=headers,
+        trailing_percent=True,
     )
     lines.append(r"\quad")
-    lines += _sub_table(summary, groups, axis_labels, "k_recovery", decimals)
+    lines += _sub_table(
+        summary, groups, axis_labels, "k_recovery", decimals, headers=headers
+    )
     lines.extend([r"}", r"\end{table}"])
     return "\n".join(lines) + "\n"
 
@@ -457,13 +477,24 @@ def write_tables(
     caption: str,
     label: str,
     metrics: Sequence[str] | None = None,
+    groups: Sequence[Sequence[str]] = TABLE_ROW_GROUPS,
+    column_headers: Mapping[str, str] | None = None,
 ) -> Path:
-    """Summarize a run and write the .tex fragment under its manuscript name."""
+    """Summarize a run and write the .tex fragment under its manuscript name.
+
+    groups and column_headers pass through to render_paired_tex.
+    """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{name}.tex"
     path.write_text(
-        render_paired_tex(summarize(df, metrics=metrics), caption=caption, label=label)
+        render_paired_tex(
+            summarize(df, metrics=metrics),
+            caption=caption,
+            label=label,
+            groups=groups,
+            column_headers=column_headers,
+        )
     )
     return path
 
