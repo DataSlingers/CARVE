@@ -15,11 +15,12 @@ from benchmarks.run import _parser, main
 def gaussians_run(tmp_path_factory):
     """One reduced gaussians run through the CLI: (exit code, root).
 
-    --n-jobs 1 pinned explicitly: "gaussians" is a difficulty scenario, so
-    since Task 9 it otherwise resolves to -1 and this three-cell run pays a
-    real loky pool's startup cost for no benefit -- this fixture only needs
-    a completed run, not the n_jobs resolution, which
-    test_scenarios_default_to_per_scenario_resolution covers on a mock.
+    --n-jobs 1 pinned explicitly: "gaussians" is a difficulty scenario, so it
+    otherwise resolves to -1, and this three-cell run would pay a real loky
+    pool's startup cost and run its cells where a warning cannot reach
+    filterwarnings = error. This fixture only needs a completed run, not the
+    n_jobs resolution, which test_scenarios_default_to_per_scenario_resolution
+    covers on a mock.
     """
     root = tmp_path_factory.mktemp("cli")
     code = main(

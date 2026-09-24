@@ -1,6 +1,7 @@
 """Tests for the unified runner."""
 
 import dataclasses
+import functools
 import json
 import os
 import re
@@ -11,6 +12,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
+import pandas as pd
 import pytest
 from joblib import Parallel, cpu_count, delayed
 
@@ -43,6 +45,13 @@ pytestmark = pytest.mark.filterwarnings(
 )
 
 N_METRICS = len(CARVE_METRICS_ALL) + len(CVI_METRICS)
+
+# One worker, so a warning raised inside run_cell reaches pytest. A difficulty
+# scenario's default resolves to n_jobs=-1, and under a loky pool a worker's
+# warning is printed to stderr instead: neither filterwarnings = error nor the
+# pytestmark above would ever see it. The one test that runs a real pool on
+# purpose calls run_scenario directly and says so in its name.
+run_serial = functools.partial(run_scenario, n_jobs=1)
 
 
 @pytest.fixture(scope="module")
@@ -78,7 +87,7 @@ def completed(tiny_scenario, tmp_path_factory):
     take run_copy instead.
     """
     root = tmp_path_factory.mktemp("completed")
-    rd = run_scenario(tiny_scenario, root=root, n_resamples=20)
+    rd = run_serial(tiny_scenario, root=root, n_resamples=20)
     return root, rd
 
 
@@ -202,21 +211,21 @@ class TestRunScenario:
     def test_resumes_without_recomputing_completed_cells(self, tiny_scenario, run_copy):
         root, rd = run_copy
         before = {p: p.stat().st_mtime_ns for p in rd.glob("cell__*.parquet")}
-        run_scenario(tiny_scenario, root=root, n_resamples=20, resume=True)
+        run_serial(tiny_scenario, root=root, n_resamples=20, resume=True)
         after = {p: p.stat().st_mtime_ns for p in rd.glob("cell__*.parquet")}
         assert before == after
 
     def test_the_same_config_reuses_one_directory(self, tiny_scenario, run_copy):
         root, rd = run_copy
-        assert run_scenario(tiny_scenario, root=root, n_resamples=20) == rd
+        assert run_serial(tiny_scenario, root=root, n_resamples=20) == rd
 
     def test_a_changed_config_gets_a_new_directory(self, tiny_scenario, run_copy):
         root, rd = run_copy
-        other = run_scenario(tiny_scenario, root=root, n_seeds=1, n_resamples=21)
+        other = run_serial(tiny_scenario, root=root, n_seeds=1, n_resamples=21)
         assert other != rd
 
     def test_n_seeds_override_shortens_the_run(self, tiny_scenario, tmp_path):
-        rd = run_scenario(tiny_scenario, root=tmp_path, n_seeds=1, n_resamples=20)
+        rd = run_serial(tiny_scenario, root=tmp_path, n_seeds=1, n_resamples=20)
         assert len(read_run(rd)["seed"].unique()) == 1
 
     def test_resuming_a_partial_run_keeps_one_run_id(self, tiny_scenario, run_copy):
@@ -228,7 +237,7 @@ class TestRunScenario:
         """
         root, rd = run_copy
         sorted(rd.glob("cell__*.parquet"))[0].unlink()
-        run_scenario(tiny_scenario, root=root, n_resamples=20, resume=True)
+        run_serial(tiny_scenario, root=root, n_resamples=20, resume=True)
         manifest = json.loads((rd / "manifest.json").read_text())
         assert set(read_run(rd)["run_id"].unique()) == {manifest["run_id"]}
 
@@ -246,7 +255,7 @@ class TestRunScenario:
         root, rd = run_copy
         (rd / "manifest.json").write_text("{not valid json")
         with pytest.warns(UserWarning, match="manifest"):
-            run_scenario(tiny_scenario, root=root, n_resamples=20, resume=True)
+            run_serial(tiny_scenario, root=root, n_resamples=20, resume=True)
         assert "run_id" in json.loads((rd / "manifest.json").read_text())
 
     def test_wall_clock_accumulates_across_a_resume(self, tiny_scenario, run_copy):
@@ -258,7 +267,7 @@ class TestRunScenario:
         root, rd = run_copy
         first = json.loads((rd / "manifest.json").read_text())
         sorted(rd.glob("cell__*.parquet"))[0].unlink()
-        run_scenario(tiny_scenario, root=root, n_resamples=20, resume=True)
+        run_serial(tiny_scenario, root=root, n_resamples=20, resume=True)
         second = json.loads((rd / "manifest.json").read_text())
         assert second["wall_clock_s"] >= first["wall_clock_s"]
 
@@ -280,17 +289,39 @@ class TestRunScenario:
 
         with mock.patch("benchmarks._run.Parallel", side_effect=_explode):
             with pytest.raises(KeyboardInterrupt):
-                run_scenario(tiny_scenario, root=tmp_path, n_resamples=2, n_seeds=1)
+                run_serial(tiny_scenario, root=tmp_path, n_resamples=2, n_seeds=1)
 
         assert seen["manifest"] is not None
         assert seen["manifest"]["status"] == "running"
 
+    def test_a_real_worker_pool_reproduces_the_serial_run(
+        self, tiny_scenario, completed, tmp_path
+    ):
+        """The one test that runs a real loky pool, on purpose.
+
+        Seeds are derived arithmetically per cell, never shared, so two
+        workers must write exactly the rows one worker wrote. A warning
+        raised inside a worker never reaches pytest, which is why every
+        other run_scenario call in this file pins n_jobs=1.
+        """
+        _, serial_rd = completed
+        rd = run_scenario(tiny_scenario, root=tmp_path, n_resamples=20, n_jobs=2)
+        manifest = json.loads((rd / "manifest.json").read_text())
+        assert manifest["n_jobs"] == 2
+
+        order = ["axis_label", "seed", "metric_name", "k"]
+        pooled = read_run(rd).drop(columns="run_id").sort_values(order)
+        serial = read_run(serial_rd).drop(columns="run_id").sort_values(order)
+        pd.testing.assert_frame_equal(
+            pooled.reset_index(drop=True), serial.reset_index(drop=True)
+        )
+
     def test_manifest_is_complete_after_the_pool(self, tiny_scenario, tmp_path):
-        # n_resamples=10, not the brief's 2: below roughly 7 resamples the
-        # stability measures come back all-NaN and CARVE.get_k raises (see
-        # _cell's comment above), which run_cell does not catch. This test
-        # exercises a full, real pool, so it needs a safe n_resamples.
-        rd = run_scenario(tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1)
+        # n_resamples=10: below roughly 7 resamples the stability measures
+        # come back all-NaN and CARVE.get_k raises (see _cell's comment
+        # below), which run_cell does not catch. This test runs every cell to
+        # completion, so it needs a safe n_resamples.
+        rd = run_serial(tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1)
         manifest = json.loads((rd / "manifest.json").read_text())
         assert manifest["status"] == "complete"
 
@@ -304,12 +335,10 @@ class TestRunScenario:
 
         Deletes one cell checkpoint so the resume has pending work, then
         patches Parallel to capture the on-disk manifest and abort before
-        any cell runs. (The brief's version of this test compared two runs
-        at different n_seeds, which always land in different content-
-        addressed directories -- config_hash includes n_seeds -- so
-        `second != first` was trivially true and the assertion could never
-        fail. This version resumes the *same* configuration and inspects
-        the running manifest directly.)
+        any cell runs. It resumes the same configuration: two runs at
+        different n_seeds always land in different content-addressed
+        directories, since config_hash includes n_seeds, so comparing them
+        could never fail.
         """
         root, rd = run_copy
         first_run_id = json.loads((rd / "manifest.json").read_text())["run_id"]
@@ -323,7 +352,7 @@ class TestRunScenario:
 
         with mock.patch("benchmarks._run.Parallel", side_effect=_explode):
             with pytest.raises(KeyboardInterrupt):
-                run_scenario(tiny_scenario, root=root, n_resamples=20, resume=True)
+                run_serial(tiny_scenario, root=root, n_resamples=20, resume=True)
 
         assert seen["manifest"]["status"] == "running"
         assert seen["manifest"]["run_id"] == first_run_id
@@ -337,29 +366,25 @@ class TestRunScenario:
         nothing marking it. git_sha was already recorded and never checked;
         this is what left the ablation dev run unreadable.
 
-        n_resamples=10, not the brief's 2: see the comment on
-        test_manifest_is_complete_after_the_pool -- these tests run a full,
-        real pool to completion rather than a mocked one.
+        n_resamples=10: see the comment on
+        test_manifest_is_complete_after_the_pool -- these tests run every
+        cell to completion rather than mocking the pool.
         """
-        rd = run_scenario(tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1)
+        rd = run_serial(tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1)
         manifest = json.loads((rd / "manifest.json").read_text())
         manifest["git_sha"] = "0" * 40
         (rd / "manifest.json").write_text(json.dumps(manifest))
 
-        # The brief's own match string, "different code version", never
-        # occurs in its own verbatim error message below (no "different" at
-        # all) and could never pass; matching a phrase the message actually
-        # contains instead.
         with pytest.raises(RuntimeError, match="concatenate two code versions"):
-            run_scenario(tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1)
+            run_serial(tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1)
 
     def test_the_override_allows_the_resume(self, tiny_scenario, tmp_path):
-        rd = run_scenario(tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1)
+        rd = run_serial(tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1)
         manifest = json.loads((rd / "manifest.json").read_text())
         manifest["git_sha"] = "0" * 40
         (rd / "manifest.json").write_text(json.dumps(manifest))
 
-        again = run_scenario(
+        again = run_serial(
             tiny_scenario,
             root=tmp_path,
             n_resamples=10,
@@ -370,12 +395,12 @@ class TestRunScenario:
 
     def test_no_resume_does_not_check_the_code_version(self, tiny_scenario, tmp_path):
         """resume=False recomputes every cell, so there is nothing to mix."""
-        rd = run_scenario(tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1)
+        rd = run_serial(tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1)
         manifest = json.loads((rd / "manifest.json").read_text())
         manifest["git_sha"] = "0" * 40
         (rd / "manifest.json").write_text(json.dumps(manifest))
 
-        again = run_scenario(
+        again = run_serial(
             tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1, resume=False
         )
         assert again == rd
@@ -648,12 +673,23 @@ class TestScenarioNJobs:
         assert scenario_n_jobs(SCENARIOS["gaussians_samples"], 4) == 4
 
     def test_run_scenario_resolves_it(self, tiny_scenario, tmp_path):
-        # n_resamples=10, not the brief's 2: below roughly 7 resamples the
-        # stability measures come back all-NaN and CARVE.get_k raises (see
-        # TestRunScenario.test_manifest_is_complete_after_the_pool above).
-        # This test runs a full, real pool, so it needs a safe n_resamples.
-        rd = run_scenario(tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1)
+        """The n_jobs the pool is built with, not only the one the manifest
+        records. The pool is recorded and then run with one worker, so the
+        cells stay in this process and under filterwarnings = error.
+
+        n_resamples=10: below roughly 7 resamples the stability measures come
+        back all-NaN and CARVE.get_k raises (see _cell's comment above).
+        """
+        requested = []
+
+        def _recording(*args, n_jobs=None, **kwargs):
+            requested.append(n_jobs)
+            return Parallel(*args, n_jobs=1, **kwargs)
+
+        with mock.patch("benchmarks._run.Parallel", side_effect=_recording):
+            rd = run_scenario(tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1)
         manifest = json.loads((rd / "manifest.json").read_text())
+        assert requested == [-1]
         assert manifest["n_jobs"] == -1
 
 
