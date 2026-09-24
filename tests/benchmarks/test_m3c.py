@@ -1,7 +1,7 @@
 """Tests for the M3C bridge.
 
 The tests here never touch R. The live-R tests live in the same file behind
-the requires_r marker, added in Task 3.
+the requires_r marker.
 """
 
 import numpy as np

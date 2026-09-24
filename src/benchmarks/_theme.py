@@ -209,15 +209,15 @@ if CLUSTER_CMAP_NAME not in mpl.colormaps:
 # the vermillion, which predates it.
 #
 # The first entry, Okabe-Ito blue, is also CARVE generalizability's color
-# (METRIC_COLORS) since Task 10 re-stepped that series onto it to clear a
+# (METRIC_COLORS), which moved onto it from #56B4E9 to clear the 3:1
 # contrast floor -- the one deliberate exception to "never a METRIC_COLORS
 # value" here. The collision is visible, not merely theoretical:
 # figures/_cusanovich_results.py draws carve_lines (metric colors) in panel
 # C and pipeline_lines (this palette) in panel D of the same Figure, so
 # blue reads as CARVE Generalizability in one panel and the first pipeline
-# in the panel beside it. Accepted rather than fixed here because Task 10's
-# spec fixes generalizability's color and this palette belongs to that
-# case-study figure, outside that task's scope; see
+# in the panel beside it. Accepted rather than fixed: generalizability's
+# color is fixed by the benchmark figures' contrast requirement, and this
+# palette belongs to the Cusanovich case-study figure alone; see
 # TestPipelinePalette.test_no_pipeline_color_is_a_criterion_color for the
 # one overlap the test still allows. If the ambiguity ever matters, the fix
 # is re-stepping this entry and re-running the five pipeline colors through

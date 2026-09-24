@@ -303,9 +303,9 @@ class TestNonConvex:
         Measured over 10 repeated fits with which='SM' (no start vector):
         ARI ranged 0.67-1.00 and 7 of 10 partitions differed from the first
         fit. Shift-invert at sigma=0 scored ARI=1.0000 on all 10 repeats,
-        identical partitions throughout. The circles case from the plan does
-        not separate the two solvers on this toolchain (ARI=1.0 on both,
-        every repeat); this dataset does.
+        identical partitions throughout. A circles dataset does not separate
+        the two solvers on this toolchain (ARI=1.0 on both, every repeat);
+        this dataset does.
         """
         from sklearn.datasets import make_blobs
 

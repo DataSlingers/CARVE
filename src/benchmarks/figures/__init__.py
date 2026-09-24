@@ -8,7 +8,7 @@ _scenario_overview, _scenario_dashboard and _reference_scatter are the three
 modules here that are not manuscript figures. The first two draw the
 per-family views the benchmarking notebook's sections carry, built from the
 same primitives the manuscript figures use, and so default to save=False.
-The second is the case-study notebooks' opening view of their reference
+The third is the case-study notebooks' opening view of their reference
 labels, and saves alongside the composites it precedes.
 """
 

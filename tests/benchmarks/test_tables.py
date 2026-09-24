@@ -530,12 +530,12 @@ class TestPairedTex:
         assert "\\end{tabular}\n}\n\\end{table}" in out
 
     def test_ranking_excludes_metrics_outside_the_declared_groups(self):
-        """Reviewer's reproduction: a metric present in the summary but
-        outside TABLE_ROW_GROUPS (ari_average is excluded from the published
-        tables entirely) must not enter the ranking for the rows that do
-        render. Before the fix, ari_average's 0.99 outranked every rendered
-        value, so ari_stability_1se's 0.930 -- the best among what actually
-        renders -- came out underlined instead of bold."""
+        """A metric present in the summary but outside TABLE_ROW_GROUPS
+        (ari_average is excluded from the published tables entirely) must
+        not enter the ranking for the rows that do render. Ranked over
+        everything, ari_average's 0.99 outranked every rendered value, so
+        ari_stability_1se's 0.930 -- the best among what actually renders --
+        came out underlined instead of bold."""
         rows = [
             {
                 "axis_label": "easy",

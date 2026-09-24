@@ -46,7 +46,7 @@ OLD_TO_NEW = {
 # n=1500, and carve.cluster.SpectralClustering accepted a random_state but
 # never threaded it into the sparse ARPACK eigensolver it used at that size --
 # ARPACK drew its starting vector from the global numpy RNG instead. That
-# describes the which="SM" solver Task 1 replaced with shift-invert; the
+# describes the which="SM" solver that 09b810c replaced with shift-invert; the
 # committed circles/moons numbers came from the replaced solver. Verified
 # directly: with identical data and an identical random_state, repeated
 # oracle fits on moons/easy gave ARIs of 0.814, 0.814, 1.0, 1.0, while seeding

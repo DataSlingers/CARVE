@@ -111,7 +111,8 @@ class TestAxes:
 
 
 class TestScalingScenarioAxes:
-    """Controller correction 1: dimensionality sweeps p, not embed_dim."""
+    """The dimensionality scenario sweeps p, the feature dimension, not
+    embed_dim."""
 
     def test_gaussians_dimensionality_sweeps_p(self):
         axis = SCENARIOS["gaussians_dimensionality"].axis

@@ -484,7 +484,10 @@ def run_scenario(
 
     allow_code_change permits a resume into a directory whose manifest
     records a different git_sha. It is off by default: the checkpoints of two
-    code versions are indistinguishable once read_run concatenates them.
+    code versions are indistinguishable once read_run concatenates them. The
+    guard compares the recorded git_sha with HEAD only, so uncommitted edits
+    pass it unseen, and a corrupt manifest bypasses it with the warning
+    above, since no recorded git_sha is left to compare.
 
     timing_fits controls whether each cell additionally runs the two extra,
     mode-specific fits that feed the runtime sidecar (see run_cell). Left at

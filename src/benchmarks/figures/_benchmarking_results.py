@@ -78,7 +78,7 @@ def figure_benchmarking_results(
         raise ValueError(
             "Fig 4 labels its x axis easy/medium/hard, so every frame must "
             f"sweep difficulty_level. Got {off_axis}. Use figure_scaling_ari "
-            "for scaling sweeps, or figure_scenario_overview for one family."
+            "for scaling sweeps, or figure_scenario_dashboard for one family."
         )
 
     # Panel order comes from the registry-side reading order, not from how

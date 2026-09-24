@@ -65,11 +65,11 @@ def _selection():
 
 
 def _undefined_gini_rows():
-    """Task 6's exact row shape: a non-headline metric whose measure column
-    was NaN for every configuration of a cell records selected_estimator,
-    selected_k and ari_selected as NaN. One setting (0.2) is undefined for
-    every replicate; the other (0.618) has one defined replicate and one
-    undefined."""
+    """The row shape _ablation.cell_rows writes when a non-headline metric's
+    measure column was NaN for every configuration of a cell:
+    selected_estimator, selected_k and ari_selected are NaN. One setting
+    (0.2) is undefined for every replicate; the other (0.618) has one
+    defined replicate and one undefined."""
     metric = "consensus_gini_stability"
     rows = [
         {**_key(rho=0.2, rep=0), "metric_name": metric, "selected_estimator": np.nan,
@@ -147,7 +147,7 @@ class TestAgreementSummary:
 
 
 class TestUndefinedSelections:
-    """An undefined selection (Task 6's all-NaN-measure case) is missing
+    """An undefined selection (cell_rows' all-NaN-measure case) is missing
     data, not a miss: it must not count toward n, must not read as
     "disagreed", and a setting left with no defined selection at all must
     not appear in the output."""

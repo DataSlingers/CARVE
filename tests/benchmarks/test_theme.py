@@ -250,19 +250,20 @@ class TestPipelinePalette:
     def test_no_pipeline_color_is_a_criterion_color(self):
         """Disjoint except the one deliberate, documented overlap.
 
-        Task 10 re-stepped CARVE generalizability onto Okabe-Ito's blue
-        (#0072B2) to clear a contrast floor -- the same hue PIPELINE_COLORS
+        CARVE generalizability moved onto Okabe-Ito's blue (#0072B2) to
+        clear the 3:1 contrast floor -- the same hue PIPELINE_COLORS
         already used as its first entry, for the same reason (the safest
         blue in the eight-color set). The collision is visible:
         figures/_cusanovich_results.py draws carve_lines (metric colors)
         and pipeline_lines (this palette) in separate panels of the same
         Figure, so blue names CARVE Generalizability in one panel and the
         first pipeline in the panel beside it. Accepted here rather than
-        fixed because Task 10's spec fixes generalizability's color and the
-        pipeline palette belongs to that case-study figure, outside this
-        change's scope; re-stepping PIPELINE_COLORS[0] with a five-color
-        CVD check is the fix if the ambiguity ever matters. Anything past
-        this one entry overlapping would still be a bug.
+        fixed: generalizability's color is fixed by the benchmark figures'
+        contrast requirement, and the pipeline palette belongs to the
+        Cusanovich case-study figure alone; re-stepping PIPELINE_COLORS[0]
+        with a five-color CVD check is the fix if the ambiguity ever
+        matters. Anything past this one entry overlapping would still be a
+        bug.
         """
         pipeline = {color.lower() for color in PIPELINE_COLORS}
         metric = {color.lower() for color in METRIC_COLORS.values()}

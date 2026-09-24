@@ -47,12 +47,12 @@ def selection_summary(
 ) -> pd.DataFrame:
     """k* recovery with Wilson bounds, mean bias and mean ARI of the selected labels.
 
-    Simulations only: the study has no true k. An undefined selection (Task 6
-    records selected_k as NaN when a metric's measure column is NaN for every
-    configuration of a cell) is missing data, not a miss: it is dropped
-    before hit/bias are computed, so it does not count toward n or drag
-    recovery down, and a group left with no defined selections at all emits
-    no row.
+    Simulations only: the study has no true k. An undefined selection
+    (_ablation.cell_rows records selected_k as NaN when a metric's measure
+    column is NaN for every configuration of a cell) is missing data, not a
+    miss: it is dropped before hit/bias are computed, so it does not count
+    toward n or drag recovery down, and a group left with no defined
+    selections at all emits no row.
     """
     rows = selection[
         selection["k_star"].notna()
@@ -108,7 +108,7 @@ def agreement_summary(
     dataset, then averaged over datasets. NaN with a single replicate.
 
     A row whose selection is undefined (selected_estimator or selected_k is
-    NaN, per Task 6's all-NaN-measure case) is dropped before choices are
+    NaN, per cell_rows' all-NaN-measure case) is dropped before choices are
     built: it never selected anything, so it neither agrees nor disagrees.
     Casting both sides to str before concatenating (rather than relying on
     selected_estimator already being an object column of strings) keeps this
@@ -244,7 +244,7 @@ def study_selection_shares(
 ) -> pd.DataFrame:
     """Share of replicates selecting each (estimator, k) at each setting.
 
-    Undefined selections (Task 6's all-NaN-measure rows) are missing data,
+    Undefined selections (cell_rows' all-NaN-measure rows) are missing data,
     as in the other summaries: they are dropped before counting, so n is
     the number of defined replicates and the shares at a setting sum to
     one. selected_k comes back as an int. One undefined row anywhere in a
@@ -280,7 +280,7 @@ def study_ari_summary(
     Restricted to one study rather than pooled: unlike the simulations,
     a case study's replicates all score against the same reference
     labels, so there is nothing to pool over. An undefined selection
-    (ari_selected NaN, Task 6's all-NaN-measure case) is dropped before
+    (ari_selected NaN, cell_rows' all-NaN-measure case) is dropped before
     aggregating rather than counted as a zero.
     """
     rows = selection[
