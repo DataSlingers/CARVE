@@ -52,14 +52,20 @@ of the old overview-plus-table pair, and the S2-S9 `.tex` fragments are now
 the manuscript's caption-free, side-by-side table float rather than the old
 shape. The palette was re-stepped at the hues that failed the dataviz
 validator (CARVE Generalizability, Davies-Bouldin, Calinski-Harabasz, Gap
-Statistic); see the `_theme.py` `C5` comment block for the before/after
-table.
+Statistic). The failing values and the validator report for the new set are
+in commit 26da3a3's message; in `_theme.py`, the comment above the four
+classical indices in `METRIC_COLORS` says why each moved, and the comment
+above `PIPELINE_COLORS` records Generalizability's move from `#56B4E9`.
 
 ## Current state of results/runs/
 
 `results/runs/` is gitignored. The old 20-dataset/5-dataset mixed tree was
-moved to `archive/20260923-162048/` in 0b58047; `results/runs/ablation_rho_b`
-was left in place, untouched by this branch.
+moved by hand to `archive/20260923-162048/runs/`, together with the old
+`vis/benchmarking/` figures (`archive/20260923-162048/benchmarking/`) and
+`vis/tables/` fragments (`archive/20260923-162048/tables/`). The move is not
+tracked: `archive/` is gitignored, and 0b58047 only adds that entry to
+`.gitignore`. `results/runs/ablation_rho_b` was left in place, untouched by
+this branch.
 
 The dev-scale acceptance run (`--n-seeds 3 --n-resamples 10`) was stopped
 partway through at the author's request. As of this branch's tip:
@@ -140,10 +146,15 @@ TOTAL (measured scenarios only)                                     43.7
 skipped (no complete run): gaussians_samples, moons, swiss_rolls, t_dist, t_dist_noise
 ```
 
-`gaussians_dimensionality`'s corrected per-cell cost (87.3 s) lands almost
-exactly on `gaussians`' and `circles`' (87.2 s and 88.0 s) — the earlier,
-`t_default_s`-only figure for this row (39.3 s/cell, 6.5 CPU-h at 20x100)
-undercounted it by more than half by leaving out the two timed fits.
+The `gaussians_dimensionality` row is not comparable with the other two,
+and its 87.3 s/cell landing next to their 87.2 s and 88.0 s is a
+coincidence of two different measurements. It is serial wall clock: one
+cell at a time, with each cell's fits free to use every core (the
+classifier runs with `n_jobs=-1`), so its "CPU-h" columns are wall-clock
+hours. The difficulty rows sum `t_default_s` over cells that ran nine at a
+time on eleven cores, each competing with the others for them. What the row
+does show is that the earlier `t_default_s`-only figure for it (39.3 s/cell,
+6.5 h at 20x100) left out the two timed fits.
 
 For `gaussians` and `circles`, which are not `TIMED_SCENARIOS` members and
 run no extra timed fits, `t_default_s` alone is the whole per-cell cost.
@@ -202,25 +213,38 @@ to the staged validation or the publication run:
    on the six difficulty scenarios and 1 on `gaussians_dimensionality` and
    `gaussians_samples`.
 
-3. Regenerate every figure and table by executing the notebook into a
-   scratch directory, not in place, under warnings-as-errors:
+3. Regenerate every figure and table by executing the notebook, with the
+   executed copy written to a scratch directory rather than over the
+   original, under warnings-as-errors. Warnings-as-errors goes into the
+   kernel through an IPython startup file:
 
    ```
-   PYTHONWARNINGS=error .venv/bin/jupyter nbconvert --to notebook --execute \
+   mkdir -p <ipython dir>/profile_default/startup
+   printf 'import warnings\nwarnings.simplefilter("error")\n' \
+     > <ipython dir>/profile_default/startup/00-warnings-as-errors.py
+   IPYTHONDIR=<ipython dir> .venv/bin/jupyter nbconvert --to notebook --execute \
      --ExecutePreprocessor.timeout=1800 --output-dir=<scratch dir> \
      notebooks/Benchmarking.ipynb
    ```
 
-   One caveat: the notebook's own second cell sets
+   `<ipython dir>` is any fresh directory, which also keeps your own
+   IPython profile out of the run. Do not use `PYTHONWARNINGS=error` instead:
+   it applies from interpreter startup, and tornado raises a
+   `DeprecationWarning` ("There is no current event loop") while the kernel
+   initializes, so the kernel dies before replying to `kernel_info` and no
+   cell runs. The startup file runs after the kernel is up and before the
+   first cell. Checked on a two-cell scratch notebook: the kernel starts, the
+   clean cell runs, and the cell that calls `warnings.warn` fails with
+   `CellExecutionError`; with an empty `<ipython dir>` both cells pass.
+
+   The notebook's own second cell sets
    `PYTHONWARNINGS=ignore::FutureWarning,ignore::DeprecationWarning,ignore::UserWarning,ignore::RuntimeWarning`
    via `%env`, for the readability of its own output. That assignment only
-   reaches subprocesses started after that cell runs; it cannot retroactively
-   change the warnings filters already installed in the kernel process at
-   startup. Setting `PYTHONWARNINGS=error` in the shell before invoking
-   `nbconvert` still enforces warnings-as-errors for the figure- and
-   table-generation code that actually runs in-process, which is what this
-   check is for. The gate is that nothing raises, no panel is empty, and
-   every generated `.tex` fragment compiles.
+   reaches subprocesses started after that cell runs; it does not change the
+   warnings filters of the kernel process, so the startup file's filter
+   stays in force for the figure- and table-generation code, which runs
+   in-process. The gate is that nothing raises, no panel is empty, and every
+   generated `.tex` fragment compiles.
 
 4. Look at the `circles` and `gaussians_samples` dashboards and
    `vis/benchmarking/benchmarking_results.png`. These are the two places
@@ -229,9 +253,14 @@ to the staged validation or the publication run:
    (see Open item below), and gaussians_samples is a scaling scenario that
    has not run to completion even once on this code yet.
 
-   `benchmarking_results.png` is written to `vis/benchmarking/` by the
-   executed notebook itself (`figure_benchmarking_results` defaults to
-   `save=True`), so it is on disk in the scratch output directly. The two
+   Only the executed `.ipynb` goes to the scratch directory. The figures go
+   to the repository's `vis/benchmarking/` (`VIS_ROOT` in
+   `benchmarks/figures/_paths.py` is anchored at the repository root, not
+   the working directory) and the S2-S9 fragments to the repository's
+   `vis/tables/` (the notebook writes them to `../vis/tables` from
+   `notebooks/`), overwriting whatever is there; both trees are gitignored.
+   `benchmarking_results.png` is among them, since
+   `figure_benchmarking_results` defaults to `save=True`. The two
    scenario dashboards are not: the notebook's `scenario_dashboard(name)`
    wrapper calls `figure_scenario_dashboard(name, frame)` without
    `save=True`, which defaults to `save=False`, so the executed notebook
@@ -271,11 +300,11 @@ invocation:
 CARVE_RUN_REGRESSION=1 .venv/bin/python -m pytest tests/benchmarks/test_regression.py -v
 ```
 
-If this passes, a disagreement with the committed CSVs beyond what the
-`n_trees` change explains would have been a defect in the runner or artifact
-layer, not a consequence of the redesign; passing here is what licenses
-switching to `CALIBRATED_ANCHORS` for the real six-scenario run. `swiss_rolls`
-is not part of this check: its committed CSV was produced under Ward, and it
+The test pins every input the published run used, `n_trees=100` included,
+so a disagreement with the committed CSVs is a defect in the runner or
+artifact layer, not a consequence of the redesign; passing here is what
+licenses switching to `CALIBRATED_ANCHORS` for the real six-scenario run.
+`swiss_rolls` is not part of this check: its committed CSV was produced under Ward, and it
 is no longer a comparable oracle now that the scenario runs spectral.
 
 Cost: this is a full 3-anchor x 20-dataset x B=100 run of `gaussians`,
@@ -332,17 +361,27 @@ python -m benchmarks.run --scenario gaussians_dimensionality --no-resume   # mea
 python -m benchmarks.run --scenario gaussians_samples --no-resume          # projected (spec E4, combined with the above at 23-34 CPU-h for the pair)
 ```
 
-Since both run serially at one worker, wall clock is close to the CPU-h
-figure for each. `gaussians_dimensionality`'s corrected 14.6 CPU-h sits
-within a third to a half of the spec's 23-34 CPU-h range for the pair,
-rather than well under it, so there is no basis here for shortening "two to
-three days" (the spec's wall-clock estimate for the pair). If anything,
+Both run serially at one worker. `gaussians_dimensionality`'s 14.6 h is
+already wall clock (see the cost section), and sits within a third to a
+half of the spec's 23-34 CPU-h range for the pair, rather than well under
+it, so there is no basis here for shortening "two to three days" (the
+spec's wall-clock estimate for the pair). If anything,
 `gaussians_samples` is likely to cost at least as much per cell as
 `gaussians_dimensionality`, plausibly more: it is also a `TIMED_SCENARIOS`
 member running the same two extra timed fits, and it sweeps `n_total` up to
 10,000, well past the difficulty scenarios' and `gaussians_dimensionality`'s
 fixed 1,500. It has not been measured at all yet; keep the full scheduled
 window until it has.
+
+Every command above passes `--no-resume`, which recomputes every cell, so
+an interrupted multi-day run restarted with the same command starts from
+zero. To resume one instead, rerun it without `--no-resume` at the same
+HEAD: the checkpoints already written are kept and only the missing cells
+run, under the original `run_id`. If HEAD has moved and the change provably
+cannot move a recorded value (a docstring, a figure, a note), add
+`--allow-code-change`; if it can, start over with `--no-resume`. The guard
+compares HEAD only and does not see uncommitted edits, so leave the working
+tree alone while a run is in progress.
 
 ## After the run finishes
 
@@ -364,6 +403,13 @@ connecting the two trees:
   `\resizebox`, so "top/bottom" is now stale wording that should read
   something like "left" and "right," independent of anything the numbers
   themselves changed.
+- Row order. S2-S7 are generated in the committed S2's order and S8-S9 in
+  the committed S8/S9 order (`TABLE_ROW_GROUPS` and
+  `SCALING_TABLE_ROW_GROUPS` in `_registry.py`). The committed S3-S7 do not
+  share S2's order within the classical-index and remaining-CARVE groups,
+  and S4 also lists CARVE Generalizability (1SE) before CARVE Stability
+  (1SE), so dropping those five in reorders rows within their groups.
+  Nothing needs editing for them to compile.
 
 The manuscript edits the re-run forces, from the spec's "Consequences
 outside this repository" section:
@@ -376,8 +422,26 @@ outside this repository" section:
   consistently, while most CVIs struggled across all SNR levels" cannot be
   carried over as-is; it has to be rewritten against the re-run's numbers,
   whatever those turn out to show.
-- The swiss rolls estimator sentence in the synthetic benchmarking section
-  currently names Ward; it needs to say spectral.
+- Swiss rolls now run spectral clustering, and three places still reflect
+  Ward. The estimator sentence in the synthetic benchmarking section
+  (`CARVE_manuscript.tex:584`, "Ward agglomerative clustering ... for
+  $t$-mixtures and swiss rolls") and S3 Text's shapes 4-6 paragraph (`:902`,
+  "Ward agglomerative clustering for Swiss rolls") need to say spectral. The
+  findings sentence at `:587` ("For swiss rolls, which are roughly
+  spherical, CARVE's metrics provided advantages at easy and hard SNR
+  settings while remaining competitive at medium settings") describes
+  Ward's results and has to be rewritten against the re-run's numbers.
+- `CARVE_manuscript.tex:600` attributes the generalizability collapse on
+  `gaussians_dimensionality` to "the default 100-tree random forest" and
+  recommends more trees as $p$ grows; `:1451` says the same ("a random
+  forest with 100 trees") and makes the same recommendation. The benchmark
+  now runs 500 trees, so both the finding and the recommendation have to be
+  re-checked against the re-run. The dev-scale run (3 datasets, B=10, 500
+  trees) already shows the collapse persisting: CARVE Generalizability
+  (1SE) mean ARI 0.676, 0.351 and 0.147 at p = 50, 525 and 1000, against
+  the oracle's 0.852, 0.725 and 0.872. Three datasets at B=10 settle
+  nothing, but if the publication run agrees, forest size is not the cause
+  the text gives.
 - S3 Text's anchor values change (all eighteen, since every scenario was
   recalibrated, not only the three the eigensolver fix touched), and the
   calibration procedure it describes should name both calibration knobs
@@ -392,6 +456,20 @@ outside this repository" section:
   re-step and the re-run, even where a panel's data did not change, since
   the four re-stepped series colors (CARVE Generalizability, Davies-Bouldin,
   Calinski-Harabasz, Gap Statistic) appear across all of them.
+- `METRIC_COLORS` is global, so every figure drawn through `metric_color`
+  changes color when next regenerated, not only the benchmark figures. The
+  case-study composites (`_case_study.composite_figure`: `carve_lines`,
+  `cvi_lines` and the ARI lollipop) are Fig 5 (`klein_results.png`,
+  `:610`) and Fig 6 (`levine_results.png`, `:631`); the Cusanovich figure
+  (`cusanovich_results.png`, already in `overleaf/vis/` though the `.tex`
+  does not include it yet) and the ablation figures
+  (`si_fig_ablation_rho.png`, `si_fig_ablation_b.png`) draw the same
+  metric colors, as do `heca_results.png` and `klein_m3c.png` if they are
+  added. Regenerate and re-export all of them with Fig 4 and S1-S3 Fig.
+  Re-exporting only the benchmark figures leaves Gap, Davies-Bouldin,
+  Calinski-Harabasz and Generalizability in two colors across the paper.
+  `CARVE_output_klein.png` (Fig 3) and `CARVE_output_levine.png` (S4 Fig)
+  are drawn through carve's own plotting and do not change.
 
 ## Open item: circles and moons axis separation
 

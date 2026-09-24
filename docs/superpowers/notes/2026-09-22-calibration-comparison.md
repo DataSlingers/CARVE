@@ -108,6 +108,19 @@ values (6.0-14.5) sit well past it, in the region where the fixed solver
 now returns ARI 1.000 regardless of anchor label, which is exactly the
 saturation the calibration was run to correct.
 
+The calibrated `embed_param` values do not fall monotonically from easy to
+hard: 3.5, 3.0 and 3.25 on `circles`, 3.5, 3.0 and 3.5 on `moons`. They
+need not. `embed_param` is the only key the calibration moves; the others
+(`cluster_scale`, `cluster_size_dirichlet_alpha`, `corr_strength`) are
+carried over from `PUBLISHED_ANCHORS` and differ by level, so each level's
+bandwidth is whatever puts its ARI in band given the rest of its anchor. On
+`moons`, easy and hard share a bandwidth of 3.5 and still land at ARI 0.967
+and 0.766; the rest of the hard anchor, among it a
+`cluster_size_dirichlet_alpha` of 0.1 against easy's 0.67, makes the
+difference. S3 Text
+should present each level by its full anchor, not by `embed_param` alone,
+so a reader does not take the non-monotone bandwidths for an error.
+
 Achieved standard deviations are wide on `circles`, `moons` and
 `swiss_rolls/hard` (0.14-0.28) because the transition band and the
 few-cluster spectral fits are both sensitive to draw; the mean lands
