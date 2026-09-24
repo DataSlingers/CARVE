@@ -1,5 +1,7 @@
 """Tests for the benchmarks command-line entry point."""
 
+import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -72,6 +74,21 @@ class TestCli:
         (tmp_path / "empty").mkdir()
         assert main(["--promote", str(tmp_path / "empty")]) == 1
         assert "manifest" in capsys.readouterr().err
+
+    def test_promote_rejects_an_interrupted_run(self, gaussians_run, tmp_path, capsys):
+        """A copy of the finished run with its manifest set back to
+        "running", which is what an interrupted run leaves on disk."""
+        _, root = gaussians_run
+        rd = tmp_path / "interrupted"
+        shutil.copytree(next((root / "gaussians").iterdir()), rd)
+        manifest = json.loads((rd / "manifest.json").read_text())
+        manifest["status"] = "running"
+        (rd / "manifest.json").write_text(json.dumps(manifest))
+
+        code = main(["--promote", str(rd), "--published-root", str(tmp_path / "pub")])
+        assert code == 1
+        assert "status 'running'" in capsys.readouterr().err
+        assert not (tmp_path / "pub").exists()
 
 
 def test_allow_code_change_reaches_run_scenario(monkeypatch):

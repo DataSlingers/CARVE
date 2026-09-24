@@ -96,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.promote:
         try:
             out = promote(Path(args.promote), Path(args.published_root))
-        except FileNotFoundError as exc:
+        except (FileNotFoundError, ValueError) as exc:
             print(str(exc), file=sys.stderr)
             return 1
         print(f"Promoted to {out}")

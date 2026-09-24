@@ -289,8 +289,9 @@ def widest_run(
 
     require_complete skips runs whose manifest still says "running", which
     is what an interrupted run leaves behind. Pass False to inspect one.
-    Manifests written before status was introduced have none at all and are
-    always skipped: the archived run tree predates this resolver.
+    Manifests written before status was introduced have none at all; they
+    are skipped under require_complete, since they cannot be told apart from
+    an interrupted run, and are candidates like any other when it is False.
     """
     candidates: list[tuple[tuple[int, int], Path]] = []
     for path in sorted((Path(root) / scenario_name).glob("*/")):
@@ -605,6 +606,12 @@ def promote(rd: Path, published_root: Path) -> Path:
 
     Deliberate and explicit. A run is never promoted as a side effect of
     executing one.
+
+    Only a run whose manifest says "complete" is publishable. run_scenario
+    writes the manifest with status "running" before its pool starts, so an
+    interrupted run has a manifest beside a partial set of checkpoints. A
+    manifest with no status predates the field and cannot be told apart
+    from an interrupted run, so it is refused too, as widest_run skips it.
     """
     rd = Path(rd)
     manifest_path = rd / "manifest.json"
@@ -614,6 +621,16 @@ def promote(rd: Path, published_root: Path) -> Path:
         )
 
     manifest = json.loads(manifest_path.read_text())
+    status = manifest.get("status")
+    if status != "complete":
+        found = "no status" if status is None else f"status {status!r}"
+        raise ValueError(
+            f"{rd} is not a complete run: its manifest has {found}. Only a run "
+            "whose manifest says 'complete' is publishable; an interrupted run's "
+            "checkpoints are partial. Resume it with the command that started it, "
+            "then promote."
+        )
+
     out = Path(published_root) / manifest["scenario"]
     out.mkdir(parents=True, exist_ok=True)
 

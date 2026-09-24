@@ -343,6 +343,55 @@ class TestPromote:
         with pytest.raises(FileNotFoundError, match="manifest"):
             promote(rd, tmp_path / "published")
 
+    def test_refuses_to_promote_an_interrupted_run(self, tmp_path):
+        """run_scenario writes its manifest with status "running" before the
+        pool starts, so an interrupted run has a manifest beside a partial
+        set of checkpoints. Publishing it would commit a partial
+        results.csv."""
+        rd = run_dir(tmp_path / "runs", "demo", "abc123def456")
+        write_checkpoint(rd, "easy", 0, [_row()])
+        write_manifest(
+            rd,
+            build_manifest(
+                SCENARIOS["gaussians"],
+                run_id="r1",
+                config_hash="abc123def456",
+                n_seeds=1,
+                n_resamples=1,
+                n_jobs=1,
+                random_state=0,
+                wall_clock_s=0.1,
+                status="running",
+            ),
+        )
+        with pytest.raises(ValueError, match="status 'running'") as excinfo:
+            promote(rd, tmp_path / "published")
+        assert str(rd) in str(excinfo.value)
+        assert not (tmp_path / "published").exists()
+
+    def test_refuses_a_manifest_with_no_status(self, tmp_path):
+        """A manifest written before status was recorded cannot be told apart
+        from an interrupted run, so it counts as incomplete, as in
+        widest_run."""
+        rd = run_dir(tmp_path / "runs", "demo", "abc123def456")
+        write_checkpoint(rd, "easy", 0, [_row()])
+        manifest = build_manifest(
+            SCENARIOS["gaussians"],
+            run_id="r1",
+            config_hash="abc123def456",
+            n_seeds=1,
+            n_resamples=1,
+            n_jobs=1,
+            random_state=0,
+            wall_clock_s=0.1,
+        ).to_dict()
+        del manifest["status"]
+        write_manifest(rd, manifest)
+        with pytest.raises(ValueError, match="no status") as excinfo:
+            promote(rd, tmp_path / "published")
+        assert str(rd) in str(excinfo.value)
+        assert not (tmp_path / "published").exists()
+
 
 def _runtime_row(**overrides):
     row = {
