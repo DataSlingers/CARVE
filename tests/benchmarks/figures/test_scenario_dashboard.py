@@ -4,13 +4,26 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+import itertools
+
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import pytest
 
-from benchmarks._registry import SCENARIOS
+from benchmarks._panels import (
+    CRITERION_REFERENCE_LABEL,
+    k_hat_selection_matrix,
+    normalized_criterion,
+)
+from benchmarks._registry import BASELINE_METRIC, METRIC_DISPLAY_NAMES, SCENARIOS
 from benchmarks.figures import figure_scenario_dashboard
 from benchmarks.figures._benchmarking_results import DEFAULT_METRICS
+from benchmarks.figures._scaling import SCALING_PANELS
+
+# The metrics rows 3 and 4 draw: the oracle has no selected k and no
+# criterion, so neither row carries it.
+DRAWN_METRICS = [m for m in DEFAULT_METRICS if m != BASELINE_METRIC]
 
 
 @pytest.fixture
@@ -37,11 +50,14 @@ class TestLayout:
         assert max(widths) > 3 * min(widths)
         plt.close(fig)
 
-    def test_every_panel_has_content(self, gaussians_frame):
+    def test_the_example_and_ari_rows_have_content(self, gaussians_frame):
         """An empty panel in a dashboard is indistinguishable from a panel
-        whose data happened to be flat."""
+        whose data happened to be flat. Rows 3 and 4 always draw a k* rule
+        or an image, even for a cell with no rows, so they are checked
+        against their own column's data in TestPanelsReadTheirOwnColumn."""
         fig = figure_scenario_dashboard("gaussians", gaussians_frame)
-        for ax in fig.axes:
+        n_points = len(SCENARIOS["gaussians"].axis)
+        for ax in fig.axes[: n_points + 1]:
             assert ax.get_lines() or ax.collections or ax.get_images()
         plt.close(fig)
 
@@ -55,6 +71,80 @@ class TestLayout:
 
         fig = figure_scenario_dashboard("gaussians", gaussians_frame)
         assert fig._suptitle.get_text() == SCENARIO_TITLES["gaussians"]
+        plt.close(fig)
+
+
+class TestPanelsReadTheirOwnColumn:
+    """Each criterion panel and heatmap draws the cell of the axis point
+    its column names, and nothing else.
+
+    The synthetic frame draws its values at random per axis point, so the
+    columns differ; each test checks that first, since a panel drawn from
+    the wrong column would otherwise still match.
+    """
+
+    def test_each_heatmap_draws_its_own_columns_selections(self, gaussians_frame):
+        scenario = SCENARIOS["gaussians"]
+        n_points = len(scenario.axis)
+        expected = [
+            k_hat_selection_matrix(
+                gaussians_frame,
+                metrics=DRAWN_METRICS,
+                axis_label=label,
+                candidate_k=scenario.candidate_k,
+            )
+            for _, _, label in scenario.axis
+        ]
+        for a, b in itertools.combinations(expected, 2):
+            assert not np.array_equal(a, b, equal_nan=True)
+
+        fig = figure_scenario_dashboard("gaussians", gaussians_frame)
+        heatmaps = fig.axes[2 * n_points + 1 :]
+        assert len(heatmaps) == n_points
+        for ax, want in zip(heatmaps, expected):
+            [image] = ax.get_images()
+            drawn = np.ma.filled(np.ma.asarray(image.get_array(), dtype=float), np.nan)
+            assert np.isfinite(want).all()
+            np.testing.assert_array_equal(drawn, want)
+        plt.close(fig)
+
+    def test_each_criterion_panel_draws_one_curve_per_metric_from_its_own_column(
+        self, gaussians_frame
+    ):
+        scenario = SCENARIOS["gaussians"]
+        n_points = len(scenario.axis)
+        candidate_k = list(scenario.candidate_k)
+
+        def expected_curves(label):
+            curves = normalized_criterion(
+                gaussians_frame, metrics=DRAWN_METRICS, axis_label=label
+            )
+            return [
+                curves.loc[curves["metric_name"] == metric]
+                .set_index("k")["value"]
+                .reindex(candidate_k)
+                .to_numpy()
+                for metric in DRAWN_METRICS
+            ]
+
+        expected = [expected_curves(label) for _, _, label in scenario.axis]
+        for a, b in itertools.combinations(expected, 2):
+            assert not np.allclose(np.array(a), np.array(b))
+
+        fig = figure_scenario_dashboard("gaussians", gaussians_frame)
+        panels = fig.axes[n_points + 1 : 2 * n_points + 1]
+        for ax, want in zip(panels, expected):
+            curves = [
+                line
+                for line in ax.get_lines()
+                if not line.get_label().startswith("_")
+                and line.get_label() != CRITERION_REFERENCE_LABEL
+            ]
+            assert [line.get_label() for line in curves] == [
+                METRIC_DISPLAY_NAMES[m] for m in DRAWN_METRICS
+            ]
+            for line, values in zip(curves, want):
+                np.testing.assert_allclose(line.get_ydata(), values)
         plt.close(fig)
 
 
@@ -123,8 +213,9 @@ class TestScalingScenarios:
 
         frame = synthetic_run_frame("gaussians_samples", n_seeds=2)
         fig = figure_scenario_dashboard("gaussians_samples", frame)
+        ari_ax = fig.axes[len(SCENARIOS["gaussians_samples"].axis)]
+        assert ari_ax.get_xlabel() == dict(SCALING_PANELS)["gaussians_samples"]
         labels = [ax.get_xlabel() for ax in fig.axes]
-        assert any("n" in label for label in labels)
         assert not any("SNR" in label for label in labels)
         plt.close(fig)
 
