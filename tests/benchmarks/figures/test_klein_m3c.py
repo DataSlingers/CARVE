@@ -5,7 +5,9 @@ import dataclasses
 import numpy as np
 import pandas as pd
 import pytest
+from matplotlib.collections import PathCollection
 from matplotlib.figure import Figure
+from sklearn.metrics import adjusted_rand_score
 
 from benchmarks._m3c import M3CResult
 from benchmarks.figures._case_study import CompositeInputs
@@ -81,6 +83,22 @@ def inputs():
     )
 
 
+@pytest.fixture
+def subsampled(m3c_result):
+    """The same result as if M3C had clustered 25 of the 40 rows."""
+    rng = np.random.default_rng(2)
+    rows = np.sort(rng.choice(40, size=25, replace=False))
+    return dataclasses.replace(
+        m3c_result,
+        labels={k: rng.integers(0, k, size=25) for k in (2, 3, 4, 5)},
+        rows=rows,
+    )
+
+
+def _tick_labels(ax):
+    return [label.get_text() for label in ax.get_yticklabels()]
+
+
 class TestAriRows:
     def test_returns_one_row_at_the_selected_k_and_one_at_four(
         self, inputs, m3c_result
@@ -97,10 +115,32 @@ class TestAriRows:
             assert set(row) == {"method", "metric", "ari", "k"}
 
     def test_returns_one_row_when_m3c_also_selects_four(self, inputs, m3c_result):
-        # Panel C must not show the same partition twice under a second name.
+        # The table must not show the same partition twice under a second name.
         at_four = dataclasses.replace(m3c_result, selected_k=4)
         rows = m3c_ari_rows(inputs, at_four)
         assert [row["k"] for row in rows] == [4]
+
+    def test_can_leave_out_the_row_at_carve_s_k(self, inputs, m3c_result):
+        rows = m3c_ari_rows(inputs, m3c_result, at_carve_k=False)
+        assert [row["k"] for row in rows] == [2]
+
+    def test_scores_a_subsample_against_its_own_rows_labels(self, inputs, subsampled):
+        rows = m3c_ari_rows(inputs, subsampled)
+        y_sub = inputs.y[subsampled.rows]
+        for row in rows:
+            expected = adjusted_rand_score(y_sub, subsampled.labels[row["k"]])
+            assert row["ari"] == pytest.approx(expected)
+
+    def test_names_the_subsample_size(self, inputs, subsampled):
+        methods = [row["method"] for row in m3c_ari_rows(inputs, subsampled)]
+        assert methods == ["M3C (25 cells)", "M3C (at $k=4$, 25 cells)"]
+
+    def test_refuses_labels_that_do_not_match_the_recorded_rows(
+        self, inputs, subsampled
+    ):
+        wrong = dataclasses.replace(subsampled, rows=subsampled.rows[:-1])
+        with pytest.raises(ValueError, match="rows"):
+            m3c_ari_rows(inputs, wrong)
 
 
 class TestFigure:
@@ -116,3 +156,28 @@ class TestFigure:
     def test_does_not_save_when_asked_not_to(self, inputs, m3c_result, tmp_path):
         figure_klein_m3c(inputs, m3c_result, save=False, out_dir=tmp_path)
         assert not (tmp_path / "klein_m3c.png").exists()
+
+    def test_the_ari_panel_leaves_out_m3c_at_carve_s_k(self, inputs, m3c_result):
+        fig = figure_klein_m3c(inputs, m3c_result, save=False)
+        labels = _tick_labels(fig.axes[2])
+        assert "M3C" in labels
+        assert not any("at $k=" in label for label in labels)
+
+    def test_the_scatter_draws_only_the_rows_m3c_clustered(self, inputs, subsampled):
+        fig = figure_klein_m3c(inputs, subsampled, save=False)
+        drawn = np.concatenate(
+            [
+                c.get_offsets()
+                for c in fig.axes[1].collections
+                if isinstance(c, PathCollection)
+            ]
+        )
+        assert len(drawn) == len(subsampled.rows)
+        expected = inputs.Z[subsampled.rows]
+        assert sorted(map(tuple, np.round(drawn, 9))) == sorted(
+            map(tuple, np.round(expected, 9))
+        )
+
+    def test_the_scatter_title_names_the_subsample(self, inputs, subsampled):
+        fig = figure_klein_m3c(inputs, subsampled, save=False)
+        assert "25 cells" in fig.axes[1].get_title()

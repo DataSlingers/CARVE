@@ -6,9 +6,9 @@ bridge to it: it takes the same X a case study hands CARVE and the CVIs,
 runs M3C at its published defaults, and returns the scores and labels as
 plain pandas and numpy.
 
-This module is a leaf. It imports the standard library, numpy and pandas,
-and the cache-fingerprint helpers from ._artifacts -- the one import it
-takes from this package, since _artifacts imports only ._registry and
+This module is a leaf. It imports the standard library, numpy, pandas and
+scikit-learn, and the cache-fingerprint helpers from ._artifacts -- the one
+import it takes from this package, since _artifacts imports only ._registry and
 ._types, so no cycle appears. rpy2 is imported inside functions (run_m3c
 and its two small rpy2-touching helpers) rather than at module scope: rpy2
 lives in the [notebooks] extra, the benchmarks CI job installs
@@ -16,6 +16,7 @@ lives in the [notebooks] extra, the benchmarks CI job installs
 every test here.
 """
 
+import dataclasses
 import hashlib
 import json
 import time
@@ -28,6 +29,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from sklearn.model_selection import StratifiedShuffleSplit
 
 from ._artifacts import check_fingerprint, fingerprint, fingerprint_path
 
@@ -49,6 +51,12 @@ M3C_DEFAULTS: Mapping[str, Any] = MappingProxyType(
         "seed": 123,
     }
 )
+
+#: The largest sample count M3C's vignette recommends it for: "We recommend
+#: M3C only be used to cluster datasets with high numbers of samples (e.g.
+#: 60-1000)." A case study with more samples hands M3C a subsample of this
+#: many rows (m3c_rows); CARVE and the CVIs still see every row.
+M3C_MAX_SAMPLES: int = 1000
 
 #: The columns M3C's scores frame carries under method=1 and the default
 #: objective="entropy".
@@ -83,6 +91,9 @@ class M3CResult:
     from res$realdataresults[[k]]$assignments, which is the named vector in
     the original column order; ordered_annotation is permuted by the
     dendrogram order and would scramble the mapping back onto X's rows.
+
+    rows are the rows of the case study's X that M3C clustered, in the order
+    labels follows, or None when it clustered every row.
     """
 
     scores: pd.DataFrame
@@ -93,6 +104,30 @@ class M3CResult:
     config: Mapping[str, Any] = field(default_factory=dict)
     m3c_version: str = ""
     r_version: str = ""
+    rows: np.ndarray | None = None
+
+
+def m3c_rows(
+    y: np.ndarray | pd.Series,
+    *,
+    n_samples: int = M3C_MAX_SAMPLES,
+    random_state: int = 42,
+) -> np.ndarray:
+    """The rows of a case study's X that M3C clusters, in increasing order.
+
+    Every row when there are at most n_samples. Otherwise a subsample of
+    n_samples rows stratified by the reported labels y, drawn with
+    StratifiedShuffleSplit as load_klein draws its own subsample, so each
+    label keeps its share of the cells.
+    """
+    y = np.asarray(y)
+    if len(y) <= n_samples:
+        return np.arange(len(y))
+    splitter = StratifiedShuffleSplit(
+        n_splits=1, test_size=int(n_samples), random_state=random_state
+    )
+    _, rows = next(splitter.split(np.zeros((len(y), 1)), y))
+    return np.sort(rows)
 
 
 def validate_scores(scores: pd.DataFrame) -> pd.DataFrame:
@@ -279,15 +314,12 @@ def run_m3c(
         Installing an R package is a side effect on the user's machine, so it
         is opt-in, matching datasets/_levine.py.
     cores : int, default=1
-        M3C's own parallelism over the Monte Carlo iterations. Left at 1: the
-        measured Klein runtime at cores=1 on this machine is 2080.4 s (34.7
-        min) -- not an estimate, but what the cache sidecar recorded. The
-        spec's cost table figure of about eight minutes counts only the PAM
-        clustering (2,600 resamples x 9 values of K x 0.02 s) and omits
-        reference generation, which dominates: each of the 25 Monte Carlo
-        iterations draws a 1358x1358 Gaussian matrix and multiplies it by a
-        1358x2000 rotation. A single worker is also one fewer variable
-        between runs.
+        M3C's own parallelism over the Monte Carlo iterations. Left at 1, one
+        fewer variable between runs. Reference generation dominates the
+        cost, not the PAM clustering: each of the 25 Monte Carlo iterations
+        draws an n-by-n Gaussian matrix and multiplies it by an n-by-p
+        rotation. On 1,358 Klein cells by 2,000 genes a cores=1 run took
+        2080.4 s (34.7 min) on this machine.
     **overrides
         Individual M3C_DEFAULTS entries to override. Used by the tests to
         drop iters; a case-study run passes none.
@@ -457,6 +489,7 @@ def _write_cache(path: Path, result: M3CResult, X: np.ndarray) -> None:
                 "config": dict(result.config),
                 "m3c_version": result.m3c_version,
                 "r_version": result.r_version,
+                "rows": None if result.rows is None else result.rows.tolist(),
             },
             indent=2,
             default=str,
@@ -507,7 +540,18 @@ def _read_cache(path: Path) -> M3CResult:
         config=meta["config"],
         m3c_version=str(meta["m3c_version"]),
         r_version=str(meta["r_version"]),
+        rows=(
+            None
+            if meta.get("rows") is None
+            else np.asarray(meta["rows"], dtype=np.int64)
+        ),
     )
+
+
+def _same_rows(a: np.ndarray | None, b: np.ndarray | None) -> bool:
+    if a is None or b is None:
+        return a is None and b is None
+    return np.array_equal(a, b)
 
 
 def _expected_config(**kwargs: Any) -> dict[str, Any]:
@@ -545,14 +589,24 @@ def _mismatched_config_keys(
 
 
 def run_or_load_m3c(
-    X: np.ndarray, *, cache_path: Path, force: bool = False, **kwargs: Any
+    X: np.ndarray,
+    *,
+    cache_path: Path,
+    rows: np.ndarray | None = None,
+    force: bool = False,
+    **kwargs: Any,
 ) -> M3CResult:
-    """Run M3C on X, caching the result, and serve the cache on later calls.
+    """Run M3C on X, or on X[rows], caching the result for later calls.
 
-    The measured Klein runtime at cores=1 on this machine is 2080.4 s (34.7
-    min), not an estimate, so the cache is what makes regenerating the figure
-    practical. The fingerprint guard is the same one fit_or_load_carve uses:
-    a cached result is never served against a matrix it was not computed on.
+    A run takes tens of minutes (see run_m3c's cores), so the cache is what
+    makes regenerating the figure practical. The fingerprint guard is the
+    same one fit_or_load_carve uses: a cached result is never served against
+    a matrix it was not computed on.
+
+    rows, from m3c_rows, restricts the run to those rows of X and is recorded
+    on the result, so a figure can match M3C's labels to the right cells. A
+    cache recorded with other rows is refused, including when the two
+    subsets happen to hold identical values.
 
     A loaded cache's config is also checked against the config this call
     would itself produce (_expected_config): m3c_cache_path's filename hash
@@ -561,9 +615,18 @@ def run_or_load_m3c(
     would otherwise serve a stale result under the new pins with no signal.
     """
     cache_path = Path(cache_path)
+    X = np.asarray(X)
+    rows = None if rows is None else np.asarray(rows, dtype=np.int64)
+    X_run = X if rows is None else X[rows]
     if not force and _cache_is_complete(cache_path):
-        check_fingerprint(cache_path, X)
+        check_fingerprint(cache_path, X_run)
         result = _read_cache(cache_path)
+        if not _same_rows(result.rows, rows):
+            raise ValueError(
+                f"{cache_path} was computed on different rows of X than the "
+                "rows passed now. Pass force=True to recompute, or pass the "
+                "rows the cache was written with."
+            )
         expected = _expected_config(**kwargs)
         mismatched = _mismatched_config_keys(result.config, expected)
         if mismatched:
@@ -581,6 +644,6 @@ def run_or_load_m3c(
             )
         return result
 
-    result = run_m3c(X, **kwargs)
-    _write_cache(cache_path, result, X)
+    result = dataclasses.replace(run_m3c(X_run, **kwargs), rows=rows)
+    _write_cache(cache_path, result, X_run)
     return result

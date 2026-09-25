@@ -295,7 +295,7 @@ class TestRunLive:
 
 from pathlib import Path
 
-from benchmarks._m3c import m3c_cache_path, run_or_load_m3c
+from benchmarks._m3c import M3C_MAX_SAMPLES, m3c_cache_path, m3c_rows, run_or_load_m3c
 
 
 def stub_result(config: dict | None = None) -> M3CResult:
@@ -314,6 +314,39 @@ def stub_result(config: dict | None = None) -> M3CResult:
         m3c_version="1.34.0",
         r_version="R version 4.5.1 (2025-06-13)",
     )
+
+
+class TestRows:
+    def test_the_ceiling_is_the_vignette_s_upper_bound(self):
+        assert M3C_MAX_SAMPLES == 1000
+
+    def test_keeps_every_row_at_or_below_the_ceiling(self):
+        y = np.array(["a", "b"] * 5)
+        np.testing.assert_array_equal(m3c_rows(y, n_samples=10), np.arange(10))
+
+    def test_draws_exactly_n_sorted_distinct_rows_above_the_ceiling(self):
+        y = np.repeat(["a", "b", "c", "d"], [120, 40, 90, 50])
+        rows = m3c_rows(y, n_samples=100, random_state=0)
+        assert len(rows) == 100
+        assert len(np.unique(rows)) == 100
+        assert np.all(np.diff(rows) > 0)
+        assert rows.min() >= 0 and rows.max() < len(y)
+
+    def test_keeps_the_reported_label_proportions(self):
+        y = np.repeat(["a", "b", "c", "d"], [120, 40, 90, 50])
+        rows = m3c_rows(y, n_samples=100, random_state=0)
+        counts = pd.Series(y[rows]).value_counts()
+        expected = {"a": 40.0, "b": 40 / 3, "c": 30.0, "d": 50 / 3}
+        for label, count in expected.items():
+            assert abs(counts[label] - count) <= 1
+
+    def test_is_reproducible_under_a_seed_and_moves_with_it(self):
+        y = np.repeat(["a", "b"], [150, 150])
+        first = m3c_rows(y, n_samples=100, random_state=0)
+        again = m3c_rows(y, n_samples=100, random_state=0)
+        other = m3c_rows(y, n_samples=100, random_state=1)
+        np.testing.assert_array_equal(first, again)
+        assert not np.array_equal(first, other)
 
 
 class TestCachePath:
@@ -422,6 +455,45 @@ class TestRunOrLoad:
             run_or_load_m3c(X, cache_path=cache, max_k=4)
         assert "cached=5" in str(excinfo.value)
         assert "requested=25" in str(excinfo.value)
+
+    def test_runs_on_the_requested_rows_and_records_them(self, tmp_path, monkeypatch):
+        calls = []
+
+        def fake_run(X, **kwargs):
+            calls.append(X)
+            return stub_result()
+
+        monkeypatch.setattr("benchmarks._m3c.run_m3c", fake_run)
+        X = np.arange(18, dtype=float).reshape(6, 3)
+        rows = np.array([0, 2, 5])
+        cache = tmp_path / "m3c.parquet"
+
+        first = run_or_load_m3c(X, cache_path=cache, rows=rows, max_k=4)
+        second = run_or_load_m3c(X, cache_path=cache, rows=rows, max_k=4)
+
+        assert len(calls) == 1
+        np.testing.assert_array_equal(calls[0], X[rows])
+        np.testing.assert_array_equal(first.rows, rows)
+        np.testing.assert_array_equal(second.rows, rows)
+
+    def test_a_run_on_every_row_records_no_rows(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("benchmarks._m3c.run_m3c", lambda X, **kw: stub_result())
+        X = np.arange(18, dtype=float).reshape(6, 3)
+        cache = tmp_path / "m3c.parquet"
+
+        assert run_or_load_m3c(X, cache_path=cache, max_k=4).rows is None
+        assert run_or_load_m3c(X, cache_path=cache, max_k=4).rows is None
+
+    def test_refuses_a_cache_computed_on_different_rows(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("benchmarks._m3c.run_m3c", lambda X, **kw: stub_result())
+        # Rows 0 and 1 are identical, so X[[0, 2]] and X[[1, 2]] are the same
+        # matrix and only the recorded rows can tell the two runs apart.
+        X = np.array([[1.0, 2.0], [1.0, 2.0], [3.0, 4.0]])
+        cache = tmp_path / "m3c.parquet"
+
+        run_or_load_m3c(X, cache_path=cache, rows=np.array([0, 2]), max_k=4)
+        with pytest.raises(ValueError, match="rows"):
+            run_or_load_m3c(X, cache_path=cache, rows=np.array([1, 2]), max_k=4)
 
     def test_recomputes_when_a_cache_file_is_missing(self, tmp_path, monkeypatch):
         # A process killed mid-write can leave the main parquet in place
