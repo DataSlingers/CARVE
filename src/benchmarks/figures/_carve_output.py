@@ -74,7 +74,7 @@ def carve_output_figure(
         # figure is "not compatible with tight_layout" on every subsequent
         # call. Leaving spacing to the default lets those internal calls lay
         # the panels out cleanly instead.
-        fig = plt.figure(figsize=(13.0, 16.5))
+        fig = plt.figure(figsize=(13.0, 14.0))
         gs = fig.add_gridspec(3, 2)
         ax_a = fig.add_subplot(gs[0, 0])
         ax_b = fig.add_subplot(gs[0, 1])
@@ -83,6 +83,8 @@ def carve_output_figure(
         ax_e = fig.add_subplot(gs[2, 0])
         ax_f = fig.add_subplot(gs[2, 1])
 
+        # A and B draw the same estimators in the same colors, so one
+        # legend, in B, names them for both.
         carve.plot_metric_over_n_clusters(
             measure=_MEASURE_STABILITY,
             rule=rule,
@@ -90,6 +92,7 @@ def carve_output_figure(
             ax=ax_a,
             palette=ESTIMATOR_CMAP_NAME,
             title="Stability ARI over $k$",
+            legend=False,
             show=False,
         )
         carve.plot_metric_over_n_clusters(
@@ -99,6 +102,7 @@ def carve_output_figure(
             ax=ax_b,
             palette=ESTIMATOR_CMAP_NAME,
             title="Generalizability ARI over $k$",
+            legend_loc="lower left",
             show=False,
         )
         carve.plot_consensus_matrix(

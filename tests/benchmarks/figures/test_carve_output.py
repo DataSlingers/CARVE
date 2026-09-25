@@ -213,6 +213,22 @@ class TestCarveOutputFigures:
         assert drawn == {color.lower() for color in ESTIMATOR_COLORS}
         plt.close(fig)
 
+    def test_only_panel_b_carries_the_estimator_legend_in_its_lower_left(
+        self, inputs
+    ):
+        fig = figure_carve_output_klein(inputs, save=False)
+        panels = _panel_by_letter(fig)
+        assert panels["A"].get_legend() is None
+        legend = panels["B"].get_legend()
+        assert legend is not None
+        fig.canvas.draw()
+        box = legend.get_window_extent().transformed(
+            panels["B"].transAxes.inverted()
+        )
+        assert box.x0 < 0.1 and box.y0 < 0.1
+        assert box.x1 < 1.0 and box.y1 < 1.0
+        plt.close(fig)
+
     def test_panel_a_is_stability_and_panel_b_is_generalizability(self, inputs):
         """The restructure's most likely regression: swapping A and B.
 
