@@ -303,12 +303,15 @@ def composite_figure(
     save_name: str,
     save: bool = True,
     out_dir: Path | None = None,
+    curves_first: bool = False,
 ) -> Figure:
     """Draw the six-panel case-study composite.
 
     Panels A, B and C are scatters of the reported labels, the CARVE
     clustering, and the CVI clustering; D and E are the CARVE and CVI curves
-    over k; F is supplied by the caller.
+    over k; F is supplied by the caller. With ``curves_first`` the curves
+    take the top row as A and B, their legends the strip below them, and
+    the scatters the row after that as C, D and E.
 
     ``axis_labels`` names the embedding's two directions. Only panel A shows
     them, as a corner arrow pair rather than as xlabel/ylabel: all three
@@ -319,32 +322,36 @@ def composite_figure(
 
     with theme_context():
         fig = plt.figure(figsize=(16, 16), constrained_layout=False)
-        gs = fig.add_gridspec(
-            4, 6, height_ratios=[1.0, 1.0, 0.3, 1.0], hspace=0.2, wspace=0.8
-        )
-        ax_a = fig.add_subplot(gs[0, 0:2])
-        ax_b = fig.add_subplot(gs[0, 2:4])
-        ax_c = fig.add_subplot(gs[0, 4:6])
-        ax_d = fig.add_subplot(gs[1, 0:3])
-        ax_e = fig.add_subplot(gs[1, 3:6])
-        ax_f = fig.add_subplot(gs[3, 1:5])
+        if curves_first:
+            curve_row, legend_row, scatter_row = 0, 1, 2
+            height_ratios = [1.0, 0.3, 1.0, 1.0]
+        else:
+            scatter_row, curve_row, legend_row = 0, 1, 2
+            height_ratios = [1.0, 1.0, 0.3, 1.0]
+        gs = fig.add_gridspec(4, 6, height_ratios=height_ratios, hspace=0.2, wspace=0.8)
+        ax_true = fig.add_subplot(gs[scatter_row, 0:2])
+        ax_carve = fig.add_subplot(gs[scatter_row, 2:4])
+        ax_cvi = fig.add_subplot(gs[scatter_row, 4:6])
+        ax_carve_curves = fig.add_subplot(gs[curve_row, 0:3])
+        ax_cvi_curves = fig.add_subplot(gs[curve_row, 3:6])
+        ax_bottom = fig.add_subplot(gs[3, 1:5])
 
-        legend_ax_d = fig.add_subplot(gs[2, 0:3])
-        legend_ax_d.set_axis_off()
-        legend_ax_e = fig.add_subplot(gs[2, 3:6])
-        legend_ax_e.set_axis_off()
+        legend_ax_carve = fig.add_subplot(gs[legend_row, 0:3])
+        legend_ax_carve.set_axis_off()
+        legend_ax_cvi = fig.add_subplot(gs[legend_row, 3:6])
+        legend_ax_cvi.set_axis_off()
 
         scatter_clusters(
-            ax_a,
+            ax_true,
             inputs.Z,
             inputs.y,
             color_map=true_cmap,
             s=marker_size,
             title="Reported Labels",
         )
-        axis_arrows(ax_a, axis_labels)
+        axis_arrows(ax_true, axis_labels)
         scatter_clusters(
-            ax_b,
+            ax_carve,
             inputs.Z,
             inputs.carve_labels,
             color_map=carve_cmap,
@@ -352,7 +359,7 @@ def composite_figure(
             title="CARVE clustering",
         )
         scatter_clusters(
-            ax_c,
+            ax_cvi,
             inputs.Z,
             inputs.comparison_labels,
             color_map=comparison_cmap,
@@ -361,18 +368,21 @@ def composite_figure(
         )
 
         carve_lines(
-            ax_d, inputs.carve, not_two=inputs.not_two, title="CARVE ARI over k"
+            ax_carve_curves,
+            inputs.carve,
+            not_two=inputs.not_two,
+            title="CARVE ARI over k",
         )
-        cvi_lines(ax_e, inputs.curves_df, inputs.best_df, title="CVIs over k")
+        cvi_lines(ax_cvi_curves, inputs.curves_df, inputs.best_df, title="CVIs over k")
 
-        bottom_panel(ax_f, inputs)
+        bottom_panel(ax_bottom, inputs)
 
         # Move the two panel legends into their own strip. Building each one
         # exactly once; the cell this replaces assigned leg_D twice and threw
         # the first away.
         for source_ax, target_ax, title in (
-            (ax_d, legend_ax_d, "CARVE"),
-            (ax_e, legend_ax_e, "CVIs"),
+            (ax_carve_curves, legend_ax_carve, "CARVE"),
+            (ax_cvi_curves, legend_ax_cvi, "CVIs"),
         ):
             handles, labels = source_ax.get_legend_handles_labels()
             existing = source_ax.get_legend()
@@ -388,7 +398,10 @@ def composite_figure(
                 fontsize=FONT_SIZES["legend"],
             )
 
-        for letter, ax in zip("ABCDEF", (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f)):
+        scatters = (ax_true, ax_carve, ax_cvi)
+        curves = (ax_carve_curves, ax_cvi_curves)
+        ordered = (*curves, *scatters) if curves_first else (*scatters, *curves)
+        for letter, ax in zip("ABCDEF", (*ordered, ax_bottom)):
             panel_letter(ax, letter)
 
         if save:

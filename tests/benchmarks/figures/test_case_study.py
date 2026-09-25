@@ -109,7 +109,48 @@ def inputs():
     )
 
 
+def _lettered(fig):
+    """Map each panel letter to the axes panel_letter() drew it on."""
+    return {
+        text.get_text(): ax
+        for ax in fig.get_axes()
+        for text in ax.texts
+        if text.get_text() in list("ABCDEF")
+    }
+
+
+def _row(ax):
+    return ax.get_subplotspec().rowspan.start
+
+
 class TestKleinFigure:
+    def test_curves_come_first_and_the_scatters_below_them(self, inputs):
+        fig = figure_klein_results(inputs, save=False)
+        panels = _lettered(fig)
+        assert panels["A"].get_title() == "CARVE ARI over k"
+        assert panels["B"].get_title() == "CVIs over k"
+        assert panels["C"].get_title() == "Reported Labels"
+        assert panels["D"].get_title() == "CARVE clustering"
+        assert panels["E"].get_title().startswith("CVI (")
+        assert _row(panels["A"]) == _row(panels["B"])
+        assert _row(panels["C"]) == _row(panels["D"]) == _row(panels["E"])
+        assert _row(panels["A"]) < _row(panels["C"]) < _row(panels["F"])
+        plt.close(fig)
+
+    def test_the_curve_legends_sit_between_the_curves_and_the_scatters(
+        self, inputs
+    ):
+        fig = figure_klein_results(inputs, save=False)
+        panels = _lettered(fig)
+        legend_rows = {
+            _row(ax)
+            for ax in fig.get_axes()
+            if ax.get_legend() is not None and not ax.axison
+        }
+        assert legend_rows == {_row(panels["A"]) + 1}
+        assert _row(panels["A"]) + 1 < _row(panels["C"])
+        plt.close(fig)
+
     def test_returns_a_figure_with_six_drawn_panels(self, inputs):
         fig = figure_klein_results(inputs, save=False)
         lettered = {t.get_text() for ax in fig.get_axes() for t in ax.texts}
@@ -196,6 +237,14 @@ class TestLevineFigure:
         fig = figure_levine_results(inputs, save=False)
         labels = [ax.get_xlabel() for ax in fig.get_axes()]
         assert any("ARI" in label for label in labels)
+        plt.close(fig)
+
+    def test_keeps_the_scatters_first(self, inputs):
+        fig = figure_levine_results(inputs, save=False)
+        panels = _lettered(fig)
+        assert panels["A"].get_title() == "Reported Labels"
+        assert panels["D"].get_title() == "CARVE ARI over k"
+        assert _row(panels["A"]) < _row(panels["D"])
         plt.close(fig)
 
     def test_uses_the_smaller_marker_size(self, inputs):

@@ -1,7 +1,8 @@
 """Fig 5: the Klein case study.
 
-Panel F is an alluvial linking the CARVE clustering, the reported labels, and
-the CVI clustering. Panels A to C use a PCA embedding and 20-point markers.
+Panels A and B are the CARVE and CVI curves over k, C to E scatters on a PCA
+embedding with 20-point markers, and F an alluvial linking the CARVE
+clustering, the reported labels, and the CVI clustering.
 """
 
 from pathlib import Path
@@ -46,4 +47,5 @@ def figure_klein_results(
         save_name="klein_results.png",
         save=save,
         out_dir=out_dir,
+        curves_first=True,
     )
