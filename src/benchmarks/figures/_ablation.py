@@ -408,9 +408,9 @@ def figure_ablation_rho(
         # panel H, and the two Klein similarity lines), so tight_layout
         # reserves a fixed bottom strip for it rather than letting a tall
         # legend grow upward from just below the canvas into row 3's axes.
-        # 0.11 of the figure height is the dev run's five-row legend
-        # (results/runs/ablation_rho_b/dev/908d5949eb5d) plus a bit of
-        # headroom above it; it also clears the larger, uniform-random
+        # 0.11 of the figure height is the five-row legend of the reduced
+        # run this was sized on (since archived) plus a bit of headroom
+        # above it; it also clears the larger, uniform-random
         # legend the unit tests' synthetic frames produce (panel H's
         # per-choice bars explode without real structure to concentrate
         # selections), with roughly 0.1 inch to spare there.
@@ -519,8 +519,8 @@ def figure_ablation_b(
         # Same reasoning as figure_ablation_rho: reserve a fixed bottom strip
         # so a tall merged legend (studies, headline metrics, the guide line
         # and panel H's per-choice bars) cannot grow upward into row 4. 0.06
-        # of the figure height is the dev run's four-row legend
-        # (results/runs/ablation_rho_b/dev/908d5949eb5d) plus headroom; the
+        # of the figure height is the four-row legend of the reduced run this
+        # was sized on (since archived) plus headroom; the
         # unit tests' synthetic frames produce a shorter legend here than the
         # rho figure does, so this value clears them too, with room to spare.
         fig.tight_layout(rect=(0.0, 0.06, 1.0, 1.0))

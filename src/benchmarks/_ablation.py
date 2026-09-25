@@ -80,8 +80,8 @@ CARVE_N_TREES: int = next(
 def ablation_config(ablation: Ablation, scale: str) -> dict[str, Any]:
     """Everything that defines a run at one scale.
 
-    Only the chosen scale is included, so editing the dev scale cannot
-    invalidate a publication run.
+    Only the chosen scale is included, so adding or editing another scale
+    cannot invalidate a publication run.
     """
     sc = ablation.scales[scale]
     study = STUDIES[ablation.study]

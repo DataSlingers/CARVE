@@ -39,15 +39,17 @@ def test_nightly_runs_a_real_benchmark_not_only_plotting():
         "failing any other assertion here"
     )
 
+    # The CLI runs full scale only, which takes hours; the smoke run calls
+    # the runner directly with a reduced dataset and resample count.
     run = step["run"]
-    assert "benchmarks.run" in run
-    assert "--n-seeds" in run
+    assert "run_scenario(" in run
+    assert "n_seeds=" in run
 
-    match = re.search(r"--n-resamples\s+(\d+)", run)
-    assert match, "no --n-resamples value found in the smoke step's run block"
+    match = re.search(r"n_resamples=(\d+)", run)
+    assert match, "no n_resamples value found in the smoke step's run block"
     n_resamples = int(match.group(1))
     assert n_resamples >= MIN_SAFE_N_RESAMPLES, (
-        f"--n-resamples is {n_resamples}, below the measured all-NaN boundary "
+        f"n_resamples is {n_resamples}, below the measured all-NaN boundary "
         f"of {MIN_SAFE_N_RESAMPLES}: consensus_gini_stability and "
         "consensus_ce_stability come back all-NaN below that point, and "
         "CARVE.get_k raises ValueError: Encountered all NA values"

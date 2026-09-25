@@ -590,12 +590,7 @@ class TestLoaderSubsampling:
         _klein_loader(STUDIES["klein"].scales["publication"])
         assert calls["subsample"] is None
 
-    def test_heca_loader_draws_the_subsample_before_embedding(self, monkeypatch):
-        # The pooled hECA embedding holds tens of GB; a development-scale
-        # load only fits on a laptop if the rows are drawn from the organ
-        # files first. The loader passes the flag at every scale; load_heca
-        # ignores it when subsample is None (publication) and whenever the
-        # pooled cache is present.
+    def test_heca_loader_loads_every_cell_by_organ(self, monkeypatch):
         calls = {}
 
         def fake_load_heca(**kwargs):
@@ -603,9 +598,11 @@ class TestLoaderSubsampling:
             return np.zeros((1, 1)), pd.Series(["a"]), {}
 
         monkeypatch.setattr("benchmarks.datasets.load_heca", fake_load_heca)
-        _heca_loader(25_000)
-        assert calls["subsample"] == 25_000
-        assert calls["subsample_before_embedding"] is True
+        _heca_loader(STUDIES["heca"].scales["publication"])
+        assert calls["subsample"] is None
+        assert calls["label_column"] == "organ"
+        # Drawing rows before embedding only mattered for a subsample.
+        assert "subsample_before_embedding" not in calls
 
     def test_cusanovich_loader_references_the_source_clusters(self, monkeypatch):
         # The reference is the source's 30 clusters, which assign every cell,
@@ -702,17 +699,18 @@ class TestCarveCachePath:
         assert a == b
 
     def test_default_runs_keep_their_existing_filenames(self, tmp_path):
-        # The Levine and hECA caches are hours of compute each and were
-        # written before run keys existed, so their default runs must resolve
-        # to the same names as before, byte for byte. Klein's publication
-        # scale is every cell, so its name carries that size's hash and the
-        # half-subsample cache (1b390cd5) is never served for it.
+        # The Levine cache is hours of compute and was written before run
+        # keys existed, so its default run must resolve to the same name as
+        # before, byte for byte. Klein's and hECA's publication scales are
+        # every cell, so their names carry that size's hash: neither Klein's
+        # half-subsample cache (1b390cd5) nor hECA's 25,000-cell development
+        # cache (dev_8314e95d) is ever served for them.
         klein = carve_cache_path(STUDIES["klein"], root=tmp_path)
         levine = carve_cache_path(STUDIES["levine32"], root=tmp_path)
         heca = carve_cache_path(STUDIES["heca"], root=tmp_path)
         assert klein.name == "carve_klein_publication_6eef6648.carve"
         assert levine.name == "carve_levine32_publication_f8237d89.carve"
-        assert heca.name == "carve_heca_dev_8314e95d.carve"
+        assert heca.name == "carve_heca_publication_6eef6648.carve"
 
     def test_passing_the_default_run_explicitly_changes_nothing(self, tmp_path):
         study = _study()
@@ -779,6 +777,24 @@ class TestRegisteredStudiesCarryScales:
 
     def test_levine_publication_scale_is_five_thousand(self):
         assert STUDIES["levine32"].scales["publication"] == 5000
+
+    def test_only_reported_scales_are_declared(self):
+        # Development is over: every declared scale is one a reported run
+        # uses, so no call site can load a study at a development size.
+        assert {name: set(study.scales) for name, study in STUDIES.items()} == {
+            "klein": {"publication"},
+            "levine32": {"publication"},
+            "cusanovich": {"publication", "atlas"},
+            "heca": {"publication"},
+        }
+
+    def test_default_scales_are_the_reported_runs(self):
+        assert {name: study.default_scale for name, study in STUDIES.items()} == {
+            "klein": "publication",
+            "levine32": "publication",
+            "cusanovich": "atlas",
+            "heca": "publication",
+        }
 
 
 class TestNewStudies:
@@ -854,7 +870,8 @@ class TestNewStudies:
         self, tmp_path
     ):
         # carve_cusanovich_dev_7841fb1f.carve was fit before the cell-order
-        # fix (1dea71d) and must never be served again.
+        # fix (1dea71d) and must never be served again. The default scale is
+        # now the atlas, whose size hash (every cell) differs as well.
         study = STUDIES["cusanovich"]
         path = carve_cache_path(
             study,
@@ -863,7 +880,7 @@ class TestNewStudies:
             n_resamples=study.n_resamples,
             preprocessing=study.preprocessing,
         )
-        assert path.name.startswith("carve_cusanovich_dev_7841fb1f_")
+        assert path.name.startswith("carve_cusanovich_atlas_6eef6648_")
         assert path.name != "carve_cusanovich_dev_7841fb1f.carve"
 
     def test_heca_sweeps_four_through_fifteen(self):
@@ -904,9 +921,8 @@ class TestNewStudies:
         # n exceeds anchor_threshold. Pinned to hECA's count for that reason.
         assert STUDIES["cusanovich"].consensus_anchors == 2000
 
-    def test_new_studies_declare_dev_and_publication_scales(self):
-        for name in ("cusanovich", "heca"):
-            assert {"dev", "publication"} <= set(STUDIES[name].scales)
+    def test_heca_publication_scale_is_every_cell(self):
+        assert STUDIES["heca"].scales["publication"] is None
 
     def test_cusanovich_publication_scale_matches_levine(self):
         assert STUDIES["cusanovich"].scales["publication"] == 5000

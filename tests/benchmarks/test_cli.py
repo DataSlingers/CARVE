@@ -15,6 +15,9 @@ from benchmarks.run import _parser, main
 def gaussians_run(tmp_path_factory):
     """One reduced gaussians run through the CLI: (exit code, root).
 
+    The CLI runs full scale only, so the reduction is injected into the
+    runner it calls: one dataset per axis value at B=20.
+
     --n-jobs 1 pinned explicitly: "gaussians" is a difficulty scenario, so it
     otherwise resolves to -1, and this three-cell run would pay a real loky
     pool's startup cost and run its cells where a warning cannot reach
@@ -23,20 +26,16 @@ def gaussians_run(tmp_path_factory):
     covers on a mock.
     """
     root = tmp_path_factory.mktemp("cli")
-    code = main(
-        [
-            "--scenario",
-            "gaussians",
-            "--root",
-            str(root),
-            "--n-seeds",
-            "1",
-            "--n-resamples",
-            "20",
-            "--n-jobs",
-            "1",
-        ]
-    )
+    real_run_scenario = run_module.run_scenario
+
+    def reduced(scenario, **kwargs):
+        return real_run_scenario(scenario, **kwargs, n_seeds=1, n_resamples=20)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(run_module, "run_scenario", reduced)
+        code = main(
+            ["--scenario", "gaussians", "--root", str(root), "--n-jobs", "1"]
+        )
     return code, root
 
 
@@ -129,6 +128,31 @@ def test_scenarios_default_to_per_scenario_resolution(monkeypatch):
     assert captured["n_jobs"] is None
 
 
+def test_scenarios_run_at_full_scale(monkeypatch):
+    """The CLI passes no dataset or resample count, so every scenario runs
+    its registered n_seeds at the runner's B=100."""
+    captured = {}
+    monkeypatch.setattr(
+        "benchmarks.run.run_scenario",
+        lambda scenario, **kwargs: captured.update(kwargs)
+        or Path("results/runs/x/y"),
+    )
+    main(["--scenario", "gaussians"])
+    assert "n_seeds" not in captured
+    assert "n_resamples" not in captured
+
+
+@pytest.mark.parametrize(
+    "flag, value",
+    [("--n-seeds", "3"), ("--n-resamples", "10"), ("--scale", "dev")],
+)
+def test_reduced_scale_flags_are_rejected(flag, value, capsys):
+    with pytest.raises(SystemExit) as excinfo:
+        _parser().parse_args(["--scenario", "gaussians", flag, value])
+    assert excinfo.value.code == 2
+    assert flag in capsys.readouterr().err
+
+
 class TestAblationCli:
     def test_listing_includes_ablations(self, capsys):
         assert main(["--list"]) == 0
@@ -178,11 +202,11 @@ class TestAblationCli:
             return tmp_path / "rd"
 
         monkeypatch.setattr(run_module, "run_ablation", fake_run_ablation)
-        code = main(["--ablation", "rho_b", "--scale", "dev", "--root", str(tmp_path)])
+        code = main(["--ablation", "rho_b", "--root", str(tmp_path)])
         assert code == 0
         name, kwargs = calls[0]
         assert name == "rho_b"
-        assert kwargs["scale"] == "dev"
+        assert kwargs["scale"] == "publication"
         assert kwargs["n_jobs"] == -1
         assert kwargs["resume"] is True
         assert kwargs["units"] is None
@@ -196,7 +220,7 @@ class TestAblationCli:
 
         monkeypatch.setattr(run_module, "run_ablation", fake_run_ablation)
         code = main(
-            ["--ablation", "rho_b", "--scale", "publication", "--timing-batch",
+            ["--ablation", "rho_b", "--timing-batch",
              "--n-jobs", "5", "--root", str(tmp_path)]
         )
         assert code == 0

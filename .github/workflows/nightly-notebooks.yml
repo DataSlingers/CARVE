@@ -36,16 +36,27 @@ jobs:
         run: |
           python -m ipykernel install --user --name python3 --display-name "Python 3"
 
+      # The CLI runs full scale only, which takes hours, so the smoke run
+      # calls the runner directly with a reduced dataset and resample count.
       - name: Benchmark smoke run
         env:
           OMP_NUM_THREADS: 1
         run: |
-          python -m benchmarks.run \
-            --scenario gaussians \
-            --root "${RUNNER_TEMP}/benchmark-runs" \
-            --n-seeds 2 \
-            --n-resamples 20 \
-            --n-jobs 2
+          python - <<'EOF'
+          import os
+          from pathlib import Path
+
+          from benchmarks._registry import SCENARIOS
+          from benchmarks._run import run_scenario
+
+          run_scenario(
+              SCENARIOS["gaussians"],
+              root=Path(os.environ["RUNNER_TEMP"]) / "benchmark-runs",
+              n_seeds=2,
+              n_resamples=20,
+              n_jobs=2,
+          )
+          EOF
           test -f "${RUNNER_TEMP}"/benchmark-runs/gaussians/*/manifest.json
 
       - name: Run all notebooks

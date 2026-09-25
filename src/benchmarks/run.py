@@ -40,11 +40,6 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--all", action="store_true", help="Run every scenario.")
     parser.add_argument("--list", action="store_true", help="List scenario names.")
     parser.add_argument(
-        "--scale",
-        default=None,
-        help="Ablation scale to run; defaults to the ablation's own default scale.",
-    )
-    parser.add_argument(
         "--timing-batch",
         action="store_true",
         help="With --ablation: run only its fixed timing batch, without resume, "
@@ -61,8 +56,9 @@ def _parser() -> argparse.ArgumentParser:
         default=str(DEFAULT_PUBLISHED_ROOT),
         help="Destination root for promoted runs.",
     )
-    parser.add_argument("--n-seeds", type=int, default=None)
-    parser.add_argument("--n-resamples", type=int, default=100)
+    # No flag reduces the dataset or resample count: every scenario runs its
+    # registered n_seeds at B=100 and an ablation its own default scale, so
+    # a run launched here is always one that can be reported.
     parser.add_argument(
         "--n-jobs",
         type=int,
@@ -113,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
         ablation = ABLATIONS[args.ablation]
-        scale = args.scale if args.scale is not None else ablation.default_scale
+        scale = ablation.default_scale
         units = timing_units(ablation, scale) if args.timing_batch else None
         rd = run_ablation(
             ablation,
@@ -166,8 +162,6 @@ def main(argv: list[str] | None = None) -> int:
             root=Path(args.root),
             n_jobs=_resolve_n_jobs(args),
             random_state=args.random_state,
-            n_seeds=args.n_seeds,
-            n_resamples=args.n_resamples,
             resume=not args.no_resume,
             allow_code_change=args.allow_code_change,
             verbose=args.verbose,

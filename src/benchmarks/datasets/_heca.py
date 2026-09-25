@@ -540,7 +540,7 @@ def load_heca(
         only, instead of embedding every annotated cell and subsampling the
         result. The pooled path holds the whole cells-by-kept-peaks matrix
         in memory, tens of GB on the five default organs, so this is what
-        makes a development-scale load possible on a laptop. The embedding
+        makes a subsampled load possible on a laptop. The embedding
         is then computed on the subsample, not the population, and
         ``meta["embedding_population"]`` records which. A cached pooled
         embedding, when present, is used regardless: it is the better

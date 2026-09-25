@@ -332,23 +332,14 @@ def _cusanovich_loader(subsample: int | float | None):
 def _heca_loader(subsample: int | float | None):
     from .datasets import load_heca
 
-    # subsample_before_embedding: the pooled embedding of the five organs
-    # is tens of GB to compute, so a development-scale load draws its rows
-    # from the organ files first. load_heca ignores the flag at publication
-    # scale (subsample=None) and whenever the pooled cache is present.
-    return load_heca(
-        subsample=subsample,
-        random_state=42,
-        label_column="organ",
-        subsample_before_embedding=True,
-    )
+    return load_heca(subsample=subsample, random_state=42, label_column="organ")
 
 
 def _scale_name(study: Study, scale: str | None) -> str:
     """Resolve a scale argument to the scale name it refers to.
 
     None means the study's own default. This is the one place the
-    dev/publication default is chosen; resolve_scale, load_study, and
+    default scale is chosen; resolve_scale, load_study, and
     carve_cache_path all go through it so the rule cannot drift between them.
     """
     return study.default_scale if scale is None else scale
@@ -426,10 +417,11 @@ def carve_cache_path(
 
     Both the scale name and a short hash of its resolved size are part of
     the filename deliberately. fit_or_load_carve loads whatever file sits at
-    the path it is handed, so a shared path would let a publication run
-    silently reuse a development-scale fit -- that is what the scale name
-    guards against. The hash guards the same failure one level up: editing
-    STUDIES[...].scales[name] (say, hECA's "dev" from 25,000 to 50,000)
+    the path it is handed, so a shared path would let one scale silently
+    reuse another's fit (Cusanovich's atlas run serving its 5,000-cell
+    publication fit) -- that is what the scale name guards against. The hash
+    guards the same failure one level up: editing STUDIES[...].scales[name]
+    (say, Levine's "publication" from 5,000 to 10,000)
     changes what that scale resolves to without changing its name, and
     without the hash fit_or_load_carve would silently load the fit taken at
     the old size. A hash reads better than the raw resolved size for the
@@ -465,7 +457,7 @@ STUDIES: dict[str, Study] = {
         candidate_k=tuple(range(2, 11)),
         # Every cell at publication scale: 2,717, whose resamples of 1,679
         # put spectral on its sparse eigensolver branch (n >= 1000).
-        scales={"dev": 400, "publication": None},
+        scales={"publication": None},
         default_scale="publication",
         partners=(EstimatorSpec(name="spectral"),),
         # The manuscript's headline selection (Ward at k=4, generalizability,
@@ -479,7 +471,7 @@ STUDIES: dict[str, Study] = {
         loader=_levine_loader,
         estimator=EstimatorSpec(name="kmeans"),
         candidate_k=tuple(range(7, 18)),
-        scales={"dev": 800, "publication": 5000},
+        scales={"publication": 5000},
         default_scale="publication",
         partners=(EstimatorSpec(name="spectral"),),
     ),
@@ -495,8 +487,8 @@ STUDIES: dict[str, Study] = {
         # perplexities below it runs in about 14 to 15 hours at five workers
         # on an 11-core, 18 GB Mac (measured 2026-09-14); eleven workers can
         # exceed that memory at perplexity 300.
-        scales={"dev": 1500, "publication": 5000, "atlas": None},
-        default_scale="dev",
+        scales={"publication": 5000, "atlas": None},
+        default_scale="atlas",
         partners=(),
         # Log-spaced from 0.02 to 3.0, 15 values. Louvain's cluster count at a
         # given resolution grows with the number of cells and differs by
@@ -510,10 +502,8 @@ STUDIES: dict[str, Study] = {
         # retained per configuration, so retained memory is
         # n_configs * 2 * m**2 * 8 bytes: 15 * 2 * 2000**2 * 8 B = 0.96 GB
         # for the 15-configuration sweep at 2000 anchors, against 6.0 GB at
-        # the package default of 5000 once n exceeds anchor_threshold. At dev
-        # scale (1,500 cells) this is a no-op, since m=2000 exceeds n and the
-        # run is exact. At publication scale (5,000 cells) the run anchors to
-        # 2000, the count hECA uses.
+        # the package default of 5000 once n exceeds anchor_threshold. At
+        # both scales the run anchors to 2000, the count hECA uses.
         consensus_anchors=2000,
         # 50 resamples over four pipelines (the LSI as-is and t-SNE at three
         # perplexities) give each 12 or 13 under stratified allocation. 50 is
@@ -530,9 +520,9 @@ STUDIES: dict[str, Study] = {
                 # P_1 and P_2): 100 tops the standard range of 10 to 100 (Kobak
                 # and Berens 2019), and at 300 the smallest source clusters
                 # have fewer cells in a subsample than the perplexity, which
-                # tests whether they survive. Perplexities compared at dev
-                # scale do not transfer: in a 927-cell subsample most source
-                # clusters are already smaller than perplexity 30. Each
+                # tests whether they survive. Perplexities compared on a
+                # small subsample do not transfer: in a 927-cell subsample most
+                # source clusters are already smaller than perplexity 30. Each
                 # perplexity is its own option so stratified allocation
                 # balances resamples across them; one option with three values
                 # would split t-SNE's share at random. The source's other Rtsne
@@ -549,8 +539,8 @@ STUDIES: dict[str, Study] = {
         loader=_heca_loader,
         estimator=EstimatorSpec(name="minibatch_kmeans"),
         candidate_k=tuple(range(4, 16)),
-        scales={"dev": 25_000, "publication": None},
-        default_scale="dev",
+        scales={"publication": None},
+        default_scale="publication",
         # Spectral builds a dense n-by-n affinity and cannot run at this
         # scale, so the partner is KMeans.
         partners=(EstimatorSpec(name="kmeans"),),

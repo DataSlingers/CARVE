@@ -198,10 +198,9 @@ class Scenario:
 class Study:
     """One case study: a real dataset run through the same pipeline.
 
-    A Study has no axis. Its loader is parameterized by a subsample size so
-    that development runs cheaply against a subsample and the publication run
-    uses the whole dataset, with both sizes declared here rather than chosen
-    at a call site.
+    A Study has no axis. Its loader is parameterized by a subsample size, and
+    each named scale's size (None for the whole dataset) is declared here
+    rather than chosen at a call site.
 
     partners are the estimators swept alongside the study's own, in the
     order study_model_grids emits them. Declared here so the set of
@@ -283,8 +282,8 @@ class ArmScale:
 class AblationScale:
     """One scale of an ablation: how much runs, not what is measured.
 
-    n_total overrides the simulated sample count at a development scale;
-    None keeps each scenario's own. study_scale names the case study's scale
+    n_total overrides the simulated sample count; None keeps each
+    scenario's own. study_scale names the case study's scale
     (a key of Study.scales).
     """
 

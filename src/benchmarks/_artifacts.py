@@ -179,10 +179,10 @@ def fingerprint_path(cache_path: Path) -> Path:
 def check_fingerprint(cache_path: Path, X: np.ndarray) -> None:
     """Refuse to serve a cached result against a different X.
 
-    A cached result is only valid for the matrix it was computed on. The hECA
-    development embedding changes under one scale name (subsample-first until
-    the pooled cache exists, pooled after), which is exactly the case a
-    scale-keyed filename cannot catch. A cache written before this check
+    A cached result is only valid for the matrix it was computed on. An
+    embedding can change under one scale name (hECA's subsample-first
+    embedding until the pooled cache exists, pooled after), which is exactly
+    the case a scale-keyed filename cannot catch. A cache written before this check
     existed has no record to compare against; it is served with a warning
     rather than discarded, since a fit can be hours of compute.
 
@@ -404,7 +404,7 @@ def ablation_dir(root: Path, name: str, scale: str, cfg_hash: str) -> Path:
     """Create and return results/runs/ablation_<name>/<scale>/<hash>/.
 
     The scale is in the path as well as in the hash, so a publication read
-    cannot pick up a development-scale run by accident.
+    cannot pick up a run at another scale by accident.
     """
     path = Path(root) / f"ablation_{name}" / scale / cfg_hash
     path.mkdir(parents=True, exist_ok=True)

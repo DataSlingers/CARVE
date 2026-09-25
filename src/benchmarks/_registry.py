@@ -694,18 +694,6 @@ ABLATION_SCALES: dict[str, AblationScale] = {
         similarity_draws=20,
         study_scale="publication",
     ),
-    # Exercises every code path and figure; its numbers are not reported.
-    "dev": AblationScale(
-        rho_arm=ArmScale(
-            difficulties=("medium",), datasets=(0, 1), replicates=1, study_replicates=2
-        ),
-        b_arm=ArmScale(
-            difficulties=("medium",), datasets=(0, 1), replicates=2, study_replicates=2
-        ),
-        similarity_draws=5,
-        study_scale="dev",
-        n_total=500,
-    ),
 }
 
 ABLATIONS: dict[str, Ablation] = {

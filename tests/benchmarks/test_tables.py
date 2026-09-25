@@ -566,10 +566,11 @@ class TestAblationTable:
     @classmethod
     def frames(cls, tmp_path_factory):
         from benchmarks._registry import ABLATIONS
-        from tests.benchmarks._helpers import synthetic_ablation_frames
+        from tests.benchmarks._helpers import small_ablation, synthetic_ablation_frames
 
-        return ABLATIONS["rho_b"], synthetic_ablation_frames(
-            ABLATIONS["rho_b"], "dev", seed=2,
+        ablation = small_ablation(ABLATIONS["rho_b"])
+        return ablation, synthetic_ablation_frames(
+            ablation, "test", seed=2,
             tmp_path=tmp_path_factory.mktemp("ablation_frames"),
         )
 
@@ -579,9 +580,9 @@ class TestAblationTable:
         from benchmarks._ablation_summary import table_rows
 
         rows = {
-            "rho": table_rows(arm_view(data, ablation=ablation, scale="dev", arm="rho"),
+            "rho": table_rows(arm_view(data, ablation=ablation, scale="test", arm="rho"),
                               x="subsample_ratio", study="klein"),
-            "b": table_rows(arm_view(data, ablation=ablation, scale="dev", arm="b"),
+            "b": table_rows(arm_view(data, ablation=ablation, scale="test", arm="b"),
                             x="n_resamples", study="klein"),
         }
         tex = render_ablation_tex(rows, caption="Sensitivity", label="tab:ablation",
@@ -597,7 +598,7 @@ class TestAblationTable:
 
     def test_write_ablation_table_writes_the_fragment(self, frames, tmp_path):
         ablation, data = frames
-        path = write_ablation_table(data, ablation=ablation, scale="dev", out_dir=tmp_path)
+        path = write_ablation_table(data, ablation=ablation, scale="test", out_dir=tmp_path)
         assert path == tmp_path / "si_table_ablation.tex"
         assert r"\begin{table}" in path.read_text()
 

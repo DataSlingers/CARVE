@@ -287,13 +287,10 @@ class TestAblationRegistry:
         assert scale.n_total is None
         assert scale.study_scale == "publication"
 
-    def test_dev_scale_is_small_and_overrides_n_total(self):
-        scale = ABLATIONS["rho_b"].scales["dev"]
-        assert scale.rho_arm == ArmScale(("medium",), (0, 1), 1, 2)
-        assert scale.b_arm == ArmScale(("medium",), (0, 1), 2, 2)
-        assert scale.similarity_draws == 5
-        assert scale.n_total == 500
-        assert scale.study_scale == "dev"
+    def test_publication_is_the_only_scale(self):
+        # A second scale is a way to run the ablation at a size that is not
+        # reported; development is over, so none is declared.
+        assert set(ABLATIONS["rho_b"].scales) == {"publication"}
 
     def test_default_scale_is_publication(self):
         assert ABLATIONS["rho_b"].default_scale == "publication"
@@ -309,11 +306,11 @@ class TestAblationRegistry:
             validate_ablation(bad)
 
     def test_rejects_an_unknown_difficulty(self):
-        scale = ABLATIONS["rho_b"].scales["dev"]
+        scale = ABLATIONS["rho_b"].scales["publication"]
         bad_scale = dataclasses.replace(
             scale, rho_arm=dataclasses.replace(scale.rho_arm, difficulties=("brutal",))
         )
-        bad = dataclasses.replace(ABLATIONS["rho_b"], scales={"dev": bad_scale}, default_scale="dev")
+        bad = dataclasses.replace(ABLATIONS["rho_b"], scales={"publication": bad_scale})
         with pytest.raises(ValueError, match="brutal"):
             validate_ablation(bad)
 

@@ -276,6 +276,27 @@ def make_carve_spy() -> type:
     return SpyCARVE
 
 
+def small_ablation(ablation):
+    """The ablation with a small "test" scale beside its publication scale.
+
+    Figure and table tests render synthetic frames at this scale, since
+    the publication scale's 4,210 units make every such test slow. The
+    registry declares no small scale, so no real run can use it.
+    """
+    import dataclasses
+
+    from benchmarks._types import AblationScale, ArmScale
+
+    scale = AblationScale(
+        rho_arm=ArmScale(("medium",), (0, 1), 1, 2),
+        b_arm=ArmScale(("medium",), (0, 1), 2, 2),
+        similarity_draws=5,
+        study_scale="publication",
+        n_total=500,
+    )
+    return dataclasses.replace(ablation, scales={**ablation.scales, "test": scale})
+
+
 def synthetic_ablation_frames(
     ablation, scale: str, *, seed: int = 0, tmp_path: Path | None = None
 ) -> dict:

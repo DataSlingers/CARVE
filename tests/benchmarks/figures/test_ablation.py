@@ -13,9 +13,9 @@ from matplotlib.figure import Figure
 from benchmarks._registry import ABLATIONS
 from benchmarks._studies import STUDIES
 from benchmarks.figures import figure_ablation_b, figure_ablation_rho
-from tests.benchmarks._helpers import synthetic_ablation_frames
+from tests.benchmarks._helpers import small_ablation, synthetic_ablation_frames
 
-RHO_B = ABLATIONS["rho_b"]
+RHO_B = small_ablation(ABLATIONS["rho_b"])
 
 
 @pytest.fixture(scope="module")
@@ -23,7 +23,7 @@ def frames(tmp_path_factory):
     # Written as checkpoint files and read back, so the figures meet the
     # dtypes a real run directory produces (see synthetic_ablation_frames).
     return synthetic_ablation_frames(
-        RHO_B, "dev", seed=1, tmp_path=tmp_path_factory.mktemp("ablation_frames")
+        RHO_B, "test", seed=1, tmp_path=tmp_path_factory.mktemp("ablation_frames")
     )
 
 
@@ -45,25 +45,25 @@ class TestSyntheticFrames:
 
 class TestFigureAblationRho:
     def test_returns_a_nine_panel_figure(self, frames):
-        fig = figure_ablation_rho(frames, ablation=RHO_B, scale="dev", save=False)
+        fig = figure_ablation_rho(frames, ablation=RHO_B, scale="test", save=False)
         assert isinstance(fig, Figure)
         assert len(fig.axes) == 9
         plt.close(fig)
 
     def test_saves_under_its_si_name(self, frames, tmp_path):
-        fig = figure_ablation_rho(frames, ablation=RHO_B, scale="dev", out_dir=tmp_path)
+        fig = figure_ablation_rho(frames, ablation=RHO_B, scale="test", out_dir=tmp_path)
         assert (tmp_path / "si_fig_ablation_rho.png").exists()
         plt.close(fig)
 
     def test_save_false_writes_nothing(self, frames, tmp_path):
         fig = figure_ablation_rho(
-            frames, ablation=RHO_B, scale="dev", save=False, out_dir=tmp_path
+            frames, ablation=RHO_B, scale="test", save=False, out_dir=tmp_path
         )
         assert not list(tmp_path.iterdir())
         plt.close(fig)
 
     def test_marks_the_default_rho_on_every_sweep_panel(self, frames):
-        fig = figure_ablation_rho(frames, ablation=RHO_B, scale="dev", save=False)
+        fig = figure_ablation_rho(frames, ablation=RHO_B, scale="test", save=False)
         # The stacked-bar panel (Klein shares) has no reference line.
         with_line = [
             ax for ax in fig.axes
@@ -74,7 +74,7 @@ class TestFigureAblationRho:
         plt.close(fig)
 
     def test_similarity_panel_reaches_the_reference_ratio(self, frames):
-        fig = figure_ablation_rho(frames, ablation=RHO_B, scale="dev", save=False)
+        fig = figure_ablation_rho(frames, ablation=RHO_B, scale="test", save=False)
         # Restricted to lines with more than two points: axvline and axhline
         # reference lines carry exactly two points (their xdata is [0, 1] or
         # [default, default] in blended axes coordinates), so an unrestricted
@@ -99,7 +99,7 @@ class TestFigureAblationRho:
         # catch a reintroduced literal.
         patched = dataclasses.replace(STUDIES["klein"], reported_k=7)
         monkeypatch.setitem(STUDIES, "klein", patched)
-        fig = figure_ablation_rho(frames, ablation=RHO_B, scale="dev", save=False)
+        fig = figure_ablation_rho(frames, ablation=RHO_B, scale="test", save=False)
         labels = [line.get_label() for ax in fig.axes for line in ax.lines]
         assert any(label.endswith("subsample vs full at k=7") for label in labels)
         assert not any(label.endswith("subsample vs full at k=4") for label in labels)
@@ -110,7 +110,7 @@ class TestFigureAblationRho:
     ):
         patched = dataclasses.replace(STUDIES["klein"], reported_k=None)
         monkeypatch.setitem(STUDIES, "klein", patched)
-        fig = figure_ablation_rho(frames, ablation=RHO_B, scale="dev", save=False)
+        fig = figure_ablation_rho(frames, ablation=RHO_B, scale="test", save=False)
         labels = [line.get_label() for ax in fig.axes for line in ax.lines]
         assert not any("subsample vs full at k=" in label for label in labels)
         plt.close(fig)
@@ -118,18 +118,18 @@ class TestFigureAblationRho:
 
 class TestFigureAblationB:
     def test_returns_an_eight_panel_figure(self, frames):
-        fig = figure_ablation_b(frames, ablation=RHO_B, scale="dev", save=False)
+        fig = figure_ablation_b(frames, ablation=RHO_B, scale="test", save=False)
         assert isinstance(fig, Figure)
         assert len(fig.axes) == 8
         plt.close(fig)
 
     def test_saves_under_its_si_name(self, frames, tmp_path):
-        fig = figure_ablation_b(frames, ablation=RHO_B, scale="dev", out_dir=tmp_path)
+        fig = figure_ablation_b(frames, ablation=RHO_B, scale="test", out_dir=tmp_path)
         assert (tmp_path / "si_fig_ablation_b.png").exists()
         plt.close(fig)
 
     def test_b_axes_are_logarithmic(self, frames):
-        fig = figure_ablation_b(frames, ablation=RHO_B, scale="dev", save=False)
+        fig = figure_ablation_b(frames, ablation=RHO_B, scale="test", save=False)
         # Every panel but the stacked-bar one sweeps B on a log axis.
         assert sum(ax.get_xscale() == "log" for ax in fig.axes) == 7
         plt.close(fig)

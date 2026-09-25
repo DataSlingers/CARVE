@@ -44,21 +44,21 @@ def _tiny_ablation():
         rho_arm=ArmScale(("medium",), (0, 1), 1, 2),
         b_arm=ArmScale(("medium",), (0, 1), 2, 2),
         similarity_draws=2,
-        study_scale="dev",
+        study_scale="publication",
     )
     return dataclasses.replace(
         RHO_B,
         scenarios=("gaussians",),
         rho_grid=(0.5, RHO_B.rho_default),
         b_grid=(10, RHO_B.b_default),
-        scales={"dev": scale},
-        default_scale="dev",
+        scales={"tiny": scale},
+        default_scale="tiny",
     )
 
 
 class TestEnumerateCells:
     def test_counts_match_the_arithmetic(self):
-        cells = enumerate_cells(_tiny_ablation(), "dev")
+        cells = enumerate_cells(_tiny_ablation(), "tiny")
         # Simulations: rho arm 2 datasets x 2 rho = 4; B arm 2 datasets x 2
         # replicates x 2 B = 8; the two default cells are shared -> 10.
         # Study: rho arm 2 x 2 = 4; B arm 2 x 2 = 4; shared 2 -> 6.
@@ -67,7 +67,7 @@ class TestEnumerateCells:
 
     def test_a_cell_in_both_arms_appears_once(self):
         ablation = _tiny_ablation()
-        cells = enumerate_cells(ablation, "dev")
+        cells = enumerate_cells(ablation, "tiny")
         shared = [
             c
             for c in cells
@@ -81,7 +81,7 @@ class TestEnumerateCells:
 
     def test_study_cells_come_first_then_simulations_grouped_by_dataset(self):
         ablation = _tiny_ablation()
-        cells = enumerate_cells(ablation, "dev")
+        cells = enumerate_cells(ablation, "tiny")
         studies = [c.study for c in cells]
         first_sim = studies.index("gaussians")
         assert set(studies[:first_sim]) == {"klein"}
@@ -89,15 +89,15 @@ class TestEnumerateCells:
         assert datasets == sorted(datasets)
 
     def test_study_cells_use_the_study_key(self):
-        cells = enumerate_cells(_tiny_ablation(), "dev", arm="rho")
+        cells = enumerate_cells(_tiny_ablation(), "tiny", arm="rho")
         study = [c for c in cells if c.study == "klein"]
         assert {(c.difficulty, c.dataset) for c in study} == {(STUDY_DIFFICULTY, STUDY_DATASET)}
 
     def test_arm_views_are_subsets_of_the_union(self):
         ablation = _tiny_ablation()
-        union = set(enumerate_cells(ablation, "dev"))
-        rho = set(enumerate_cells(ablation, "dev", arm="rho"))
-        b = set(enumerate_cells(ablation, "dev", arm="b"))
+        union = set(enumerate_cells(ablation, "tiny"))
+        rho = set(enumerate_cells(ablation, "tiny", arm="rho"))
+        b = set(enumerate_cells(ablation, "tiny", arm="b"))
         assert rho | b == union
         assert all(c.n_resamples == ablation.b_default for c in rho)
         assert all(c.subsample_ratio == ablation.rho_default for c in b)
@@ -111,13 +111,13 @@ class TestEnumerateCells:
 
     def test_rejects_an_unknown_arm(self):
         with pytest.raises(ValueError, match="arm"):
-            enumerate_cells(_tiny_ablation(), "dev", arm="gamma")
+            enumerate_cells(_tiny_ablation(), "tiny", arm="gamma")
 
 
 class TestEnumerateUnits:
     def test_each_dataset_gets_a_dataset_unit_similarity_units_and_its_cells(self):
         ablation = _tiny_ablation()
-        units = enumerate_units(ablation, "dev")
+        units = enumerate_units(ablation, "tiny")
         kinds = [u.kind for u in units]
         assert kinds.count("dataset") == 3  # klein, gaussians 0, gaussians 1
         # rho grid plus the refit reference, per dataset
@@ -125,12 +125,12 @@ class TestEnumerateUnits:
         assert kinds.count("cell") == 16
 
     def test_similarity_units_include_the_reference_ratio(self):
-        units = enumerate_units(_tiny_ablation(), "dev")
+        units = enumerate_units(_tiny_ablation(), "tiny")
         ratios = {u.cell.subsample_ratio for u in units if u.kind == "similarity"}
         assert REFERENCE_RATIO in ratios
 
     def test_units_are_unique(self):
-        units = enumerate_units(_tiny_ablation(), "dev")
+        units = enumerate_units(_tiny_ablation(), "tiny")
         assert len(units) == len(set(units))
 
 
@@ -171,9 +171,8 @@ class TestUnitFiles:
         assert set(unit_paths(tmp_path, d)) == {"datasets"}
         assert set(unit_paths(tmp_path, s)) == {"similarity"}
 
-    @pytest.mark.parametrize("scale", ("dev", "publication"))
-    def test_stems_are_unique_over_every_unit(self, tmp_path, scale):
-        units = enumerate_units(RHO_B, scale)
+    def test_stems_are_unique_over_every_unit(self, tmp_path):
+        units = enumerate_units(RHO_B, "publication")
         paths = []
         for unit in units:
             paths.extend(unit_paths(tmp_path, unit).values())
@@ -245,7 +244,7 @@ class TestSeeds:
 
 class TestScenarioAtScale:
     def test_overrides_n_total_when_set(self):
-        scale = RHO_B.scales["dev"]
+        scale = dataclasses.replace(RHO_B.scales["publication"], n_total=500)
         assert scenario_at_scale(SCENARIOS["gaussians"], scale).shared["n_total"] == 500
 
     def test_keeps_the_scenario_when_n_total_is_none(self):
@@ -256,22 +255,22 @@ class TestScenarioAtScale:
 class TestArmView:
     def test_keeps_only_the_arms_cells(self):
         ablation = _tiny_ablation()
-        cells = enumerate_cells(ablation, "dev")
+        cells = enumerate_cells(ablation, "tiny")
         frame = cells_frame(cells)
         frame["fit_seconds"] = 1.0
         frames = {name: pd.DataFrame(columns=list(schema)) for name, schema in ABLATION_SCHEMAS.items()}
         frames["cells"] = frame
-        rho = arm_view(frames, ablation=ablation, scale="dev", arm="rho")["cells"]
+        rho = arm_view(frames, ablation=ablation, scale="tiny", arm="rho")["cells"]
         assert set(rho["n_resamples"]) == {ablation.b_default}
-        assert len(rho) == len(enumerate_cells(ablation, "dev", arm="rho"))
+        assert len(rho) == len(enumerate_cells(ablation, "tiny", arm="rho"))
 
     def test_passes_datasets_and_similarity_through(self):
         ablation = _tiny_ablation()
         frames = {name: pd.DataFrame(columns=list(schema)) for name, schema in ABLATION_SCHEMAS.items()}
         frames["datasets"] = pd.DataFrame([{"study": "x"}])
-        view = arm_view(frames, ablation=ablation, scale="dev", arm="b")
+        view = arm_view(frames, ablation=ablation, scale="tiny", arm="b")
         assert view["datasets"] is frames["datasets"]
 
     def test_cells_frame_has_the_cell_key_columns(self):
-        frame = cells_frame(enumerate_cells(_tiny_ablation(), "dev"))
+        frame = cells_frame(enumerate_cells(_tiny_ablation(), "tiny"))
         assert list(frame.columns) == list(CELL_KEY)
