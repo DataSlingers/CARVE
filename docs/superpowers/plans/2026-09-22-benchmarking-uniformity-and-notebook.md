@@ -129,16 +129,6 @@ In `src/carve/cluster.py`, the sparse branch of `_spectral_embedding`. Replace t
 with:
 
 ```python
-                # Shift-invert at sigma=0, mirroring carve-r/R/cluster.R:270.
-                # which="SM" with no v0 draws its start vector from the ambient
-                # global RNG, and on a hard problem it returns before
-                # converging: same data and same random_state gave two
-                # different partitions, and the ARI it reached was 0.79 where
-                # this reaches 1.00. It is also 13-20x slower, because ARPACK
-                # converges to the smallest eigenvalues slowly and to the
-                # largest quickly. sigma=0 maps the smallest eigenvalues of
-                # Lsym to the largest of (Lsym - sigma*I)^-1, so "LM" finds
-                # what "SM" was asking for.
                 vals, vecs = eigsh(
                     Lsym, k=k, sigma=0.0, which="LM", tol=1e-4, maxiter=5000
                 )
