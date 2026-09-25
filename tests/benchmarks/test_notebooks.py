@@ -125,14 +125,24 @@ def test_no_get_n_jobs_boilerplate(name):
 # human to notice a re-hardcoded default the next time a case-study
 # notebook is edited. Every value here traces to a manuscript line or a
 # sibling committed configuration (STUDIES["klein"] in _studies.py):
-#   - Klein subsample=0.5: manuscript line 606 (1,358 of 2,717 cells).
+#   - Klein loads through load_study, so its size is STUDIES["klein"]'s
+#     publication scale (every cell) rather than a notebook literal.
 #   - Levine/Motivation subsample=5000: manuscript line 627 (a stratified
 #     subsample of 5,000 cells).
 #   - Klein's prepare_composite selection (generalizability, 1se,
 #     not_two=True): the manuscript's headline Ward-agglomerative-at-k=4
 #     result (line 624), threaded through CompositeInputs by Fix 4.
-def test_klein_loader_uses_the_manuscript_subsample():
-    assert "subsample=0.5" in _code(NOTEBOOKS["klein"])
+def test_klein_loads_its_data_through_the_study():
+    source = _code(NOTEBOOKS["klein"])
+    assert "load_study(study)" in source
+    assert "load_klein(" not in source
+    assert "subsample=" not in source
+
+
+def test_klein_hands_m3c_its_subsample_rows():
+    source = _code(NOTEBOOKS["klein"])
+    assert "m3c_rows(y" in source
+    assert "rows=m3c_subsample" in source
 
 
 def test_levine_loader_uses_the_manuscript_subsample():

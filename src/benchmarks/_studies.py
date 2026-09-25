@@ -309,8 +309,7 @@ def fit_or_load_carve(
 def _klein_loader(subsample: int | float | None):
     from .datasets import load_klein
 
-    # The manuscript's 1,358 cells is a 0.5 subsample of the 2,717-cell
-    # preprocessed set (Klein sample size, manuscript line 606).
+    # Publication scale is every one of the 2,717 preprocessed cells.
     return load_klein(subsample=subsample, random_state=42)
 
 
@@ -464,7 +463,9 @@ STUDIES: dict[str, Study] = {
         loader=_klein_loader,
         estimator=EstimatorSpec(name="agglomerative"),
         candidate_k=tuple(range(2, 11)),
-        scales={"dev": 400, "publication": 0.5},
+        # Every cell at publication scale: 2,717, whose resamples of 1,679
+        # put spectral on its sparse eigensolver branch (n >= 1000).
+        scales={"dev": 400, "publication": None},
         default_scale="publication",
         partners=(EstimatorSpec(name="spectral"),),
         # The manuscript's headline selection (Ward at k=4, generalizability,

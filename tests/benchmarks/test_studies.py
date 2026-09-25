@@ -573,13 +573,13 @@ class TestStudyModelGrids:
 class TestLoaderSubsampling:
     """Pins the loader calls to the manuscript's reported sample sizes.
 
-    Klein (manuscript line 606): 1,358 cells, a 0.5 subsample of the
-    2,717-cell preprocessed set. Levine (manuscript line 627): a stratified
-    subsample of 5,000 cells. Real data is never loaded here; the dataset
-    loader is patched out and the call arguments are inspected instead.
+    Klein: every one of the 2,717 preprocessed cells. Levine (manuscript
+    line 627): a stratified subsample of 5,000 cells. Real data is never
+    loaded here; the dataset loader is patched out and the call arguments
+    are inspected instead.
     """
 
-    def test_klein_loader_requests_a_half_subsample(self, monkeypatch):
+    def test_klein_loader_passes_the_scale_through(self, monkeypatch):
         calls = {}
 
         def fake_load_klein(**kwargs):
@@ -587,8 +587,8 @@ class TestLoaderSubsampling:
             return np.zeros((1, 1)), pd.Series(["a"]), {}
 
         monkeypatch.setattr("benchmarks.datasets.load_klein", fake_load_klein)
-        _klein_loader(0.5)
-        assert calls["subsample"] == 0.5
+        _klein_loader(STUDIES["klein"].scales["publication"])
+        assert calls["subsample"] is None
 
     def test_heca_loader_draws_the_subsample_before_embedding(self, monkeypatch):
         # The pooled hECA embedding holds tens of GB; a development-scale
@@ -702,13 +702,15 @@ class TestCarveCachePath:
         assert a == b
 
     def test_default_runs_keep_their_existing_filenames(self, tmp_path):
-        # The Klein and Levine publication caches are hours of compute each
-        # and were written before run keys existed, so their default runs
-        # must resolve to the same names as before, byte for byte.
+        # The Levine and hECA caches are hours of compute each and were
+        # written before run keys existed, so their default runs must resolve
+        # to the same names as before, byte for byte. Klein's publication
+        # scale is every cell, so its name carries that size's hash and the
+        # half-subsample cache (1b390cd5) is never served for it.
         klein = carve_cache_path(STUDIES["klein"], root=tmp_path)
         levine = carve_cache_path(STUDIES["levine32"], root=tmp_path)
         heca = carve_cache_path(STUDIES["heca"], root=tmp_path)
-        assert klein.name == "carve_klein_publication_1b390cd5.carve"
+        assert klein.name == "carve_klein_publication_6eef6648.carve"
         assert levine.name == "carve_levine32_publication_f8237d89.carve"
         assert heca.name == "carve_heca_dev_8314e95d.carve"
 
@@ -772,8 +774,8 @@ class TestRegisteredStudiesCarryScales:
         for study in STUDIES.values():
             assert study.default_scale in study.scales
 
-    def test_klein_publication_scale_is_the_published_half_subsample(self):
-        assert STUDIES["klein"].scales["publication"] == 0.5
+    def test_klein_publication_scale_is_every_cell(self):
+        assert STUDIES["klein"].scales["publication"] is None
 
     def test_levine_publication_scale_is_five_thousand(self):
         assert STUDIES["levine32"].scales["publication"] == 5000
