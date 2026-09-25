@@ -1,14 +1,15 @@
 """Fig 3 and S4 Fig: CARVE's own output on a case study.
 
-Six panels, and every one of them is a plot CARVE already ships as a method
-on the fitted object: (A) stability ARI over k, (B) the consensus matrix for
-the selected configuration, (C) generalizability ARI over k, (D) per-cluster
-stability as a violin plot, (E) the embedding colored by consensus labels
-with dubious samples emphasized, and (F) the same embedding with marker
-shape per cluster and score-encoded color. This module only arranges the six
-axes into one gridspec, calls each method with ``ax=`` set, and saves the
-result once; it does not resolve config_id, recompute a selection, or
-reimplement any encoding CARVE's own plotting functions already provide.
+Six panels in three rows of two, and every one of them is a plot CARVE
+already ships as a method on the fitted object: (A) stability ARI over k,
+(B) generalizability ARI over k, (C) the consensus matrix for the selected
+configuration, (D) per-cluster stability as a violin plot, (E) the embedding
+colored by consensus labels with dubious samples emphasized, and (F) the same
+embedding with marker shape per cluster and score-encoded color. This module
+only arranges the six axes into one gridspec, calls each method with ``ax=``
+set, and saves the result once; it does not resolve config_id, recompute a
+selection, or reimplement any encoding CARVE's own plotting functions already
+provide.
 """
 
 from collections.abc import Sequence
@@ -18,22 +19,20 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
 from .._panels import panel_letter
-from .._theme import CLUSTER_CMAP_NAME, cluster_cmap, save_figure, theme_context
+from .._theme import ESTIMATOR_CMAP_NAME, cluster_cmap, save_figure, theme_context
 from ._case_study import CompositeInputs, carve_labels_aligned
 from ._paths import CASE_STUDY_DIR, figure_path
 
-# Panel A is always the stability overview and panel C always the
+# Panel A is always the stability overview and panel B always the
 # generalizability overview -- their titles say so, and swapping either
 # would misname the curve it draws -- but both honor the caller's rule and
-# not_two rather than a hardcoded "1se"/False. Panels B, D, E and F show
+# not_two rather than a hardcoded "1se"/False. Panels C, D, E and F show
 # whatever CompositeInputs.measure names as the caller's primary selection:
 # for Klein that is generalizability (prepare_composite is called with
 # measure="generalizability", matching the manuscript's headline k=4
 # result); for Levine it is stability, matching that study's own
 # prepare_composite call. A caller that leaves measure at its default
-# ("stability") gets the same panels A and B/D/E/F showing the same
-# selection, as the previous, unparameterized version of this figure always
-# did.
+# ("stability") gets panel A and panels C to F showing the same selection.
 _MEASURE_STABILITY = "stability"
 _MEASURE_GENERALIZABILITY = "generalizability"
 
@@ -61,10 +60,10 @@ def carve_output_figure(
     not_two = inputs.not_two
     selected_k = int(carve.get_k(measure=measure, rule=rule, not_two=not_two))
     # Exactly selected_k colors, so CARVE's direct-index panels (D, E) and
-    # its imshow-normalized one (B's cluster band) resolve the same cluster
+    # its imshow-normalized one (C's cluster band) resolve the same cluster
     # to the same color, and all three agree with the composite figure.
-    # Panels A and C color one line per estimator, not per cluster, so they
-    # keep the full ten-color map.
+    # Panels A and B color one line per estimator, not per cluster, so they
+    # take the estimator map instead.
     cluster_panel_cmap = cluster_cmap(selected_k)
     scatter_size_range = (marker_size * 0.75, marker_size * 3.0)
 
@@ -75,40 +74,40 @@ def carve_output_figure(
         # figure is "not compatible with tight_layout" on every subsequent
         # call. Leaving spacing to the default lets those internal calls lay
         # the panels out cleanly instead.
-        fig = plt.figure(figsize=(18.0, 11.0))
-        gs = fig.add_gridspec(2, 3)
+        fig = plt.figure(figsize=(13.0, 16.5))
+        gs = fig.add_gridspec(3, 2)
         ax_a = fig.add_subplot(gs[0, 0])
         ax_b = fig.add_subplot(gs[0, 1])
-        ax_c = fig.add_subplot(gs[0, 2])
-        ax_d = fig.add_subplot(gs[1, 0])
-        ax_e = fig.add_subplot(gs[1, 1])
-        ax_f = fig.add_subplot(gs[1, 2])
+        ax_c = fig.add_subplot(gs[1, 0])
+        ax_d = fig.add_subplot(gs[1, 1])
+        ax_e = fig.add_subplot(gs[2, 0])
+        ax_f = fig.add_subplot(gs[2, 1])
 
         carve.plot_metric_over_n_clusters(
             measure=_MEASURE_STABILITY,
             rule=rule,
             not_two=not_two,
             ax=ax_a,
-            palette=CLUSTER_CMAP_NAME,
+            palette=ESTIMATOR_CMAP_NAME,
             title="Stability ARI over $k$",
-            show=False,
-        )
-        carve.plot_consensus_matrix(
-            measure=measure,
-            rule=rule,
-            not_two=not_two,
-            ax=ax_b,
-            palette=cluster_panel_cmap,
-            title=f"Consensus matrix ($k={selected_k}$)",
             show=False,
         )
         carve.plot_metric_over_n_clusters(
             measure=_MEASURE_GENERALIZABILITY,
             rule=rule,
             not_two=not_two,
-            ax=ax_c,
-            palette=CLUSTER_CMAP_NAME,
+            ax=ax_b,
+            palette=ESTIMATOR_CMAP_NAME,
             title="Generalizability ARI over $k$",
+            show=False,
+        )
+        carve.plot_consensus_matrix(
+            measure=measure,
+            rule=rule,
+            not_two=not_two,
+            ax=ax_c,
+            palette=cluster_panel_cmap,
+            title=f"Consensus matrix ($k={selected_k}$)",
             show=False,
         )
         carve.plot_cluster_violin(

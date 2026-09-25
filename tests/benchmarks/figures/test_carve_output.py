@@ -13,7 +13,7 @@ labeling code, not a guess at it.
 The fixture's data-generating seed (2, not the more common 0) is chosen
 deliberately: at this seed, stability's 1-SE rule selects k=3 while
 generalizability's 1-SE rule selects k=4. That divergence is what lets the
-tests below tell panel A (stability) apart from panel C (generalizability)
+tests below tell panel A (stability) apart from panel B (generalizability)
 by more than a coincidentally-matching selected k, and is the most direct
 guard against the restructure's most likely regression: swapping the two
 measures between those panels.
@@ -28,7 +28,7 @@ from matplotlib.collections import PathCollection, PolyCollection
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
 
-from benchmarks._theme import cluster_colors
+from benchmarks._theme import ESTIMATOR_COLORS, cluster_colors
 from benchmarks.figures import (
     figure_carve_output_klein,
     figure_carve_output_levine,
@@ -47,7 +47,7 @@ def _panel_by_letter(fig):
 
     fig.get_axes() also returns the consensus matrix's divider-appended band
     and colorbar axes, interleaved in creation order, so a fixed positional
-    index into that list does not reliably pick out "panel C". The letter
+    index into that list does not reliably pick out "panel B". The letter
     text panel_letter() writes directly onto the axes we composed is a
     stable handle regardless of how many extra axes a given panel's method
     appended.
@@ -181,8 +181,40 @@ class TestCarveOutputFigures:
         assert set(_panel_by_letter(fig)) == set("ABCDEF")
         plt.close(fig)
 
-    def test_panel_a_is_stability_and_panel_c_is_generalizability(self, inputs):
-        """The restructure's most likely regression: swapping A and C.
+    def test_panels_read_left_to_right_then_top_to_bottom_in_three_rows(
+        self, inputs
+    ):
+        fig = figure_carve_output_klein(inputs, save=False)
+        panels = _panel_by_letter(fig)
+        positions = {}
+        for letter, ax in panels.items():
+            # A colorbar (panels C and F) moves its parent into a sub-gridspec
+            # of the parent's own cell, so the figure-level cell is the
+            # topmost spec.
+            spec = ax.get_subplotspec().get_topmost_subplotspec()
+            assert spec.get_gridspec().get_geometry() == (3, 2)
+            positions[letter] = (spec.rowspan.start, spec.colspan.start)
+        assert positions == {
+            "A": (0, 0),
+            "B": (0, 1),
+            "C": (1, 0),
+            "D": (1, 1),
+            "E": (2, 0),
+            "F": (2, 1),
+        }
+        plt.close(fig)
+
+    @pytest.mark.parametrize("letter", ["A", "B"])
+    def test_estimator_lines_are_tab10_blue_and_red(self, inputs, letter):
+        fig = figure_carve_output_klein(inputs, save=False)
+        panel = _panel_by_letter(fig)[letter]
+        curve_lines = [ln for ln in panel.get_lines() if ln.get_marker() == "o"]
+        drawn = {mcolors.to_hex(line.get_color()) for line in curve_lines}
+        assert drawn == {color.lower() for color in ESTIMATOR_COLORS}
+        plt.close(fig)
+
+    def test_panel_a_is_stability_and_panel_b_is_generalizability(self, inputs):
+        """The restructure's most likely regression: swapping A and B.
 
         The fixture is built so stability and generalizability genuinely
         differ in value at every k (not just in which k each one selects),
@@ -210,8 +242,8 @@ class TestCarveOutputFigures:
 
         assert _line_matching(panels["A"], stability_y, x)
         assert not _line_matching(panels["A"], generalizability_y, x)
-        assert _line_matching(panels["C"], generalizability_y, x)
-        assert not _line_matching(panels["C"], stability_y, x)
+        assert _line_matching(panels["B"], generalizability_y, x)
+        assert not _line_matching(panels["B"], stability_y, x)
         plt.close(fig)
 
     def test_panel_a_draws_a_separate_line_per_estimator_not_one_combined_line(
@@ -235,10 +267,10 @@ class TestCarveOutputFigures:
             assert np.all(np.diff(x) > 0)
         plt.close(fig)
 
-    def test_panel_b_consensus_matrix_is_stabilitys_selected_configuration(
+    def test_panel_c_consensus_matrix_is_stabilitys_selected_configuration(
         self, inputs
     ):
-        """Panel B draws stability's consensus matrix, not generalizability's.
+        """Panel C draws stability's consensus matrix, not generalizability's.
 
         Checking only the title text was not enough here: this module's
         title is built from a separate carve.get_k(measure="stability", ...)
@@ -253,15 +285,15 @@ class TestCarveOutputFigures:
         that happens to be computed the same way today.
         """
         fig = figure_carve_output_klein(inputs, save=False)
-        ax_b = _panel_by_letter(fig)["B"]
-        assert len(ax_b.images) == 1
-        drawn = np.asarray(ax_b.images[0].get_array())
+        ax_c = _panel_by_letter(fig)["C"]
+        assert len(ax_c.images) == 1
+        drawn = np.asarray(ax_c.images[0].get_array())
 
         carve = inputs.carve
         stability_k = int(carve.get_k(measure="stability", rule="1se"))
         generalizability_k = int(carve.get_k(measure="generalizability", rule="1se"))
         assert stability_k != generalizability_k
-        assert ax_b.get_title() == f"Consensus matrix ($k={stability_k}$)"
+        assert ax_c.get_title() == f"Consensus matrix ($k={stability_k}$)"
 
         # The references are drawn under the same label alignment the
         # figure draws under (see carve_labels_aligned): the matrix is

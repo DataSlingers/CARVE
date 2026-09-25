@@ -183,21 +183,27 @@ FOREGROUND_COLOR: str = "#000000"
 # clusters, index i and the imshow-normalized i land on the same entry, so
 # both indexing styles agree and both equal ``cluster_colors(n)``.
 #
-# Passing CLUSTER_CMAP_NAME and letting Matplotlib resample the ten-color map
-# to n (what this replaces) also made the two styles agree, but on the wrong
-# colors: resampling spreads n samples across the whole palette rather than
-# taking its first n, so four clusters came out palette entries 0, 3, 6 and 9
-# instead of 0 to 3. The name stays registered for the call sites that color
-# by *estimator* rather than by cluster (plot_metric_over_n_clusters), where
-# a stable ten-color map is what is wanted and the count of clusters is
-# irrelevant. It registers tab10's ten entries only: those call sites sample
-# the map at evenly spaced points, so registering all of CLUSTER_PALETTE would
-# move every estimator line onto a different color. Guarded so importing this
-# module twice (e.g. a test re-import) does not raise on re-registration.
-CLUSTER_CMAP_NAME: str = "carve_cluster"
-_cluster_cmap = ListedColormap(list(CLUSTER_PALETTE[:10]), name=CLUSTER_CMAP_NAME)
-if CLUSTER_CMAP_NAME not in mpl.colormaps:
-    mpl.colormaps.register(_cluster_cmap)
+# Passing a registered ten-color map by name and letting Matplotlib resample
+# it to n also makes the two styles agree, but on the wrong colors:
+# resampling spreads n samples across the whole palette rather than taking
+# its first n, so four clusters come out palette entries 0, 3, 6 and 9
+# instead of 0 to 3.
+
+# One line per estimator in the CARVE-output figures' metric-over-k panels.
+# plot_metric_over_n_clusters samples the map it is given at
+# np.linspace(0, 1, n), so a two-entry map puts the two estimators each case
+# study sweeps (Ward or KMeans, then spectral) on its two entries exactly; a
+# third estimator would repeat the second color, so extend the tuple before
+# adding one. tab10 blue and red pass the palette checks: contrast at or
+# above 3:1, CVD separation dE 21.1 protan and 33.8 tritan. Guarded so
+# importing this module twice (e.g. a test re-import) does not raise on
+# re-registration.
+ESTIMATOR_COLORS: tuple[str, ...] = (CLUSTER_PALETTE[0], CLUSTER_PALETTE[3])
+ESTIMATOR_CMAP_NAME: str = "carve_estimator"
+if ESTIMATOR_CMAP_NAME not in mpl.colormaps:
+    mpl.colormaps.register(
+        ListedColormap(list(ESTIMATOR_COLORS), name=ESTIMATOR_CMAP_NAME)
+    )
 
 # Preprocessing pipelines in the Cusanovich figure's per-pipeline panel.
 # CARVE's plot_metric_by_pipeline takes a colormap name and samples it at
@@ -371,14 +377,12 @@ def cluster_colors(n: int) -> list[str]:
     C1, C2, C3, C4 down the palette in order, so "in order" is the only
     assignment that matches either.
 
-    An earlier implementation returned ``plt.get_cmap(CLUSTER_CMAP_NAME,
-    n)``'s entries instead, which is not the same list: Matplotlib spreads n
-    samples evenly across the whole ten-color map rather than taking its
-    first n, so four clusters landed on palette indices 0, 3, 6 and 9. That
-    was done to agree with CARVE's own panels, which resample whatever
-    ``palette`` they are handed; cluster_cmap(n) now gives those panels a map
-    that is already exactly n colors long, so they agree with this function
-    without it having to adopt their resampling.
+    Resampling a registered ten-color map to n gives a different list:
+    Matplotlib spreads n samples evenly across the whole map rather than
+    taking its first n, so four clusters land on palette indices 0, 3, 6 and
+    9. CARVE's own panels resample whatever ``palette`` they are handed;
+    cluster_cmap(n) gives them a map that is already exactly n colors long,
+    so they agree with this function without it adopting their resampling.
 
     Past len(CLUSTER_PALETTE) the palette cycles from the start, so every
     repeat is exactly len(CLUSTER_PALETTE) apart and two adjacent cluster
@@ -396,8 +400,8 @@ def cluster_cmap(n: int) -> ListedColormap:
     ``plt.get_cmap(palette, n)``, which returns an already-built Colormap
     unchanged. Handing them a map that is already the right length is what
     makes their direct-index panels and their imshow-normalized panels agree
-    with each other and with cluster_colors -- see the comment on
-    CLUSTER_CMAP_NAME.
+    with each other and with cluster_colors -- see the module-level comment
+    on CARVE's ``palette`` argument.
     """
     return ListedColormap(cluster_colors(max(n, 1)))
 

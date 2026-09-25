@@ -7,10 +7,11 @@ from matplotlib.colors import to_hex
 
 from benchmarks._registry import CARVE_METRICS_ALL, CVI_METRICS, METRIC_DISPLAY_NAMES
 from benchmarks._theme import (
-    CLUSTER_CMAP_NAME,
     CLUSTER_PALETTE,
     COMPARATOR_DASHES,
     DEFAULT_DASHES,
+    ESTIMATOR_CMAP_NAME,
+    ESTIMATOR_COLORS,
     FONT_SIZES,
     MEASURE_LINESTYLES,
     METRIC_COLORS,
@@ -172,25 +173,14 @@ class TestPalette:
     def test_no_palette_entry_repeats(self):
         assert len(set(CLUSTER_PALETTE)) == len(CLUSTER_PALETTE)
 
-    def test_the_registered_colormap_stays_the_ten_color_map(self):
-        """Estimator lines sample the registered map at evenly spaced points.
-
-        plot_metric_over_n_clusters draws plt.get_cmap(palette) at
-        np.linspace(0, 1, n), so registering the whole CLUSTER_PALETTE would
-        spread the estimator lines of the CARVE-output figures over different
-        entries than the ten they are drawn in now.
-        """
-        cmap = plt.get_cmap(CLUSTER_CMAP_NAME)
-        assert [to_hex(cmap(i)) for i in range(cmap.N)] == cluster_colors(10)
-
     @pytest.mark.parametrize("n", [1, 3, 10, 30])
     def test_cluster_colors_is_the_palette_in_order(self, n):
         """Cluster i is palette entry i, not a resampled spread over the map.
 
         This is what puts four clusters on tab10's first four hues, which is
         what the published composites draw and what a C1..C4 legend reads as.
-        An earlier version returned plt.get_cmap(CLUSTER_CMAP_NAME, n)'s
-        entries, which spread n samples across the whole ten-color palette --
+        Resampling a registered ten-color map to n instead spreads n samples
+        across the whole palette --
         four clusters landed on entries 0, 3, 6 and 9. Pinned so it cannot
         drift back.
         """
@@ -231,6 +221,24 @@ class TestPalette:
         colors = cluster_colors(len(CLUSTER_PALETTE) + extra)
         assert all(a != b for a, b in zip(colors, colors[1:]))
         assert colors[len(CLUSTER_PALETTE)] == colors[0]
+
+
+class TestEstimatorPalette:
+    def test_the_estimators_are_tab10_blue_and_red(self):
+        assert [color.lower() for color in ESTIMATOR_COLORS] == ["#1f77b4", "#d62728"]
+
+    def test_the_registered_colormap_is_the_estimator_colors(self):
+        cmap = plt.get_cmap(ESTIMATOR_CMAP_NAME)
+        assert [to_hex(cmap(i)) for i in range(cmap.N)] == [
+            color.lower() for color in ESTIMATOR_COLORS
+        ]
+
+    def test_two_estimators_land_on_the_two_entries(self):
+        # plot_metric_over_n_clusters samples its colormap at
+        # np.linspace(0, 1, n), one point per estimator.
+        cmap = plt.get_cmap(ESTIMATOR_CMAP_NAME)
+        colors = [to_hex(color) for color in cmap(np.linspace(0, 1, 2))]
+        assert colors == [color.lower() for color in ESTIMATOR_COLORS]
 
 
 class TestPipelinePalette:
