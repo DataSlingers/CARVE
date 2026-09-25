@@ -183,8 +183,8 @@ class TestSimilarityRows:
 
 
 class TestCellRows:
-    @classmethod
     @pytest.fixture(scope="class")
+    @classmethod
     def sim_cell(cls):
         unit = Unit("cell", Cell("tiny", "easy", 0, 0.5, 12, 1))
         return cell_rows(unit, ablation=TINY_ABLATION, scale="dev", data=None, thread_cap=None)
@@ -262,8 +262,8 @@ class TestCellRowsAllNaNMeasure:
     keep selecting normally.
     """
 
-    @classmethod
     @pytest.fixture(scope="class")
+    @classmethod
     def degenerate(cls):
         unit = Unit("cell", Cell("tiny", "easy", 0, 0.5, 8, 1))
         with pytest.warns(UserWarning, match="is NaN for every configuration"):
