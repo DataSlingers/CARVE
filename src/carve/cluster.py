@@ -227,6 +227,15 @@ class SpectralClustering(BaseEstimator, ClusterMixin):
         else:
             raise ValueError(f"Unknown affinity: {self.affinity!r}")
 
+    @staticmethod
+    def _dense_eigh(Lsym, k: int) -> tuple[np.ndarray, np.ndarray]:
+        """The k smallest eigenpairs of Lsym by dense eigh."""
+        from scipy.sparse import issparse as _issparse
+
+        Ld = Lsym.toarray() if _issparse(Lsym) else np.asarray(Lsym)
+        vals, vecs = eigh(Ld)
+        return vals[:k], vecs[:, :k]
+
     def _spectral_embedding(self, W, k: int) -> tuple[np.ndarray, np.ndarray]:
         """Compute spectral embedding from affinity matrix W.
 
@@ -234,7 +243,7 @@ class SpectralClustering(BaseEstimator, ClusterMixin):
         and row-normalizes eigenvectors (Ng-Jordan-Weiss).
 
         Uses dense eigh for n < 1000, sparse eigsh otherwise with dense
-        fallback on convergence failure.
+        fallback on convergence failure or a singular factorization.
         """
         from scipy.sparse import issparse as _issparse
 
@@ -270,10 +279,13 @@ class SpectralClustering(BaseEstimator, ClusterMixin):
                     vals = ew[:k] if ew is not None else np.full(k, np.nan)
                     vecs = ev[:, :k]
                 else:
-                    # Dense fallback
-                    Ld = Lsym.toarray() if _issparse(Lsym) else np.asarray(Lsym)
-                    vals, vecs = eigh(Ld)
-                    vals, vecs = vals[:k], vecs[:, :k]
+                    vals, vecs = self._dense_eigh(Lsym, k)
+            except RuntimeError:
+                # sigma=0 factors L_sym itself, whose smallest eigenvalue is
+                # exactly 0, so the LU can hit an exact zero pivot ("Factor
+                # is exactly singular"). The R port falls back to dense on
+                # any solver error; so does this.
+                vals, vecs = self._dense_eigh(Lsym, k)
 
         # Sort by eigenvalue
         order = np.argsort(vals)

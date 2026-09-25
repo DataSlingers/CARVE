@@ -278,6 +278,32 @@ class TestNonConvex:
         labels = SpectralClustering(n_clusters=2, random_state=0).fit_predict(X)
         assert adjusted_rand_score(y_true, labels) > 0.9
 
+    def test_sparse_path_falls_back_to_dense_when_the_factorization_is_singular(
+        self, monkeypatch
+    ):
+        """Shift-invert at sigma=0 factors L_sym itself, whose smallest
+        eigenvalue is exactly 0.
+
+        On Klein's 1,038-cell held-out sets the LU hit an exact zero pivot
+        and eigsh raised RuntimeError("Factor is exactly singular"), which
+        the ArpackNoConvergence handler did not catch. No small synthetic
+        input reproduces that pivot, so eigsh raises the same error here.
+        The R port falls back to a dense eigendecomposition on any solver
+        error; this pins the same.
+        """
+        import carve.cluster as cluster_module
+
+        X, y_true = make_moons(1000, noise=0.05, random_state=0)
+        sparse_labels = SpectralClustering(n_clusters=2, random_state=0).fit_predict(X)
+
+        def singular(*args, **kwargs):
+            raise RuntimeError("Factor is exactly singular")
+
+        monkeypatch.setattr(cluster_module, "eigsh", singular)
+        labels = SpectralClustering(n_clusters=2, random_state=0).fit_predict(X)
+        assert adjusted_rand_score(sparse_labels, labels) == 1.0
+        assert adjusted_rand_score(y_true, labels) > 0.9
+
     def test_sparse_path_is_deterministic_on_a_hard_five_cluster_problem(self):
         """n=1500, k=5 is where which='SM' without a start vector flips.
 
