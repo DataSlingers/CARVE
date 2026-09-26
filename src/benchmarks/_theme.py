@@ -294,6 +294,62 @@ RC_PARAMS: dict[str, Any] = {
     "ps.fonttype": 42,
 }
 
+# Figures laid out at the size they print at. PLOS Computational Biology
+# takes figures 2.63 to 7.5 inches wide and at most 8.75 inches tall, with
+# text in Arial, Times or Symbol at 8 to 12 point. The sizes above suit
+# figures drawn larger and scaled down on the page, which takes their text
+# below that range; a figure built under print_theme_context at
+# PRINT_WIDTH_IN is not scaled, so these sizes are the printed sizes.
+# Liberation Sans is metric-compatible with Arial and stands in where Arial
+# is not installed; DejaVu Sans, which ships with matplotlib, is the last
+# resort, so the figures render anywhere. Math text uses the same sans, so
+# rho and k-hat match the surrounding labels.
+PRINT_WIDTH_IN: float = 7.5
+PRINT_MAX_HEIGHT_IN: float = 8.75
+PRINT_FONT_SIZES: dict[str, float] = {
+    "tick": 8.0,
+    "legend": 8.0,
+    "axis_label": 9.0,
+    "title": 9.0,
+    "panel_letter": 12.0,
+}
+PRINT_LINEWIDTH: float = 1.3
+PRINT_REFERENCE_LINEWIDTH: float = 0.8
+PRINT_MARKERSIZE: float = 3.5
+
+PRINT_RC_PARAMS: dict[str, Any] = {
+    **RC_PARAMS,
+    "font.family": "sans-serif",
+    "font.sans-serif": ["Arial", "Liberation Sans", "DejaVu Sans"],
+    "mathtext.fontset": "custom",
+    "mathtext.rm": "sans",
+    "mathtext.it": "sans:italic",
+    "mathtext.bf": "sans:bold",
+    # The custom set resolves every math slot on first use, calligraphic
+    # included; left at its "cursive" default that finds Apple Chancery on
+    # macOS, whose weight metadata is 0, and matplotlib logs a font-weight
+    # warning. No figure sets math in calligraphic.
+    "mathtext.cal": "sans:italic",
+    "font.size": PRINT_FONT_SIZES["tick"],
+    "axes.titlesize": PRINT_FONT_SIZES["title"],
+    "axes.labelsize": PRINT_FONT_SIZES["axis_label"],
+    "legend.fontsize": PRINT_FONT_SIZES["legend"],
+    "xtick.labelsize": PRINT_FONT_SIZES["tick"],
+    "ytick.labelsize": PRINT_FONT_SIZES["tick"],
+    "axes.linewidth": 0.6,
+    "xtick.major.width": 0.6,
+    "ytick.major.width": 0.6,
+    "xtick.major.size": 3.0,
+    "ytick.major.size": 3.0,
+    "lines.linewidth": PRINT_LINEWIDTH,
+    "lines.markersize": PRINT_MARKERSIZE,
+    "legend.frameon": False,
+    # bbox_inches="tight" pads the saved file by this much on every side; at
+    # the default 0.1 inch a figure laid out at PRINT_WIDTH_IN saves wider
+    # than the page.
+    "savefig.pad_inches": 0.02,
+}
+
 
 def apply_theme() -> None:
     """Apply the manuscript style to the global rcParams."""
@@ -304,6 +360,13 @@ def apply_theme() -> None:
 def theme_context() -> Iterator[None]:
     """Apply the theme for the duration of a block, then restore."""
     with mpl.rc_context(RC_PARAMS):
+        yield
+
+
+@contextmanager
+def print_theme_context() -> Iterator[None]:
+    """The theme at printed size (PRINT_RC_PARAMS) for a block, then restore."""
+    with mpl.rc_context(PRINT_RC_PARAMS):
         yield
 
 

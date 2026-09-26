@@ -17,6 +17,10 @@ from benchmarks._theme import (
     METRIC_COLORS,
     PIPELINE_CMAP_NAME,
     PIPELINE_COLORS,
+    PRINT_FONT_SIZES,
+    PRINT_MAX_HEIGHT_IN,
+    PRINT_RC_PARAMS,
+    PRINT_WIDTH_IN,
     RC_PARAMS,
     SEQUENTIAL_CMAP_NAME,
     apply_theme,
@@ -26,6 +30,7 @@ from benchmarks._theme import (
     metric_dashes,
     metric_linestyle,
     metric_linewidth,
+    print_theme_context,
     save_figure,
     style_axes,
     theme_context,
@@ -322,6 +327,52 @@ class TestFontSizes:
     def test_sizes_are_ordered_sensibly(self):
         assert FONT_SIZES["tick"] <= FONT_SIZES["axis_label"] <= FONT_SIZES["title"]
         assert FONT_SIZES["panel_letter"] > FONT_SIZES["title"]
+
+
+class TestPrintTheme:
+    # PLOS Computational Biology's figure guidelines: 2.63 to 7.5 inches
+    # wide, at most 8.75 inches tall, text in Arial, Times or Symbol at 8
+    # to 12 point.
+    def test_the_page_limits_are_plos(self):
+        assert (PRINT_WIDTH_IN, PRINT_MAX_HEIGHT_IN) == (7.5, 8.75)
+
+    def test_every_named_size_is_within_plos_limits(self):
+        assert all(8.0 <= size <= 12.0 for size in PRINT_FONT_SIZES.values())
+
+    def test_every_rc_font_size_is_within_plos_limits(self):
+        keys = (
+            "font.size",
+            "axes.titlesize",
+            "axes.labelsize",
+            "legend.fontsize",
+            "xtick.labelsize",
+            "ytick.labelsize",
+        )
+        assert all(8.0 <= PRINT_RC_PARAMS[key] <= 12.0 for key in keys)
+
+    def test_sets_arial_with_its_metric_compatible_substitute_next(self):
+        assert PRINT_RC_PARAMS["font.family"] == "sans-serif"
+        assert PRINT_RC_PARAMS["font.sans-serif"][:2] == ["Arial", "Liberation Sans"]
+
+    def test_math_text_uses_the_same_sans(self):
+        assert PRINT_RC_PARAMS["mathtext.fontset"] == "custom"
+        assert PRINT_RC_PARAMS["mathtext.rm"] == "sans"
+        assert PRINT_RC_PARAMS["mathtext.it"] == "sans:italic"
+
+    def test_keeps_the_base_theme(self):
+        for key in ("pdf.fonttype", "savefig.dpi", "axes.spines.top", "axes.grid"):
+            assert PRINT_RC_PARAMS[key] == RC_PARAMS[key]
+
+    def test_leaves_the_base_theme_unchanged(self):
+        assert "font.sans-serif" not in RC_PARAMS
+        assert "mathtext.fontset" not in RC_PARAMS
+
+    def test_context_applies_then_restores(self):
+        before = list(plt.rcParams["font.sans-serif"])
+        with print_theme_context():
+            assert plt.rcParams["font.sans-serif"][0] == "Arial"
+            assert plt.rcParams["axes.labelsize"] == PRINT_RC_PARAMS["axes.labelsize"]
+        assert list(plt.rcParams["font.sans-serif"]) == before
 
 
 class TestStyleAxes:

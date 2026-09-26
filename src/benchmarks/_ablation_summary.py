@@ -45,7 +45,8 @@ def _with_pooled(
 def selection_summary(
     selection: pd.DataFrame, *, x: str, metrics: Sequence[str] = HEADLINE_METRICS
 ) -> pd.DataFrame:
-    """k* recovery with Wilson bounds, mean bias and mean ARI of the selected labels.
+    """k* recovery with Wilson bounds, and mean and standard error of the
+    bias and of the ARI of the selected labels.
 
     Simulations only: the study has no true k. An undefined selection
     (_ablation.cell_rows records selected_k as NaN when a metric's measure
@@ -68,6 +69,7 @@ def selection_summary(
             "n": ("hit", "size"),
             "hits": ("hit", "sum"),
             "bias_mean": ("bias", "mean"),
+            "bias_sem": ("bias", "sem"),
             "ari_mean": ("ari_selected", "mean"),
             "ari_sem": ("ari_selected", "sem"),
         },
@@ -87,6 +89,7 @@ def selection_summary(
             "recovery_lo",
             "recovery_hi",
             "bias_mean",
+            "bias_sem",
             "ari_mean",
             "ari_sem",
         ]
@@ -191,7 +194,8 @@ def rare_recall_summary(
     metrics: Sequence[str] = HEADLINE_METRICS,
     difficulty: str | None = None,
 ) -> pd.DataFrame:
-    """Recall of the smallest true cluster at the selected k and at k*.
+    """Recall of the smallest true cluster at the selected k and at k*, with
+    the standard error of each mean.
 
     Each metric reads the at_k rows of its own consensus mode. difficulty
     restricts to one axis label (the hard setting is where rare clusters
@@ -226,7 +230,9 @@ def rare_recall_summary(
         [x, "study", "metric_name"],
         {
             "recall_selected": ("recall_selected", "mean"),
+            "recall_selected_sem": ("recall_selected", "sem"),
             "recall_k_star": ("recall_k_star", "mean"),
+            "recall_k_star_sem": ("recall_k_star", "sem"),
         },
         x=x,
     )

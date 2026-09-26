@@ -108,10 +108,19 @@ class TestSelectionSummary:
         assert "klein" not in set(out["study"])
         assert set(out["study"]) == {"gaussians", POOLED}
 
+    def test_bias_sem_is_over_the_selections(self):
+        # Stability at 0.2 selects 3 or 4 against k* = 5 on each dataset, so
+        # the four biases are -2, -1, -2, -1: SD 0.5774 over four rows.
+        out = selection_summary(_selection(), x=X)
+        stab_02 = out[(out["study"] == "gaussians") & (out["metric_name"] == STAB) & (out[X] == 0.2)].iloc[0]
+        assert stab_02["bias_sem"] == pytest.approx(np.std([-2, -1, -2, -1], ddof=1) / 2)
+        gen = out[(out["study"] == "gaussians") & (out["metric_name"] == GEN)]
+        assert (gen["bias_sem"] == 0.0).all()
+
     def test_columns(self):
         out = selection_summary(_selection(), x=X)
         assert list(out.columns) == [X, "study", "metric_name", "n", "recovery", "recovery_lo",
-                                     "recovery_hi", "bias_mean", "ari_mean", "ari_sem"]
+                                     "recovery_hi", "bias_mean", "bias_sem", "ari_mean", "ari_sem"]
 
 
 class TestAgreementSummary:
@@ -172,7 +181,7 @@ class TestUndefinedSelections:
         out = selection_summary(frame, x=X, metrics=("consensus_gini_stability",))
         assert out.empty
         assert list(out.columns) == [X, "study", "metric_name", "n", "recovery", "recovery_lo",
-                                     "recovery_hi", "bias_mean", "ari_mean", "ari_sem"]
+                                     "recovery_hi", "bias_mean", "bias_sem", "ari_mean", "ari_sem"]
 
     def test_agreement_summary_is_nan_not_zero_with_fewer_than_two_defined(self):
         out = agreement_summary(
@@ -277,6 +286,23 @@ class TestRareRecallSummary:
         gen = out[(out["study"] == "gaussians") & (out["metric_name"] == GEN)].iloc[0]
         assert (stab["recall_selected"], stab["recall_k_star"]) == (0.0, 1.0)
         assert (gen["recall_selected"], gen["recall_k_star"]) == (0.9, 0.9)
+
+    def test_sems_are_over_the_datasets(self):
+        # Two datasets: recall at the selected k is 0 and 1, at k* 1 and 1.
+        selection = pd.DataFrame([
+            {**_key(dataset=d), "metric_name": STAB, "selected_estimator": "KMeans",
+             "selected_k": 4 if d == 0 else 5, "k_star": 5.0, "ari_selected": 0.8}
+            for d in (0, 1)
+        ])
+        at_k = pd.DataFrame([
+            {**_key(dataset=d), "mode": "default", "k": k, "ari_at_k": 0.5,
+             "rare_recall_at_k": {4: 0.0, 5: 1.0}[k]}
+            for d in (0, 1) for k in (4, 5)
+        ])
+        out = rare_recall_summary(at_k, selection, x=X, metrics=(STAB,))
+        pooled = out[out["study"] == POOLED].iloc[0]
+        assert pooled["recall_selected_sem"] == pytest.approx(np.std([0.0, 1.0], ddof=1) / np.sqrt(2))
+        assert pooled["recall_k_star_sem"] == 0.0
 
     def test_difficulty_filter(self):
         selection = pd.DataFrame([
