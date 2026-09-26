@@ -46,9 +46,12 @@ def _tiny_ablation():
         similarity_draws=2,
         study_scale="publication",
     )
+    # The registry's ablation has no case study; this one keeps Klein so the
+    # study cells, which the runner still supports, stay covered.
     return dataclasses.replace(
         RHO_B,
         scenarios=("gaussians",),
+        study="klein",
         rho_grid=(0.5, RHO_B.rho_default),
         b_grid=(10, RHO_B.b_default),
         scales={"tiny": scale},
@@ -103,11 +106,12 @@ class TestEnumerateCells:
         assert all(c.subsample_ratio == ablation.rho_default for c in b)
 
     def test_publication_counts_match_the_spec(self):
+        # rho arm: 20 datasets x 8 rho; B arm: 10 datasets x 3 replicates x
+        # 5 B; the 10 default cells of replicate 0 are shared. No study cells.
         cells = enumerate_cells(RHO_B, "publication")
-        sims = [c for c in cells if c.study != "klein"]
-        study = [c for c in cells if c.study == "klein"]
-        assert len(sims) == 1440 + 900 - 60
-        assert len(study) == 80 + 50 - 10
+        assert {c.study for c in cells} == {"gaussians"}
+        assert {c.difficulty for c in cells} == {"medium"}
+        assert len(cells) == 20 * 8 + 10 * 3 * 5 - 10
 
     def test_rejects_an_unknown_arm(self):
         with pytest.raises(ValueError, match="arm"):
@@ -135,12 +139,20 @@ class TestEnumerateUnits:
 
 
 class TestTimingUnits:
-    def test_is_twenty_two_cells_including_klein(self):
+    def test_is_three_gaussians_cells_without_a_case_study(self):
+        # The default, smallest and largest rho at medium, dataset 0.
         units = timing_units(RHO_B, "publication")
-        assert len(units) == 22
         assert {u.kind for u in units} == {"cell"}
-        assert sum(u.cell.study == "klein" for u in units) == 4
+        assert [(u.cell.study, u.cell.difficulty, u.cell.subsample_ratio) for u in units] == [
+            ("gaussians", "medium", RHO_B.rho_default),
+            ("gaussians", "medium", RHO_B.rho_grid[0]),
+            ("gaussians", "medium", RHO_B.rho_grid[-1]),
+        ]
         assert all(u.cell.n_resamples == RHO_B.b_default for u in units)
+
+    def test_adds_four_study_replicates_with_a_case_study(self):
+        units = timing_units(_tiny_ablation(), "tiny")
+        assert sum(u.cell.study == "klein" for u in units) == 4
 
 
 class TestUnitFiles:
@@ -186,7 +198,7 @@ class TestSeeds:
 
     def test_study_base_is_the_published_random_state(self):
         cell = Cell("klein", STUDY_DIFFICULTY, STUDY_DATASET, 0.618, 100, 0)
-        assert dataset_seed(cell, ablation=RHO_B) == PUBLISHED_RANDOM_STATE
+        assert dataset_seed(cell, ablation=_tiny_ablation()) == PUBLISHED_RANDOM_STATE
 
     def test_replicate_zero_reproduces_the_published_fit_seed(self):
         cell = Cell("gaussians", "medium", 0, 0.618, 100, 0)

@@ -526,7 +526,7 @@ def render_ablation_tex(
     metrics: Sequence[str] | None = None,
     caption: str,
     label: str,
-    study_title: str,
+    study_title: str | None,
     decimals: int = 3,
 ) -> str:
     """Two sub-tables, one row per rho value and one per B value.
@@ -534,7 +534,8 @@ def render_ablation_tex(
     Per headline selector: pooled k* recovery with its Wilson interval, the
     pooled mean ARI of the selected labels, in the B sub-table the pooled
     replicate agreement, and the study's modal selection with its share. Metrics
-    default to the headline selectors.
+    default to the headline selectors. study_title=None (an ablation without
+    a case study) drops the modal column.
     """
     if metrics is None:
         from ._ablation_summary import HEADLINE_METRICS
@@ -549,7 +550,8 @@ def render_ablation_tex(
     for arm in ("rho", "b"):
         rows = rows_by_arm[arm]
         with_agreement = arm == "b"
-        per_metric = 4 if with_agreement else 3
+        with_study = study_title is not None
+        per_metric = 2 + with_agreement + with_study
         lines += [
             f"\\begin{{tabular}}{{l{'c' * per_metric * len(metrics)}}}",
             r"\hline",
@@ -564,7 +566,8 @@ def render_ablation_tex(
             sub += ["$k$-rec [95\\% CI]", "ARI"]
             if with_agreement:
                 sub.append("Agreement")
-            sub.append(f"{_tex_escape(study_title)} modal (share)")
+            if with_study:
+                sub.append(f"{_tex_escape(study_title)} modal (share)")
         lines += [" & ".join(sub) + r" \\", r"\hline"]
         for setting in sorted(rows["setting"].unique()):
             cells = [f"{setting:g}"]
@@ -583,7 +586,8 @@ def render_ablation_tex(
                 cells.append(_fmt(row["ari_mean"], decimals))
                 if with_agreement:
                     cells.append(_fmt(row["agreement"], 2))
-                cells.append(_modal(row["study_modal"], row["study_share"]))
+                if with_study:
+                    cells.append(_modal(row["study_modal"], row["study_share"]))
             lines.append(" & ".join(cells) + r" \\")
         lines += [r"\hline", r"\end{tabular}"]
         if arm == "rho":
@@ -624,7 +628,10 @@ def write_ablation_table(
     path = out_dir / f"{name}.tex"
     path.write_text(
         render_ablation_tex(
-            rows, caption=caption, label=label, study_title=ablation.study.capitalize()
+            rows,
+            caption=caption,
+            label=label,
+            study_title=None if ablation.study is None else ablation.study.capitalize(),
         )
     )
     return path

@@ -175,13 +175,14 @@ def enumerate_units(ablation: Ablation, scale: str) -> list[Unit]:
 
 def timing_units(ablation: Ablation, scale: str) -> list[Unit]:
     """A fixed batch of cells for choosing n_jobs: four study replicates at
-    the defaults, and per scenario the default, smallest and largest rho at
-    the last difficulty of the rho arm, dataset 0, replicate 0."""
+    the defaults when the ablation has a case study, and per scenario the
+    default, smallest and largest rho at the last difficulty of the rho arm,
+    dataset 0, replicate 0."""
     sc = ablation.scales[scale]
     difficulty = sc.rho_arm.difficulties[-1]
     dataset = sc.rho_arm.datasets[0]
     units: dict[Unit, None] = {}
-    for replicate in range(4):
+    for replicate in range(4 if ablation.study is not None else 0):
         units.setdefault(
             Unit(
                 "cell",

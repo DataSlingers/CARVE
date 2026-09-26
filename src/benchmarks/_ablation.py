@@ -84,7 +84,16 @@ def ablation_config(ablation: Ablation, scale: str) -> dict[str, Any]:
     cannot invalidate a publication run.
     """
     sc = ablation.scales[scale]
-    study = STUDIES[ablation.study]
+    study_config = None
+    if ablation.study is not None:
+        study = STUDIES[ablation.study]
+        study_config = {
+            "name": study.name,
+            "grids": repr(study_model_grids(study)),
+            "scale": sc.study_scale,
+            "resolved": resolve_scale(study, sc.study_scale),
+            "not_two": study.not_two,
+        }
     return {
         "ablation": {
             k: v for k, v in dataclasses.asdict(ablation).items() if k != "scales"
@@ -94,13 +103,7 @@ def ablation_config(ablation: Ablation, scale: str) -> dict[str, Any]:
             name: scenario_identity(scenario_at_scale(SCENARIOS[name], sc))
             for name in ablation.scenarios
         },
-        "study": {
-            "name": study.name,
-            "grids": repr(study_model_grids(study)),
-            "scale": sc.study_scale,
-            "resolved": resolve_scale(study, sc.study_scale),
-            "not_two": study.not_two,
-        },
+        "study": study_config,
         "random_state": PUBLISHED_RANDOM_STATE,
         "replicate_seed_spacing": REPLICATE_SEED_SPACING,
         "similarity_seed_offset": SIMILARITY_SEED_OFFSET,

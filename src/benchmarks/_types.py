@@ -257,7 +257,8 @@ class ArmScale:
 
     difficulties and datasets name the simulated cells; replicates is the
     number of CARVE fits with distinct seeds per simulated cell, and
-    study_replicates the same for the case study, which has one dataset.
+    study_replicates the same for the case study, which has one dataset; it
+    is 0 when the ablation has no case study.
     """
 
     difficulties: tuple[str, ...]
@@ -272,10 +273,10 @@ class ArmScale:
             raise ValueError("ArmScale: declare at least one dataset.")
         if len(set(self.datasets)) != len(self.datasets):
             raise ValueError(f"ArmScale: datasets repeat: {self.datasets}.")
-        if self.replicates < 1 or self.study_replicates < 1:
-            raise ValueError(
-                "ArmScale: replicates and study_replicates must be at least 1."
-            )
+        if self.replicates < 1:
+            raise ValueError("ArmScale: replicates must be at least 1.")
+        if self.study_replicates < 0:
+            raise ValueError("ArmScale: study_replicates must be at least 0.")
 
 
 @dataclass(frozen=True)
@@ -283,14 +284,14 @@ class AblationScale:
     """One scale of an ablation: how much runs, not what is measured.
 
     n_total overrides the simulated sample count; None keeps each
-    scenario's own. study_scale names the case study's scale
-    (a key of Study.scales).
+    scenario's own. study_scale names the case study's scale (a key of
+    Study.scales), or is None when the ablation has no case study.
     """
 
     rho_arm: ArmScale
     b_arm: ArmScale
     similarity_draws: int
-    study_scale: str
+    study_scale: str | None = None
     n_total: int | None = None
 
     def __post_init__(self) -> None:
@@ -308,12 +309,13 @@ class Ablation:
     rho_default. The defaults are fields so the configuration is complete
     on its own; the registry fills them from CARVE's own defaults. Scenario
     and study names are checked against the registry there, not here, so
-    this module stays a leaf.
+    this module stays a leaf. study is None for an ablation over simulations
+    only; its scales then run no study replicates and name no study scale.
     """
 
     name: str
     scenarios: tuple[str, ...]
-    study: str
+    study: str | None
     rho_grid: tuple[float, ...]
     b_grid: tuple[int, ...]
     rho_default: float
@@ -357,6 +359,26 @@ class Ablation:
                 f"Ablation {self.name!r}: default_scale {self.default_scale!r} is not "
                 f"among the declared scales {sorted(self.scales)}."
             )
+        for scale_name, scale in self.scales.items():
+            where = f"Ablation {self.name!r}, scale {scale_name!r}"
+            replicates = (scale.rho_arm.study_replicates, scale.b_arm.study_replicates)
+            if self.study is None:
+                if any(replicates):
+                    raise ValueError(
+                        f"{where}: study_replicates must be 0 without a case study."
+                    )
+                if scale.study_scale is not None:
+                    raise ValueError(
+                        f"{where}: study_scale must be None without a case study."
+                    )
+            else:
+                if min(replicates) < 1:
+                    raise ValueError(
+                        f"{where}: study_replicates must be at least 1 with a case "
+                        "study."
+                    )
+                if scale.study_scale is None:
+                    raise ValueError(f"{where}: study_scale names no case study scale.")
 
 
 @dataclass(frozen=True)

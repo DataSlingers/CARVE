@@ -677,37 +677,34 @@ def package_defaults() -> tuple[float, int]:
 
 _RHO_DEFAULT, _B_DEFAULT = package_defaults()
 
+# The medium gaussians setting alone, with no case study (the author's
+# decision on 2026-09-26; the ablation previously ran six scenarios at every
+# difficulty plus Klein). The rho arm's twenty datasets are the main
+# benchmark's twenty medium gaussians datasets, so its default column
+# (rho_default, b_default, replicate 0) reproduces those fits.
 ABLATION_SCALES: dict[str, AblationScale] = {
     "publication": AblationScale(
         rho_arm=ArmScale(
-            difficulties=DIFFICULTY_AXIS.labels,
-            datasets=tuple(range(10)),
+            difficulties=("medium",),
+            datasets=tuple(range(20)),
             replicates=1,
-            study_replicates=10,
+            study_replicates=0,
         ),
         b_arm=ArmScale(
-            difficulties=("medium", "hard"),
-            datasets=tuple(range(5)),
+            difficulties=("medium",),
+            datasets=tuple(range(10)),
             replicates=3,
-            study_replicates=10,
+            study_replicates=0,
         ),
         similarity_draws=20,
-        study_scale="publication",
     ),
 }
 
 ABLATIONS: dict[str, Ablation] = {
     "rho_b": Ablation(
         name="rho_b",
-        scenarios=(
-            "gaussians",
-            "t_dist",
-            "t_dist_noise",
-            "circles",
-            "moons",
-            "swiss_rolls",
-        ),
-        study="klein",
+        scenarios=("gaussians",),
+        study=None,
         # 0.5 and 0.8 are proportions used elsewhere in the resampling
         # literature, so the default can be placed against them.
         rho_grid=(0.2, 0.3, 0.4, 0.5, _RHO_DEFAULT, 0.7, 0.8, 0.9),

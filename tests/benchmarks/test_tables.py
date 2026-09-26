@@ -568,7 +568,7 @@ class TestAblationTable:
         from benchmarks._registry import ABLATIONS
         from tests.benchmarks._helpers import small_ablation, synthetic_ablation_frames
 
-        ablation = small_ablation(ABLATIONS["rho_b"])
+        ablation = small_ablation(ABLATIONS["rho_b"], study="klein")
         return ablation, synthetic_ablation_frames(
             ablation, "test", seed=2,
             tmp_path=tmp_path_factory.mktemp("ablation_frames"),
@@ -601,6 +601,25 @@ class TestAblationTable:
         path = write_ablation_table(data, ablation=ablation, scale="test", out_dir=tmp_path)
         assert path == tmp_path / "si_table_ablation.tex"
         assert r"\begin{table}" in path.read_text()
+
+    def test_without_a_case_study_the_modal_column_is_dropped(self, tmp_path):
+        from benchmarks._ablation_summary import HEADLINE_METRICS
+        from benchmarks._registry import ABLATIONS
+        from tests.benchmarks._helpers import small_ablation, synthetic_ablation_frames
+
+        ablation = small_ablation(ABLATIONS["rho_b"])
+        data = synthetic_ablation_frames(ablation, "test", seed=4)
+        tex = write_ablation_table(
+            data, ablation=ablation, scale="test", out_dir=tmp_path
+        ).read_text()
+        assert "modal" not in tex
+        # Per headline selector: recovery and ARI, plus agreement in the B arm.
+        n_metrics = len(HEADLINE_METRICS)
+        assert f"\\begin{{tabular}}{{l{'c' * 2 * n_metrics}}}" in tex
+        assert f"\\begin{{tabular}}{{l{'c' * 3 * n_metrics}}}" in tex
+        for rho in ablation.rho_grid:
+            assert f"\n{rho:g} &" in tex
+        assert "nan" not in tex
 
     def test_renders_nan_and_missing_cells_empty(self):
         """Verify NaN and missing-row rendering paths are covered.

@@ -357,6 +357,14 @@ class TestArmScale:
         with pytest.raises(ValueError, match="replicates"):
             _arm(replicates=0)
 
+    def test_allows_zero_study_replicates(self):
+        # An ablation without a case study runs no study replicates.
+        assert _arm(study_replicates=0).study_replicates == 0
+
+    def test_rejects_negative_study_replicates(self):
+        with pytest.raises(ValueError, match="study_replicates"):
+            _arm(study_replicates=-1)
+
 
 class TestAblationScale:
     def test_rejects_zero_similarity_draws(self):
@@ -398,6 +406,34 @@ class TestAblation:
     def test_rejects_repeated_scenarios(self):
         with pytest.raises(ValueError, match="repeat"):
             _ablation(scenarios=("gaussians", "gaussians"))
+
+    def test_constructs_without_a_case_study(self):
+        no_study = _scale(
+            rho_arm=_arm(study_replicates=0),
+            b_arm=_arm(study_replicates=0),
+            study_scale=None,
+        )
+        ablation = _ablation(study=None, scales={"dev": no_study})
+        assert ablation.study is None
+
+    def test_rejects_study_replicates_without_a_study(self):
+        with pytest.raises(ValueError, match="study_replicates"):
+            _ablation(study=None, scales={"dev": _scale(study_scale=None)})
+
+    def test_rejects_a_study_scale_without_a_study(self):
+        no_replicates = _scale(
+            rho_arm=_arm(study_replicates=0), b_arm=_arm(study_replicates=0)
+        )
+        with pytest.raises(ValueError, match="study_scale"):
+            _ablation(study=None, scales={"dev": no_replicates})
+
+    def test_rejects_a_study_without_replicates(self):
+        with pytest.raises(ValueError, match="study_replicates"):
+            _ablation(scales={"dev": _scale(rho_arm=_arm(study_replicates=0))})
+
+    def test_rejects_a_study_without_a_scale(self):
+        with pytest.raises(ValueError, match="study_scale"):
+            _ablation(scales={"dev": _scale(study_scale=None)})
 
 
 class TestStudyDefaults:

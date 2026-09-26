@@ -318,12 +318,13 @@ def table_rows(
     view: dict[str, pd.DataFrame],
     *,
     x: str,
-    study: str,
+    study: str | None,
     metrics: Sequence[str] = HEADLINE_METRICS,
 ) -> pd.DataFrame:
     """One row per (setting, metric) for the SI table: pooled recovery with
     its Wilson interval, pooled ARI, pooled replicate agreement, and the
-    study's modal selection with its share of replicates.
+    study's modal selection with its share of replicates. With study=None
+    (an ablation without a case study) the modal columns are left empty.
 
     A partial run (an empty selection frame, or one with no rows for the
     named study) leaves modal empty; declaring the merge frame's columns
@@ -338,7 +339,7 @@ def table_rows(
     agreement = agreement[agreement["study"] == POOLED][[x, "metric_name", "agreement"]]
     rows = pooled.merge(agreement, on=[x, "metric_name"], how="left")
     modal = []
-    for metric in metrics:
+    for metric in metrics if study is not None else ():
         shares = study_selection_shares(selection, x=x, metric=metric, study=study)
         for setting, group in shares.groupby(x):
             top = group.sort_values(

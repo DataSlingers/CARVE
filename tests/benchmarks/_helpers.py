@@ -276,25 +276,30 @@ def make_carve_spy() -> type:
     return SpyCARVE
 
 
-def small_ablation(ablation):
-    """The ablation with a small "test" scale beside its publication scale.
+def small_ablation(ablation, *, study=None):
+    """The ablation with a single small "test" scale in place of its own.
 
-    Figure and table tests render synthetic frames at this scale, since
-    the publication scale's 4,210 units make every such test slow. The
-    registry declares no small scale, so no real run can use it.
+    Figure and table tests render synthetic frames at this scale, since a
+    publication run's units make every such test slow. The registry
+    declares no small scale, so no real run can use it. study adds a case
+    study (two replicates per setting) so the study panels and columns,
+    which the registry's ablation no longer runs, stay covered.
     """
     import dataclasses
 
     from benchmarks._types import AblationScale, ArmScale
 
+    study_replicates = 0 if study is None else 2
     scale = AblationScale(
-        rho_arm=ArmScale(("medium",), (0, 1), 1, 2),
-        b_arm=ArmScale(("medium",), (0, 1), 2, 2),
+        rho_arm=ArmScale(("medium",), (0, 1), 1, study_replicates),
+        b_arm=ArmScale(("medium",), (0, 1), 2, study_replicates),
         similarity_draws=5,
-        study_scale="publication",
+        study_scale=None if study is None else "publication",
         n_total=500,
     )
-    return dataclasses.replace(ablation, scales={**ablation.scales, "test": scale})
+    return dataclasses.replace(
+        ablation, study=study, scales={"test": scale}, default_scale="test"
+    )
 
 
 def synthetic_ablation_frames(
@@ -311,8 +316,8 @@ def synthetic_ablation_frames(
     it, and the frames come back through read_frames, so they carry what a
     real run directory produces rather than what an in-memory DataFrame
     would: an empty at_k part per study cell, and one undefined selection
-    (the all-NaN guard's row shape, on a non-headline metric of a study
-    B-arm cell) that makes selected_k float64 for the whole run. Figures
+    (the all-NaN guard's row shape, on a non-headline metric of a B-arm
+    cell, the study's when there is one) that makes selected_k float64 for the whole run. Figures
     and tables are then exercised against the frames they will meet.
 
     tmp_path is the directory the checkpoints are written to; None uses a
@@ -339,14 +344,26 @@ def synthetic_ablation_frames(
     undefined_metric = "consensus_gini_stability"
     assert undefined_metric in CARVE_METRICS_ALL
     assert undefined_metric not in HEADLINE_METRICS
-    undefined_cell = Cell(
-        ablation.study,
-        STUDY_DIFFICULTY,
-        STUDY_DATASET,
-        float(ablation.rho_default),
-        int(next(b for b in ablation.b_grid if b != ablation.b_default)),
-        0,
-    )
+    other_b = int(next(b for b in ablation.b_grid if b != ablation.b_default))
+    if ablation.study is not None:
+        undefined_cell = Cell(
+            ablation.study,
+            STUDY_DIFFICULTY,
+            STUDY_DATASET,
+            float(ablation.rho_default),
+            other_b,
+            0,
+        )
+    else:
+        b_arm = ablation.scales[scale].b_arm
+        undefined_cell = Cell(
+            ablation.scenarios[0],
+            b_arm.difficulties[0],
+            int(b_arm.datasets[0]),
+            float(ablation.rho_default),
+            other_b,
+            0,
+        )
 
     def _estimators(cell):
         if cell.study == ablation.study:

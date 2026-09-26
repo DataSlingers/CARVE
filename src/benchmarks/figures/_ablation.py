@@ -65,6 +65,19 @@ def _study_colors(studies: Sequence[str]) -> dict[str, str]:
     return dict(zip(studies, cluster_colors(len(studies))))
 
 
+def _pooled_lines(ablation, studies: Sequence[str]) -> tuple[list[str], str]:
+    """The studies to draw faint lines for, and the pooled line's label.
+
+    With a single simulated scenario the pooled line is that scenario, so
+    it is drawn once, under the scenario's name, rather than twice with one
+    copy hidden beneath the other.
+    """
+    if len(ablation.scenarios) != 1:
+        return list(studies), "Pooled (simulations)"
+    (only,) = ablation.scenarios
+    return [s for s in studies if s != only], STUDY_TITLES.get(only, only)
+
+
 def _lines_by_study(
     ax,
     summary: pd.DataFrame,
@@ -263,15 +276,16 @@ def figure_ablation_rho(
     """Selections, scores and recovery against the subsampling proportion."""
     x = "subsample_ratio"
     view = arm_view(frames, ablation=ablation, scale=scale, arm="rho")
-    studies = list(ablation.scenarios)
+    studies, pooled_label = _pooled_lines(ablation, ablation.scenarios)
     study = ablation.study
     selection = view["selection"]
     sel = selection_summary(selection, x=x)
+    rare_difficulty = ablation.scales[scale].rho_arm.difficulties[-1]
     recall = rare_recall_summary(
         view["at_k"],
         selection,
         x=x,
-        difficulty=ablation.scales[scale].rho_arm.difficulties[-1],
+        difficulty=rare_difficulty,
     )
     at_star = curve_at_k_star(view["curves"], view["datasets"], x=x)
     similarity = _similarity_at_k_star(view["similarity"], view["datasets"])
@@ -289,6 +303,7 @@ def figure_ablation_rho(
             studies=studies,
             lo="recovery_lo",
             hi="recovery_hi",
+            pooled_label=pooled_label,
         )
         _title(ax, "A", "k* recovery, stability 1SE")
         ax.set_ylabel("Recovery rate")
@@ -302,6 +317,7 @@ def figure_ablation_rho(
             studies=studies,
             lo="recovery_lo",
             hi="recovery_hi",
+            pooled_label=pooled_label,
         )
         _title(ax, "B", "k* recovery, generalizability 1SE")
         ax = axes[0, 2]
@@ -340,7 +356,7 @@ def figure_ablation_rho(
             linestyle=":",
             suffix=", at k*",
         )
-        _title(ax, "E", "Rare-cluster recall, hard setting")
+        _title(ax, "E", f"Rare-cluster recall, {rare_difficulty} setting")
         ax.set_ylabel("Recall of the smallest cluster")
         ax = axes[1, 2]
         _pooled_by_metric(
@@ -350,56 +366,70 @@ def figure_ablation_rho(
         ax.set_ylabel("ARI")
         ax = axes[2, 0]
         _lines_by_study(
-            ax, similarity, x=x, y="ari_mean", metric="similarity", studies=studies
+            ax,
+            similarity,
+            x=x,
+            y="ari_mean",
+            metric="similarity",
+            studies=studies,
+            pooled_label=pooled_label,
         )
         _title(ax, "G", "Subsample versus full-data clustering at k*")
         ax.set_ylabel("ARI to full-data fit")
-        ax = axes[2, 1]
-        _study_shares(
-            ax,
-            selection,
-            x=x,
-            grid=list(ablation.rho_grid),
-            study=study,
-            metric=GEN,
-            x_label=RHO_LABEL,
-        )
-        _title(
-            ax,
-            "H",
-            f"{STUDY_TITLES.get(study, study)}: selection, generalizability 1SE",
-        )
-        ax = axes[2, 2]
-        _study_ari(ax, selection, x=x, study=study, metrics=HEADLINE_METRICS)
-        # The manuscript reports one k for this study; read it from the
-        # registry rather than restating it, and skip the similarity lines
-        # if the study reports none.
-        reported_k = STUDIES[study].reported_k
-        if reported_k is not None:
-            klein_sim = similarity_summary(
-                view["similarity"][view["similarity"]["study"] == study]
+        # Panels H and I are the case study's; an ablation without one
+        # leaves their slots empty and removes them.
+        if study is None:
+            for unused in (axes[2, 1], axes[2, 2]):
+                fig.delaxes(unused)
+        else:
+            ax = axes[2, 1]
+            _study_shares(
+                ax,
+                selection,
+                x=x,
+                grid=list(ablation.rho_grid),
+                study=study,
+                metric=GEN,
+                x_label=RHO_LABEL,
             )
-            klein_sim = klein_sim[klein_sim["k"] == reported_k]
-            for estimator, part in klein_sim.groupby("estimator"):
-                part = part.sort_values(x)
-                ax.plot(
-                    part[x],
-                    part["ari_mean"],
-                    marker="s",
-                    markersize=3,
-                    linestyle=":",
-                    linewidth=REFERENCE_LINEWIDTH,
-                    color=FOREGROUND_COLOR,
-                    alpha=0.9 if estimator.startswith("Agglomerative") else 0.5,
-                    label=f"{estimator}, subsample vs full at k={reported_k}",
+            _title(
+                ax,
+                "H",
+                f"{STUDY_TITLES.get(study, study)}: selection, generalizability 1SE",
+            )
+            ax = axes[2, 2]
+            _study_ari(ax, selection, x=x, study=study, metrics=HEADLINE_METRICS)
+            # The manuscript reports one k for this study; read it from the
+            # registry rather than restating it, and skip the similarity lines
+            # if the study reports none.
+            reported_k = STUDIES[study].reported_k
+            if reported_k is not None:
+                klein_sim = similarity_summary(
+                    view["similarity"][view["similarity"]["study"] == study]
                 )
-        _title(
-            ax, "I", f"{STUDY_TITLES.get(study, study)}: selected labels and similarity"
-        )
-        ax.set_ylabel("ARI")
+                klein_sim = klein_sim[klein_sim["k"] == reported_k]
+                for estimator, part in klein_sim.groupby("estimator"):
+                    part = part.sort_values(x)
+                    ax.plot(
+                        part[x],
+                        part["ari_mean"],
+                        marker="s",
+                        markersize=3,
+                        linestyle=":",
+                        linewidth=REFERENCE_LINEWIDTH,
+                        color=FOREGROUND_COLOR,
+                        alpha=0.9 if estimator.startswith("Agglomerative") else 0.5,
+                        label=f"{estimator}, subsample vs full at k={reported_k}",
+                    )
+            _title(
+                ax,
+                "I",
+                f"{STUDY_TITLES.get(study, study)}: selected labels and similarity",
+            )
+            ax.set_ylabel("ARI")
 
-        for ax in axes.flat:
-            if ax is not axes[2, 1]:
+        for ax in fig.axes:
+            if study is None or ax is not axes[2, 1]:
                 _reference(ax, ablation.rho_default)
                 ax.set_xlabel(RHO_LABEL)
             style_axes(ax)
@@ -437,8 +467,10 @@ def figure_ablation_b(
     """Repeatability, spread and selections against the resample count."""
     x = "n_resamples"
     view = arm_view(frames, ablation=ablation, scale=scale, arm="b")
-    studies = [*ablation.scenarios, ablation.study]
     study = ablation.study
+    studies, pooled_label = _pooled_lines(
+        ablation, [*ablation.scenarios, *([study] if study is not None else [])]
+    )
     selection = view["selection"]
     agreement = agreement_summary(selection, x=x)
     spread = spread_summary(view["curves"], x=x)
@@ -463,13 +495,33 @@ def figure_ablation_b(
         )
 
     with theme_context():
-        fig, axes = plt.subplots(4, 2, figsize=(8.4, 15.6))
+        # The fourth row holds the case study's panels, G and H; an ablation
+        # without one stops at the third.
+        n_rows = 4 if study is not None else 3
+        height = 3.9 * n_rows
+        fig, axes = plt.subplots(n_rows, 2, figsize=(8.4, height))
         ax = axes[0, 0]
-        _lines_by_study(ax, agreement, x=x, y="agreement", metric=STAB, studies=studies)
+        _lines_by_study(
+            ax,
+            agreement,
+            x=x,
+            y="agreement",
+            metric=STAB,
+            studies=studies,
+            pooled_label=pooled_label,
+        )
         _title(ax, "A", "Replicate agreement, stability 1SE")
         ax.set_ylabel("Fraction of agreeing pairs")
         ax = axes[0, 1]
-        _lines_by_study(ax, agreement, x=x, y="agreement", metric=GEN, studies=studies)
+        _lines_by_study(
+            ax,
+            agreement,
+            x=x,
+            y="agreement",
+            metric=GEN,
+            studies=studies,
+            pooled_label=pooled_label,
+        )
         _title(ax, "B", "Replicate agreement, generalizability 1SE")
         ax = axes[1, 0]
         _pooled_by_metric(ax, spread, x=x, y="spread", metrics=HEADLINE_METRICS)
@@ -490,40 +542,42 @@ def figure_ablation_b(
         ax.axhline(0.0, color=FALLBACK_COLOR, linewidth=REFERENCE_LINEWIDTH)
         _title(ax, "F", "Bias of the selected k")
         ax.set_ylabel("Mean of k-hat minus k*")
-        ax = axes[3, 0]
-        _study_ari(ax, selection, x=x, study=study, metrics=HEADLINE_METRICS)
-        _title(ax, "G", f"{STUDY_TITLES.get(study, study)}: selected labels")
-        ax.set_ylabel("ARI to reference labels")
-        ax = axes[3, 1]
-        _study_shares(
-            ax,
-            selection,
-            x=x,
-            grid=list(ablation.b_grid),
-            study=study,
-            metric=GEN,
-            x_label=B_LABEL,
-        )
-        _title(
-            ax,
-            "H",
-            f"{STUDY_TITLES.get(study, study)}: selection, generalizability 1SE",
-        )
+        if study is not None:
+            ax = axes[3, 0]
+            _study_ari(ax, selection, x=x, study=study, metrics=HEADLINE_METRICS)
+            _title(ax, "G", f"{STUDY_TITLES.get(study, study)}: selected labels")
+            ax.set_ylabel("ARI to reference labels")
+            ax = axes[3, 1]
+            _study_shares(
+                ax,
+                selection,
+                x=x,
+                grid=list(ablation.b_grid),
+                study=study,
+                metric=GEN,
+                x_label=B_LABEL,
+            )
+            _title(
+                ax,
+                "H",
+                f"{STUDY_TITLES.get(study, study)}: selection, generalizability 1SE",
+            )
 
         for ax in axes.flat:
-            if ax is not axes[3, 1]:
+            if study is None or ax is not axes[3, 1]:
                 ax.set_xscale("log")
                 _reference(ax, b_default)
                 ax.set_xlabel(B_LABEL)
             style_axes(ax)
         # Same reasoning as figure_ablation_rho: reserve a fixed bottom strip
         # so a tall merged legend (studies, headline metrics, the guide line
-        # and panel H's per-choice bars) cannot grow upward into row 4. 0.06
-        # of the figure height is the four-row legend of the reduced run this
-        # was sized on (since archived) plus headroom; the
-        # unit tests' synthetic frames produce a shorter legend here than the
-        # rho figure does, so this value clears them too, with room to spare.
-        fig.tight_layout(rect=(0.0, 0.06, 1.0, 1.0))
+        # and panel H's per-choice bars) cannot grow upward into the last row.
+        # 0.936 inch (0.06 of the four-row figure) is the four-row legend of
+        # the reduced run this was sized on (since archived) plus headroom;
+        # the unit tests' synthetic frames produce a shorter legend here than
+        # the rho figure does, so this value clears them too, with room to
+        # spare. It is kept in inches so the three-row figure keeps the strip.
+        fig.tight_layout(rect=(0.0, 0.936 / height, 1.0, 1.0))
         grouped_legend(fig, axes, y_offset=0.01, ncol=4)
         if save:
             save_figure(
