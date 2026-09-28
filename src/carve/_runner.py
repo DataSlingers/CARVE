@@ -46,6 +46,7 @@ from ._utils import (
     count_clusters,
     default_generalizability_classifier,
     resolve_core_budget,
+    scale_neighbor_count,
     split_subsample_indices,
 )
 
@@ -764,21 +765,19 @@ def validation_iter(
         X_1, X_2, X_test = embeddings.X_1, embeddings.X_2, embeddings.X_test
 
     # --- Clustering ---
-    labels_1 = cluster_labels(
-        X_1, est_class, random_state=random_state0 + seed, **params
-    )
+    # Each set is clustered on its own, so each gets the neighbor count
+    # scaled to its own rows (scale_neighbor_count).
+    def fit_labels(X_fit: np.ndarray) -> np.ndarray:
+        scaled = scale_neighbor_count(
+            est_class, params, n_fit=X_fit.shape[0], n_full=X.shape[0]
+        )
+        return cluster_labels(
+            X_fit, est_class, random_state=random_state0 + seed, **scaled
+        )
 
-    labels_test = (
-        cluster_labels(X_test, est_class, random_state=random_state0 + seed, **params)
-        if policy.run_generalizability
-        else None
-    )
-
-    labels_2 = (
-        cluster_labels(X_2, est_class, random_state=random_state0 + seed, **params)
-        if policy.run_stability
-        else None
-    )
+    labels_1 = fit_labels(X_1)
+    labels_test = fit_labels(X_test) if policy.run_generalizability else None
+    labels_2 = fit_labels(X_2) if policy.run_stability else None
 
     # --- Resolve noise labels (density-based methods emit -1) ---
     #

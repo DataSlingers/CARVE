@@ -4,6 +4,7 @@ Provides subsample splitting, cluster label alignment via the Hungarian
 algorithm, ARI score summarization, and array coercion utilities.
 """
 
+import inspect
 import warnings
 from typing import Any
 
@@ -257,6 +258,58 @@ def pin_estimator_defaults(
     if issubclass(estimator_cls, HDBSCAN) and "copy" not in params:
         return {**params, "copy": True}
     return params
+
+
+def scale_neighbor_count(
+    estimator_cls: type[ClusterMixin],
+    params: dict[str, Any],
+    *,
+    n_fit: int,
+    n_full: int,
+) -> dict[str, Any]:
+    """Scale an estimator's neighbor count from the full data to a subsample.
+
+    A neighbor count fixes how many points make up a neighborhood, so on a
+    subsample holding a fraction of the points the same count reaches
+    further: at ``subsample_ratio=0.618`` seven neighbors span about as much
+    as eleven do on the full data, and the fit is coarser than the one the
+    count was chosen for. Multiplying the count by ``n_fit / n_full`` keeps
+    the neighborhood the same size, so every resample fits the estimator as
+    configured for the full data.
+
+    Applies to any estimator that takes ``n_neighbors`` (self-tuning
+    spectral clustering, Leiden, Louvain), read from ``params`` or else from
+    the estimator's default. The scaled count is rounded to the nearest
+    integer, never set below 2 and never raised. Other estimators, and fits
+    on all ``n_full`` rows, pass through unchanged.
+
+    Parameters
+    ----------
+    estimator_cls : type
+        Estimator class implementing clustering.
+    params : dict
+        Estimator parameters. Not modified.
+    n_fit : int
+        Rows the estimator is about to be fitted on.
+    n_full : int
+        Rows in the full data.
+
+    Returns
+    -------
+    params : dict
+        ``params``, with ``n_neighbors`` scaled where it applies.
+    """
+    if n_fit >= n_full:
+        return params
+    if "n_neighbors" in params:
+        base = params["n_neighbors"]
+    else:
+        parameter = inspect.signature(estimator_cls).parameters.get("n_neighbors")
+        base = None if parameter is None else parameter.default
+    if isinstance(base, bool) or not isinstance(base, (int, np.integer)):
+        return params
+    scaled = max(2, round(int(base) * n_fit / n_full))
+    return {**params, "n_neighbors": min(int(base), scaled)}
 
 
 def cluster_labels(

@@ -309,6 +309,37 @@ class TestValidationIter:
         assert spy.seen == [5]
 
 
+    def test_each_fit_gets_the_neighbor_count_scaled_to_its_rows(self):
+        # The two subsamples and the held-out set are each clustered on their
+        # own, so each must receive the neighbor count scaled to its own size.
+        seen = []
+
+        class NeighborRecorder(BaseEstimator, ClusterMixin):
+            def __init__(self, n_clusters=2, n_neighbors=10, random_state=None):
+                self.n_clusters = n_clusters
+                self.n_neighbors = n_neighbors
+                self.random_state = random_state
+
+            def fit_predict(self, X, y=None):
+                seen.append((np.asarray(X).shape[0], self.n_neighbors))
+                return np.resize(np.array([0, 1]), np.asarray(X).shape[0])
+
+        X = np.random.default_rng(0).normal(size=(200, 3))
+        validation_iter(
+            X=X,
+            est_class=NeighborRecorder,
+            params={"n_clusters": 2},
+            subsample_ratio=0.618,
+            n_resamples=3,
+            seed=0,
+            n_trees=5,
+            mode="default",
+            random_state=0,
+        )
+        assert sorted(n for n, _ in seen) == [77, 123, 123]
+        assert seen == [(n, max(2, round(10 * n / 200))) for n, _ in seen]
+
+
 # -----------------------------------------------------------------------
 # run_validation
 # -----------------------------------------------------------------------

@@ -25,9 +25,11 @@ from carve._utils import (
     ensure_2d_array,
     resolve_anchors,
     resolve_core_budget,
+    scale_neighbor_count,
     split_subsample_indices,
     summarize_preprocessing_records,
 )
+from carve.cluster import SpectralClustering
 
 # -----------------------------------------------------------------------
 # split_subsample_indices
@@ -185,6 +187,60 @@ class TestClusterLabels:
         # explicit copy; filterwarnings = error turns it into a failure.
         labels = cluster_labels(X_two_clusters, HDBSCAN, min_cluster_size=5)
         assert labels.shape == (60,)
+
+
+# -----------------------------------------------------------------------
+# scale_neighbor_count
+# -----------------------------------------------------------------------
+
+
+class TestScaleNeighborCount:
+    def test_reads_the_default_from_the_signature(self):
+        # SpectralClustering defaults to seven neighbors; a 927-row subsample
+        # of 1,500 rows holds 61.8% of the points, so four cover the same
+        # neighborhood.
+        params = scale_neighbor_count(
+            SpectralClustering, {"n_clusters": 5}, n_fit=927, n_full=1500
+        )
+        assert params == {"n_clusters": 5, "n_neighbors": 4}
+
+    def test_scales_an_explicit_count(self):
+        params = scale_neighbor_count(
+            SpectralClustering,
+            {"n_clusters": 3, "n_neighbors": 15},
+            n_fit=573,
+            n_full=1500,
+        )
+        assert params == {"n_clusters": 3, "n_neighbors": 6}
+
+    def test_passes_an_estimator_without_neighbors_through(self):
+        params = scale_neighbor_count(
+            KMeans, {"n_clusters": 3}, n_fit=927, n_full=1500
+        )
+        assert params == {"n_clusters": 3}
+
+    def test_never_goes_below_two(self):
+        params = scale_neighbor_count(
+            SpectralClustering, {"n_neighbors": 7}, n_fit=50, n_full=1500
+        )
+        assert params["n_neighbors"] == 2
+
+    def test_never_raises_a_count(self):
+        params = scale_neighbor_count(
+            SpectralClustering, {"n_neighbors": 1}, n_fit=927, n_full=1500
+        )
+        assert params["n_neighbors"] == 1
+
+    def test_leaves_a_full_data_fit_alone(self):
+        params = scale_neighbor_count(
+            SpectralClustering, {"n_clusters": 5}, n_fit=1500, n_full=1500
+        )
+        assert params == {"n_clusters": 5}
+
+    def test_does_not_mutate_its_input(self):
+        original = {"n_clusters": 3, "n_neighbors": 15}
+        scale_neighbor_count(SpectralClustering, original, n_fit=573, n_full=1500)
+        assert original == {"n_clusters": 3, "n_neighbors": 15}
 
 
 # -----------------------------------------------------------------------

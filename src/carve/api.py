@@ -237,6 +237,14 @@ class CARVE(BaseEstimator):
     trained the classifier on the embedding, and names the per-pipeline
     table ``pipeline_df_``; the table is ``preprocessing_results_``.
 
+    An estimator's ``n_neighbors`` (self-tuning spectral clustering, Leiden,
+    Louvain) is read as a count at the density of the full data. Each
+    subsample and held-out set is clustered with the count scaled by its
+    share of the rows, rounded, and floored at 2, so a resample fits the
+    same neighborhood size the full data would. Neighbor parameters of the
+    preprocessing pipeline (UMAP's ``n_neighbors``, t-SNE's perplexity) are
+    not scaled.
+
     See Also
     --------
     SpectralClustering : Custom spectral clustering variant included
