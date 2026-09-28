@@ -39,6 +39,7 @@ def _frame(scenario: str, metrics: tuple[str, ...] = METRICS) -> pd.DataFrame:
                             "is_selected": k == 5,
                             "selects_true_k": k == 5,
                             "ari_at_k": 0.9 - 0.1 * axis_value,
+                            "consensus_ari_at_k": float("nan"),
                             "oracle_ari": 0.95,
                         }
                     )

@@ -51,14 +51,6 @@ CVI_METRICS: tuple[str, ...] = (
     "calinski_harabasz",
 )
 
-# Which CARVE consensus matrix a metric's labels must come from. The old
-# difficulty runner never passed mode= to get_labels, so "default" resolved to
-# run_stability=True and every metric's ari_at_k came from the stability
-# matrix, including the generalizability metrics.
-GENERALIZABILITY_METRICS: frozenset[str] = frozenset(
-    m for m in CARVE_METRICS_ALL if "generalizability" in m
-)
-
 METRIC_DISPLAY_NAMES: dict[str, str] = {
     "baseline_oracle": "Baseline (Oracle)",
     "ari_stability": "ARI (stab, max)",

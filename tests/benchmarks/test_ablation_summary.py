@@ -10,7 +10,6 @@ from benchmarks._ablation_summary import (
     agreement_summary,
     curve_at_k_star,
     diagnostics_summary,
-    metric_mode,
     rare_recall_summary,
     selection_summary,
     similarity_summary,
@@ -20,8 +19,6 @@ from benchmarks._ablation_summary import (
     table_rows,
 )
 from benchmarks._artifacts import ABLATION_SELECTION_SCHEMA
-from benchmarks._registry import CARVE_METRICS_ALL
-from benchmarks._run import _labels_mode
 from benchmarks._tables import wilson_ci
 
 X = "subsample_ratio"
@@ -82,12 +79,6 @@ def _undefined_gini_rows():
          "selected_k": np.nan, "k_star": 5.0, "ari_selected": np.nan},
     ]
     return pd.DataFrame(rows)
-
-
-class TestMetricMode:
-    @pytest.mark.parametrize("metric", CARVE_METRICS_ALL)
-    def test_agrees_with_the_runner(self, metric):
-        assert metric_mode(metric) == _labels_mode(metric)
 
 
 class TestSelectionSummary:
@@ -269,7 +260,7 @@ class TestCurveAtKStar:
 
 
 class TestRareRecallSummary:
-    def test_recall_at_the_selected_k_and_at_k_star(self):
+    def test_recall_at_the_selected_k_and_at_k_star_on_stability_labels(self):
         selection = pd.DataFrame([
             {**_key(), "metric_name": STAB, "selected_estimator": "KMeans", "selected_k": 4,
              "k_star": 5.0, "ari_selected": 0.8},
@@ -285,7 +276,9 @@ class TestRareRecallSummary:
         stab = out[(out["study"] == "gaussians") & (out["metric_name"] == STAB)].iloc[0]
         gen = out[(out["study"] == "gaussians") & (out["metric_name"] == GEN)].iloc[0]
         assert (stab["recall_selected"], stab["recall_k_star"]) == (0.0, 1.0)
-        assert (gen["recall_selected"], gen["recall_k_star"]) == (0.9, 0.9)
+        # The generalizability rule picked k=5; its labels are still the
+        # stability consensus, whose recall there is 1.0, not 0.9.
+        assert (gen["recall_selected"], gen["recall_k_star"]) == (1.0, 1.0)
 
     def test_sems_are_over_the_datasets(self):
         # Two datasets: recall at the selected k is 0 and 1, at k* 1 and 1.

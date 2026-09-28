@@ -44,6 +44,7 @@ def _frame():
                             "is_selected": k == selected,
                             "selects_true_k": k == 5,
                             "ari_at_k": 0.5 + 0.1 * k,
+                            "consensus_ari_at_k": float("nan"),
                             "oracle_ari": 0.9,
                         }
                     )
@@ -81,6 +82,7 @@ def _scaling_frame():
                         "is_selected": k == 5,
                         "selects_true_k": k == 5,
                         "ari_at_k": 0.8,
+                        "consensus_ari_at_k": float("nan"),
                         "oracle_ari": 0.9,
                     }
                 )

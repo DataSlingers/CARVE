@@ -34,7 +34,8 @@ def _frame(scenario):
                         "axis_label": axis_label, "seed": seed, "k_star": 5,
                         "estimator": "kmeans", "metric_name": metric, "k": k,
                         "metric_value": 0.1 * k, "is_selected": k == 5,
-                        "selects_true_k": k == 5, "ari_at_k": 0.9, "oracle_ari": 0.95,
+                        "selects_true_k": k == 5, "ari_at_k": 0.9,
+                        "consensus_ari_at_k": float("nan"), "oracle_ari": 0.95,
                     })
     return pd.DataFrame(rows)[list(SCHEMA)]
 

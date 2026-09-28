@@ -53,7 +53,6 @@ from ._estimators import build_estimator, param_grids
 from ._registry import (
     CARVE_METRICS_ALL,
     CVI_METRICS,
-    GENERALIZABILITY_METRICS,
     PUBLISHED_RANDOM_STATE,
     metric_measure,
     metric_rule,
@@ -228,17 +227,6 @@ def labels_by_mode(
     return scores
 
 
-def _labels_mode(metric_name: str) -> str:
-    """Which consensus matrix a metric's labels must be cut from.
-
-    get_labels resolves this argument through resolve_mode, and "default"
-    yields run_stability=True, which selects the stability matrix. The old
-    difficulty runner never passed it, so every metric's ari_at_k came from
-    stability-mode labels.
-    """
-    return "generalizability" if metric_name in GENERALIZABILITY_METRICS else "default"
-
-
 def run_cell(
     scenario: Scenario,
     *,
@@ -258,6 +246,14 @@ def run_cell(
     every CARVE metric and every classical index at every candidate k.
     Returns (metric_rows, runtime_row): the per metric-and-k score rows, plus
     one dict of this cell's fit timings.
+
+    Every row's ari_at_k is the ARI of the base estimator fitted to all of X
+    at that k, so CARVE and the classical indices are scored on the same
+    partition and differ only in the k they select. CARVE rows also carry
+    consensus_ari_at_k, the ARI of the labels CARVE itself returns at that
+    k: the stability consensus, for every metric. Generalizability selects
+    a configuration; it does not supply labels. Classical-index rows carry
+    NaN there.
 
     timing_fits, when True, fits CARVE twice more -- once per mode -- purely
     to time each mode's fit separately; those fits' results are discarded
@@ -304,16 +300,28 @@ def run_cell(
 
     rows: list[dict[str, Any]] = []
 
+    # The shared partition every method's selected k is scored on: the base
+    # estimator fitted to all of X at each candidate k.
+    labels_by_k = {
+        k: np.asarray(
+            build_estimator(
+                scenario.estimator, n_clusters=k, random_state=cell_seed
+            ).fit_predict(X),
+            dtype=np.int32,
+        )
+        for k in candidate_k
+    }
+    full_ari = {k: float(adjusted_rand_score(y, labels_by_k[k])) for k in candidate_k}
+
     # --- CARVE metrics -----------------------------------------------------
-    # ari_at_k depends only on the consensus matrix a metric is cut from, so
-    # labels are computed once per mode rather than once per metric.
-    scores_by_mode = labels_by_mode(carve, y, candidate_k=candidate_k)
+    # CARVE's own labels are the stability consensus whichever measure made
+    # the selection, so they are cut once per k rather than once per metric.
+    consensus = labels_by_mode(carve, y, candidate_k=candidate_k)["default"]
 
     for metric_name in CARVE_METRICS_ALL:
         measure = metric_measure(metric_name)
         rule = metric_rule(metric_name)
         selected_k = int(carve.get_k(measure=measure, rule=rule))
-        scores = scores_by_mode[_labels_mode(metric_name)]
 
         results = carve.estimator_results_
         for k in candidate_k:
@@ -326,22 +334,12 @@ def run_cell(
                     "metric_value": value,
                     "is_selected": k == selected_k,
                     "selects_true_k": k == scenario.k_star,
-                    "ari_at_k": scores[k]["ari"],
+                    "ari_at_k": full_ari[k],
+                    "consensus_ari_at_k": consensus[k]["ari"],
                 }
             )
 
     # --- Classical indices -------------------------------------------------
-    labels_by_k = {
-        k: np.asarray(
-            build_estimator(
-                scenario.estimator, n_clusters=k, random_state=cell_seed
-            ).fit_predict(X),
-            dtype=np.int32,
-        )
-        for k in candidate_k
-    }
-    cvi_ari = {k: float(adjusted_rand_score(y, labels_by_k[k])) for k in candidate_k}
-
     for metric_name in CVI_METRICS:
         values: list[float] = []
         errors: list[float] = []
@@ -366,7 +364,8 @@ def run_cell(
                     "metric_value": value,
                     "is_selected": k == selected_k,
                     "selects_true_k": k == scenario.k_star,
-                    "ari_at_k": cvi_ari[k],
+                    "ari_at_k": full_ari[k],
+                    "consensus_ari_at_k": float("nan"),
                 }
             )
 

@@ -110,6 +110,7 @@ def _results_frame():
                             "is_selected": k == 5,
                             "selects_true_k": k == 5,
                             "ari_at_k": 0.9 - 0.1 * axis_value,
+                            "consensus_ari_at_k": float("nan"),
                             # Varies by seed (not by axis_value or metric) so
                             # a baseline computation that fails to
                             # deduplicate by seed before averaging can be

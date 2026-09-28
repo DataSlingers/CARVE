@@ -60,7 +60,6 @@ from ._registry import (
     metric_rule,
 )
 from ._run import (
-    _labels_mode,
     fit_carve,
     labels_by_mode,
     smallest_cluster,
@@ -322,9 +321,7 @@ def cell_rows(
         row = select_best_row_by_rule(
             results, measure=measure, rule=rule, not_two=not_two
         )
-        labels = carve.get_labels(
-            measure=measure, rule=rule, not_two=not_two, mode=_labels_mode(metric_name)
-        )
+        labels = carve.get_labels(measure=measure, rule=rule, not_two=not_two)
         selection.append(
             {
                 **key,
@@ -355,9 +352,9 @@ def cell_rows(
 
     # Both consensus matrices, not only the stability one: the
     # generalizability consensus is built from test-set pairs and is far
-    # sparser at the grid ends, and it is the matrix the generalizability-
-    # mode labels behind ari_selected and ari_at_k are cut from. Nothing
-    # fitted is saved, so this cannot be recovered after the run.
+    # sparser at the grid ends. Every rule's labels come from the stability
+    # one; the other is recorded as a diagnostic. Nothing fitted is saved,
+    # so this cannot be recovered after the run.
     cells = [
         {
             **key,

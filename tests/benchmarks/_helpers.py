@@ -236,6 +236,7 @@ def synthetic_run_frame(scenario_name, *, n_seeds=2, metrics=None):
                             "is_selected": k == chosen,
                             "selects_true_k": k == scenario.k_star,
                             "ari_at_k": float(rng.uniform(0.3, 0.95)),
+                            "consensus_ari_at_k": float("nan"),
                         }
                     )
     return pd.DataFrame(rows)

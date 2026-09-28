@@ -13,17 +13,11 @@ import numpy as np
 import pandas as pd
 
 from ._artifacts import CELL_KEY
-from ._registry import GENERALIZABILITY_METRICS
 from ._tables import wilson_ci
 
 HEADLINE_METRICS: tuple[str, ...] = ("ari_stability_1se", "ari_generalizability_1se")
 POOLED: str = "pooled"
 DATASET_KEY: tuple[str, ...] = ("study", "difficulty", "dataset")
-
-
-def metric_mode(metric_name: str) -> str:
-    """Which consensus matrix a metric's labels are cut from; mirrors _run._labels_mode."""
-    return "generalizability" if metric_name in GENERALIZABILITY_METRICS else "default"
 
 
 def _is_simulation(frame: pd.DataFrame) -> pd.Series:
@@ -197,9 +191,9 @@ def rare_recall_summary(
     """Recall of the smallest true cluster at the selected k and at k*, with
     the standard error of each mean.
 
-    Each metric reads the at_k rows of its own consensus mode. difficulty
-    restricts to one axis label (the hard setting is where rare clusters
-    are smallest).
+    Every metric reads the stability-consensus at_k rows, the labels CARVE
+    returns whichever measure selected k. difficulty restricts to one axis
+    label (the hard setting is where rare clusters are smallest).
     """
     key = list(CELL_KEY)
     parts = []
@@ -207,7 +201,7 @@ def rare_recall_summary(
         sel = selection[selection["metric_name"] == metric]
         sel = sel[sel["k_star"].notna()][key + ["selected_k", "k_star"]].copy()
         sel["k_star"] = sel["k_star"].astype(int)
-        at = at_k[at_k["mode"] == metric_mode(metric)][key + ["k", "rare_recall_at_k"]]
+        at = at_k[at_k["mode"] == "default"][key + ["k", "rare_recall_at_k"]]
         at_selected = sel.merge(at, left_on=key + ["selected_k"], right_on=key + ["k"])
         at_star = sel.merge(at, left_on=key + ["k_star"], right_on=key + ["k"])
         frame = (
@@ -305,9 +299,9 @@ def diagnostics_summary(cells: pd.DataFrame, *, x: str) -> pd.DataFrame:
     warnings per setting and study.
 
     The two NaN fractions are reported side by side because they diverge
-    where the study looks: the generalizability consensus, cut for the
-    generalizability-mode labels, is a third undefined at rho 0.9 and B
-    100 while the stability one is nearly full.
+    where the study looks: the generalizability consensus is a third
+    undefined at rho 0.9 and B 100 while the stability one, which every
+    rule's labels are cut from, is nearly full.
     """
     return cells.groupby([x, "study"], as_index=False).agg(
         fit_seconds=("fit_seconds", "mean"),

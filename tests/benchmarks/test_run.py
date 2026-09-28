@@ -15,9 +15,10 @@ import numpy as np
 import pandas as pd
 import pytest
 from joblib import Parallel, cpu_count, delayed
+from sklearn.metrics import adjusted_rand_score
 
 from benchmarks._artifacts import SCHEMA, read_run
-from benchmarks._estimators import param_grids
+from benchmarks._estimators import build_estimator, param_grids
 from benchmarks._registry import CARVE_METRICS_ALL, CVI_METRICS, SCENARIOS
 from benchmarks._run import (
     CLUSTER_COUNT_WARNING,
@@ -146,29 +147,65 @@ class TestRunCell:
         rows, _ = cell
         assert len({row["oracle_ari"] for row in rows}) == 1
 
-    def test_generalizability_metrics_use_the_generalizability_matrix(
-        self, tiny_scenario, recording_carve
-    ):
-        """The old runner never passed mode=, so every metric got stability.
+    def test_every_row_scores_the_full_data_fit(self, tiny_scenario):
+        """CARVE and the classical indices are scored on one partition.
 
-        Asserted on the calls rather than on the values, because the two
-        consensus matrices can legitimately agree at a given k on easy data.
-        What must hold is that generalizability metrics are cut from the
-        generalizability matrix at all.
+        The expected ARI is recomputed here from the base estimator fitted to
+        all of X. The hard cell is used because there the consensus cut and
+        the full-data fit disagree (k=5: 0.25 against 0.12), so a runner that
+        scored CARVE on its consensus labels fails; on the easy cell they
+        coincide at every k.
         """
-        run_cell(tiny_scenario, n_resamples=20, **CELL_KWARGS)
-        seen_modes = [c.get("mode", "default") for c in recording_carve.label_calls]
-        assert "generalizability" in seen_modes
-        assert "default" in seen_modes
+        rows, _ = run_cell(
+            tiny_scenario,
+            n_resamples=20,
+            **{**CELL_KWARGS, "axis_idx": 1, "axis_value": 1, "axis_label": "hard"},
+        )
+        seed = benchmark_seed(0, 1, 0)
+        X, y = simulate(tiny_scenario, axis_value=1, axis_label="hard", seed=seed)
+        expected = {
+            k: adjusted_rand_score(
+                y,
+                build_estimator(
+                    tiny_scenario.estimator, n_clusters=k, random_state=seed
+                ).fit_predict(X),
+            )
+            for k in tiny_scenario.candidate_k
+        }
+        for row in rows:
+            assert row["ari_at_k"] == pytest.approx(expected[row["k"]]), row["metric_name"]
 
-    def test_labels_mode_routes_each_metric_family(self):
-        from benchmarks._registry import GENERALIZABILITY_METRICS
-        from benchmarks._run import _labels_mode
+    def test_carve_rows_carry_the_stability_consensus_for_every_metric(
+        self, tiny_scenario, monkeypatch
+    ):
+        """Generalizability selects a configuration; the labels stay stability's.
 
-        assert _labels_mode("ari_stability_1se") == "default"
-        assert _labels_mode("consensus_gini_stability") == "default"
-        for metric in GENERALIZABILITY_METRICS:
-            assert _labels_mode(metric) == "generalizability"
+        The generalizability consensus is sabotaged to a single cluster
+        (ARI 0), so a runner that cut the generalizability metrics' labels
+        from it would give those rows a different consensus_ari_at_k.
+        """
+        import benchmarks._run as run_module
+
+        class SabotagedCarve(run_module.CARVE):
+            def get_labels(self, **kwargs):
+                labels = super().get_labels(**kwargs)
+                if kwargs.get("mode") == "generalizability":
+                    return np.zeros_like(labels)
+                return labels
+
+        monkeypatch.setattr(run_module, "CARVE", SabotagedCarve)
+        rows, _ = run_cell(tiny_scenario, n_resamples=20, **CELL_KWARGS)
+        carve_rows = [r for r in rows if r["metric_name"] in CARVE_METRICS_ALL]
+        for k in tiny_scenario.candidate_k:
+            values = {r["consensus_ari_at_k"] for r in carve_rows if r["k"] == k}
+            assert len(values) == 1, k
+            assert values.pop() > 0.0, k
+
+    def test_classical_rows_have_no_consensus_ari(self, cell):
+        rows, _ = cell
+        for row in rows:
+            if row["metric_name"] in CVI_METRICS:
+                assert np.isnan(row["consensus_ari_at_k"])
 
     def test_is_deterministic_for_a_fixed_seed(self, tiny_scenario, cell):
         first, _ = cell

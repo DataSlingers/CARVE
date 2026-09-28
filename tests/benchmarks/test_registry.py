@@ -13,7 +13,6 @@ from benchmarks._registry import (
     CARVE_METRICS_ALL,
     CVI_METRICS,
     DIFFICULTY_AXIS,
-    GENERALIZABILITY_METRICS,
     PUBLISHED_ANCHORS,
     PUBLISHED_RANDOM_STATE,
     REPLICATE_SEED_SPACING,
@@ -72,14 +71,6 @@ class TestMetricNames:
             "gap",
             "davies_bouldin",
             "calinski_harabasz",
-        }
-
-    def test_generalizability_metrics_are_a_subset_of_all_carve_metrics(self):
-        assert GENERALIZABILITY_METRICS <= set(CARVE_METRICS_ALL)
-
-    def test_generalizability_metrics_are_exactly_those_named_generalizability(self):
-        assert GENERALIZABILITY_METRICS == {
-            m for m in CARVE_METRICS_ALL if "generalizability" in m
         }
 
 

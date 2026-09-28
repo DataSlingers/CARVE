@@ -22,7 +22,8 @@ def _results(scenario, axis_name, values):
                         "axis_value": axis_value, "axis_label": axis_label, "seed": seed,
                         "k_star": 5, "estimator": "kmeans", "metric_name": metric, "k": k,
                         "metric_value": 0.1 * k, "is_selected": k == 5,
-                        "selects_true_k": k == 5, "ari_at_k": 0.8, "oracle_ari": 0.9,
+                        "selects_true_k": k == 5, "ari_at_k": 0.8,
+                        "consensus_ari_at_k": float("nan"), "oracle_ari": 0.9,
                     })
     return pd.DataFrame(rows)[list(SCHEMA)]
 

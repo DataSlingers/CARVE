@@ -16,7 +16,7 @@ import pytest
 
 from benchmarks._artifacts import read_run
 from benchmarks._registry import (
-    GENERALIZABILITY_METRICS,
+    CVI_METRICS,
     PUBLISHED_ANCHORS,
     PUBLISHED_RANDOM_STATE,
     SCENARIOS,
@@ -100,20 +100,11 @@ def _comparable(df: pd.DataFrame) -> pd.DataFrame:
 def scenario_run(tmp_path_factory):
     """Return a callable that runs a scenario once and hands back its run dir.
 
-    Both test functions below need a run directory for the same scenario.
-    A dict cache here, keyed by scenario name, holds only the shared root
-    passed to run_scenario -- not a precomputed run directory -- so every
-    call still goes through run_scenario itself and returns exactly what
+    A dict cache here, keyed by scenario name, holds only the root passed
+    to run_scenario -- not a precomputed run directory -- so every call
+    still goes through run_scenario itself and returns exactly what
     run_scenario returns, never a hand-built guess at its content-addressed
-    path. run_scenario resumes by default, so the first call (from whichever
-    test runs first) does the full simulate-and-fit work, and the second
-    call, against the same root and the same configuration, finds every
-    cell already checkpointed and returns almost immediately -- one full
-    computation per scenario instead of two.
-
-    Module-scoped rather than session-scoped: the sharing only needs to span
-    this file's own tests, and module scope says so without implying the
-    cache should outlive this module.
+    path.
 
     random_state is pinned to PUBLISHED_RANDOM_STATE (42), not a literal.
     The published benchmarks ran at 42 (notebook cell 3, RANDOM_SEED = 42,
@@ -208,28 +199,22 @@ def test_rebuilt_pipeline_reproduces_committed_results(scenario_name, stem, scen
         f"{len(merged)} rows. Sample:\n{mismatched[sample_columns].head(10)}"
     )
 
-    # ari_at_k is expected to move only for the generalizability metrics.
-    stability_only = merged[~merged["metric_name"].isin(GENERALIZABILITY_METRICS)]
+    # The committed files scored every CARVE metric on its stability
+    # consensus and every classical index on the full-data fit. The rebuild
+    # keeps the first in consensus_ari_at_k and puts the full-data fit in
+    # ari_at_k for every row.
+    classical = merged["metric_name"].isin(CVI_METRICS)
     pd.testing.assert_series_equal(
-        stability_only["ari_at_k_old"],
-        stability_only["ari_at_k_new"],
+        merged.loc[~classical, "ari_at_k_old"],
+        merged.loc[~classical, "consensus_ari_at_k"],
         check_names=False,
         rtol=1e-6,
         atol=1e-8,
     )
-
-
-@pytest.mark.parametrize(("scenario_name", "stem"), sorted(UNAFFECTED.items()))
-def test_generalizability_ari_changed_as_the_fix_intended(scenario_name, stem, scenario_run):
-    """The ari_at_k fix must actually change something, or it did nothing."""
-    rd = scenario_run(scenario_name)
-
-    new = _comparable(read_run(rd))
-    old = _comparable(_load_old(stem))
-    merged = old.merge(
-        new,
-        on=["axis_label", "seed", "metric_name", "k"],
-        suffixes=("_old", "_new"),
+    pd.testing.assert_series_equal(
+        merged.loc[classical, "ari_at_k_old"],
+        merged.loc[classical, "ari_at_k_new"],
+        check_names=False,
+        rtol=1e-6,
+        atol=1e-8,
     )
-    gen = merged[merged["metric_name"].isin(GENERALIZABILITY_METRICS)]
-    assert not gen["ari_at_k_old"].equals(gen["ari_at_k_new"])

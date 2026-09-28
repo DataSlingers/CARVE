@@ -23,7 +23,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from ._registry import ACTIVE_ANCHOR_SET_NAME
+from ._registry import ACTIVE_ANCHOR_SET_NAME, CVI_METRICS
 from ._types import Manifest, Scenario
 
 SCHEMA: tuple[str, ...] = (
@@ -40,7 +40,10 @@ SCHEMA: tuple[str, ...] = (
     "metric_value",
     "is_selected",
     "selects_true_k",
+    # The base estimator fitted to all of X at k, for every method alike.
     "ari_at_k",
+    # CARVE rows only: its stability consensus cut at k. NaN otherwise.
+    "consensus_ari_at_k",
     "oracle_ari",
 )
 
@@ -113,8 +116,8 @@ ABLATION_CELL_SCHEMA: tuple[str, ...] = CELL_KEY + (
     # training pairs, and the generalizability one, built from test-set
     # pairs. The second is far sparser at the grid ends (a pair is never
     # co-tested with probability (1 - (1 - rho)^2)^B, 0.37 at rho 0.9 and
-    # B 100), and get_labels fills those entries with 0.5 before cutting
-    # the generalizability-mode labels that ari_selected scores.
+    # B 100). ari_selected scores the stability consensus for every rule,
+    # so the second is a diagnostic only.
     "consensus_nan_fraction",
     "consensus_generalizability_nan_fraction",
     "n_cluster_count_warnings",
@@ -368,13 +371,45 @@ def completed_cells(rd: Path) -> set[tuple[str, int]]:
     return cells
 
 
+def _score_on_shared_partition(cell: pd.DataFrame) -> pd.DataFrame:
+    """Rescore one checkpoint written before consensus_ari_at_k existed.
+
+    Those checkpoints stored each CARVE metric's consensus-label ARI in
+    ari_at_k, cut from the generalizability consensus for the
+    generalizability metrics. Both current columns are recoverable from what
+    they hold: the classical-index rows' ari_at_k is the full-data fit at
+    each k, and the ari_stability rows' is the stability consensus.
+    """
+    classical = cell["metric_name"].isin(CVI_METRICS)
+    full = cell.loc[classical].groupby("k")["ari_at_k"].first()
+    stability = (
+        cell.loc[cell["metric_name"] == "ari_stability"]
+        .groupby("k")["ari_at_k"]
+        .first()
+    )
+    out = cell.copy()
+    out["consensus_ari_at_k"] = out["k"].map(stability).where(~classical)
+    out.loc[~classical, "ari_at_k"] = out.loc[~classical, "k"].map(full)
+    return out
+
+
 def read_run(rd: Path) -> pd.DataFrame:
-    """Concatenate every checkpoint in a run directory."""
+    """Concatenate every checkpoint in a run directory.
+
+    A checkpoint without consensus_ari_at_k predates scoring every method on
+    the full-data fit and is rescored as it is read, so runs from either
+    side of that change read alike.
+    """
     paths = sorted(Path(rd).glob("cell__*.parquet"))
     if not paths:
         return pd.DataFrame(columns=list(SCHEMA))
-    frame = pd.concat([pd.read_parquet(p) for p in paths], ignore_index=True)
-    return frame[list(SCHEMA)]
+    cells = []
+    for path in paths:
+        cell = pd.read_parquet(path)
+        if "consensus_ari_at_k" not in cell.columns:
+            cell = _score_on_shared_partition(cell)
+        cells.append(cell)
+    return pd.concat(cells, ignore_index=True)[list(SCHEMA)]
 
 
 def write_runtime_checkpoint(
@@ -464,7 +499,40 @@ def read_frames(rd: Path) -> dict[str, pd.DataFrame]:
             frames[name] = pd.DataFrame(columns=list(schema))
             continue
         frames[name] = pd.concat(parts, ignore_index=True)[list(schema)]
+    if not frames["selection"].empty and not frames["at_k"].empty:
+        frames["selection"] = _selected_ari_on_stability_labels(
+            frames["selection"], frames["at_k"]
+        )
     return frames
+
+
+def _selected_ari_on_stability_labels(
+    selection: pd.DataFrame, at_k: pd.DataFrame
+) -> pd.DataFrame:
+    """ari_selected on the stability consensus for every simulated cell.
+
+    Runs written before every rule was scored on stability labels stored
+    the generalizability rules' ari_selected from the generalizability
+    consensus. A simulated cell fits a single estimator, so at_k's
+    stability-mode ARI at the selected k is exactly what get_labels returns
+    for any rule, and it replaces the stored value; for later runs the two
+    already agree. Case-study cells have no at_k rows and keep theirs, as
+    does an undefined selection.
+    """
+    key = list(CELL_KEY)
+    stability = at_k.loc[at_k["mode"] == "default", key + ["k", "ari_at_k"]]
+    merged = selection.merge(
+        stability,
+        how="left",
+        left_on=key + ["selected_k"],
+        right_on=key + ["k"],
+        validate="many_to_one",
+    )
+    out = selection.copy()
+    out["ari_selected"] = (
+        merged["ari_at_k"].fillna(merged["ari_selected"]).to_numpy(dtype=float)
+    )
+    return out
 
 
 def provenance() -> dict[str, Any]:
