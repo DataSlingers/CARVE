@@ -159,48 +159,18 @@ class TestCheckpoints:
             write_checkpoint(rd, "easy", seed, [_row(seed=seed)])
         assert sorted(read_run(rd)["seed"].tolist()) == [0, 1, 2]
 
-    def test_read_run_rescores_a_checkpoint_from_before_the_consensus_column(
+    def test_read_run_rejects_a_checkpoint_from_before_the_consensus_column(
         self, tmp_path
     ):
-        """An old checkpoint stored consensus ARIs in ari_at_k, and cut the
-        generalizability metrics from the generalizability consensus.
-
-        Every source is distinct per metric and per k, so reading any of
-        them from the wrong rows fails.
-        """
+        # A checkpoint without consensus_ari_at_k scored CARVE on its own
+        # labels in ari_at_k; reading it as the full-data fit would be wrong.
         rd = run_dir(tmp_path, "demo", "abc123def456")
-        rows = []
-        for k in (3, 4, 5):
-            for metric, ari in (
-                ("silhouette", 0.10 * k),
-                ("gap", 0.10 * k),
-                ("ari_stability", 0.50 + 0.01 * k),
-                ("ari_stability_1se", 0.50 + 0.01 * k),
-                ("ari_generalizability_1se", 0.20 + 0.01 * k),
-            ):
-                rows.append(_row(metric_name=metric, k=k, ari_at_k=ari))
-        frame = pd.DataFrame(rows).drop(columns="consensus_ari_at_k")
-        frame.to_parquet(rd / "cell__easy__0000.parquet", index=False)
-
-        out = read_run(rd)
-        assert list(out.columns) == list(SCHEMA)
-        for _, row in out.iterrows():
-            assert row["ari_at_k"] == pytest.approx(0.10 * row["k"])
-            if row["metric_name"] in ("silhouette", "gap"):
-                assert np.isnan(row["consensus_ari_at_k"])
-            else:
-                assert row["consensus_ari_at_k"] == pytest.approx(0.50 + 0.01 * row["k"])
-
-    def test_read_run_leaves_a_current_checkpoint_alone(self, tmp_path):
-        rd = run_dir(tmp_path, "demo", "abc123def456")
-        write_checkpoint(
-            rd,
-            "easy",
-            0,
-            [_row(metric_name="ari_stability_1se", ari_at_k=0.7, consensus_ari_at_k=0.6)],
+        old = pd.DataFrame([_row(metric_name="ari_stability_1se")])
+        old.drop(columns="consensus_ari_at_k").to_parquet(
+            rd / "cell__easy__0000.parquet", index=False
         )
-        row = read_run(rd).iloc[0]
-        assert (row["ari_at_k"], row["consensus_ari_at_k"]) == (0.7, 0.6)
+        with pytest.raises(ValueError, match="consensus_ari_at_k"):
+            read_run(rd)
 
     def test_rejects_rows_that_do_not_match_the_schema(self, tmp_path):
         rd = run_dir(tmp_path, "demo", "abc123def456")
@@ -618,45 +588,6 @@ class TestAblationFrames:
         assert frame["k"].dtype.kind == "i"
         assert frame["ari_at_k"].dtype.kind == "f"
         assert frame["dataset"].dtype.kind == "i"
-
-    def test_read_frames_scores_every_rule_on_the_stability_labels(self, tmp_path):
-        """A stored generalizability-rule ari_selected came from the
-        generalizability consensus; it is replaced by the stability-mode
-        at_k value at the selected k. A study cell, with no at_k, keeps its
-        own, and so does an undefined selection.
-        """
-        key = {
-            "study": "gaussians", "difficulty": "medium", "dataset": 0,
-            "subsample_ratio": 0.618, "n_resamples": 100, "replicate": 0,
-        }
-        study_key = {**key, "study": "klein", "difficulty": ""}
-        selection = [
-            {**key, "metric_name": "ari_generalizability_1se",
-             "selected_estimator": "KMeans", "selected_k": 4, "k_star": 5.0,
-             "ari_selected": 0.11},
-            {**key, "metric_name": "ari_stability_1se",
-             "selected_estimator": "KMeans", "selected_k": 5, "k_star": 5.0,
-             "ari_selected": 0.95},
-            {**key, "metric_name": "ari_average_1se",
-             "selected_estimator": None, "selected_k": np.nan, "k_star": 5.0,
-             "ari_selected": np.nan},
-            {**study_key, "metric_name": "ari_generalizability_1se",
-             "selected_estimator": "Ward", "selected_k": 4, "k_star": np.nan,
-             "ari_selected": 0.33},
-        ]
-        at_k = [
-            {**key, "mode": mode, "k": k, "ari_at_k": ari, "rare_recall_at_k": 1.0}
-            for mode, k, ari in (
-                ("default", 4, 0.80), ("default", 5, 0.95),
-                ("generalizability", 4, 0.11), ("generalizability", 5, 0.40),
-            )
-        ]
-        write_frame(tmp_path / "selection__a.parquet", selection, ABLATION_SCHEMAS["selection"])
-        write_frame(tmp_path / "at_k__a.parquet", at_k, ABLATION_SCHEMAS["at_k"])
-        out = read_frames(tmp_path)["selection"]
-        assert out["ari_selected"].iloc[:2].tolist() == [0.80, 0.95]
-        assert np.isnan(out["ari_selected"].iloc[2])
-        assert out["ari_selected"].iloc[3] == 0.33
 
     def test_read_frames_all_empty_parts_give_the_schema_frame(self, tmp_path):
         at_k = ABLATION_SCHEMAS["at_k"]
