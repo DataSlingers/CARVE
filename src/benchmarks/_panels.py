@@ -495,22 +495,18 @@ def criterion_curves(
 
     Every criterion is normalized to [0, 1] over the candidate k, so the
     shapes are comparable; the base estimator's own ARI at each k is drawn
-    on the same axis as a grey reference, which is what turns "this
-    criterion peaked at the wrong k" into "and here is what that cost".
+    on the same axis as a reference, which is what turns "this criterion
+    peaked at the wrong k" into "and here is what that cost". It is drawn
+    the way metric_lines draws the oracle baseline -- the same color, dash,
+    width and standard-error bars -- because at k = k_star it is that
+    baseline: both come from the same estimator fit at the same k with the
+    same seed.
 
     The reference is the mean, over seeds, of the classical indices'
-    ari_at_k rows (CVI_METRICS) -- never every drawn metric's rows averaged
-    together, whether or not a metric is actually drawn. The runner cuts
-    CARVE's stability and generalizability metrics from two different
-    resampled consensus matrices; the four classical indices instead share
-    one direct fit of the base estimator at each k, so only they agree on
-    what "the ARI at k" means (see _run.run_cell). Averaging across those
-    families would not be one quantity -- mixing in, say, an undrawn
-    ari_generalizability_quant row would pull the line toward a labeling
-    this panel never shows a curve for. At k = k_star this reference meets
-    the oracle's own ARI, since both come from the same estimator fit at
-    the same k with the same seed. Nothing is drawn when the cell carries
-    no classical-index rows.
+    ari_at_k rows (CVI_METRICS), which carry the base estimator's full-data
+    fit at each k (see _run.run_cell). Reading it off those rows alone keeps
+    any other rows the frame happens to carry out of the average. Nothing is
+    drawn when the cell carries no classical-index rows.
 
     Both series are proportions in [0, 1], so no second y axis is needed --
     and a dual-axis panel would invite reading a crossing that is an
@@ -530,14 +526,16 @@ def criterion_curves(
             subset=["seed", "k"]
         )
         if not base.empty:
-            ari = base.groupby("k")["ari_at_k"].mean().reindex(candidate_k)
-            ax.plot(
+            grouped = base.groupby("k")["ari_at_k"]
+            ax.errorbar(
                 candidate_k,
-                ari.to_numpy(),
-                color=FALLBACK_COLOR,
-                linewidth=6.0,
-                alpha=0.22,
-                solid_capstyle="round",
+                grouped.mean().reindex(candidate_k).to_numpy(),
+                yerr=grouped.sem().reindex(candidate_k).to_numpy(),
+                marker="none",
+                linewidth=metric_linewidth(BASELINE_METRIC),
+                linestyle=metric_linestyle(BASELINE_METRIC),
+                capsize=2.5,
+                color=metric_color(BASELINE_METRIC),
                 zorder=1,
                 label=CRITERION_REFERENCE_LABEL,
             )
@@ -1487,8 +1485,13 @@ def metric_legend(
     fontsize: float | None = None,
     y_offset: float = 0.06,
     columnspacing: float = 0.6,
+    outside: bool = False,
 ) -> Legend:
     """One legend below a grid, with the metric families in their own columns.
+
+    outside places it with loc="outside lower center", for a figure with
+    constrained layout, which then reserves the room for it; y_offset is
+    ignored. Otherwise it hangs y_offset below the figure's lower edge.
 
     Matplotlib fills a multi-column legend top to bottom, so a column shorter
     than the tallest one is padded with a blank entry rather than letting the
@@ -1544,11 +1547,15 @@ def metric_legend(
             pad(rows - len(column))
             n_columns += 1
 
+    placement = (
+        {"loc": "outside lower center"}
+        if outside
+        else {"loc": "lower center", "bbox_to_anchor": (0.5, -y_offset)}
+    )
     return fig.legend(
         handles,
         labels,
-        loc="lower center",
-        bbox_to_anchor=(0.5, -y_offset),
+        **placement,
         ncol=n_columns,
         frameon=False,
         fontsize=fontsize or FONT_SIZES["legend"],

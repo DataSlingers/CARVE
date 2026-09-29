@@ -97,19 +97,20 @@ def figure_scenario_dashboard(
 
     with theme_context():
         n_cols = len(scenario.axis)
-        fig = plt.figure(figsize=(3.9 * n_cols, 13.2))
-        grid = fig.add_gridspec(
-            4,
-            n_cols,
-            height_ratios=(1.0, 1.25, 1.15, 1.0),
-            hspace=0.52,
-            wspace=0.28,
-        )
+        # Constrained layout sizes the margins to what is drawn, so the title
+        # and the foot legend sit against the panels. The two halves are
+        # subfigures, laid out independently: the heatmaps' method names
+        # indent only the bottom half, whose criterion and heatmap columns
+        # stay aligned with each other, instead of pushing every row right.
+        fig = plt.figure(figsize=(3.9 * n_cols, 14.0), layout="constrained")
+        top, bottom = fig.subfigures(2, 1, height_ratios=(1.25, 1.0))
+        top_grid = top.add_gridspec(2, n_cols, height_ratios=(1.0, 1.6))
+        bottom_grid = bottom.add_gridspec(2, n_cols, height_ratios=(1.25, 1.0))
 
-        example_axes = [fig.add_subplot(grid[0, i]) for i in range(n_cols)]
-        ari_ax = fig.add_subplot(grid[1, :])
-        criterion_axes = [fig.add_subplot(grid[2, i]) for i in range(n_cols)]
-        heatmap_axes = [fig.add_subplot(grid[3, i]) for i in range(n_cols)]
+        example_axes = [top.add_subplot(top_grid[0, i]) for i in range(n_cols)]
+        ari_ax = top.add_subplot(top_grid[1, :])
+        criterion_axes = [bottom.add_subplot(bottom_grid[0, i]) for i in range(n_cols)]
+        heatmap_axes = [bottom.add_subplot(bottom_grid[1, i]) for i in range(n_cols)]
 
         if axis_name == DIFFICULTY_AXIS_NAME:
             titles = [label.capitalize() for _, _, label in scenario.axis]
@@ -169,7 +170,7 @@ def figure_scenario_dashboard(
                 criterion_axes[index].set_ylabel("")
                 heatmap_axes[index].set_yticklabels([])
 
-        # The grey reference band has no entry in the shared foot legend --
+        # The reference line has no entry in the shared foot legend --
         # metric_legend's grouping only classifies metric names, so a
         # free-form label like this one cannot surface through it, and a
         # second figure-level legend would break the "one shared legend"
@@ -205,10 +206,8 @@ def figure_scenario_dashboard(
                 fontsize=FONT_SIZES["legend"],
             )
 
-        fig.suptitle(
-            SCENARIO_TITLES.get(name, name), fontsize=FONT_SIZES["title"], y=0.995
-        )
-        metric_legend(fig, np.array([ari_ax]), metrics, y_offset=0.03)
+        fig.suptitle(SCENARIO_TITLES.get(name, name), fontsize=FONT_SIZES["title"])
+        metric_legend(fig, np.array([ari_ax]), metrics, outside=True)
 
         if save:
             save_figure(

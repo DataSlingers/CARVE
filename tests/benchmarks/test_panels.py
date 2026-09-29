@@ -1678,6 +1678,18 @@ class TestNormalizedCriterion:
         assert out["value"].tolist() == pytest.approx([0.5] * 5)
 
 
+def _criterion_reference(ax):
+    """The reference errorbar container criterion_curves drew, or None."""
+    return next(
+        (
+            container
+            for container in ax.containers
+            if container.get_label() == _panels.CRITERION_REFERENCE_LABEL
+        ),
+        None,
+    )
+
+
 class TestCriterionCurves:
     def test_draws_one_line_per_metric_plus_the_reference(self):
         fig, ax = plt.subplots()
@@ -1692,7 +1704,34 @@ class TestCriterionCurves:
         labels = [line.get_label() for line in ax.get_lines()]
         assert "Silhouette" in labels
         assert "Calinski-Harabasz" in labels
-        assert any("ARI" in str(label) for label in labels)
+        assert _criterion_reference(ax) is not None
+        plt.close(fig)
+
+    def test_the_reference_is_drawn_like_the_oracle_baseline(self):
+        """At k = k_star the reference is the oracle baseline, so it takes
+        the baseline's color, dash, width and error bars from metric_lines
+        rather than a style of its own."""
+        from benchmarks._registry import BASELINE_METRIC
+
+        fig, (left, right) = plt.subplots(1, 2)
+        frame = _criterion_frame()
+        criterion_curves(
+            left,
+            frame,
+            metrics=["silhouette"],
+            axis_label="medium",
+            candidate_k=(3, 4, 5, 6, 7),
+            k_star=5,
+        )
+        metric_lines(right, frame, metrics=[BASELINE_METRIC])
+        reference = _criterion_reference(left)
+        [baseline] = right.containers
+        assert reference.has_yerr
+        drawn, oracle = reference.lines[0], baseline.lines[0]
+        assert drawn.get_color() == oracle.get_color()
+        assert drawn.get_linestyle() == oracle.get_linestyle()
+        assert drawn.get_linewidth() == oracle.get_linewidth()
+        assert drawn.get_alpha() == oracle.get_alpha()
         plt.close(fig)
 
     def test_the_reference_shares_the_axis(self):
@@ -1738,22 +1777,21 @@ class TestCriterionCurves:
             k_star=5,
             show_ari_reference=False,
         )
+        assert _criterion_reference(ax) is None
         assert not any("ARI" in str(line.get_label()) for line in ax.get_lines())
         plt.close(fig)
 
     def test_the_reference_only_averages_classical_index_rows(self):
-        """The grey band is the base estimator's own ARI at k, not every
-        drawn-or-not metric's ari_at_k averaged together.
+        """The reference is the base estimator's own ARI at k, read off the
+        classical-index rows, not every drawn-or-not metric's ari_at_k
+        averaged together.
 
-        The runner cuts ari_generalizability_quant's labels from the
-        generalizability consensus matrix, a different labeling from the
-        classical indices' shared direct fit of the base estimator at k
-        (see _run.run_cell). An undrawn row of it here, sharing this cell's
-        (seed, k), must not move the reference even though silhouette is
-        drawn: deduplicating on (seed, metric_name, k) without filtering to
-        the classical indices averaged silhouette's 0.5 with
-        ari_generalizability_quant's 0.95 into a flat 0.725; the reference
-        must stay at silhouette's own 0.5.
+        An undrawn ari_generalizability_quant row here, sharing this cell's
+        (seed, k) with a different value, must not move the reference even
+        though silhouette is drawn: deduplicating on (seed, metric_name, k)
+        without filtering to the classical indices averaged silhouette's 0.5
+        with its 0.95 into a flat 0.725; the reference must stay at
+        silhouette's own 0.5.
         """
         rows = []
         for k in (3, 4, 5, 6, 7):
@@ -1782,8 +1820,6 @@ class TestCriterionCurves:
             candidate_k=(3, 4, 5, 6, 7),
             k_star=5,
         )
-        reference = next(
-            line for line in ax.get_lines() if "ARI" in str(line.get_label())
-        )
+        reference = _criterion_reference(ax).lines[0]
         np.testing.assert_allclose(reference.get_ydata(), [0.5] * 5)
         plt.close(fig)

@@ -149,7 +149,7 @@ class TestPanelsReadTheirOwnColumn:
 
 
 class TestCriterionReferenceLegend:
-    """The grey reference band in criterion_curves has no name on its own.
+    """The reference line in criterion_curves has no name on its own.
 
     metric_legend's _legend_groups only classifies handles by metric name
     (see _legend_groups in .._panels), so a free-form label like
