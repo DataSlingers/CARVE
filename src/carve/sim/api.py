@@ -7,7 +7,11 @@ import numpy as np
 
 from ._centers import _sample_centers
 from ._covariance import _build_correlation_matrix, _cluster_covariances
-from ._distributions import _sample_cluster_points
+from ._distributions import (
+    _project_and_shape,
+    _sample_cluster_points,
+    _sample_interleaved_spirals,
+)
 from ._embed import _apply_embedding
 from ._noise import _sample_noise
 from ._outliers import _parse_outliers, _sample_outliers
@@ -37,9 +41,18 @@ def simulate_clusters(
     outlier_scale: float = 5.0,
     outlier_mode: Literal["far_gaussian", "uniform_box"] = "far_gaussian",
     distribution: Literal[
-        "gaussian", "t", "uniform_ball", "circles", "moons", "swiss_roll"
+        "gaussian",
+        "t",
+        "uniform_ball",
+        "circles",
+        "moons",
+        "swiss_roll",
+        "interleaved_spirals",
     ] = "gaussian",
     t_df: int = 3,
+    spiral_turns: float = 0.5,
+    spiral_band: float = 0.05,
+    spiral_twist: float = 0.0,
     nonlinear: bool = False,
     embed_dim: int | None = None,
     embed_method: Literal["random_fourier", "poly", "rbf"] = "random_fourier",
@@ -95,10 +108,21 @@ def simulate_clusters(
         Scale multiplier for outlier distance/box size.
     outlier_mode : {"far_gaussian", "uniform_box"}, default="far_gaussian"
         Outlier sampling mode.
-    distribution : {"gaussian", "t", "uniform_ball", "circles", "moons", "swiss_roll"}, default="gaussian"
-        Distribution inside each cluster.
+    distribution : {"gaussian", "t", "uniform_ball", "circles", "moons", "swiss_roll", "interleaved_spirals"}, default="gaussian"
+        Distribution inside each cluster. "interleaved_spirals" is the
+        exception: the k clusters are interleaved arms of one spiral in a
+        single shared plane, so there are no per-cluster centers or scales.
     t_df : int, default=3
         Degrees of freedom for t-distributed samples.
+    spiral_turns : float, default=0.5
+        Angular length of each interleaved spiral arm, in full turns. Arms
+        start at a fixed inner radius and extend outward.
+    spiral_band : float, default=0.05
+        Radial noise SD of each arm as a fraction of the gap between
+        adjacent arms.
+    spiral_twist : float, default=0.0
+        Towel twist of the spiral plane: the center turns by this many full
+        turns relative to the fixed outer edge, wrapping the arms tighter.
     nonlinear : bool, default=False
         Apply nonlinear embedding to generated clusters.
     embed_dim : int or None, default=None
@@ -135,6 +159,9 @@ def simulate_clusters(
     -----
     - If ``cluster_size_frac`` is set, it overrides ``balanced`` and Dirichlet settings.
     - Post-embedding transforms apply only when ``nonlinear=True``.
+    - ``distribution="interleaved_spirals"`` ignores ``cluster_scale``,
+      ``center_box``, ``centroid_method`` and ``n_candidates``, and does not
+      support outliers. The spiral_* parameters apply only to it.
     """
     rng = np.random.default_rng(seed=random_state)
     p = int(np.floor(p + 0.5))
@@ -183,53 +210,76 @@ def simulate_clusters(
     )
     assert int(cluster_sizes.sum()) == n_total_clusters
 
-    # Centers and covariances
-    centers = _sample_centers(
-        k=k,
-        p=p,
-        center_box=center_box,
-        rng=rng,
-        method=centroid_method,
-        n_candidates=n_candidates,
-    )
-    scales = _get_cluster_scales(cluster_scale, k)
     R = _build_correlation_matrix(
         p=p, corr_type=corr_type, corr_strength=corr_strength, block_size=block_size
     )
-    covs = _cluster_covariances(scales, R)
 
-    # Sample clusters
-    X_parts: list[np.ndarray] = []
-    y_parts: list[np.ndarray] = []
-    for c in range(k):
-        size = int(cluster_sizes[c])
-        mean = centers[c]
-        cov = covs[c]
-        X_c = _sample_cluster_points(
-            rng=rng, size=size, mean=mean, cov=cov, distribution=distribution, t_df=t_df
-        )
-        X_parts.append(X_c)
-        y_parts.append(np.full(size, c, dtype=int))
-
-    # Outliers
-    if n_outliers > 0:
-        X_out = _sample_outliers(
+    if distribution == "interleaved_spirals":
+        if n_outliers > 0:
+            raise ValueError(
+                "`outliers` are not supported for interleaved_spirals: outliers are "
+                "placed around per-cluster centers, and the arms share one center."
+            )
+        if p < 2:
+            raise ValueError("`interleaved_spirals` requires p >= 2.")
+        Z2, y = _sample_interleaved_spirals(
             rng=rng,
-            n_outliers=int(n_outliers),
-            p=p,
-            centers=centers,
-            cluster_sizes=cluster_sizes,
-            covs=covs,
-            center_box=center_box,
-            outlier_mode=outlier_mode,
-            outlier_scale=outlier_scale,
+            sizes=cluster_sizes,
+            turns=spiral_turns,
+            band=spiral_band,
+            twist=spiral_twist,
         )
-        X_parts.append(X_out)
-        y_parts.append(np.full(int(n_outliers), -1, dtype=int))
+        X = _project_and_shape(Z2, p, R, rng)
+    else:
+        # Centers and covariances
+        centers = _sample_centers(
+            k=k,
+            p=p,
+            center_box=center_box,
+            rng=rng,
+            method=centroid_method,
+            n_candidates=n_candidates,
+        )
+        scales = _get_cluster_scales(cluster_scale, k)
+        covs = _cluster_covariances(scales, R)
 
-    # Concatenate
-    X = np.vstack(X_parts) if X_parts else np.empty((0, p), dtype=float)
-    y = np.concatenate(y_parts) if y_parts else np.empty((0,), dtype=int)
+        # Sample clusters
+        X_parts: list[np.ndarray] = []
+        y_parts: list[np.ndarray] = []
+        for c in range(k):
+            size = int(cluster_sizes[c])
+            mean = centers[c]
+            cov = covs[c]
+            X_c = _sample_cluster_points(
+                rng=rng,
+                size=size,
+                mean=mean,
+                cov=cov,
+                distribution=distribution,
+                t_df=t_df,
+            )
+            X_parts.append(X_c)
+            y_parts.append(np.full(size, c, dtype=int))
+
+        # Outliers
+        if n_outliers > 0:
+            X_out = _sample_outliers(
+                rng=rng,
+                n_outliers=int(n_outliers),
+                p=p,
+                centers=centers,
+                cluster_sizes=cluster_sizes,
+                covs=covs,
+                center_box=center_box,
+                outlier_mode=outlier_mode,
+                outlier_scale=outlier_scale,
+            )
+            X_parts.append(X_out)
+            y_parts.append(np.full(int(n_outliers), -1, dtype=int))
+
+        # Concatenate
+        X = np.vstack(X_parts) if X_parts else np.empty((0, p), dtype=float)
+        y = np.concatenate(y_parts) if y_parts else np.empty((0,), dtype=int)
 
     # Optional embedding
     X_pre_embed = X

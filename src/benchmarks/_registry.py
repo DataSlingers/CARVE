@@ -284,7 +284,10 @@ PUBLISHED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
             "embed_param": 14.5,
         },
     },
-    # Cell 39
+    # Cell 39. These describe the per-cluster swiss_roll geometry the
+    # manuscript reported, where every cluster was its own roll around its
+    # own center. The scenario now draws interleaved spirals (see _SHARED),
+    # which none of these parameters apply to.
     "swiss_rolls": {
         "easy": {
             "cluster_scale": [1.0, 1.0, 1.0, 1.0, 1.0],
@@ -319,6 +322,17 @@ PUBLISHED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
     },
 }
 
+# The swiss_rolls calibration multiplies this reference setting of the
+# interleaved-spirals arms: arm length in full turns, radial noise as a
+# fraction of the gap between arms, and the towel twist of the center in full
+# turns. Only the ratio between the three is a choice; the multiplier sets
+# the level.
+SPIRAL_REFERENCE: dict[str, float] = {
+    "spiral_turns": 0.5,
+    "spiral_band": 0.05,
+    "spiral_twist": 0.2,
+}
+
 # Regenerated 2026-09-23 by _calibrate.calibrate_scenario, against the
 # documented bands in TARGET_ARI_BANDS, with the shift-invert eigensolver
 # and each scenario's final estimator in place. Run with the calibration
@@ -333,7 +347,9 @@ PUBLISHED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
 # scenarios carry their published cluster_scale vector times a multiplier,
 # so the unequal per-cluster scales survive; circles and moons carry an
 # absolute embed_param. All eighteen anchors landed in their target band on
-# the first calibration run -- no band needed widening.
+# the first calibration run -- no band needed widening. swiss_rolls was
+# recalibrated on 2026-09-30, on a third knob, when it moved to interleaved
+# spirals; its three anchors also landed in band on the first run.
 CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
     # Knob: cluster_scale multiplier. The published vector was [4.0] * 5 at
     # easy, [4.5] * 5 at medium and [4.6] * 5 at hard.
@@ -467,26 +483,34 @@ CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
             "embed_param": 3.5,
         },
     },
-    # Knob: cluster_scale multiplier. The published vector was [1.0] * 5 at
-    # easy, [2.0, 2.0, 1.0, 1.0, 1.0] at medium and hard.
+    # Knob: multiplier on SPIRAL_REFERENCE, applied to arm length, arm
+    # thickness and twist together. Dirichlet alpha and AR(1) strength keep
+    # the published per-level values; embed_param is 5.0 at every level.
+    # Recalibrated 2026-09-30 when the scenario moved to interleaved spirals.
     "swiss_rolls": {
-        # multiplier 1.55, ARI 1.000 +/- 0.000
+        # multiplier 0.75, ARI 0.998 +/- 0.007
         "easy": {
-            "cluster_scale": [1.55] * 5,
+            "spiral_turns": 0.375,
+            "spiral_band": 0.0375,
+            "spiral_twist": 0.15,
             "cluster_size_dirichlet_alpha": 0.9,
             "corr_strength": 0.1,
-            "embed_param": 8.0,
+            "embed_param": 5.0,
         },
-        # multiplier 1.1875, ARI 0.889 +/- 0.144
+        # multiplier 1.0, ARI 0.824 +/- 0.155
         "medium": {
-            "cluster_scale": [2.375, 2.375, 1.1875, 1.1875, 1.1875],
+            "spiral_turns": 0.5,
+            "spiral_band": 0.05,
+            "spiral_twist": 0.2,
             "cluster_size_dirichlet_alpha": 0.7,
             "corr_strength": 0.1,
             "embed_param": 5.0,
         },
-        # multiplier 1.55, ARI 0.739 +/- 0.264
+        # multiplier 1.0625, ARI 0.735 +/- 0.142
         "hard": {
-            "cluster_scale": [3.1, 3.1, 1.55, 1.55, 1.55],
+            "spiral_turns": 0.53125,
+            "spiral_band": 0.053125,
+            "spiral_twist": 0.2125,
             "cluster_size_dirichlet_alpha": 0.5,
             "corr_strength": 0.3,
             "embed_param": 5.0,
@@ -531,8 +555,13 @@ _SHARED: dict[str, dict[str, Any]] = {
         "corr_type": "ar1",
         "embed_dim": 64,
     },
+    # Five interleaved arms of one spiral in a shared plane. The published
+    # "swiss_roll" drew each cluster as its own roll around its own center,
+    # so the clusters were separated like Gaussian blobs and silhouette
+    # matched the oracle; sharing the center is what makes the clusters
+    # non-convex.
     "swiss_rolls": {
-        "distribution": "swiss_roll",
+        "distribution": "interleaved_spirals",
         "nonlinear": True,
         "n_total": 1500,
         "p": 50,

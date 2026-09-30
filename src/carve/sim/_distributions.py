@@ -74,6 +74,73 @@ def _project_and_shape(
     return Z @ L.T
 
 
+# Radius, equal to the angle along the arm, at which every interleaved spiral
+# arm starts. Extra turns extend an arm outward from here.
+SPIRAL_INNER_RADIUS = np.pi / 2
+
+
+def _sample_interleaved_spirals(
+    *,
+    rng: np.random.Generator,
+    sizes: np.ndarray,
+    turns: float,
+    band: float,
+    twist: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Sample k interleaved arms of one spiral in a shared plane.
+
+    Arm j follows r = t, theta = t + 2*pi*j/k for t drawn uniformly from
+    [SPIRAL_INNER_RADIUS, SPIRAL_INNER_RADIUS + 2*pi*turns], so adjacent arms
+    sit 2*pi/k apart along any ray. The plane is then twisted like a towel
+    held at its edge: every ring rotates rigidly by
+    -2*pi*twist*(1 - r/edge), where edge is the arms' outer radius, so the
+    center turns by twist full turns, the edge stays put, and the arms wrap
+    tighter around each other.
+
+    Parameters
+    ----------
+    rng : numpy.random.Generator
+        Random generator.
+    sizes : ndarray of shape (k,)
+        Points per arm.
+    turns : float
+        Angular length of each arm, in full turns. Must be positive.
+    band : float
+        Radial noise standard deviation as a fraction of the 2*pi/k gap
+        between adjacent arms. Must be nonnegative.
+    twist : float
+        Rotation of the center relative to the edge, in full turns.
+
+    Returns
+    -------
+    Z2 : ndarray of shape (sizes.sum(), 2)
+        Planar coordinates, arms in label order.
+    y : ndarray of shape (sizes.sum(),)
+        Arm labels 0..k-1.
+    """
+    if not np.isfinite(turns) or turns <= 0:
+        raise ValueError("`spiral_turns` must be positive and finite.")
+    if not np.isfinite(band) or band < 0:
+        raise ValueError("`spiral_band` must be nonnegative and finite.")
+    if not np.isfinite(twist):
+        raise ValueError("`spiral_twist` must be finite.")
+
+    k = len(sizes)
+    gap = 2.0 * np.pi / k
+    edge = SPIRAL_INNER_RADIUS + 2.0 * np.pi * turns
+
+    Z_parts: list[np.ndarray] = []
+    y_parts: list[np.ndarray] = []
+    for j, size in enumerate(sizes):
+        t = rng.uniform(SPIRAL_INNER_RADIUS, edge, size=int(size))
+        r = t + rng.normal(scale=band * gap, size=int(size))
+        theta = t + j * gap - 2.0 * np.pi * twist * np.clip(1.0 - r / edge, 0.0, None)
+        Z_parts.append(np.stack([r * np.cos(theta), r * np.sin(theta)], axis=1))
+        y_parts.append(np.full(int(size), j, dtype=int))
+
+    return np.vstack(Z_parts), np.concatenate(y_parts)
+
+
 def _sample_cluster_points(
     *,
     rng: np.random.Generator,

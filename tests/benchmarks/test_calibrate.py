@@ -103,11 +103,23 @@ class TestKnobs:
             assert (knob.low, knob.high) == (2.0, 4.0)
 
     def test_the_scale_driven_scenarios_calibrate_on_a_multiplier(self):
-        for name in ("gaussians", "t_dist", "t_dist_noise", "swiss_rolls"):
+        for name in ("gaussians", "t_dist", "t_dist_noise"):
             knob = knob_for(name)
             assert knob.parameter == "cluster_scale"
             assert knob.increasing is False
             assert knob.multiplier is True
+
+    def test_swiss_rolls_scales_its_three_arm_parameters_together(self):
+        """The interleaved spirals have no per-cluster scale to multiply.
+
+        Difficulty rises with arm length, arm thickness and twist alike, so
+        the knob multiplies all three by one factor; a larger factor scores
+        lower.
+        """
+        knob = knob_for("swiss_rolls")
+        assert knob.parameter == ("spiral_turns", "spiral_band", "spiral_twist")
+        assert knob.increasing is False
+        assert knob.multiplier is True
 
     def test_knob_for_rejects_an_unregistered_scenario(self):
         with pytest.raises(KeyError, match="gaussians_samples"):
@@ -154,6 +166,37 @@ class TestApplyKnob:
         out = apply_knob({"embed_param": 7.3, "corr_strength": 0.2}, knob, 3.1)
         assert out["embed_param"] == 3.1
         assert out["corr_strength"] == 0.2
+
+    def test_a_joint_multiplier_scales_every_named_parameter(self):
+        knob = CalibrationKnob(
+            parameter=("spiral_turns", "spiral_band", "spiral_twist"),
+            low=0.5,
+            high=1.5,
+            increasing=False,
+            multiplier=True,
+        )
+        anchor = {
+            "spiral_turns": 0.5,
+            "spiral_band": 0.05,
+            "spiral_twist": 0.2,
+            "corr_strength": 0.3,
+        }
+        out = apply_knob(anchor, knob, 1.2)
+        assert out["spiral_turns"] == pytest.approx(0.6)
+        assert out["spiral_band"] == pytest.approx(0.06)
+        assert out["spiral_twist"] == pytest.approx(0.24)
+        assert out["corr_strength"] == 0.3
+
+    def test_a_joint_multiplier_needs_every_parameter_to_be_present(self):
+        knob = CalibrationKnob(
+            parameter=("spiral_turns", "spiral_band", "spiral_twist"),
+            low=0.5,
+            high=1.5,
+            increasing=False,
+            multiplier=True,
+        )
+        with pytest.raises(KeyError, match="no .spiral_twist. to scale"):
+            apply_knob({"spiral_turns": 0.5, "spiral_band": 0.05}, knob, 1.2)
 
     def test_a_multiplier_needs_the_parameter_to_be_present(self):
         knob = CalibrationKnob(

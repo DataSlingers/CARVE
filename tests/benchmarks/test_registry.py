@@ -20,6 +20,7 @@ from benchmarks._registry import (
     SCALING_TABLE_ROW_GROUPS,
     SCENARIOS,
     SIMILARITY_SEED_OFFSET,
+    SPIRAL_REFERENCE,
     TABLE_ROW_GROUPS,
     metric_measure,
     metric_rule,
@@ -245,6 +246,27 @@ class TestScenarios:
         it.
         """
         assert "center_box" not in SCENARIOS["swiss_rolls"].shared
+
+    def test_swiss_rolls_draws_interleaved_arms_of_one_spiral(self):
+        """Each cluster used to be its own roll around its own center, so the
+        clusters were separated like Gaussian blobs and the geometric indices
+        scored as well as the oracle. The arms now share one center and plane.
+        """
+        assert SCENARIOS["swiss_rolls"].shared["distribution"] == "interleaved_spirals"
+
+    @pytest.mark.parametrize("label", DIFFICULTY_AXIS.labels)
+    def test_swiss_rolls_anchors_scale_the_spiral_reference_jointly(self, label):
+        """One calibration multiplier moves arm length, thickness and twist
+        together, so each anchor is the reference times one common factor."""
+        anchor = SCENARIOS["swiss_rolls"].anchors[label]
+        ratios = [anchor[name] / value for name, value in SPIRAL_REFERENCE.items()]
+        assert ratios == pytest.approx([ratios[0]] * len(ratios))
+
+    @pytest.mark.parametrize("label", DIFFICULTY_AXIS.labels)
+    def test_swiss_rolls_anchors_carry_no_ignored_cluster_scale(self, label):
+        """interleaved_spirals ignores cluster_scale; carrying one would read
+        as a difficulty setting when it changes nothing."""
+        assert "cluster_scale" not in SCENARIOS["swiss_rolls"].anchors[label]
 
 
 class TestPublishedRandomState:

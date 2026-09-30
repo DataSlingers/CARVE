@@ -38,9 +38,10 @@ TARGET_ARI_BANDS: dict[str, tuple[float, float]] = {
 
 @dataclass(frozen=True)
 class CalibrationKnob:
-    """The one anchor parameter a scenario's difficulty is bisected on.
+    """The anchor parameter a scenario's difficulty is bisected on.
 
-    parameter names a simulate_clusters keyword. multiplier=True scales the
+    parameter names a simulate_clusters keyword, or a tuple of them that the
+    one bisected value moves together. multiplier=True scales the
     anchor's published value rather than replacing it, which is what keeps
     the unequal per-cluster cluster_scale vectors the nonlinear anchors
     carry -- [4.38, 4.08, 4.08, 4.08, 4.08] on circles/hard -- from being
@@ -52,7 +53,7 @@ class CalibrationKnob:
     higher.
     """
 
-    parameter: str
+    parameter: str | tuple[str, ...]
     low: float
     high: float
     increasing: bool
@@ -64,6 +65,13 @@ class CalibrationKnob:
                 f"CalibrationKnob({self.parameter!r}): low must be below high, "
                 f"got {self.low} and {self.high}."
             )
+
+    @property
+    def parameters(self) -> tuple[str, ...]:
+        """The knob's simulate_clusters keywords, as a tuple."""
+        if isinstance(self.parameter, str):
+            return (self.parameter,)
+        return tuple(self.parameter)
 
 
 _SCALE_KNOB = CalibrationKnob(
@@ -91,11 +99,27 @@ _BANDWIDTH_KNOB = CalibrationKnob(
     multiplier=False,
 )
 
+# swiss_rolls draws interleaved spiral arms in one shared plane, so there is
+# no per-cluster scale to multiply. Arm length, arm thickness and the towel
+# twist each lower the oracle ARI, and the knob multiplies all three together
+# from the reference in _registry.SPIRAL_REFERENCE (0.5 turns, band 0.05,
+# twist 0.2). Measured with spectral clustering over 20 datasets at band 0.05
+# and 0.5 turns: twist 0.1 scores 0.92-0.99, 0.2 scores 0.79-0.90, 0.25
+# scores 0.68-0.84, and a half-turn twist about 0.5. The interval spans that
+# range from arms too short to interleave to arms spectral cannot follow.
+_SPIRAL_KNOB = CalibrationKnob(
+    parameter=("spiral_turns", "spiral_band", "spiral_twist"),
+    low=0.5,
+    high=1.5,
+    increasing=False,
+    multiplier=True,
+)
+
 CALIBRATION_KNOBS: dict[str, CalibrationKnob] = {
     "gaussians": _SCALE_KNOB,
     "t_dist": _SCALE_KNOB,
     "t_dist_noise": _SCALE_KNOB,
-    "swiss_rolls": _SCALE_KNOB,
+    "swiss_rolls": _SPIRAL_KNOB,
     "circles": _BANDWIDTH_KNOB,
     "moons": _BANDWIDTH_KNOB,
 }
@@ -120,19 +144,20 @@ def apply_knob(
 ) -> dict[str, Any]:
     """Return the anchor with the knob set to value, leaving the rest alone."""
     out = dict(anchor)
-    if not knob.multiplier:
-        out[knob.parameter] = float(value)
-        return out
-    if knob.parameter not in anchor:
-        raise KeyError(
-            f"Anchor has no {knob.parameter!r} to scale; a multiplier knob needs "
-            f"a published value to multiply. Anchor keys: {sorted(anchor)}."
-        )
-    published = anchor[knob.parameter]
-    if np.isscalar(published):
-        out[knob.parameter] = float(published) * float(value)
-    else:
-        out[knob.parameter] = [float(v) * float(value) for v in published]
+    for name in knob.parameters:
+        if not knob.multiplier:
+            out[name] = float(value)
+            continue
+        if name not in anchor:
+            raise KeyError(
+                f"Anchor has no {name!r} to scale; a multiplier knob needs "
+                f"a published value to multiply. Anchor keys: {sorted(anchor)}."
+            )
+        published = anchor[name]
+        if np.isscalar(published):
+            out[name] = float(published) * float(value)
+        else:
+            out[name] = [float(v) * float(value) for v in published]
     return out
 
 
