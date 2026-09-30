@@ -1392,49 +1392,42 @@ class TestM3CLines:
         assert ax.lines[0].get_color() == metric_color("m3c_rcsi")
 
     def test_annotates_the_monte_carlo_p_value_at_selected_k(self, scores):
-        # K=3's MONTECARLO_P (0.08) is not this fixture's column minimum
-        # (K=4's 0.01 is), so it cannot be read as sitting at the floor --
-        # this checks that the plain value is rendered and sourced from the
-        # scores frame, not the floor-qualification wording.
+        # K=3's MONTECARLO_P (0.08) differs from every other K's, so the
+        # annotation must be read at selected_k, not from any other row.
         from benchmarks._panels import m3c_lines
 
         _, ax = plt.subplots()
         m3c_lines(ax, scores, selected_k=3)
         texts = [t.get_text() for t in ax.texts]
-        assert any("Monte Carlo" in t and "0.080" in t for t in texts)
-        assert not any("smallest attainable" in t for t in texts)
+        assert texts == ["Monte Carlo $p$ = 0.080"]
 
-    def test_annotates_a_floor_p_value_with_the_iteration_count(self):
-        # Mirrors the real Klein fixture (tests/fixtures/m3c_klein_scores.csv):
-        # iters=25 gives a floor of 1/26 = 0.038461538..., shared by every K
-        # whose real stability beat all 25 Monte Carlo references (K=2
-        # through K=6 in the real run), and K=7's 2/26 == 1/13 is the
-        # coincidental reduced fraction _monte_carlo_p_floor must not be
-        # fooled by.
+    def test_annotates_a_floor_p_value_without_a_qualifier(self):
+        # iters=25 gives a floor of 1/26 shared by K=2 through K=6 in the
+        # real Klein run; the annotation is the bare value there too.
         from benchmarks._panels import m3c_lines
 
         floor_scores = pd.DataFrame(
             {
-                "K": [2, 3, 4, 5, 6, 7],
-                "RCSI": [2.55, 0.75, 0.35, 0.35, 0.22, 0.18],
-                "RCSI_SE": [0.045, 0.032, 0.018, 0.019, 0.018, 0.017],
-                "MONTECARLO_P": [
-                    1 / 26,
-                    1 / 26,
-                    1 / 26,
-                    1 / 26,
-                    1 / 26,
-                    2 / 26,
-                ],
+                "K": [2, 3, 4],
+                "RCSI": [2.55, 0.75, 0.35],
+                "RCSI_SE": [0.045, 0.032, 0.018],
+                "MONTECARLO_P": [1 / 26, 1 / 26, 2 / 26],
             }
         )
         _, ax = plt.subplots()
         m3c_lines(ax, floor_scores, selected_k=2)
         texts = [t.get_text() for t in ax.texts]
-        assert any(
-            "0.038" in t and "smallest attainable at 25 iterations" in t
-            for t in texts
-        )
+        assert texts == ["Monte Carlo $p$ = 0.038"]
+
+    def test_draws_no_horizontal_reference_line(self, scores):
+        from benchmarks._panels import m3c_lines
+
+        _, ax = plt.subplots()
+        m3c_lines(ax, scores, selected_k=4)
+        horizontals = [
+            line for line in ax.lines if len(set(np.ravel(line.get_ydata()))) == 1
+        ]
+        assert horizontals == []
 
 
 def _selection_frame():
