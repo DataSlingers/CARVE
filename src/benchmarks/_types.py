@@ -26,6 +26,11 @@ KNOWN_PREPROCESSORS: frozenset[str] = frozenset(
     {"identity", "standard_scaler", "pca", "tsne", "umap"}
 )
 
+#: Classifiers a Scenario may score generalizability with. _estimators maps
+#: each one to its construction; the names live here so this module stays a
+#: leaf. "random_forest" is CARVE's own default forest of n_trees trees.
+KNOWN_CLASSIFIERS: frozenset[str] = frozenset({"random_forest", "lda"})
+
 
 @dataclass(frozen=True)
 class Axis:
@@ -129,6 +134,9 @@ class Scenario:
     anchors maps each axis label to the simulate_clusters keyword arguments
     that define that point on the axis. shared holds the keyword arguments
     common to every point. A key may appear in one or the other, never both.
+
+    classifier names the generalizability classifier. n_trees sizes the
+    forest and is ignored under any other classifier.
     """
 
     name: str
@@ -140,8 +148,15 @@ class Scenario:
     candidate_k: tuple[int, ...] = (3, 4, 5, 6, 7)
     n_seeds: int = 20
     n_trees: int = 100
+    classifier: str = "random_forest"
 
     def __post_init__(self) -> None:
+        if self.classifier not in KNOWN_CLASSIFIERS:
+            raise ValueError(
+                f"Scenario {self.name!r}: unknown classifier {self.classifier!r}. "
+                f"Valid names are {sorted(KNOWN_CLASSIFIERS)}."
+            )
+
         missing = [label for label in self.axis.labels if label not in self.anchors]
         if missing:
             raise ValueError(

@@ -123,6 +123,22 @@ class TestConfigHash:
             changed, n_seeds=20, n_resamples=100, random_state=42
         )
 
+    def test_changes_when_the_classifier_changes(self):
+        s = SCENARIOS["gaussians"]
+        changed = dataclasses.replace(s, classifier="lda")
+        assert config_hash(s, n_seeds=20, n_resamples=100, random_state=42) != config_hash(
+            changed, n_seeds=20, n_resamples=100, random_state=42
+        )
+
+    def test_the_default_classifier_is_left_out_of_the_identity(self):
+        """Every run made before Scenario had a classifier used the forest.
+        Leaving the default out keeps those runs' hashes, and the directories
+        named by them, where they were."""
+        s = SCENARIOS["gaussians"]
+        assert "classifier" not in scenario_identity(s)
+        lda = dataclasses.replace(s, classifier="lda")
+        assert scenario_identity(lda)["classifier"] == "lda"
+
     def test_changes_when_random_state_changes(self):
         s = SCENARIOS["gaussians"]
         assert config_hash(s, n_seeds=20, n_resamples=100, random_state=42) != config_hash(
@@ -225,6 +241,23 @@ class TestManifest:
             status="running",
         )
         assert manifest.status == "running"
+
+    @pytest.mark.parametrize("classifier", ["random_forest", "lda"])
+    def test_build_manifest_names_the_classifier(self, classifier):
+        # Recorded for every run, the default included, although only a
+        # non-default classifier enters the hash.
+        scenario = dataclasses.replace(SCENARIOS["gaussians"], classifier=classifier)
+        manifest = build_manifest(
+            scenario,
+            run_id="r1",
+            config_hash="abc123def456",
+            n_seeds=1,
+            n_resamples=2,
+            n_jobs=1,
+            random_state=0,
+            wall_clock_s=1.0,
+        )
+        assert manifest.config["classifier"] == classifier
 
     def test_build_manifest_rejects_an_unknown_status(self):
         with pytest.raises(ValueError, match="status"):

@@ -2,19 +2,41 @@
 
 import pytest
 from sklearn.cluster import AgglomerativeClustering, KMeans, MiniBatchKMeans
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 
 from benchmarks._estimators import (
+    CLASSIFIER_FACTORIES,
     ESTIMATOR_CLASSES,
     RESOLUTION_ESTIMATORS,
+    build_classifier,
     build_estimator,
     param_grids,
     resolution_grids,
 )
-from benchmarks._types import KNOWN_ESTIMATORS, EstimatorSpec
+from benchmarks._types import KNOWN_CLASSIFIERS, KNOWN_ESTIMATORS, EstimatorSpec
 
 
 def test_every_known_estimator_has_a_class():
     assert set(ESTIMATOR_CLASSES) == set(KNOWN_ESTIMATORS)
+
+
+def test_every_known_classifier_has_a_factory():
+    assert set(CLASSIFIER_FACTORIES) == set(KNOWN_CLASSIFIERS)
+
+
+class TestBuildClassifier:
+    def test_the_forest_hands_carve_no_classifier(self):
+        # None is what makes CARVE build its own forest from n_trees.
+        assert build_classifier("random_forest") is None
+
+    def test_lda_uses_ledoit_wolf_shrinkage(self):
+        clf = build_classifier("lda")
+        assert isinstance(clf, LinearDiscriminantAnalysis)
+        assert clf.get_params()["solver"] == "lsqr"
+        assert clf.get_params()["shrinkage"] == "auto"
+
+    def test_each_call_builds_a_new_instance(self):
+        assert build_classifier("lda") is not build_classifier("lda")
 
 
 class TestBuildEstimator:

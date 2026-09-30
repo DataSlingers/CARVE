@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from joblib import Parallel, cpu_count, delayed
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.metrics import adjusted_rand_score
 
 from benchmarks._artifacts import SCHEMA, read_run
@@ -222,6 +223,18 @@ class TestRunCell:
         scenario = dataclasses.replace(tiny_scenario, n_trees=500)
         run_cell(scenario, n_resamples=20, **CELL_KWARGS)
         assert [k.get("n_trees") for k in recording_carve.init_kwargs] == [500]
+
+    def test_carve_receives_the_scenario_classifier(self, tiny_scenario, recording_carve):
+        scenario = dataclasses.replace(tiny_scenario, classifier="lda")
+        run_cell(scenario, n_resamples=20, **CELL_KWARGS)
+        [kwargs] = recording_carve.init_kwargs
+        assert isinstance(kwargs.get("classifier"), LinearDiscriminantAnalysis)
+
+    def test_the_default_classifier_leaves_carve_its_forest(
+        self, tiny_scenario, recording_carve
+    ):
+        run_cell(tiny_scenario, n_resamples=20, **CELL_KWARGS)
+        assert [k.get("classifier") for k in recording_carve.init_kwargs] == [None]
 
     def test_provenance_columns_record_the_actual_estimator(self, cell):
         rows, _ = cell
@@ -567,6 +580,18 @@ class TestRuntimeCapture:
 
         # One CARVE for the default-mode fit, plus one per timed mode.
         assert [k.get("n_trees") for k in recording_carve.init_kwargs] == [500, 500, 500]
+
+    def test_timed_fits_receive_the_scenario_classifier(
+        self, tiny_scenario, recording_carve
+    ):
+        """Otherwise t_generalizability_s would time the forest while
+        t_default_s timed the scenario's classifier."""
+        scenario = dataclasses.replace(tiny_scenario, classifier="lda")
+        _cell(scenario, timing_fits=True)
+        assert [
+            isinstance(k.get("classifier"), LinearDiscriminantAnalysis)
+            for k in recording_carve.init_kwargs
+        ] == [True, True, True]
 
     def test_per_k_runtimes_divide_by_the_candidate_count(self, tiny_scenario, cell10_timed):
         _, runtime = cell10_timed

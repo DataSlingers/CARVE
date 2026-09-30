@@ -592,6 +592,18 @@ _ESTIMATORS: dict[str, str] = {
 # not the bottleneck.
 _N_TREES: dict[str, int] = dict.fromkeys(_ESTIMATORS, 500)
 
+# The generalizability classifier. The forest everywhere except the two
+# scaling scenarios, which cluster Gaussian mixtures with k-means across a
+# range of p and n; there n_trees is carried but unused. At p=1000 the forest
+# reproduced a held-out k-means partition with ARI 0.25 at 500 trees and 0.28
+# at 2,000, shrinkage LDA with 0.95, and a CARVE fit took 428 s instead of
+# 3,581 s. On the sample-size axis LDA also scored higher at every n.
+_CLASSIFIERS: dict[str, str] = {
+    **dict.fromkeys(_ESTIMATORS, "random_forest"),
+    "gaussians_dimensionality": "lda",
+    "gaussians_samples": "lda",
+}
+
 _AXES: dict[str, Axis] = {
     "gaussians": DIFFICULTY_AXIS,
     "t_dist": DIFFICULTY_AXIS,
@@ -615,6 +627,7 @@ SCENARIOS: dict[str, Scenario] = {
         shared=_SHARED[name],
         estimator=EstimatorSpec(name=_ESTIMATORS[name]),
         n_trees=_N_TREES[name],
+        classifier=_CLASSIFIERS[name],
     )
     for name in _ESTIMATORS
 }

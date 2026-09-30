@@ -124,6 +124,15 @@ class TestScenario:
         assert _scenario().n_trees == 100
         assert _scenario(n_trees=500).n_trees == 500
 
+    def test_classifier_defaults_to_the_forest_and_can_be_overridden(self):
+        assert _scenario().classifier == "random_forest"
+        assert _scenario(classifier="lda").classifier == "lda"
+
+    def test_rejects_an_unknown_classifier(self):
+        # Caught at construction, not one cell into a run.
+        with pytest.raises(ValueError, match="'qda'"):
+            _scenario(classifier="qda")
+
     def test_sim_kwargs_merges_shared_and_the_selected_anchor(self):
         kwargs = _scenario().sim_kwargs(axis_value=1, axis_label="medium")
         assert kwargs["cluster_scale"] == 2.0

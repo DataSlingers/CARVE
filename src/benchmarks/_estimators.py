@@ -1,15 +1,18 @@
-"""Construction of the base clustering estimators used by the benchmarks.
+"""Construction of the base clustering estimators and the generalizability
+classifiers used by the benchmarks.
 
 The literals that used to be scattered through the old estimator factory
 (n_init=10, ward linkage, self-tuning affinity) live here as one table.
 """
 
 import inspect
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from functools import partial
 from typing import Any
 
-from sklearn.base import ClusterMixin
+from sklearn.base import ClassifierMixin, ClusterMixin
 from sklearn.cluster import AgglomerativeClustering, KMeans, MiniBatchKMeans
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 
 from carve.cluster import LeidenClustering, LouvainClustering, SpectralClustering
 
@@ -135,3 +138,26 @@ def resolution_grids(
         grid[key] = [value]
 
     return [(ESTIMATOR_CLASSES[spec.name], grid)]
+
+
+# The generalizability classifier, by name. None hands CARVE no classifier,
+# so it builds its default forest from the scenario's n_trees. Shrinkage LDA
+# suits k-means on Gaussian mixtures: k-means draws hyperplane boundaries, and
+# at large p the separation between two clusters is spread across every
+# feature, which a forest of axis-aligned splits cannot assemble from one
+# subsample. LDA takes neither random_state nor n_jobs, so CARVE's classifier
+# builder leaves it as constructed.
+CLASSIFIER_FACTORIES: dict[str, Callable[[], ClassifierMixin] | None] = {
+    "random_forest": None,
+    "lda": partial(LinearDiscriminantAnalysis, solver="lsqr", shrinkage="auto"),
+}
+
+
+def build_classifier(name: str) -> ClassifierMixin | None:
+    """Instantiate a scenario's generalizability classifier.
+
+    Returns None for "random_forest", which is what CARVE takes to mean its
+    own default forest.
+    """
+    factory = CLASSIFIER_FACTORIES[name]
+    return None if factory is None else factory()

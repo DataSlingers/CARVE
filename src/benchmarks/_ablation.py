@@ -48,7 +48,12 @@ from ._artifacts import (
     write_frame,
     write_manifest,
 )
-from ._estimators import ESTIMATOR_CLASSES, build_estimator, param_grids
+from ._estimators import (
+    ESTIMATOR_CLASSES,
+    build_classifier,
+    build_estimator,
+    param_grids,
+)
 from ._registry import (
     ACTIVE_ANCHOR_SET_NAME,
     CARVE_METRICS_ALL,
@@ -243,6 +248,7 @@ def cell_rows(
         candidate_k = tuple(study.candidate_k)
         not_two = study.not_two
         n_trees = CARVE_N_TREES
+        classifier = None
         k_star = None
         rare_label = None
     else:
@@ -251,6 +257,7 @@ def cell_rows(
         candidate_k = tuple(scenario.candidate_k)
         not_two = False
         n_trees = scenario.n_trees
+        classifier = build_classifier(scenario.classifier)
         k_star = scenario.k_star
         rare_label, _ = smallest_cluster(y)
     X = np.asarray(X)
@@ -265,6 +272,7 @@ def cell_rows(
         random_state=seed,
         subsample_ratio=cell.subsample_ratio,
         thread_cap=thread_cap,
+        classifier=classifier,
     )
     carve = fit.carve
     results = carve.estimator_results_

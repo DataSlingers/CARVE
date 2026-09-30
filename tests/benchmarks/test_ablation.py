@@ -189,6 +189,24 @@ class TestCellRows:
         unit = Unit("cell", Cell("tiny", "easy", 0, 0.5, 12, 1))
         return cell_rows(unit, ablation=TINY_ABLATION, scale="dev", data=None, thread_cap=None)
 
+    def test_a_scenario_cell_scores_with_the_scenario_classifier(self, monkeypatch):
+        seen = []
+        real = ablation_module.fit_carve
+
+        def recording(X, **kwargs):
+            seen.append(kwargs.get("classifier"))
+            return real(X, **kwargs)
+
+        monkeypatch.setattr(ablation_module, "fit_carve", recording)
+        monkeypatch.setattr(
+            ablation_module,
+            "SCENARIOS",
+            {"tiny": dataclasses.replace(TINY_SCENARIO, classifier="lda")},
+        )
+        unit = Unit("cell", Cell("tiny", "easy", 0, 0.618, 8, 0))
+        cell_rows(unit, ablation=TINY_ABLATION, scale="dev", data=None, thread_cap=None)
+        assert [type(c).__name__ for c in seen] == ["LinearDiscriminantAnalysis"]
+
     def test_every_frame_carries_its_schema(self, sim_cell):
         for name in ("curves", "selection", "at_k", "cells"):
             assert sim_cell[name], name

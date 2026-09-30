@@ -225,6 +225,18 @@ class TestScenarios:
         """
         assert SCENARIOS[name].n_trees == 500
 
+    @pytest.mark.parametrize("name", SCALING_SCENARIOS)
+    def test_scaling_scenarios_score_generalizability_with_lda(self, name):
+        """k-means draws hyperplane boundaries. At p=1000 the forest
+        reproduced a held-out k-means partition with ARI 0.25 at 500 trees
+        and 0.28 at 2,000; shrinkage LDA reproduced it with 0.95. On the
+        sample-size axis LDA also scored higher at every n."""
+        assert SCENARIOS[name].classifier == "lda"
+
+    @pytest.mark.parametrize("name", DIFFICULTY_SCENARIOS)
+    def test_difficulty_scenarios_keep_the_forest(self, name):
+        assert SCENARIOS[name].classifier == "random_forest"
+
     def test_swiss_rolls_does_not_restate_the_simulator_default(self):
         """center_box=3.0 is simulate_clusters's own default.
 

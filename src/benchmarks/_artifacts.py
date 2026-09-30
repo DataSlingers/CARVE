@@ -212,8 +212,13 @@ def check_fingerprint(cache_path: Path, X: np.ndarray) -> None:
 
 
 def scenario_identity(scenario: Scenario) -> dict[str, Any]:
-    """What defines a scenario, independent of how many cells a run draws."""
-    return {
+    """What defines a scenario, independent of how many cells a run draws.
+
+    The classifier enters only when it is not the forest. Every run made
+    before Scenario had a classifier used the forest, so leaving the default
+    out keeps their hashes, and the directories named by them, valid.
+    """
+    identity = {
         "name": scenario.name,
         "axis_name": scenario.axis.name,
         "axis_values": list(scenario.axis.values),
@@ -225,6 +230,9 @@ def scenario_identity(scenario: Scenario) -> dict[str, Any]:
         "candidate_k": list(scenario.candidate_k),
         "n_trees": scenario.n_trees,
     }
+    if scenario.classifier != "random_forest":
+        identity["classifier"] = scenario.classifier
+    return identity
 
 
 def _canonical_config(
@@ -552,6 +560,9 @@ def build_manifest(
     _canonical_config: it says whether this run's cells also timed the two
     mode-specific fits, but it changes no metric a run produces, so it must
     not affect config_hash's content address.
+
+    The classifier is recorded for every run, the forest included, although
+    scenario_identity hashes it only when it is not the forest.
     """
     if status not in RUN_STATUSES:
         raise ValueError(
@@ -564,6 +575,7 @@ def build_manifest(
         random_state=random_state,
     )
     config["timing_fits"] = timing_fits
+    config["classifier"] = scenario.classifier
     return Manifest(
         run_id=run_id,
         scenario=scenario.name,

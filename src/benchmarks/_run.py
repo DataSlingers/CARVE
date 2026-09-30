@@ -32,6 +32,7 @@ from typing import Any
 
 import numpy as np
 from joblib import Parallel, cpu_count, delayed, effective_n_jobs
+from sklearn.base import ClassifierMixin
 from sklearn.metrics import adjusted_rand_score
 from tqdm.auto import tqdm
 
@@ -49,7 +50,7 @@ from ._artifacts import (
     write_runtime_checkpoint,
 )
 from ._cvi import calculate_cvi, select_k
-from ._estimators import build_estimator, param_grids
+from ._estimators import build_classifier, build_estimator, param_grids
 from ._registry import (
     CARVE_METRICS_ALL,
     CVI_METRICS,
@@ -141,12 +142,14 @@ def fit_carve(
     random_state: int,
     subsample_ratio: float | None = None,
     thread_cap: int | None = None,
+    classifier: ClassifierMixin | None = None,
 ) -> CarveFit:
     """Fit CARVE the way every benchmark fits it: one worker, timed.
 
     subsample_ratio=None leaves CARVE's default in place and passes nothing,
     so a scenario cell constructs CARVE with exactly the arguments it did
-    before this function existed. Cluster-count warnings are counted and
+    before this function existed. classifier=None is CARVE's own default, the
+    forest of n_trees trees. Cluster-count warnings are counted and
     swallowed; every other warning is re-emitted after the fit.
     """
     optional = (
@@ -156,6 +159,7 @@ def fit_carve(
         estimator_param_grids=grids,
         n_resamples=n_resamples,
         n_trees=n_trees,
+        classifier=classifier,
         n_jobs=1,
         random_state=random_state,
         **optional,
@@ -275,6 +279,7 @@ def run_cell(
     oracle_ari = float(adjusted_rand_score(y, oracle.fit_predict(X)))
 
     grids = param_grids(scenario.estimator, candidate_k)
+    classifier = build_classifier(scenario.classifier)
     fit = fit_carve(
         X,
         grids=grids,
@@ -282,6 +287,7 @@ def run_cell(
         n_trees=scenario.n_trees,
         random_state=cell_seed,
         thread_cap=thread_cap,
+        classifier=classifier,
     )
     carve = fit.carve
     t_default_s = fit.fit_seconds
@@ -392,6 +398,7 @@ def run_cell(
                     estimator_param_grids=grids,
                     n_resamples=n_resamples,
                     n_trees=scenario.n_trees,
+                    classifier=classifier,
                     n_jobs=1,
                     random_state=cell_seed,
                 )
