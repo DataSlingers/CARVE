@@ -1,5 +1,11 @@
 """Levine et al. 32-dimension CyTOF bone marrow data, via HDCytoData.
 
+Every load reads the data through rpy2 from the Bioconductor package
+HDCytoData, which downloads them from ExperimentHub on first use and keeps
+them in R's own cache. No copy is kept in this repository or under data/, so
+the analysis always starts from the public source, and the preprocessing below
+is the only step between the two.
+
 HDCytoData's Levine_32dim_SE holds 265,627 cells from two healthy donors on
 39 channels. Manual gating assigned 104,184 of them to 14 populations; the
 other 161,443 carry the population "unassigned". The loader keeps the 32 type
@@ -13,22 +19,17 @@ the already-scaled matrix afterwards. The scaler's quantiles therefore reflect
 cells that are not in the returned data. Do not "correct" this without
 re-running the case study; it changes the numbers.
 
-Labels are cached and subsampled as the factor's integer codes and returned as
-population names. The unassigned level is code 15, which is what older notes
-and the manuscript call "population 15". Stratifying on the codes rather than
-the names keeps the subsample the one this loader has always drawn:
-StratifiedShuffleSplit walks the classes in sorted order, and the codes ("1",
-"10", "11", ...) sort differently from the names.
+Labels come from R as the factor's integer codes, are subsampled as codes, and
+are returned as population names. The unassigned level is code 15, which is
+what older notes and the manuscript call "population 15". Stratifying on the
+codes rather than the names keeps the subsample the one this loader has always
+drawn: StratifiedShuffleSplit walks the classes in sorted order, and the codes
+("1", "10", "11", ...) sort differently from the names.
 """
-
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from ._klein import DATA_ROOT
-
-_CACHE_NAME = "levine32_preprocessed.npz"
 _COFACTOR = 5.0
 _QUANTILE_RANGE = (10, 90)
 
@@ -59,30 +60,29 @@ _POPULATION_NAMES = {
 }
 
 
-def _cache_path(cache_dir: Path) -> Path:
-    return Path(cache_dir) / _CACHE_NAME
+def _hdcytodata_is_installed() -> bool:
+    """True when the R package HDCytoData is available. Split out so tests can stub it.
+
+    Returns False rather than raising when rpy2 itself cannot be imported, so a
+    machine without rpy2 reaches load_levine32's RuntimeError instead of a bare
+    ModuleNotFoundError. The same arrangement as _m3c._m3c_is_installed.
+    """
+    try:
+        import rpy2.robjects as ro
+    except ImportError:
+        return False
+    return bool(ro.r('isTRUE(requireNamespace("HDCytoData", quietly=TRUE))')[0])
 
 
-def _write_cache(
-    cache_dir: Path, X: np.ndarray, y: np.ndarray, markers: list[str]
-) -> Path:
-    path = _cache_path(cache_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
-        path,
-        X=X,
-        y=np.asarray(y).astype(str),
-        markers=np.asarray(markers, dtype=object),
+def _install_hdcytodata() -> None:
+    """Install HDCytoData via BiocManager. Only reached when allow_install=True."""
+    import rpy2.robjects as ro
+
+    ro.r(
+        'if (!requireNamespace("BiocManager", quietly=TRUE)) '
+        'install.packages("BiocManager", repos="https://cran.rstudio.com/"); '
+        'BiocManager::install("HDCytoData", ask=FALSE, update=FALSE)'
     )
-    return path
-
-
-def _read_cache(cache_dir: Path) -> tuple[np.ndarray, np.ndarray, list[str]] | None:
-    path = _cache_path(cache_dir)
-    if not path.exists():
-        return None
-    with np.load(path, allow_pickle=True) as payload:
-        return payload["X"], payload["y"], [str(m) for m in payload["markers"]]
 
 
 def _check_levels(levels: list[str]) -> None:
@@ -96,40 +96,30 @@ def _check_levels(levels: list[str]) -> None:
 
 
 def _population_names(codes: pd.Series) -> pd.Series:
-    """Map cached integer codes to population names, refusing unknown codes."""
+    """Map integer codes to population names, refusing unknown codes."""
     unknown = sorted(set(codes) - set(_POPULATION_NAMES))
     if unknown:
         raise ValueError(
             f"Levine population codes {unknown} name no gated population; the "
-            "cache holds labels this loader did not write."
+            "unassigned cells (15) should have been dropped in R."
         )
     return codes.map(_POPULATION_NAMES).rename("population")
 
 
-def _load_from_r(allow_install: bool) -> tuple[np.ndarray, np.ndarray, list[str]]:
+def _load_from_r() -> tuple[np.ndarray, np.ndarray, list[str], dict[str, str]]:
     """Fetch and preprocess the dataset through rpy2.
 
-    Installing an R package is a side effect on the user's machine, so it is
-    opt-in. The previous loader ran BiocManager::install unconditionally as a
-    side effect of executing a notebook cell.
+    Returns the scaled matrix, the population codes, the marker names and the
+    HDCytoData and R versions the data were read with.
     """
-    if not allow_install:
-        raise RuntimeError(
-            "The Levine dataset is not cached and fetching it requires the R package "
-            "HDCytoData, which may need installing. Re-run with allow_install=True to "
-            "permit BiocManager::install, or place a prepared cache at the cache_dir."
-        )
-
     import rpy2.robjects as ro
     from sklearn.preprocessing import RobustScaler
 
-    ro.r(r"""
-    if (!requireNamespace("BiocManager", quietly=TRUE)) install.packages("BiocManager")
-    if (!requireNamespace("HDCytoData", quietly=TRUE)) BiocManager::install("HDCytoData")
-    library(HDCytoData)
-    library(SummarizedExperiment)
-    """)
-    ro.r("sce <- Levine_32dim_SE()")
+    ro.r(
+        "suppressPackageStartupMessages({"
+        "library(HDCytoData); library(SummarizedExperiment)})"
+    )
+    ro.r("sce <- suppressMessages(Levine_32dim_SE())")
 
     X_all = np.array(ro.r("assay(sce)"), dtype=float)
 
@@ -149,39 +139,49 @@ def _load_from_r(allow_install: bool) -> tuple[np.ndarray, np.ndarray, list[str]
     X_transformed = np.arcsinh(X_all[:, type_markers].astype(np.float64) / _COFACTOR)
     X_scaled = RobustScaler(quantile_range=_QUANTILE_RANGE).fit_transform(X_transformed)
 
+    versions = {
+        "hdcytodata_version": str(
+            ro.r('as.character(packageVersion("HDCytoData"))')[0]
+        ),
+        "r_version": str(ro.r("R.version.string")[0]),
+    }
+
     keep = codes != _UNASSIGNED_CODE
-    return X_scaled[keep], codes[keep], markers
+    return X_scaled[keep], codes[keep], markers, versions
 
 
 def load_levine32(
     *,
-    cache_dir: Path | None = None,
     allow_install: bool = False,
     subsample: int | float | None = None,
     random_state: int = 42,
 ) -> tuple[np.ndarray, pd.Series, dict]:
-    """Load and preprocess the Levine 32-dimension dataset.
+    """Load and preprocess the Levine 32-dimension dataset through R.
 
-    Reads a local cache when one exists, and otherwise goes through rpy2,
-    which requires allow_install=True.
+    Needs rpy2 (the notebooks extra) and the R package HDCytoData. Installing
+    an R package is a side effect on the user's machine, so a missing
+    HDCytoData is installed only with allow_install=True; `make levine-setup`
+    installs it ahead of time.
 
     Returns
     -------
     (X, y, meta)
-        y holds the population names, one of 14 per cell.
+        y holds the population names, one of 14 per cell. meta records the
+        HDCytoData and R versions the data were read with.
     """
     from sklearn.model_selection import StratifiedShuffleSplit
 
-    cache_dir = Path(cache_dir) if cache_dir is not None else DATA_ROOT / "refs"
+    if not _hdcytodata_is_installed():
+        if not allow_install:
+            raise RuntimeError(
+                "The R package HDCytoData is not installed, and loading the Levine "
+                "data needs it. Run `make levine-setup` (which calls "
+                'BiocManager::install("HDCytoData")), or re-run with '
+                "allow_install=True to permit the install here."
+            )
+        _install_hdcytodata()
 
-    cached = _read_cache(cache_dir)
-    from_cache = cached is not None
-    if cached is None:
-        X, codes_arr, markers = _load_from_r(allow_install)
-        _write_cache(cache_dir, X, codes_arr, markers)
-    else:
-        X, codes_arr, markers = cached
-
+    X, codes_arr, markers, versions = _load_from_r()
     codes = pd.Series(np.asarray(codes_arr).astype(str))
 
     n_full = X.shape[0]
@@ -203,12 +203,12 @@ def load_levine32(
         "source": "Levine_32dim",
         "package": "HDCytoData",
         "citation": "Levine et al. 2015, Cell 162(1):184-197",
+        **versions,
         "n_cells_full": int(n_full),
         "n_cells": int(X.shape[0]),
         "n_features": int(X.shape[1]),
         "markers": markers,
         "label_name": "population",
-        "from_cache": bool(from_cache),
         "preprocessing": [
             "keep the 32 type markers (marker_class == 'type')",
             f"arcsinh(x / {_COFACTOR})",

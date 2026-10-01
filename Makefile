@@ -5,3 +5,7 @@ r-setup:
 .PHONY: m3c-setup
 m3c-setup:
 	Rscript -e "if (!requireNamespace('BiocManager', quietly=TRUE)) install.packages('BiocManager', repos='https://cran.rstudio.com/'); BiocManager::install('M3C', ask=FALSE, update=FALSE)"
+
+.PHONY: levine-setup
+levine-setup:
+	Rscript -e "if (!requireNamespace('BiocManager', quietly=TRUE)) install.packages('BiocManager', repos='https://cran.rstudio.com/'); BiocManager::install('HDCytoData', ask=FALSE, update=FALSE)"
