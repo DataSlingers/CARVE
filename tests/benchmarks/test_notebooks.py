@@ -125,9 +125,10 @@ def test_no_get_n_jobs_boilerplate(name):
 # human to notice a re-hardcoded default the next time a case-study
 # notebook is edited. Every value here traces to a manuscript line or a
 # sibling committed configuration (STUDIES["klein"] in _studies.py):
-#   - Klein loads through load_study, so its size is STUDIES["klein"]'s
-#     publication scale (every cell) rather than a notebook literal.
-#   - Levine/Motivation subsample=5000: manuscript line 627 (a stratified
+#   - Klein and Levine load through load_study, so their sizes are their
+#     studies' publication scales (every Klein cell; 5,000 Levine cells,
+#     manuscript line 627) rather than notebook literals.
+#   - Motivation subsample=5000: manuscript line 627 (a stratified
 #     subsample of 5,000 cells).
 #   - Klein's prepare_composite selection (generalizability, 1se,
 #     not_two=True): the manuscript's headline Ward-agglomerative-at-k=4
@@ -145,8 +146,12 @@ def test_klein_hands_m3c_its_subsample_rows():
     assert "rows=m3c_subsample" in source
 
 
-def test_levine_loader_uses_the_manuscript_subsample():
-    assert "subsample=5000" in _code(NOTEBOOKS["levine"])
+def test_levine_loads_its_data_through_the_study():
+    source = _code(NOTEBOOKS["levine"])
+    assert 'STUDIES["levine32"]' in source
+    assert "load_study(study)" in source
+    assert "load_levine32(" not in source
+    assert "subsample=" not in source
 
 
 def test_motivation_levine_loader_uses_the_manuscript_subsample():
@@ -177,6 +182,30 @@ def test_klein_draws_and_analyzes_the_same_embedding():
     # that happens to agree today.
     source = _code(NOTEBOOKS["klein"])
     assert "Z = PCA(n_components=2, random_state=RANDOM_SEED)" in source
+    assert "figure_reference_scatter(\n        Z," in source
+    assert "embedding=Z," in source
+
+
+def test_levine_prepare_composite_uses_the_stability_selection():
+    source = _code(NOTEBOOKS["levine"])
+    assert 'measure="stability"' in source
+    assert 'rule="1se"' in source
+
+
+def test_levine_notebook_not_two_agrees_with_the_study():
+    from benchmarks._studies import STUDIES
+
+    source = _code(NOTEBOOKS["levine"])
+    assert ("not_two=True" in source) == STUDIES["levine32"].not_two
+
+
+def test_levine_draws_and_analyzes_the_same_embedding():
+    # Klein's pin, for Levine's t-SNE: the reference scatter draws the
+    # embedding prepare_composite is handed. Without embedding=, the composite
+    # would fit a PCA of its own and Fig 6 would draw a different projection
+    # from the one the notebook shows first.
+    source = _code(NOTEBOOKS["levine"])
+    assert "Z = TSNE(random_state=RANDOM_SEED)" in source
     assert "figure_reference_scatter(\n        Z," in source
     assert "embedding=Z," in source
 
