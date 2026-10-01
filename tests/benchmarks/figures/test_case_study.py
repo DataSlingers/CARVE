@@ -302,6 +302,12 @@ class TestEstimatorSpecFromModelLabel:
             == "agglomerative_single"
         )
 
+    def test_distinguishes_a_hundred_restarts_from_ten(self):
+        assert (
+            _estimator_spec_from_model_label("KMeans (n_init=100)").name
+            == "kmeans_n_init_100"
+        )
+
     def test_raises_on_an_unknown_label(self):
         with pytest.raises(ValueError, match="Cannot map model label"):
             _estimator_spec_from_model_label("SomeOtherEstimator")

@@ -20,6 +20,7 @@ from ._types import EstimatorSpec
 
 ESTIMATOR_CLASSES: dict[str, type[ClusterMixin]] = {
     "kmeans": KMeans,
+    "kmeans_n_init_100": KMeans,
     "minibatch_kmeans": MiniBatchKMeans,
     "agglomerative": AgglomerativeClustering,
     "agglomerative_single": AgglomerativeClustering,
@@ -32,6 +33,11 @@ ESTIMATOR_DEFAULTS: dict[str, dict[str, Any]] = {
     # n_init is pinned so results do not move when scikit-learn changes its
     # default, which it has done before.
     "kmeans": {"n_init": 10},
+    # For data whose KMeans optimum 10 restarts do not reliably reach, so
+    # that the partition does not depend on the seed. Registered under its
+    # own name, like single linkage, because the gap statistic and the
+    # figures map a fit's parameters back to its estimator by name.
+    "kmeans_n_init_100": {"n_init": 100},
     "minibatch_kmeans": {"n_init": 10},
     "agglomerative": {"linkage": "ward"},
     "agglomerative_single": {"linkage": "single"},

@@ -72,6 +72,26 @@ class TestCviSweep:
         }
         assert seen == {"agglomerative", "agglomerative_single"}
 
+    def test_gap_reference_fits_use_the_cells_own_restarts(self, blobs, monkeypatch):
+        """The same failure for KMeans: a cell fit with 100 restarts must have
+        its gap references refit with 100, not the 10 of the kmeans spec."""
+        import benchmarks._cvi as cvi_module
+
+        X, y = blobs
+        seen = set()
+        original = cvi_module.build_estimator
+
+        def spy(spec, **kwargs):
+            seen.add(spec.name)
+            return original(spec, **kwargs)
+
+        monkeypatch.setattr(cvi_module, "build_estimator", spy)
+        grids = [(KMeans, {"n_clusters": [2, 3], "n_init": [10, 100]})]
+        curves, _ = cvi_sweep(X, y, model_grids=grids, candidate_k=(2, 3), n_jobs=1)
+
+        assert set(curves["model"]) == {"KMeans (n_init=10)", "KMeans (n_init=100)"}
+        assert seen == {"kmeans", "kmeans_n_init_100"}
+
     def test_returns_curves_and_best(self, blobs):
         X, y = blobs
         grids = param_grids(EstimatorSpec(name="kmeans"), (2, 3, 4))
@@ -509,6 +529,14 @@ class TestStudyModelGrids:
         classes = {estimator_cls for estimator_cls, _ in grid}
         assert classes == {KMeans, SpectralClustering}
         assert AgglomerativeClustering not in classes
+
+    def test_levine_kmeans_runs_a_hundred_restarts(self):
+        # With 10 restarts, KMeans at k=7 on Levine's 5,000 cells stops at one
+        # of two solutions depending on the seed (ARI 0.625 or 0.849); with
+        # 100 it finds the lower-inertia one (0.625) from every seed tried.
+        grid = study_model_grids(STUDIES["levine32"])
+        kmeans_params = dict(next(params for cls, params in grid if cls is KMeans))
+        assert kmeans_params["n_init"] == [100]
 
     def test_grid_reads_partners_from_the_study(self):
         # The partner estimators are declared on the Study, not chosen by a

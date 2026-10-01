@@ -469,7 +469,11 @@ STUDIES: dict[str, Study] = {
     "levine32": Study(
         name="levine32",
         loader=_levine_loader,
-        estimator=EstimatorSpec(name="kmeans"),
+        # With 10 restarts, KMeans at k=7 on the 5,000 cells stops at one of
+        # two solutions depending on the seed (ARI 0.625 or 0.849); with 100
+        # it finds the lower-inertia one from every seed tried (measured
+        # 2026-09-30). The CVI sweep and CARVE's fits share this grid.
+        estimator=EstimatorSpec(name="kmeans_n_init_100"),
         candidate_k=tuple(range(7, 18)),
         scales={"publication": 5000},
         default_scale="publication",

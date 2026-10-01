@@ -11,6 +11,7 @@ from typing import Any
 KNOWN_ESTIMATORS: frozenset[str] = frozenset(
     {
         "kmeans",
+        "kmeans_n_init_100",
         "minibatch_kmeans",
         "agglomerative",
         "agglomerative_single",

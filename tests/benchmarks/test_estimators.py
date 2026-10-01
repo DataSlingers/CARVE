@@ -68,6 +68,13 @@ class TestBuildEstimator:
         assert isinstance(est, AgglomerativeClustering)
         assert est.linkage == "single"
 
+    def test_kmeans_n_init_100_runs_a_hundred_restarts(self):
+        est = build_estimator(
+            EstimatorSpec(name="kmeans_n_init_100"), n_clusters=3, random_state=0
+        )
+        assert isinstance(est, KMeans)
+        assert est.n_init == 100
+
     def test_single_linkage_is_a_dense_pairwise_estimator(self):
         # sklearn's single linkage builds the full pairwise distance matrix
         # without a connectivity graph, so it is quadratic like Ward.
