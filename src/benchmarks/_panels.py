@@ -56,8 +56,60 @@ def cluster_color_map(labels: np.ndarray) -> dict[Any, str]:
     return dict(zip(unique, cluster_colors(len(unique))))
 
 
+#: OKLab (Ottosson 2020): linear sRGB to LMS, then cube-rooted LMS to Lab.
+_LMS_FROM_LINEAR_RGB = np.array(
+    [
+        [0.4122214708, 0.5363325363, 0.0514459929],
+        [0.2119034982, 0.6806995451, 0.1073969566],
+        [0.0883024619, 0.2817188376, 0.6299787005],
+    ]
+)
+_OKLAB_FROM_LMS = np.array(
+    [
+        [0.2104542553, 0.7936177850, -0.0040720468],
+        [1.9779984951, -2.4285922050, 0.4505937099],
+        [0.0259040371, 0.7827717662, -0.8086757660],
+    ]
+)
+
+#: CLUSTER_PALETTE's first ten entries are tab10.
+_TAB10_HEAD = 10
+
+#: The OKLab lightness band a matched label's color is drawn from after tab10.
+#: Below it, a color under the scatter's black marker outlines reads as near
+#: black; above it, it barely shows on the white background.
+_MATCHED_LIGHTNESS = (0.5, 0.9)
+
+
+def _oklab(color: str) -> np.ndarray:
+    """A color's OKLab (L, a, b), L running from 0 (black) to 1 (white)."""
+    rgb = np.asarray(to_rgba(color)[:3])
+    linear = np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
+    return _OKLAB_FROM_LMS @ np.cbrt(_LMS_FROM_LINEAR_RGB @ linear)
+
+
+def _distinct_first(palette: Sequence[str]) -> list[int]:
+    """Palette indices in the order matched labels take them.
+
+    tab10's entries first, in order; then the entries inside
+    _MATCHED_LIGHTNESS, each the one farthest in OKLab from every entry
+    already taken; then the rest in palette order.
+    """
+    lab = [_oklab(color) for color in palette]
+    order = list(range(min(_TAB10_HEAD, len(palette))))
+    low, high = _MATCHED_LIGHTNESS
+    pool = [i for i in range(len(order), len(palette)) if low <= lab[i][0] <= high]
+    while pool:
+        farthest = max(
+            pool, key=lambda i: min(np.linalg.norm(lab[i] - lab[j]) for j in order)
+        )
+        order.append(farthest)
+        pool.remove(farthest)
+    return order + [i for i in range(len(palette)) if i not in order]
+
+
 def aligned_color_maps(
-    y_true: np.ndarray, *clusterings: np.ndarray
+    y_true: np.ndarray, *clusterings: np.ndarray, matched_first: bool = False
 ) -> tuple[dict[Any, str], ...]:
     """One palette shared by the reported labels and every clustering.
 
@@ -75,6 +127,15 @@ def aligned_color_maps(
     The palette is sized to cover both the reported labels and the highest
     cluster id present, so a clustering with more clusters than there are
     reported labels still gets a color for every one of them.
+
+    With matched_first, the reported labels a clustering was matched to take
+    their colors first, in _distinct_first's order, and the rest take what is
+    left in palette order. The reported labels still share one set of colors
+    and every matched cluster keeps its label's color; only which label gets
+    which color changes. Without it, a clustering coarser than the reported
+    labels can match labels whose palette entries happen to be dark: five of
+    the 30 source clusters the Cusanovich fit's 13 clusters matched are drawn
+    darker than OKLab lightness 0.5.
     """
     categories = sorted(set(np.asarray(y_true).tolist()))
     highest_id = 0
@@ -84,6 +145,16 @@ def aligned_color_maps(
             highest_id = max(highest_id, int(np.max(values)) + 1)
 
     palette = cluster_colors(max(len(categories), highest_id))
+    if matched_first:
+        n = len(categories)
+        matched = sorted(
+            {int(c) for labels in clusterings for c in np.unique(labels) if c < n}
+        )
+        front = _distinct_first(palette[:n])[: len(matched)]
+        unmatched = [code for code in range(n) if code not in matched]
+        rest = [i for i in range(n) if i not in front]
+        slot = dict(zip(matched, front)) | dict(zip(unmatched, rest))
+        palette = [palette[slot[code]] for code in range(n)] + palette[n:]
     true_cmap = {category: palette[i] for i, category in enumerate(categories)}
     cluster_cmaps = [
         {int(c): palette[int(c)] for c in np.unique(np.asarray(labels))}

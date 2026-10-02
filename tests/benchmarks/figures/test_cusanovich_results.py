@@ -91,11 +91,35 @@ def test_writes_under_its_manuscript_name(inputs, tmp_path):
 
 def test_titles_name_the_selection_and_the_source(inputs):
     panels = _panels(figure_cusanovich_results(inputs, save=False))
-    title = panels["A"].get_title()
-    assert "CARVE: Leiden, resolution 0.6, 12 clusters" in title
-    assert "consensus over LSI, t-SNE, UMAP" in title
-    assert "shown on LSI 1/2" in title
+    assert panels["A"].get_title() == (
+        "CARVE: Leiden, resolution 0.6, 12 clusters\nLSI 1 and LSI 2"
+    )
     assert panels["B"].get_title() == "Cusanovich et al.: Louvain on t-SNE, 6 clusters"
+    assert panels["C"].get_title() == (
+        "Stability & Generalizability over resolution, pooled over pipelines"
+    )
+    assert panels["D"].get_title() == (
+        "Stability & Generalizability across preprocessing pipelines"
+    )
+
+
+def test_a_names_the_perplexity_of_a_tsne_embedding(inputs):
+    table = inputs.carve.preprocessing_results_
+    (tsne,) = [label for label in SPECS if "perplexity" in label]
+    row = table.loc[
+        (table["sweep_value"] == 0.6) & (table["pipeline"] == tsne)
+    ].iloc[0]
+    fig = figure_cusanovich_results(
+        replace(
+            inputs,
+            best_pipeline_row=row,
+            embedding_A_labels=("t-SNE 1", "t-SNE 2"),
+        ),
+        save=False,
+    )
+    assert _panels(fig)["A"].get_title() == (
+        "CARVE: Leiden, resolution 0.6, 12 clusters\nt-SNE, perplexity 30"
+    )
 
 
 def test_a_draws_the_best_pipelines_embedding_and_b_the_source_tsne(inputs):
@@ -123,6 +147,25 @@ def test_a_carve_cluster_takes_the_color_of_the_source_cluster_it_matches(inputs
 
     assert color_of(panels["A"], "0") == color_of(panels["B"], "1")
     assert color_of(panels["A"], "3") == color_of(panels["B"], "4")
+
+
+def test_carves_matches_take_the_palettes_distinct_colors_first(inputs):
+    # Twelve source clusters; CARVE's two match codes 0 and 10. In palette
+    # order code 10 would be the eleventh entry, a dark indigo; matched
+    # first, it takes the second, tab10 orange, in both panels.
+    n = 120
+    y = np.repeat([f"{i:02d}" for i in range(12)], n // 12)
+    fig = figure_cusanovich_results(
+        replace(inputs, y=y, carve_labels=np.repeat([0, 10], n // 2)), save=False
+    )
+    panels = _panels(fig)
+
+    def color_of(ax, label):
+        (collection,) = [c for c in _scatter_collections(ax) if c.get_label() == label]
+        return mcolors.to_hex(collection.get_facecolor()[0])
+
+    assert color_of(panels["A"], "10") == "#ff7f0e"
+    assert color_of(panels["B"], "10") == "#ff7f0e"
 
 
 def test_c_marks_the_operating_point_and_draws_no_horizontal_line(inputs):

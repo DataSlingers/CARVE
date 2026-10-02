@@ -1040,6 +1040,59 @@ class TestAlignedColorMaps:
         assert len(maps) == 4
 
 
+class TestAlignedColorMapsMatchedFirst:
+    # The Cusanovich atlas fit: 30 source clusters, CARVE's 13 matched to
+    # these codes. In palette order five of them (10, 11, 13, 22, 27) land on
+    # entries darker than OKLab lightness 0.5.
+    MATCHED = (0, 2, 4, 5, 8, 9, 10, 11, 13, 22, 24, 25, 27)
+
+    @pytest.fixture
+    def maps(self):
+        y_true = np.array([f"c{i:02d}" for i in range(30)])
+        return y_true, aligned_color_maps(
+            y_true, np.array(self.MATCHED), matched_first=True
+        )
+
+    def test_matched_labels_take_tab10_then_the_most_distinct_mid_lightness_entries(
+        self, maps
+    ):
+        _, (_, cluster_cmap_) = maps
+        drawn = [cluster_cmap_[code] for code in self.MATCHED]
+        assert drawn == [*cluster_colors(10), "#0fffa9", "#6126ff", "#bcbcff"]
+
+    def test_no_matched_label_is_drawn_dark(self, maps):
+        _, (_, cluster_cmap_) = maps
+        assert min(_panels._oklab(color)[0] for color in cluster_cmap_.values()) >= 0.5
+        # In palette order they would be: the property is the option's doing.
+        _, default = aligned_color_maps(
+            np.array([f"c{i:02d}" for i in range(30)]), np.array(self.MATCHED)
+        )
+        assert min(_panels._oklab(color)[0] for color in default.values()) < 0.5
+
+    def test_reported_labels_keep_the_same_colors_reassigned(self, maps):
+        _, (true_cmap, _) = maps
+        assert sorted(true_cmap.values()) == sorted(cluster_colors(30))
+
+    def test_a_cluster_still_shares_its_reported_label_color(self, maps):
+        y_true, (true_cmap, cluster_cmap_) = maps
+        for code in self.MATCHED:
+            assert cluster_cmap_[code] == true_cmap[y_true[code]]
+
+    def test_an_unmatched_cluster_keeps_a_color_no_reported_label_has(self):
+        y_true = np.array(["a", "b", "c"])
+        true_cmap, cluster_cmap_ = aligned_color_maps(
+            y_true, np.array([1, 3]), matched_first=True
+        )
+        assert cluster_cmap_[3] == cluster_colors(4)[3]
+        assert cluster_cmap_[3] not in true_cmap.values()
+        assert cluster_cmap_[1] == true_cmap["b"] == cluster_colors(3)[0]
+
+
+def test_oklab_matches_the_reference_white_and_black():
+    np.testing.assert_allclose(_panels._oklab("#FFFFFF"), [1.0, 0.0, 0.0], atol=1e-6)
+    np.testing.assert_allclose(_panels._oklab("#000000"), [0.0, 0.0, 0.0], atol=1e-6)
+
+
 class TestAxisArrows:
     def test_returns_the_same_axes(self, ax):
         assert axis_arrows(ax) is ax

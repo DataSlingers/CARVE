@@ -11,6 +11,9 @@ the selected configuration, on C's x axis. A and B share one color map, so a
 CARVE cluster takes the color of the source cluster it best matches.
 _theme.CLUSTER_PALETTE holds 64 distinct colors, so each of the 30 source
 clusters, and each CARVE cluster left unmatched past them, has its own until 64.
+The source clusters CARVE matches take tab10 and then the palette's most
+distinct mid-lightness entries (aligned_color_maps' matched_first), so A's
+fewer clusters are not left on whichever dark entries their matches had.
 """
 
 from pathlib import Path
@@ -38,20 +41,24 @@ SAVE_NAME = "cusanovich_results.png"
 
 
 def _panel_a_title(inputs: CusanovichInputs, selected, n_clusters: int) -> str:
+    """The selection, then the embedding A is drawn on.
+
+    A t-SNE is named by its perplexity; anything else by the two axes drawn.
+    """
     carve = inputs.carve
     estimator = str(selected["estimator"]).removesuffix("Clustering")
-    pooled = sorted(
-        {
-            axis_prefix(spec.dim_reduction)
-            for spec in carve.preprocessing_pipelines_.values()
-        },
-        key=str.lower,
+    step = carve.preprocessing_pipelines_[
+        inputs.best_pipeline_row["pipeline"]
+    ].dim_reduction
+    perplexity = step.params.get("perplexity")
+    shown = (
+        f"{axis_prefix(step)}, perplexity {perplexity:g}"
+        if perplexity is not None
+        else " and ".join(inputs.embedding_A_labels)
     )
-    shown = inputs.embedding_A_labels[0].removesuffix(" 1")
     return (
         f"CARVE: {estimator}, {carve.sweep_.param} "
-        f"{float(selected['sweep_value']):g}, {n_clusters} clusters\n"
-        f"consensus over {', '.join(pooled)}; shown on {shown} 1/2"
+        f"{float(selected['sweep_value']):g}, {n_clusters} clusters\n{shown}"
     )
 
 
@@ -111,7 +118,9 @@ def figure_cusanovich_results(
         measure=inputs.measure, rule=inputs.rule, not_two=inputs.not_two
     )
     method_id = str(selected["method_id"])
-    source_cmap, carve_cmap = aligned_color_maps(inputs.y, inputs.carve_labels)
+    source_cmap, carve_cmap = aligned_color_maps(
+        inputs.y, inputs.carve_labels, matched_first=True
+    )
     n_source = int(np.unique(inputs.y).size)
 
     with theme_context():
@@ -143,7 +152,10 @@ def figure_cusanovich_results(
             carve,
             rule=inputs.rule,
             not_two=inputs.not_two,
-            title=f"CARVE over {carve.sweep_.param}, pooled over pipelines",
+            title=(
+                f"Stability & Generalizability over {carve.sweep_.param}, "
+                "pooled over pipelines"
+            ),
         )
         # The resolution grid is log-spaced, so C draws it on a log axis ticked
         # at the grid values; D shares C's x axis and follows. The scale is set
@@ -162,7 +174,7 @@ def figure_cusanovich_results(
             method_id=method_id,
             rule=inputs.rule,
             not_two=inputs.not_two,
-            title="Per pipeline, at the selected configuration",
+            title="Stability & Generalizability across preprocessing pipelines",
         )
 
         for letter, ax in zip("ABCD", axes.flat):
