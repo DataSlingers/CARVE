@@ -16,6 +16,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ._ablation_cells import arm_view
+from ._ablation_summary import HEADLINE_METRICS, table_rows
 from ._registry import BASELINE_METRIC, METRIC_DISPLAY_NAMES, TABLE_ROW_GROUPS
 
 _QUANTILES = (0.05, 0.25, 0.50, 0.75, 0.95)
@@ -531,15 +533,13 @@ def render_ablation_tex(
 ) -> str:
     """Two sub-tables, one row per rho value and one per B value.
 
-    Per headline selector: pooled k* recovery with its Wilson interval, the
-    pooled mean ARI of the selected labels, in the B sub-table the pooled
-    replicate agreement, and the study's modal selection with its share. Metrics
-    default to the headline selectors. study_title=None (an ablation without
-    a case study) drops the modal column.
+    Per headline selector: the pooled mean ARI of the selected labels, in
+    the B sub-table the pooled replicate agreement, and the study's modal
+    selection with its share. Metrics default to the headline selectors.
+    study_title=None (an ablation without a case study) drops the modal
+    column.
     """
     if metrics is None:
-        from ._ablation_summary import HEADLINE_METRICS
-
         metrics = HEADLINE_METRICS
     lines = [
         r"\begin{table}[ht]",
@@ -551,7 +551,7 @@ def render_ablation_tex(
         rows = rows_by_arm[arm]
         with_agreement = arm == "b"
         with_study = study_title is not None
-        per_metric = 2 + with_agreement + with_study
+        per_metric = 1 + with_agreement + with_study
         lines += [
             f"\\begin{{tabular}}{{l{'c' * per_metric * len(metrics)}}}",
             r"\hline",
@@ -563,7 +563,7 @@ def render_ablation_tex(
         lines.append(" & ".join(head) + r" \\")
         sub = [_ARM_HEADINGS[arm]]
         for _ in metrics:
-            sub += ["$k$-rec [95\\% CI]", "ARI"]
+            sub.append("ARI")
             if with_agreement:
                 sub.append("Agreement")
             if with_study:
@@ -579,10 +579,6 @@ def render_ablation_tex(
                     cells += [""] * per_metric
                     continue
                 row = match.iloc[0]
-                cells.append(
-                    f"{_fmt(row['recovery'], 2)} [{_fmt(row['recovery_lo'], 2)}, "
-                    f"{_fmt(row['recovery_hi'], 2)}]"
-                )
                 cells.append(_fmt(row["ari_mean"], decimals))
                 if with_agreement:
                     cells.append(_fmt(row["agreement"], 2))
@@ -607,10 +603,6 @@ def write_ablation_table(
     label: str = "tab:ablation_rho_b",
 ) -> Path:
     """Summarize a run's two arms and write the .tex fragment."""
-    # Imported here: _ablation_summary imports wilson_ci from this module.
-    from ._ablation_cells import arm_view
-    from ._ablation_summary import table_rows
-
     rows = {
         "rho": table_rows(
             arm_view(frames, ablation=ablation, scale=scale, arm="rho"),

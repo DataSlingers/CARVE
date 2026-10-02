@@ -13,7 +13,6 @@ import numpy as np
 import pandas as pd
 
 from ._artifacts import CELL_KEY
-from ._tables import wilson_ci
 
 HEADLINE_METRICS: tuple[str, ...] = ("ari_stability_1se", "ari_generalizability_1se")
 POOLED: str = "pooled"
@@ -36,58 +35,48 @@ def _with_pooled(
     return pd.concat([per, pooled], ignore_index=True)
 
 
-def selection_summary(
-    selection: pd.DataFrame, *, x: str, metrics: Sequence[str] = HEADLINE_METRICS
+def ari_summary(
+    selection: pd.DataFrame,
+    at_k: pd.DataFrame,
+    *,
+    x: str,
+    metrics: Sequence[str] = HEADLINE_METRICS,
 ) -> pd.DataFrame:
-    """k* recovery with Wilson bounds, and mean and standard error of the
-    bias and of the ARI of the selected labels.
+    """Mean and standard error of the ARI to the true labels of the labels
+    each selector returns.
 
-    Simulations only: the study has no true k. An undefined selection
+    Every metric reads the stability-consensus at_k rows at its selected k,
+    the labels CARVE returns whichever measure selected k, as
+    rare_recall_summary does. at_k is keyed by k alone, which identifies
+    the labels because each simulated scenario runs one estimator.
+    Replicates are averaged within a dataset first, so the standard error is
+    over datasets, the independent unit. Simulations only: a study has no
+    at_k rows (study_ari_summary covers it). An undefined selection
     (_ablation.cell_rows records selected_k as NaN when a metric's measure
-    column is NaN for every configuration of a cell) is missing data, not a
-    miss: it is dropped before hit/bias are computed, so it does not count
-    toward n or drag recovery down, and a group left with no defined
-    selections at all emits no row.
+    column is NaN for every configuration of a cell) is missing data: it is
+    dropped, and a group left with no defined selection emits no row.
     """
+    key = list(CELL_KEY)
     rows = selection[
         selection["k_star"].notna()
         & selection["selected_k"].notna()
         & selection["metric_name"].isin(metrics)
-    ].copy()
-    rows["hit"] = (rows["selected_k"] == rows["k_star"]).astype(float)
-    rows["bias"] = rows["selected_k"] - rows["k_star"]
-    out = _with_pooled(
-        rows,
+    ][key + ["metric_name", "selected_k"]].copy()
+    rows["selected_k"] = rows["selected_k"].astype(int)
+    at = at_k[at_k["mode"] == "default"][key + ["k", "ari_at_k"]]
+    merged = rows.merge(at, left_on=key + ["selected_k"], right_on=key + ["k"])
+    group = [x, *DATASET_KEY, "metric_name"]
+    per_dataset = merged.groupby(group, as_index=False)["ari_at_k"].mean()
+    return _with_pooled(
+        per_dataset,
         [x, "study", "metric_name"],
         {
-            "n": ("hit", "size"),
-            "hits": ("hit", "sum"),
-            "bias_mean": ("bias", "mean"),
-            "bias_sem": ("bias", "sem"),
-            "ari_mean": ("ari_selected", "mean"),
-            "ari_sem": ("ari_selected", "sem"),
+            "ari_mean": ("ari_at_k", "mean"),
+            "ari_sem": ("ari_at_k", "sem"),
+            "n_datasets": ("ari_at_k", "size"),
         },
         x=x,
     )
-    out["recovery"] = out["hits"] / out["n"]
-    bounds = [wilson_ci(int(h), int(n)) for h, n in zip(out["hits"], out["n"])]
-    out["recovery_lo"] = [lo for lo, _ in bounds]
-    out["recovery_hi"] = [hi for _, hi in bounds]
-    return out[
-        [
-            x,
-            "study",
-            "metric_name",
-            "n",
-            "recovery",
-            "recovery_lo",
-            "recovery_hi",
-            "bias_mean",
-            "bias_sem",
-            "ari_mean",
-            "ari_sem",
-        ]
-    ]
 
 
 def _pair_agreement(choices: pd.Series) -> float:
@@ -321,10 +310,10 @@ def table_rows(
     study: str | None,
     metrics: Sequence[str] = HEADLINE_METRICS,
 ) -> pd.DataFrame:
-    """One row per (setting, metric) for the SI table: pooled recovery with
-    its Wilson interval, pooled ARI, pooled replicate agreement, and the
-    study's modal selection with its share of replicates. With study=None
-    (an ablation without a case study) the modal columns are left empty.
+    """One row per (setting, metric) for the SI table: pooled ARI of the
+    selected labels, pooled replicate agreement, and the study's modal
+    selection with its share of replicates. With study=None (an ablation
+    without a case study) the modal columns are left empty.
 
     A partial run (an empty selection frame, or one with no rows for the
     named study) leaves modal empty; declaring the merge frame's columns
@@ -333,8 +322,8 @@ def table_rows(
     raising KeyError.
     """
     selection = view["selection"]
-    pooled = selection_summary(selection, x=x, metrics=metrics)
-    pooled = pooled[pooled["study"] == POOLED]
+    pooled = ari_summary(selection, view["at_k"], x=x, metrics=metrics)
+    pooled = pooled[pooled["study"] == POOLED][[x, "metric_name", "ari_mean"]]
     agreement = agreement_summary(selection, x=x, metrics=metrics)
     agreement = agreement[agreement["study"] == POOLED][[x, "metric_name", "agreement"]]
     rows = pooled.merge(agreement, on=[x, "metric_name"], how="left")
@@ -362,9 +351,6 @@ def table_rows(
         [
             "setting",
             "metric_name",
-            "recovery",
-            "recovery_lo",
-            "recovery_hi",
             "ari_mean",
             "agreement",
             "study_modal",

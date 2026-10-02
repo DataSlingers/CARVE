@@ -597,6 +597,8 @@ class TestAblationTable:
         assert "Ward" in tex or "Spectral" in tex
         assert r"\caption{Sensitivity}" in tex
         assert "nan" not in tex
+        # ARI is the headline; k* recovery is no longer reported.
+        assert "rec" not in tex
 
     def test_write_ablation_table_writes_the_fragment(self, frames, tmp_path):
         ablation, data = frames
@@ -615,10 +617,10 @@ class TestAblationTable:
             data, ablation=ablation, scale="test", out_dir=tmp_path
         ).read_text()
         assert "modal" not in tex
-        # Per headline selector: recovery and ARI, plus agreement in the B arm.
+        # Per headline selector: ARI, plus agreement in the B arm.
         n_metrics = len(HEADLINE_METRICS)
+        assert f"\\begin{{tabular}}{{l{'c' * 1 * n_metrics}}}" in tex
         assert f"\\begin{{tabular}}{{l{'c' * 2 * n_metrics}}}" in tex
-        assert f"\\begin{{tabular}}{{l{'c' * 3 * n_metrics}}}" in tex
         for rho in ablation.rho_grid:
             assert f"\n{rho:g} &" in tex
         assert "nan" not in tex
@@ -626,8 +628,8 @@ class TestAblationTable:
     def test_renders_nan_and_missing_cells_empty(self):
         """Verify NaN and missing-row rendering paths are covered.
 
-        Builds rows_by_arm by hand with: one row with NaN recovery/recovery_lo/
-        recovery_hi/ari_mean; one row with NaN study_share; one (setting, metric)
+        Builds rows_by_arm by hand with: one row with NaN ari_mean; one row
+        with NaN study_share; one (setting, metric)
         pair absent entirely (match.empty fires); and defined rows with
         study_modal "AgglomerativeClustering, k=4" and "SpectralClustering, k=3".
         """
@@ -637,9 +639,6 @@ class TestAblationTable:
                 {
                     "setting": 0.5,
                     "metric_name": "ari_stability_1se",
-                    "recovery": float("nan"),
-                    "recovery_lo": float("nan"),
-                    "recovery_hi": float("nan"),
                     "ari_mean": float("nan"),
                     "agreement": 0.75,
                     "study_modal": "AgglomerativeClustering, k=4",
@@ -648,9 +647,6 @@ class TestAblationTable:
                 {
                     "setting": 0.5,
                     "metric_name": "ari_generalizability_1se",
-                    "recovery": 0.33,
-                    "recovery_lo": 0.14,
-                    "recovery_hi": 0.61,
                     "ari_mean": 0.45,
                     "agreement": 0.60,
                     "study_modal": "SpectralClustering, k=3",
@@ -659,9 +655,6 @@ class TestAblationTable:
                 {
                     "setting": 0.7,
                     "metric_name": "ari_stability_1se",
-                    "recovery": 0.25,
-                    "recovery_lo": 0.09,
-                    "recovery_hi": 0.53,
                     "ari_mean": 0.50,
                     "agreement": 0.42,
                     "study_modal": "Ward, k=2",
@@ -670,9 +663,6 @@ class TestAblationTable:
                 {
                     "setting": 0.9,
                     "metric_name": "ari_stability_1se",
-                    "recovery": 0.33,
-                    "recovery_lo": 0.14,
-                    "recovery_hi": 0.61,
                     "ari_mean": 0.52,
                     "agreement": 0.50,
                     "study_modal": "SpectralClustering, k=3",
@@ -687,9 +677,6 @@ class TestAblationTable:
                 {
                     "setting": 50,
                     "metric_name": "ari_stability_1se",
-                    "recovery": float("nan"),
-                    "recovery_lo": float("nan"),
-                    "recovery_hi": float("nan"),
                     "ari_mean": float("nan"),
                     "agreement": 0.33,
                     "study_modal": "AgglomerativeClustering, k=4",
@@ -698,9 +685,6 @@ class TestAblationTable:
                 {
                     "setting": 50,
                     "metric_name": "ari_generalizability_1se",
-                    "recovery": 0.42,
-                    "recovery_lo": 0.19,
-                    "recovery_hi": 0.68,
                     "ari_mean": 0.55,
                     "agreement": 0.67,
                     "study_modal": "SpectralClustering, k=3",
@@ -709,9 +693,6 @@ class TestAblationTable:
                 {
                     "setting": 100,
                     "metric_name": "ari_stability_1se",
-                    "recovery": 0.17,
-                    "recovery_lo": 0.05,
-                    "recovery_hi": 0.45,
                     "ari_mean": 0.48,
                     "agreement": 0.25,
                     "study_modal": "Ward, k=5",
@@ -720,9 +701,6 @@ class TestAblationTable:
                 {
                     "setting": 150,
                     "metric_name": "ari_stability_1se",
-                    "recovery": 0.42,
-                    "recovery_lo": 0.19,
-                    "recovery_hi": 0.68,
                     "ari_mean": 0.56,
                     "agreement": 0.58,
                     "study_modal": "SpectralClustering, k=3",
@@ -751,7 +729,7 @@ class TestAblationTable:
         assert "Spectral, $k=3$" in tex
 
         # Extract rho data lines: 0.5, 0.7, 0.9
-        rho_section = tex.split(r"\begin{tabular}{lcccccc}")[1].split(r"\end{tabular}")[0]
+        rho_section = tex.split(r"\begin{tabular}{lcccc}")[1].split(r"\end{tabular}")[0]
         rho_data_lines = [
             line
             for line in rho_section.split("\n")
@@ -760,7 +738,7 @@ class TestAblationTable:
         assert len(rho_data_lines) == 3, f"Expected 3 rho data rows, got {len(rho_data_lines)}"
 
         # Extract B data lines: 50, 100, 150
-        b_section = tex.split(r"\begin{tabular}{lcccccccc}")[1].split(r"\end{tabular}")[0]
+        b_section = tex.split(r"\begin{tabular}{lcccccc}")[1].split(r"\end{tabular}")[0]
         b_data_lines = [
             line
             for line in b_section.split("\n")
@@ -769,25 +747,25 @@ class TestAblationTable:
         ]
         assert len(b_data_lines) == 3, f"Expected 3 b data rows, got {len(b_data_lines)}"
 
-        # Verify cell counts: rho sub-table has 7 cells per row (1 setting + 3 * 2 metrics)
+        # Verify cell counts: rho sub-table has 5 cells per row (1 setting + 2 * 2 metrics)
         for line in rho_data_lines:
             assert "nan" not in line.lower(), f"Line should not contain nan: {line}"
             # Strip the LaTeX row-end marker (space-backslash-backslash)
             line_content = line[:-3] if line.endswith(r" \\") else line
             cells = line_content.split(" & ")
             assert (
-                len(cells) == 7
-            ), f"Rho row should have 7 cells, got {len(cells)}: {line}"
+                len(cells) == 5
+            ), f"Rho row should have 5 cells, got {len(cells)}: {line}"
 
-        # Verify cell counts: B sub-table has 9 cells per row (1 setting + 4 * 2 metrics)
+        # Verify cell counts: B sub-table has 7 cells per row (1 setting + 3 * 2 metrics)
         for line in b_data_lines:
             assert "nan" not in line.lower(), f"Line should not contain nan: {line}"
             # Strip the LaTeX row-end marker (space-backslash-backslash)
             line_content = line[:-3] if line.endswith(r" \\") else line
             cells = line_content.split(" & ")
             assert (
-                len(cells) == 9
-            ), f"B row should have 9 cells, got {len(cells)}: {line}"
+                len(cells) == 7
+            ), f"B row should have 7 cells, got {len(cells)}: {line}"
 
 
 class TestRenderM3CTex:

@@ -21,12 +21,11 @@ EXPECTED = (
     "figure_heca_results",
     "figure_study_scaling",
     "figure_reference_scatter",
-    "figure_ablation_b",
-    "figure_ablation_rho",
+    "figure_ablation",
 )
 
 # Figures not yet implemented. Tasks 9 through 12 each removed their own
-# figures from this set as they landed; it is now empty, since all fourteen
+# figures from this set as they landed; it is now empty, since all thirteen
 # manuscript figures exist, as does the case-study reference-label overview
 # (figure_reference_scatter), a notebook figure held to the same contract.
 # It is a one-way ratchet from here: re-adding a name would silence that

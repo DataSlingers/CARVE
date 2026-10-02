@@ -8,18 +8,17 @@ from benchmarks._ablation_summary import (
     HEADLINE_METRICS,
     POOLED,
     agreement_summary,
+    ari_summary,
     curve_at_k_star,
     diagnostics_summary,
     rare_recall_summary,
-    selection_summary,
     similarity_summary,
     spread_summary,
     study_ari_summary,
     study_selection_shares,
     table_rows,
 )
-from benchmarks._artifacts import ABLATION_SELECTION_SCHEMA
-from benchmarks._tables import wilson_ci
+from benchmarks._artifacts import ABLATION_AT_K_SCHEMA, ABLATION_SELECTION_SCHEMA
 
 X = "subsample_ratio"
 STAB, GEN = HEADLINE_METRICS
@@ -81,37 +80,65 @@ def _undefined_gini_rows():
     return pd.DataFrame(rows)
 
 
-class TestSelectionSummary:
-    def test_recovery_bias_and_ari_per_study_and_pooled(self):
-        out = selection_summary(_selection(), x=X)
-        stab_02 = out[(out["study"] == "gaussians") & (out["metric_name"] == STAB) & (out[X] == 0.2)].iloc[0]
-        assert stab_02["n"] == 4
-        assert stab_02["recovery"] == 0.0
-        assert stab_02["bias_mean"] == pytest.approx(-1.5)  # k-hat 3 or 4 minus 5
-        assert stab_02["ari_mean"] == pytest.approx(0.5)
-        lo, hi = wilson_ci(0, 4)
-        assert (stab_02["recovery_lo"], stab_02["recovery_hi"]) == (lo, hi)
-        pooled = out[(out["study"] == POOLED) & (out["metric_name"] == GEN) & (out[X] == 0.618)].iloc[0]
-        assert pooled["recovery"] == 1.0
+def _ari_at(k, dataset):
+    """The stability-consensus ARI _at_k writes at k: distinct per k and per
+    dataset, and never equal to a selection's ari_selected."""
+    return 0.1 * k + 0.02 * dataset
+
+
+def _at_k(selection, ks=(3, 4, 5, 6, 7)):
+    """at_k rows for every simulated cell of a selection frame. The
+    generalizability mode carries a constant 0.99, so a summary that read
+    the wrong mode is caught."""
+    cells = selection[selection["difficulty"] != ""][list(_key())].drop_duplicates()
+    rows = [
+        {**cell, "mode": mode, "k": k,
+         "ari_at_k": _ari_at(k, cell["dataset"]) if mode == "default" else 0.99,
+         "rare_recall_at_k": 1.0}
+        for cell in cells.to_dict("records")
+        for mode in ("default", "generalizability")
+        for k in ks
+    ]
+    return pd.DataFrame(rows)
+
+
+ARI_COLUMNS = [X, "study", "metric_name", "ari_mean", "ari_sem", "n_datasets"]
+
+
+class TestAriSummary:
+    def test_reads_the_stability_consensus_ari_at_the_selected_k(self):
+        # Generalizability selects k=5 on both datasets at 0.618. Its labels
+        # are the stability consensus, so the ARI is the default-mode value
+        # there (0.50 and 0.52), not the stored ari_selected (0.9) and not
+        # the generalizability-mode value (0.99).
+        selection = _selection()
+        out = ari_summary(selection, _at_k(selection), x=X)
+        gen = out[(out["study"] == "gaussians") & (out["metric_name"] == GEN) & (out[X] == 0.618)].iloc[0]
+        assert gen["ari_mean"] == pytest.approx(0.51)
+        assert gen["n_datasets"] == 2
+
+    def test_replicates_are_averaged_within_a_dataset_first(self):
+        # Stability at 0.2 selects k=3 (replicate 0) and k=4 (replicate 1):
+        # 0.30 and 0.40 on dataset 0, 0.32 and 0.42 on dataset 1. The
+        # dataset means are 0.35 and 0.37, so the standard error is over
+        # those two, not over the four fits.
+        selection = _selection()
+        out = ari_summary(selection, _at_k(selection), x=X)
+        stab = out[(out["study"] == "gaussians") & (out["metric_name"] == STAB) & (out[X] == 0.2)].iloc[0]
+        assert stab["ari_mean"] == pytest.approx(0.36)
+        assert stab["ari_sem"] == pytest.approx(np.std([0.35, 0.37], ddof=1) / np.sqrt(2))
+        assert stab["ari_sem"] != pytest.approx(np.std([0.30, 0.40, 0.32, 0.42], ddof=1) / 2)
 
     def test_pooled_rows_exclude_the_study(self):
-        out = selection_summary(_selection(), x=X)
-        assert "klein" not in set(out["study"])
+        selection = _selection()
+        out = ari_summary(selection, _at_k(selection), x=X)
         assert set(out["study"]) == {"gaussians", POOLED}
-
-    def test_bias_sem_is_over_the_selections(self):
-        # Stability at 0.2 selects 3 or 4 against k* = 5 on each dataset, so
-        # the four biases are -2, -1, -2, -1: SD 0.5774 over four rows.
-        out = selection_summary(_selection(), x=X)
-        stab_02 = out[(out["study"] == "gaussians") & (out["metric_name"] == STAB) & (out[X] == 0.2)].iloc[0]
-        assert stab_02["bias_sem"] == pytest.approx(np.std([-2, -1, -2, -1], ddof=1) / 2)
-        gen = out[(out["study"] == "gaussians") & (out["metric_name"] == GEN)]
-        assert (gen["bias_sem"] == 0.0).all()
+        pooled = out[(out["study"] == POOLED) & (out["metric_name"] == GEN) & (out[X] == 0.618)].iloc[0]
+        assert pooled["ari_mean"] == pytest.approx(0.51)
 
     def test_columns(self):
-        out = selection_summary(_selection(), x=X)
-        assert list(out.columns) == [X, "study", "metric_name", "n", "recovery", "recovery_lo",
-                                     "recovery_hi", "bias_mean", "bias_sem", "ari_mean", "ari_sem"]
+        selection = _selection()
+        assert list(ari_summary(selection, _at_k(selection), x=X).columns) == ARI_COLUMNS
 
 
 class TestAgreementSummary:
@@ -152,27 +179,26 @@ class TestUndefinedSelections:
     "disagreed", and a setting left with no defined selection at all must
     not appear in the output."""
 
-    def test_selection_summary_emits_no_row_for_an_entirely_undefined_setting(self):
-        out = selection_summary(
-            _undefined_gini_rows(), x=X, metrics=("consensus_gini_stability",)
-        )
+    def test_ari_summary_emits_no_row_for_an_entirely_undefined_setting(self):
+        rows = _undefined_gini_rows()
+        out = ari_summary(rows, _at_k(rows), x=X, metrics=("consensus_gini_stability",))
         assert 0.2 not in set(out[X])
 
-    def test_selection_summary_counts_only_defined_rows_at_a_mixed_setting(self):
-        out = selection_summary(
-            _undefined_gini_rows(), x=X, metrics=("consensus_gini_stability",)
-        )
+    def test_ari_summary_reads_only_defined_rows_at_a_mixed_setting(self):
+        # At 0.618 replicate 0 selected k=5 and replicate 1 is undefined:
+        # the dataset's ARI is replicate 0's alone, not averaged with a zero.
+        rows = _undefined_gini_rows()
+        out = ari_summary(rows, _at_k(rows), x=X, metrics=("consensus_gini_stability",))
         mixed = out[(out["study"] == "gaussians") & (out[X] == 0.618)].iloc[0]
-        assert mixed["n"] == 1
-        assert mixed["recovery"] == 1.0
+        assert mixed["n_datasets"] == 1
+        assert mixed["ari_mean"] == pytest.approx(_ari_at(5, 0))
 
-    def test_selection_summary_all_undefined_frame_does_not_raise(self):
+    def test_ari_summary_all_undefined_frame_does_not_raise(self):
         frame = _undefined_gini_rows()
         frame = frame[frame[X] == 0.2]
-        out = selection_summary(frame, x=X, metrics=("consensus_gini_stability",))
+        out = ari_summary(frame, _at_k(frame), x=X, metrics=("consensus_gini_stability",))
         assert out.empty
-        assert list(out.columns) == [X, "study", "metric_name", "n", "recovery", "recovery_lo",
-                                     "recovery_hi", "bias_mean", "bias_sem", "ari_mean", "ari_sem"]
+        assert list(out.columns) == ARI_COLUMNS
 
     def test_agreement_summary_is_nan_not_zero_with_fewer_than_two_defined(self):
         out = agreement_summary(
@@ -191,10 +217,11 @@ class TestUndefinedSelections:
     def test_headline_metrics_are_unaffected(self):
         # The fixture's headline-metric rows never have undefined selections;
         # this class's filter must not change their existing behavior.
-        out = selection_summary(_selection(), x=X)
+        selection = _selection()
+        out = ari_summary(selection, _at_k(selection), x=X)
         stab_02 = out[(out["study"] == "gaussians") & (out["metric_name"] == STAB)
                       & (out[X] == 0.2)].iloc[0]
-        assert stab_02["n"] == 4
+        assert stab_02["n_datasets"] == 2
 
     def test_study_selection_shares_count_only_defined_rows(self):
         # At 0.618 one replicate is defined and one undefined: n is 1 and
@@ -451,14 +478,19 @@ class TestDiagnosticsSummary:
         assert row["n_cluster_count_warnings"] == pytest.approx(0.5)
 
 
+TABLE_COLUMNS = ["setting", "metric_name", "ari_mean", "agreement", "study_modal", "study_share"]
+
+
 class TestTableRows:
     def test_one_row_per_setting_and_metric_with_study_mode(self):
-        view = {"selection": _selection()}
-        rows = table_rows(view, x=X, study="klein")
+        selection = _selection()
+        rows = table_rows({"selection": selection, "at_k": _at_k(selection)}, x=X, study="klein")
+        assert list(rows.columns) == TABLE_COLUMNS
         assert set(rows["setting"]) == {0.2, 0.618}
         assert set(rows["metric_name"]) == set(HEADLINE_METRICS)
         row = rows[(rows["setting"] == 0.618) & (rows["metric_name"] == STAB)].iloc[0]
-        assert row["recovery"] == 1.0
+        # Stability selects k=5 on both datasets: 0.50 and 0.52.
+        assert row["ari_mean"] == pytest.approx(0.51)
         assert row["study_modal"] == "AgglomerativeClustering, k=4"
         assert row["study_share"] == 1.0
         assert row["agreement"] == 1.0
@@ -469,36 +501,33 @@ class TestTableRows:
         # interrupted run). study_selection_shares then returns empty for
         # every metric, leaving modal == [] for the merge; table_rows must
         # not raise KeyError building that merge's frame.
-        empty = pd.DataFrame(columns=list(ABLATION_SELECTION_SCHEMA))
-        out = table_rows({"selection": empty}, x=X, study="klein")
-        assert list(out.columns) == [
-            "setting", "metric_name", "recovery", "recovery_lo", "recovery_hi",
-            "ari_mean", "agreement", "study_modal", "study_share",
-        ]
+        view = {
+            "selection": pd.DataFrame(columns=list(ABLATION_SELECTION_SCHEMA)),
+            "at_k": pd.DataFrame(columns=list(ABLATION_AT_K_SCHEMA)),
+        }
+        out = table_rows(view, x=X, study="klein")
+        assert list(out.columns) == TABLE_COLUMNS
         assert out.empty
 
     def test_simulated_only_frame_has_no_row_for_the_requested_study(self):
         # Every row belongs to a simulated study ("gaussians"); none belong
         # to the requested study ("klein"). study_selection_shares(study=
         # "klein") is then empty for every metric (same root cause as the
-        # fully-empty case), but selection_summary/agreement_summary still
-        # have real pooled data from "gaussians" to report: the correct
-        # result keeps those (setting, metric) rows with study_modal and
+        # fully-empty case), but ari_summary/agreement_summary still have
+        # real pooled data from "gaussians" to report: the correct result
+        # keeps those (setting, metric) rows with study_modal and
         # study_share as NaN, rather than being empty outright.
-        rows = [
+        selection = pd.DataFrame([
             {**_key(rho=rho, rep=rep), "metric_name": metric, "selected_estimator": "KMeans",
              "selected_k": 5, "k_star": 5.0, "ari_selected": 0.9}
             for rho in (0.2, 0.618) for rep in (0, 1) for metric in (STAB, GEN)
-        ]
-        out = table_rows({"selection": pd.DataFrame(rows)}, x=X, study="klein")
-        assert list(out.columns) == [
-            "setting", "metric_name", "recovery", "recovery_lo", "recovery_hi",
-            "ari_mean", "agreement", "study_modal", "study_share",
-        ]
+        ])
+        out = table_rows({"selection": selection, "at_k": _at_k(selection)}, x=X, study="klein")
+        assert list(out.columns) == TABLE_COLUMNS
         assert not out.empty
         assert set(out["setting"]) == {0.2, 0.618}
         assert out["study_modal"].isna().all()
         assert out["study_share"].isna().all()
         # The pooled headline numbers are unaffected by the missing study.
         row = out[(out["setting"] == 0.618) & (out["metric_name"] == STAB)].iloc[0]
-        assert row["recovery"] == 1.0
+        assert row["ari_mean"] == pytest.approx(_ari_at(5, 0))
