@@ -79,6 +79,35 @@ def ari_summary(
     )
 
 
+def bias_summary(
+    selection: pd.DataFrame, *, x: str, metrics: Sequence[str] = HEADLINE_METRICS
+) -> pd.DataFrame:
+    """Mean and standard error of the selected k minus k*.
+
+    Replicates are averaged within a dataset first, so the standard error is
+    over datasets, the independent unit. Simulations only: a study has no
+    k*. An undefined selection is missing data, dropped as in ari_summary.
+    """
+    rows = selection[
+        selection["k_star"].notna()
+        & selection["selected_k"].notna()
+        & selection["metric_name"].isin(metrics)
+    ].copy()
+    rows["bias"] = (rows["selected_k"] - rows["k_star"]).astype(float)
+    group = [x, *DATASET_KEY, "metric_name"]
+    per_dataset = rows.groupby(group, as_index=False)["bias"].mean()
+    return _with_pooled(
+        per_dataset,
+        [x, "study", "metric_name"],
+        {
+            "bias_mean": ("bias", "mean"),
+            "bias_sem": ("bias", "sem"),
+            "n_datasets": ("bias", "size"),
+        },
+        x=x,
+    )
+
+
 def _pair_agreement(choices: pd.Series) -> float:
     n = len(choices)
     if n < 2:
@@ -226,6 +255,32 @@ def similarity_summary(similarity: pd.DataFrame) -> pd.DataFrame:
     return similarity.groupby(
         ["subsample_ratio", "study", "estimator", "k"], as_index=False
     ).agg(ari_mean=("ari", "mean"), ari_sem=("ari", "sem"), n=("ari", "size"))
+
+
+def similarity_at_k_star(
+    similarity: pd.DataFrame, datasets: pd.DataFrame
+) -> pd.DataFrame:
+    """Subsample-versus-full ARI at each dataset's k*, per rho, including
+    the refit reference at REFERENCE_RATIO.
+
+    Draws (and estimators) are averaged within a dataset first, so the
+    standard error is over datasets, the independent unit. A study has no
+    k* and drops out at the merge.
+    """
+    merged = similarity.merge(datasets[[*DATASET_KEY, "k_star"]], on=list(DATASET_KEY))
+    rows = merged[merged["k"] == merged["k_star"]]
+    group = ["subsample_ratio", *DATASET_KEY]
+    per_dataset = rows.groupby(group, as_index=False)["ari"].mean()
+    return _with_pooled(
+        per_dataset,
+        ["subsample_ratio", "study"],
+        {
+            "ari_mean": ("ari", "mean"),
+            "ari_sem": ("ari", "sem"),
+            "n_datasets": ("ari", "size"),
+        },
+        x="subsample_ratio",
+    )
 
 
 def study_selection_shares(

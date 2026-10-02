@@ -9,9 +9,11 @@ from benchmarks._ablation_summary import (
     POOLED,
     agreement_summary,
     ari_summary,
+    bias_summary,
     curve_at_k_star,
     diagnostics_summary,
     rare_recall_summary,
+    similarity_at_k_star,
     similarity_summary,
     spread_summary,
     study_ari_summary,
@@ -139,6 +141,56 @@ class TestAriSummary:
     def test_columns(self):
         selection = _selection()
         assert list(ari_summary(selection, _at_k(selection), x=X).columns) == ARI_COLUMNS
+
+
+BIAS_COLUMNS = [X, "study", "metric_name", "bias_mean", "bias_sem", "n_datasets"]
+
+
+class TestBiasSummary:
+    def test_replicates_are_averaged_within_a_dataset_first(self):
+        # Stability at 0.2 selects k=3 (replicate 0) and k=4 (replicate 1)
+        # against k* = 5 on both datasets: -2 and -1, so each dataset's
+        # mean is -1.5 and the standard error over the two datasets is 0.
+        # Over the four fits it would be 0.29.
+        out = bias_summary(_selection(), x=X)
+        stab = out[(out["study"] == "gaussians") & (out["metric_name"] == STAB) & (out[X] == 0.2)].iloc[0]
+        assert stab["bias_mean"] == pytest.approx(-1.5)
+        assert stab["bias_sem"] == pytest.approx(0.0)
+        assert stab["n_datasets"] == 2
+        gen = out[(out["study"] == "gaussians") & (out["metric_name"] == GEN)]
+        assert (gen["bias_mean"] == 0.0).all()
+
+    def test_sem_is_over_datasets(self):
+        rows = pd.DataFrame([
+            {**_key(dataset=d), "metric_name": STAB, "selected_estimator": "KMeans",
+             "selected_k": k, "k_star": 5.0, "ari_selected": 0.9}
+            for d, k in ((0, 3), (1, 5), (2, 6))
+        ])
+        out = bias_summary(rows, x=X, metrics=(STAB,))
+        pooled = out[out["study"] == POOLED].iloc[0]
+        assert pooled["bias_mean"] == pytest.approx(-1 / 3)
+        assert pooled["bias_sem"] == pytest.approx(np.std([-2, 0, 1], ddof=1) / np.sqrt(3))
+
+    def test_pooled_rows_exclude_the_study(self):
+        out = bias_summary(_selection(), x=X)
+        assert set(out["study"]) == {"gaussians", POOLED}
+
+    def test_undefined_selections_are_dropped(self):
+        out = bias_summary(_undefined_gini_rows(), x=X, metrics=("consensus_gini_stability",))
+        assert 0.2 not in set(out[X])
+        mixed = out[(out["study"] == "gaussians") & (out[X] == 0.618)].iloc[0]
+        assert mixed["n_datasets"] == 1
+        assert mixed["bias_mean"] == 0.0
+
+    def test_all_undefined_frame_does_not_raise(self):
+        frame = _undefined_gini_rows()
+        frame = frame[frame[X] == 0.2]
+        out = bias_summary(frame, x=X, metrics=("consensus_gini_stability",))
+        assert out.empty
+        assert list(out.columns) == BIAS_COLUMNS
+
+    def test_columns(self):
+        assert list(bias_summary(_selection(), x=X).columns) == BIAS_COLUMNS
 
 
 class TestAgreementSummary:
@@ -373,6 +425,55 @@ class TestSimilaritySummary:
         assert low["ari_mean"] == pytest.approx(0.65)
         assert high["ari_mean"] == pytest.approx(0.25)
         assert low["n"] == 4 and high["n"] == 4
+
+
+class TestSimilarityAtKStar:
+    @staticmethod
+    def _frames():
+        """Two datasets with k* = 5 and a study without one. Draws differ,
+        and k=4 rows carry a value the summary must not read."""
+        rows = []
+        for d in (0, 1):
+            for rho in (0.5, 1.0):
+                for k in (4, 5):
+                    for m in (0, 1):
+                        ari = 0.0 if k == 4 else 0.6 + 0.2 * d + 0.1 * m + (0.1 if rho == 1.0 else 0.0)
+                        rows.append({"study": "gaussians", "difficulty": "medium", "dataset": d,
+                                     "subsample_ratio": rho, "estimator": "KMeans", "k": k,
+                                     "draw": m, "ari": ari})
+        for k in (4, 5):
+            rows.append({"study": "klein", "difficulty": "", "dataset": 0, "subsample_ratio": 0.5,
+                         "estimator": "AgglomerativeClustering", "k": k, "draw": 0, "ari": 0.1})
+        datasets = pd.DataFrame([
+            {"study": "gaussians", "difficulty": "medium", "dataset": d, "n_samples": 100,
+             "k_star": 5.0, "oracle_ari": 0.9, "rare_label": 0.0, "rare_fraction": 0.1}
+            for d in (0, 1)
+        ] + [{"study": "klein", "difficulty": "", "dataset": 0, "n_samples": 100,
+              "k_star": np.nan, "oracle_ari": np.nan, "rare_label": np.nan,
+              "rare_fraction": np.nan}])
+        return pd.DataFrame(rows), datasets
+
+    def test_reads_k_star_and_averages_draws_within_a_dataset_first(self):
+        # Dataset means at 0.5 are 0.65 and 0.85: mean 0.75, and the
+        # standard error is over the two datasets, not the four draws.
+        similarity, datasets = self._frames()
+        out = similarity_at_k_star(similarity, datasets)
+        row = out[(out["study"] == POOLED) & (out["subsample_ratio"] == 0.5)].iloc[0]
+        assert row["ari_mean"] == pytest.approx(0.75)
+        assert row["ari_sem"] == pytest.approx(np.std([0.65, 0.85], ddof=1) / np.sqrt(2))
+        assert row["n_datasets"] == 2
+
+    def test_keeps_the_refit_reference(self):
+        similarity, datasets = self._frames()
+        out = similarity_at_k_star(similarity, datasets)
+        refit = out[(out["study"] == POOLED) & (out["subsample_ratio"] == 1.0)].iloc[0]
+        assert refit["ari_mean"] == pytest.approx(0.85)
+
+    def test_the_study_has_no_k_star_and_drops_out(self):
+        similarity, datasets = self._frames()
+        out = similarity_at_k_star(similarity, datasets)
+        assert set(out["study"]) == {"gaussians", POOLED}
+        assert list(out.columns) == ["subsample_ratio", "study", "ari_mean", "ari_sem", "n_datasets"]
 
 
 class TestStudySelectionShares:

@@ -287,6 +287,7 @@ def test_ablation_notebook_reads_its_config_from_the_registry():
     assert "read_frames(" in source
     assert "arm_view(" in source
     assert "figure_ablation(" in source
+    assert "figure_ablation_resampling(" in source
     assert "write_ablation_table(" in source
     # No grid literal: the rho and B values come from the Ablation.
     for restated in ("0.618", "(10, 25", "[10, 25", "0.2, 0.3"):

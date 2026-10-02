@@ -1,4 +1,4 @@
-"""Tests for the SI ablation figure, on synthetic frames."""
+"""Tests for the two SI ablation figures, on synthetic frames."""
 
 import dataclasses
 
@@ -14,8 +14,15 @@ from matplotlib.colors import to_hex
 from matplotlib.figure import Figure
 from matplotlib.text import Text
 
-from benchmarks._ablation_cells import arm_view
-from benchmarks._ablation_summary import HEADLINE_METRICS, POOLED, ari_summary
+from benchmarks._ablation_cells import REFERENCE_RATIO, arm_view
+from benchmarks._ablation_summary import (
+    HEADLINE_METRICS,
+    POOLED,
+    ari_summary,
+    bias_summary,
+    rare_recall_summary,
+    similarity_at_k_star,
+)
 from benchmarks._registry import ABLATIONS, METRIC_DISPLAY_NAMES
 from benchmarks._theme import (
     FALLBACK_COLOR,
@@ -23,8 +30,13 @@ from benchmarks._theme import (
     PRINT_WIDTH_IN,
     metric_color,
 )
-from benchmarks.figures import figure_ablation
-from benchmarks.figures._ablation import ARI_LIMITS, Z_95
+from benchmarks.figures import figure_ablation, figure_ablation_resampling
+from benchmarks.figures._ablation import (
+    ARI_LIMITS,
+    KEY_HEADROOM_TOP,
+    PROPORTION_LIMITS,
+    Z_95,
+)
 from tests.benchmarks._helpers import small_ablation, synthetic_ablation_frames
 
 RHO_B = small_ablation(ABLATIONS["rho_b"], study="klein")
@@ -33,6 +45,10 @@ NO_STUDY = small_ablation(ABLATIONS["rho_b"])
 STAB, GEN = HEADLINE_METRICS
 SELECTOR_COLORS = {to_hex(metric_color(STAB)), to_hex(metric_color(GEN))}
 RHO, B = "subsample_ratio", "n_resamples"
+FIGURES = [
+    (figure_ablation, "si_fig_ablation.png"),
+    (figure_ablation_resampling, "si_fig_ablation_resampling.png"),
+]
 
 
 @pytest.fixture(scope="module")
@@ -122,18 +138,20 @@ def _pooled(frames, ablation, arm, x, metric):
 
 
 class TestPrintSize:
+    @pytest.mark.parametrize(("figure_fn", "name"), FIGURES)
     @pytest.mark.parametrize("which", ["with_study", "without_study"])
-    def test_drawn_at_the_plos_page_width(self, which, request):
+    def test_drawn_at_the_plos_page_width(self, figure_fn, name, which, request):
         ablation, frames = request.getfixturevalue(which)
-        fig = figure_ablation(frames, ablation=ablation, scale="test", save=False)
+        fig = figure_fn(frames, ablation=ablation, scale="test", save=False)
         width, height = fig.get_size_inches()
         assert width == pytest.approx(PRINT_WIDTH_IN)
         assert height <= PRINT_MAX_HEIGHT_IN
         plt.close(fig)
 
-    def test_every_text_is_within_plos_sizes(self, with_study):
+    @pytest.mark.parametrize(("figure_fn", "name"), FIGURES)
+    def test_every_text_is_within_plos_sizes(self, figure_fn, name, with_study):
         ablation, frames = with_study
-        fig = figure_ablation(frames, ablation=ablation, scale="test", save=False)
+        fig = figure_fn(frames, ablation=ablation, scale="test", save=False)
         fig.canvas.draw()
         sizes = [
             text.get_fontsize() for text in fig.findobj(Text)
@@ -143,19 +161,21 @@ class TestPrintSize:
         assert all(8.0 <= size <= 12.0 for size in sizes)
         plt.close(fig)
 
-    def test_the_saved_file_fits_the_page_at_300_dpi(self, with_study, tmp_path):
+    @pytest.mark.parametrize(("figure_fn", "name"), FIGURES)
+    def test_the_saved_file_fits_the_page_at_300_dpi(self, figure_fn, name, with_study, tmp_path):
         ablation, frames = with_study
-        fig = figure_ablation(frames, ablation=ablation, scale="test", out_dir=tmp_path)
-        height, width = mpimg.imread(tmp_path / "si_fig_ablation.png").shape[:2]
+        fig = figure_fn(frames, ablation=ablation, scale="test", out_dir=tmp_path)
+        height, width = mpimg.imread(tmp_path / name).shape[:2]
         assert width <= 2250
         assert height <= 2625
         plt.close(fig)
 
 
 class TestPanelLabels:
-    def test_no_letter_overlaps_its_title(self, with_study):
+    @pytest.mark.parametrize(("figure_fn", "name"), FIGURES)
+    def test_no_letter_overlaps_its_title(self, figure_fn, name, with_study):
         ablation, frames = with_study
-        fig = figure_ablation(frames, ablation=ablation, scale="test", save=False)
+        fig = figure_fn(frames, ablation=ablation, scale="test", save=False)
         renderer = fig.canvas.get_renderer()
         fig.canvas.draw()
         for letter, ax in _panels(fig).items():
@@ -304,3 +324,118 @@ class TestFigureAblation:
         labels = [t.get_text() for t in figure.legends[0].get_texts()]
         assert "Gaussian Mixtures" not in labels
         assert "Pooled (simulations)" not in labels
+
+
+@pytest.fixture(scope="module")
+def resampling(without_study):
+    ablation, frames = without_study
+    fig = figure_ablation_resampling(frames, ablation=ablation, scale="test", save=False)
+    yield fig
+    plt.close(fig)
+
+
+def _rho_view(frames, ablation):
+    return arm_view(frames, ablation=ablation, scale="test", arm="rho")
+
+
+class TestFigureAblationResampling:
+    def test_returns_three_panels(self, resampling):
+        assert isinstance(resampling, Figure)
+        assert list(_panels(resampling)) == list("ABC")
+
+    def test_a_study_adds_no_panel(self, with_study):
+        # Bias and rare-cluster recall need a true k, and the subsample
+        # comparison is read at k*, so the study has nothing to draw here.
+        ablation, frames = with_study
+        fig = figure_ablation_resampling(frames, ablation=ablation, scale="test", save=False)
+        assert list(_panels(fig)) == list("ABC")
+        plt.close(fig)
+
+    def test_saves_under_its_si_name(self, without_study, tmp_path):
+        ablation, frames = without_study
+        fig = figure_ablation_resampling(frames, ablation=ablation, scale="test", out_dir=tmp_path)
+        assert [p.name for p in tmp_path.iterdir()] == ["si_fig_ablation_resampling.png"]
+        plt.close(fig)
+
+    def test_save_false_writes_nothing(self, without_study, tmp_path):
+        ablation, frames = without_study
+        fig = figure_ablation_resampling(
+            frames, ablation=ablation, scale="test", save=False, out_dir=tmp_path
+        )
+        assert not list(tmp_path.iterdir())
+        plt.close(fig)
+
+    def test_every_panel_sweeps_rho_and_marks_the_default(self, resampling):
+        for letter, ax in _panels(resampling).items():
+            assert ax.get_xscale() == "linear", letter
+            assert _has_default_line(ax, NO_STUDY.rho_default), letter
+
+    def test_bias_lines_and_bands_over_datasets(self, without_study, resampling):
+        ablation, frames = without_study
+        summary = bias_summary(_rho_view(frames, ablation)["selection"], x=RHO)
+        ax = _panels(resampling)["A"]
+        for metric in HEADLINE_METRICS:
+            pooled = summary[(summary["study"] == POOLED) & (summary["metric_name"] == metric)]
+            pooled = pooled.sort_values(RHO)
+            assert list(_selector_line(ax, metric).get_ydata()) == pytest.approx(list(pooled["bias_mean"]))
+            ys = _band(ax, metric_color(metric))[:, 1]
+            assert ys.max() == pytest.approx((pooled["bias_mean"] + Z_95 * pooled["bias_sem"]).max())
+            assert ys.min() == pytest.approx((pooled["bias_mean"] - Z_95 * pooled["bias_sem"]).min())
+        zero = [line for line in ax.lines if list(line.get_ydata()) == [0.0, 0.0]]
+        assert len(zero) == 1
+
+    def test_rare_recall_draws_each_rule_at_k_hat_and_one_line_at_k_star(
+        self, without_study, resampling
+    ):
+        ablation, frames = without_study
+        view = _rho_view(frames, ablation)
+        difficulty = ablation.scales["test"].rho_arm.difficulties[-1]
+        summary = rare_recall_summary(view["at_k"], view["selection"], x=RHO, difficulty=difficulty)
+        pooled = summary[summary["study"] == POOLED]
+        ax = _panels(resampling)["B"]
+        lines = [line for line in ax.lines if len(line.get_xdata()) > 2]
+        solid = [line for line in lines if line.get_linestyle() == "-"]
+        dashed = [line for line in lines if line.get_linestyle() == "--"]
+        assert len(solid) == 2 and len(dashed) == 1
+        for metric in HEADLINE_METRICS:
+            rows = pooled[pooled["metric_name"] == metric].sort_values(RHO)
+            assert list(_selector_line(ax, metric).get_ydata()) == pytest.approx(list(rows["recall_selected"]))
+        # Recall at k* reads the same labels for both rules, so the two
+        # rules' values agree and the one dashed line in the neutral color
+        # carries them.
+        stab = pooled[pooled["metric_name"] == STAB].sort_values(RHO)["recall_k_star"]
+        gen = pooled[pooled["metric_name"] == GEN].sort_values(RHO)["recall_k_star"]
+        assert list(stab) == pytest.approx(list(gen))
+        assert list(dashed[0].get_ydata()) == pytest.approx(list(stab))
+        assert to_hex(dashed[0].get_color()) not in SELECTOR_COLORS
+        assert difficulty in ax.get_title(loc="left")
+
+    def test_rare_recall_is_a_proportion_with_room_for_its_key(self, resampling):
+        ax = _panels(resampling)["B"]
+        assert ax.get_ylim() == pytest.approx((PROPORTION_LIMITS[0], KEY_HEADROOM_TOP))
+        assert list(ax.get_yticks()) == pytest.approx([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
+
+    def test_similarity_line_stops_before_the_refit_reference(self, without_study, resampling):
+        ablation, frames = without_study
+        summary = similarity_at_k_star(frames["similarity"], frames["datasets"])
+        pooled = summary[summary["study"] == POOLED].sort_values(RHO)
+        swept = pooled[pooled[RHO] < REFERENCE_RATIO]
+        ax = _panels(resampling)["C"]
+        (line,) = [line for line in ax.lines if len(line.get_xdata()) > 2]
+        assert list(line.get_xdata()) == pytest.approx(list(swept[RHO]))
+        assert list(line.get_ydata()) == pytest.approx(list(swept["ari_mean"]))
+        (refit,) = [line for line in ax.lines if list(line.get_xdata()) == [REFERENCE_RATIO]]
+        assert refit.get_ydata()[0] == pytest.approx(
+            float(pooled[pooled[RHO] == REFERENCE_RATIO]["ari_mean"].iloc[0])
+        )
+        assert [t.get_text() for t in ax.get_xticklabels()][-1] == "1.0"
+        assert ax.get_ylim() == pytest.approx(ARI_LIMITS)
+
+    def test_one_legend_names_the_selectors_the_interval_and_the_default(self, resampling):
+        (legend,) = resampling.legends
+        assert [t.get_text() for t in legend.get_texts()] == [
+            METRIC_DISPLAY_NAMES[STAB],
+            METRIC_DISPLAY_NAMES[GEN],
+            "95% CI",
+            f"Default $\\rho$ = {NO_STUDY.rho_default:g}",
+        ]
