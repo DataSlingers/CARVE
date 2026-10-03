@@ -530,8 +530,8 @@ STUDIES: dict[str, Study] = {
                 # perplexity is its own option so stratified allocation
                 # balances resamples across them; one option with three values
                 # would split t-SNE's share at random. The source's other Rtsne
-                # settings (5,000 iterations, random initialization) are bound
-                # in PREPROCESSOR_DEFAULTS.
+                # settings (5,000 iterations, random initialization, learning
+                # rate) are bound in PREPROCESSOR_DEFAULTS.
                 ("tsne", {"perplexity": [30]}),
                 ("tsne", {"perplexity": [100]}),
                 ("tsne", {"perplexity": [300]}),
