@@ -8,7 +8,7 @@ Architecture: a staged batch entry point, `python -m benchmarks.heca {embed,cali
 
 Tech stack: Python 3.13, carve, scikit-learn, joblib/loky, igraph and leidenalg, psutil, scanpy (loader), pandas, matplotlib, SLURM.
 
-Spec: `docs/superpowers/specs/2026-10-01-heca-longleaf-runtime-design.md` (commit 8e91557). Executors read both.
+Spec: `docs/superpowers/specs/2026-10-01-heca-longleaf-runtime-design.md` (commit fed189e). Executors read both.
 
 ## Global Constraints
 
