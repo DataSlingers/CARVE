@@ -3,17 +3,12 @@
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
-from sklearn.preprocessing import FunctionTransformer, StandardScaler
 
 from sklearn.metrics import adjusted_rand_score
 
 from benchmarks._cusanovich_compare import (
     TABLE_FILENAMES,
-    axis_prefix,
     best_pipeline,
-    pipeline_embedding,
     prepare_cusanovich_inputs,
     save_tables,
     selection_summary,
@@ -24,14 +19,6 @@ from benchmarks._preprocessing import resolve_preprocessing
 from benchmarks._types import EstimatorSpec, PreprocessingSpec
 from benchmarks.figures._case_study import _align_to_reference
 from carve import CARVE
-from carve._pipeline import PipelineSpec, PipelineStep
-
-IDENTITY = PipelineStep(cls=FunctionTransformer, params={}, name="identity")
-
-
-def _spec(dim_reduction: PipelineStep) -> PipelineSpec:
-    return PipelineSpec(normalization=IDENTITY, dim_reduction=dim_reduction)
-
 
 def _row(method_id, pipeline, resolution, stability, generalizability, observed):
     return {
@@ -117,41 +104,6 @@ class TestBestPipeline:
             best_pipeline(_FakeCarve(None), measure="stability", rule="1se")
 
 
-class TestPipelineEmbedding:
-    @pytest.fixture
-    def X(self):
-        return np.random.default_rng(0).normal(size=(60, 50))
-
-    def test_the_identity_pipeline_gives_the_first_two_lsi_components(self, X):
-        Z, labels = pipeline_embedding(X, _spec(IDENTITY), random_state=0)
-        np.testing.assert_array_equal(Z, X[:, :2])
-        assert labels == ("LSI 1", "LSI 2")
-
-    def test_a_two_dimensional_pipeline_gives_its_output_fit_on_all_of_x(self, X):
-        step = PipelineStep(cls=PCA, params={"n_components": 2}, name="PCA")
-        Z, labels = pipeline_embedding(X, _spec(step), random_state=0)
-        np.testing.assert_allclose(
-            Z, PCA(n_components=2, random_state=0).fit_transform(X)
-        )
-        assert labels == ("PC 1", "PC 2")
-
-    def test_tsne_axes_are_named_for_tsne_and_seeded(self, X):
-        step = PipelineStep(cls=TSNE, params={"perplexity": 5}, name="TSNE")
-        first, labels = pipeline_embedding(X, _spec(step), random_state=3)
-        second, _ = pipeline_embedding(X, _spec(step), random_state=3)
-        assert first.shape == (60, 2)
-        np.testing.assert_array_equal(first, second)
-        assert labels == ("t-SNE 1", "t-SNE 2")
-
-    def test_axis_prefixes(self):
-        # A display name decides the prefix; an unnamed step falls back to
-        # its class name, mapped when the registry knows it and kept when not.
-        assert axis_prefix(PipelineStep(cls=object, params={}, name="UMAP")) == "UMAP"
-        assert axis_prefix(PipelineStep(cls=PCA, params={}, name=None)) == "PC"
-        scaler = PipelineStep(cls=StandardScaler, params={}, name=None)
-        assert axis_prefix(scaler) == "StandardScaler"
-
-
 class TestSourceOperatingPoint:
     @pytest.fixture
     def carve(self):
@@ -233,20 +185,16 @@ def fitted():
 @pytest.fixture(scope="module")
 def inputs(fitted):
     X, y, carve = fitted
-    return prepare_cusanovich_inputs(
-        X, y, carve, source_tsne=X[:, :2], random_state=0
-    )
+    return prepare_cusanovich_inputs(X, y, carve, source_tsne=X[:, :2])
 
 
 @pytest.mark.requires_graph
 class TestPrepareCusanovichInputs:
-    def test_embeds_all_of_x_with_the_best_pipeline(self, fitted, inputs):
+    def test_carries_the_best_pipeline_and_the_source_tsne(self, fitted, inputs):
         X, _, carve = fitted
-        row, spec = best_pipeline(carve, measure="stability", rule="1se")
+        row, _ = best_pipeline(carve, measure="stability", rule="1se")
         assert inputs.best_pipeline_row.equals(row)
-        expected, labels = pipeline_embedding(X, spec, random_state=0)
-        np.testing.assert_allclose(inputs.embedding_A, expected)
-        assert inputs.embedding_A_labels == labels
+        np.testing.assert_array_equal(inputs.source_tsne, X[:, :2])
         assert (inputs.measure, inputs.rule, inputs.not_two) == ("stability", "1se", False)
 
     def test_carve_labels_are_relabeled_onto_the_reference_codes(self, fitted, inputs):
@@ -265,25 +213,6 @@ class TestPrepareCusanovichInputs:
         assert inputs.operating_point == source_operating_point(
             carve, method_id=selected["method_id"], target_k=4
         )
-
-    def test_embeds_with_the_given_seed(self, fitted, monkeypatch):
-        # The best pipeline may be the seedless identity, so the embedding
-        # cannot show which seed was passed. Record the call instead.
-        import benchmarks._cusanovich_compare as compare
-
-        X, y, carve = fitted
-        embeddings = []
-        real_embedding = compare.pipeline_embedding
-
-        def embedding(X, spec, *, random_state):
-            embeddings.append((spec, random_state))
-            return real_embedding(X, spec, random_state=random_state)
-
-        monkeypatch.setattr(compare, "pipeline_embedding", embedding)
-        prepare_cusanovich_inputs(X, y, carve, source_tsne=X[:, :2], random_state=7)
-
-        _, spec = best_pipeline(carve, measure="stability", rule="1se")
-        assert embeddings == [(spec, 7)]
 
     def test_the_summary_reports_the_selection_and_the_comparison(
         self, fitted, inputs

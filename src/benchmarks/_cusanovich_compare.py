@@ -17,27 +17,12 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import adjusted_rand_score
 
-from carve._pipeline import PipelineSpec, PipelineStep, pipeline_from_spec
+from carve._pipeline import PipelineSpec
 from carve._selection import MEASURE_MAP
-
-from ._preprocessing import PREPROCESSOR_NAMES
 
 #: How far the nearest pooled observed cluster count may sit from the target
 #: before source_operating_point warns, as a fraction of the target.
 OPERATING_POINT_TOLERANCE = 0.25
-
-#: What a panel calls the output axes of each dimensionality reduction. The
-#: identity pipeline passes the loader's LSI through.
-_AXIS_PREFIXES = {
-    PREPROCESSOR_NAMES["identity"]: "LSI",
-    PREPROCESSOR_NAMES["pca"]: "PC",
-    PREPROCESSOR_NAMES["tsne"]: "t-SNE",
-    PREPROCESSOR_NAMES["umap"]: "UMAP",
-}
-
-#: umap-learn warns on every seeded fit that the seed disables its own
-#: parallelism; _runner.embed_resample silences the same message.
-_UMAP_SEED_WARNING = r"n_jobs value .* overridden to 1 by setting random_state"
 
 _ARI_COLUMNS = ("ari_stability", "ari_generalizability")
 
@@ -50,12 +35,6 @@ def _per_pipeline_table(carve: Any) -> pd.DataFrame:
             "randomize_preprocessing=True."
         )
     return table
-
-
-def axis_prefix(step: PipelineStep) -> str:
-    """The name a panel gives the output axes of a dimensionality reduction."""
-    name = step.name if step.name is not None else getattr(step.cls, "__name__", "")
-    return _AXIS_PREFIXES.get(name, name or "Component")
 
 
 def best_pipeline(
@@ -98,30 +77,6 @@ def best_pipeline(
         )
     row = at_selected.loc[at_selected[column].idxmax()]
     return row, carve.preprocessing_pipelines_[row["pipeline"]]
-
-
-def pipeline_embedding(
-    X: np.ndarray, spec: PipelineSpec, *, random_state: int
-) -> tuple[np.ndarray, tuple[str, str]]:
-    """Embed all of X with one pipeline, for drawing.
-
-    Fits a fresh pipeline_from_spec(spec, random_state) on the full X and
-    keeps its first two output columns: the whole embedding for a
-    two-dimensional reduction, LSI 1 and LSI 2 for the identity pipeline on
-    the LSI. The axis names come back with it, so a panel names what it draws.
-    """
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore", message=_UMAP_SEED_WARNING, category=UserWarning
-        )
-        Z = np.asarray(pipeline_from_spec(spec, random_state).fit_transform(X))
-    if Z.ndim != 2 or Z.shape[1] < 2:
-        raise ValueError(
-            f"Pipeline {spec.label!r} produced an output of shape {Z.shape}; "
-            "drawing it needs at least two columns."
-        )
-    prefix = axis_prefix(spec.dim_reduction)
-    return Z[:, :2], (f"{prefix} 1", f"{prefix} 2")
 
 
 def source_operating_point(
@@ -172,8 +127,8 @@ class CusanovichInputs:
 
     carve_labels are CARVE's consensus labels relabeled onto y's codes, so a
     CARVE cluster takes the color of the source cluster it best matches.
-    embedding_A is all of X embedded by the best pipeline, named by
-    embedding_A_labels. operating_point is (resolution, observed cluster
+    source_tsne is the source's own t-SNE, the map both A and B draw on.
+    operating_point is (resolution, observed cluster
     count) on the selected configuration's pooled curve. measure, rule and
     not_two are the selection every panel reads.
     """
@@ -182,8 +137,6 @@ class CusanovichInputs:
     y: np.ndarray
     carve: Any
     carve_labels: np.ndarray
-    embedding_A: np.ndarray
-    embedding_A_labels: tuple[str, str]
     source_tsne: np.ndarray
     best_pipeline_row: pd.Series
     operating_point: tuple[float, float]
@@ -201,21 +154,20 @@ def prepare_cusanovich_inputs(
     measure: str = "stability",
     rule: str = "1se",
     not_two: bool = False,
-    random_state: int = 42,
 ) -> CusanovichInputs:
     """Assemble the Cusanovich figure's inputs from a randomized fit.
 
-    Embeds all of X with the best pipeline at the selected configuration,
-    relabels CARVE's consensus labels onto y, and places the source's
-    operating point on the selected configuration's pooled curve at y's own
-    cluster count. This is compute; call it once and draw from the result.
+    Finds the best pipeline at the selected configuration, relabels CARVE's
+    consensus labels onto y, and places the source's operating point on the
+    selected configuration's pooled curve at y's own cluster count. Nothing
+    is embedded: both scatter panels draw the source's own t-SNE. This is
+    compute; call it once and draw from the result.
     """
     from .figures._case_study import _align_to_reference
 
     X = np.asarray(X)
     y = np.asarray(y)
-    row, spec = best_pipeline(carve, measure=measure, rule=rule, not_two=not_two)
-    embedding, axis_labels = pipeline_embedding(X, spec, random_state=random_state)
+    row, _ = best_pipeline(carve, measure=measure, rule=rule, not_two=not_two)
     labels = carve.get_labels(measure=measure, rule=rule, not_two=not_two)
 
     return CusanovichInputs(
@@ -223,8 +175,6 @@ def prepare_cusanovich_inputs(
         y=y,
         carve=carve,
         carve_labels=_align_to_reference(labels, y),
-        embedding_A=embedding,
-        embedding_A_labels=axis_labels,
         source_tsne=np.asarray(source_tsne, dtype=np.float64),
         best_pipeline_row=row,
         operating_point=source_operating_point(

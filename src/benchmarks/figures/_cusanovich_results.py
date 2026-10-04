@@ -1,9 +1,9 @@
 """The Cusanovich mouse sci-ATAC case-study figure.
 
-Four panels over CusanovichInputs. (A) CARVE's consensus labels on the
-embedding of the pipeline CARVE rates best at its selected configuration.
-(B) The source's clusters on the source's own t-SNE, which cell_metadata.txt
-ships and the loader carries as meta["source_tsne"]. (C) CARVE's stability
+Four panels over CusanovichInputs. (A) CARVE's consensus labels and (B) the
+source's clusters, both on the source's own t-SNE, which cell_metadata.txt
+ships and the loader carries as meta["source_tsne"], so the two partitions
+sit on one map whichever pipeline CARVE rates best. (C) CARVE's stability
 and generalizability over resolution, pooled over pipelines, with the selected
 resolution and the source's operating point marked, and the mean observed
 cluster count on a secondary axis. (D) The same two criteria per pipeline at
@@ -23,7 +23,7 @@ import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
-from .._cusanovich_compare import CusanovichInputs, axis_prefix
+from .._cusanovich_compare import CusanovichInputs
 from .._panels import (
     aligned_color_maps,
     axis_arrows,
@@ -41,24 +41,12 @@ SAVE_NAME = "cusanovich_results.png"
 
 
 def _panel_a_title(inputs: CusanovichInputs, selected, n_clusters: int) -> str:
-    """The selection, then the embedding A is drawn on.
-
-    A t-SNE is named by its perplexity; anything else by the two axes drawn.
-    """
-    carve = inputs.carve
+    """The selection, then the map A is drawn on."""
     estimator = str(selected["estimator"]).removesuffix("Clustering")
-    step = carve.preprocessing_pipelines_[
-        inputs.best_pipeline_row["pipeline"]
-    ].dim_reduction
-    perplexity = step.params.get("perplexity")
-    shown = (
-        f"{axis_prefix(step)}, perplexity {perplexity:g}"
-        if perplexity is not None
-        else " and ".join(inputs.embedding_A_labels)
-    )
     return (
-        f"CARVE: {estimator}, {carve.sweep_.param} "
-        f"{float(selected['sweep_value']):g}, {n_clusters} clusters\n{shown}"
+        f"CARVE: {estimator}, {inputs.carve.sweep_.param} "
+        f"{float(selected['sweep_value']):g}, {n_clusters} clusters\n"
+        "on the source's t-SNE"
     )
 
 
@@ -130,13 +118,13 @@ def figure_cusanovich_results(
 
         scatter_clusters(
             ax_a,
-            inputs.embedding_A,
+            inputs.source_tsne,
             inputs.carve_labels,
             color_map=carve_cmap,
             s=MARKER_SIZE,
             title=_panel_a_title(inputs, selected, n_clusters),
         )
-        axis_arrows(ax_a, inputs.embedding_A_labels)
+        axis_arrows(ax_a, SOURCE_TSNE_LABELS)
         scatter_clusters(
             ax_b,
             inputs.source_tsne,

@@ -54,8 +54,6 @@ def inputs():
         y=np.repeat(["1", "2", "3", "4", "5", "6"], n // 6),
         carve=carve,
         carve_labels=np.repeat([3, 1, 0, 2], n // 4),
-        embedding_A=rng.normal(size=(n, 2)),
-        embedding_A_labels=("LSI 1", "LSI 2"),
         source_tsne=rng.normal(size=(n, 2)),
         best_pipeline_row=best,
         operating_point=(0.8, 16.0),
@@ -92,7 +90,7 @@ def test_writes_under_its_manuscript_name(inputs, tmp_path):
 def test_titles_name_the_selection_and_the_source(inputs):
     panels = _panels(figure_cusanovich_results(inputs, save=False))
     assert panels["A"].get_title() == (
-        "CARVE: Leiden, resolution 0.6, 12 clusters\nLSI 1 and LSI 2"
+        "CARVE: Leiden, resolution 0.6, 12 clusters\non the source's t-SNE"
     )
     assert panels["B"].get_title() == "Cusanovich et al.: Louvain on t-SNE, 6 clusters"
     assert panels["C"].get_title() == (
@@ -103,32 +101,13 @@ def test_titles_name_the_selection_and_the_source(inputs):
     )
 
 
-def test_a_names_the_perplexity_of_a_tsne_embedding(inputs):
-    table = inputs.carve.preprocessing_results_
-    (tsne,) = [label for label in SPECS if "perplexity" in label]
-    row = table.loc[
-        (table["sweep_value"] == 0.6) & (table["pipeline"] == tsne)
-    ].iloc[0]
-    fig = figure_cusanovich_results(
-        replace(
-            inputs,
-            best_pipeline_row=row,
-            embedding_A_labels=("t-SNE 1", "t-SNE 2"),
-        ),
-        save=False,
-    )
-    assert _panels(fig)["A"].get_title() == (
-        "CARVE: Leiden, resolution 0.6, 12 clusters\nt-SNE, perplexity 30"
-    )
-
-
-def test_a_draws_the_best_pipelines_embedding_and_b_the_source_tsne(inputs):
+def test_a_and_b_both_draw_the_source_tsne(inputs):
+    # A shows CARVE's partition on the map B shows the source's on, whichever
+    # pipeline CARVE rates best.
     panels = _panels(figure_cusanovich_results(inputs, save=False))
-    for letter, points, names in (
-        ("A", inputs.embedding_A, inputs.embedding_A_labels),
-        ("B", inputs.source_tsne, SOURCE_TSNE_LABELS),
-    ):
+    for letter in ("A", "B"):
         ax = panels[letter]
+        points, names = inputs.source_tsne, SOURCE_TSNE_LABELS
         drawn = np.concatenate([c.get_offsets() for c in _scatter_collections(ax)])
         assert sorted(map(tuple, drawn)) == sorted(map(tuple, points))
         assert set(names) <= {text.get_text() for text in ax.texts}
