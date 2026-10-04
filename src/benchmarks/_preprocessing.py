@@ -13,13 +13,50 @@ import importlib
 from functools import partial
 from typing import Any
 
+import numpy as np
+from sklearn.base import BaseEstimator, TransformerMixin
+
 from ._types import PreprocessingSpec
+
+
+class LeadingComponents(TransformerMixin, BaseEstimator):
+    """Keep the first n_components columns of an embedding.
+
+    On an LSI or a PCA, whose components come ordered by singular value, this
+    truncates the representation to its leading dimensions, as Signac and
+    ArchR do when they cluster on a chosen number of LSI components. Nothing
+    is learned from the data; fit only checks the count.
+
+    Parameters
+    ----------
+    n_components : int, default=50
+        Number of leading columns to keep. Must be between 1 and the number
+        of input columns.
+    """
+
+    def __init__(self, n_components: int = 50):
+        self.n_components = n_components
+
+    def fit(self, X, y=None):
+        n_features = np.asarray(X).shape[1]
+        if not 1 <= self.n_components <= n_features:
+            raise ValueError(
+                f"n_components={self.n_components} must be between 1 and the "
+                f"input's {n_features} columns."
+            )
+        self.n_features_in_ = n_features
+        return self
+
+    def transform(self, X):
+        return np.asarray(X)[:, : self.n_components]
+
 
 #: Registry key to transformer class, as an import path.
 PREPROCESSOR_CLASSES: dict[str, str] = {
     "identity": "sklearn.preprocessing.FunctionTransformer",
     "standard_scaler": "sklearn.preprocessing.StandardScaler",
     "pca": "sklearn.decomposition.PCA",
+    "lsi": "benchmarks._preprocessing.LeadingComponents",
     "tsne": "sklearn.manifold.TSNE",
     "umap": "umap.UMAP",
 }
@@ -36,6 +73,7 @@ PREPROCESSOR_DEFAULTS: dict[str, dict[str, Any]] = {
     "identity": {},
     "standard_scaler": {},
     "pca": {},
+    "lsi": {},
     "tsne": {
         "n_components": 2,
         "max_iter": 5000,
@@ -52,6 +90,7 @@ PREPROCESSOR_NAMES: dict[str, str] = {
     "identity": "identity",
     "standard_scaler": "StandardScaler",
     "pca": "PCA",
+    "lsi": "LSI",
     "tsne": "TSNE",
     "umap": "UMAP",
 }

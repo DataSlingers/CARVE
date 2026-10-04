@@ -226,6 +226,7 @@ class TestPreprocessingSpec:
             dim_reduction=(
                 ("identity", {}),
                 ("pca", {"n_components": [5]}),
+                ("lsi", {"n_components": [10]}),
                 ("tsne", {"perplexity": [30]}),
                 ("umap", {"n_neighbors": [15, 30]}),
             ),

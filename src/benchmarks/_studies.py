@@ -488,9 +488,10 @@ STUDIES: dict[str, Study] = {
         estimator=EstimatorSpec(name="louvain"),
         candidate_k=(),
         # Every cell at the atlas scale. With the resample count and
-        # perplexities below it runs in about 14 to 15 hours at five workers
-        # on an 11-core, 18 GB Mac (measured 2026-09-14); eleven workers can
-        # exceed that memory at perplexity 300.
+        # pipelines below it takes about 120 core-hours, about 28 hours at
+        # five workers on an 11-core, 18 GB Mac (extrapolated from timings
+        # measured 2026-09-14). A perplexity-100 fit peaks near 2.2 GB, and
+        # workers beyond five add little throughput.
         scales={"publication": 5000, "atlas": None},
         default_scale="atlas",
         partners=(),
@@ -509,32 +510,39 @@ STUDIES: dict[str, Study] = {
         # the package default of 5000 once n exceeds anchor_threshold. At
         # both scales the run anchors to 2000, the count hECA uses.
         consensus_anchors=2000,
-        # 50 resamples over four pipelines (the LSI as-is and t-SNE at three
-        # perplexities) give each 12 or 13 under stratified allocation. 50 is
-        # the preliminary atlas run's count; 150 is the intended one.
-        n_resamples=50,
+        # 150 resamples over four pipelines give each 37 or 38 under
+        # stratified allocation. The preliminary atlas run used 50.
+        n_resamples=150,
         preprocessing=PreprocessingSpec(
-            # The LSI is already scaled by its singular values; neither the
-            # source nor the field standardizes or log-transforms it.
+            # The LSI is already scaled by its singular values; the source
+            # does not standardize or log-transform it.
             normalization=(("identity", {}),),
             dim_reduction=(
-                ("identity", {}),
-                # t-SNE at the source's perplexity, 30, then threefold steps
-                # toward n/100 of the atlas subsamples (310 for P_test, 501 for
-                # P_1 and P_2): 100 tops the standard range of 10 to 100 (Kobak
-                # and Berens 2019), and at 300 the smallest source clusters
-                # have fewer cells in a subsample than the perplexity, which
-                # tests whether they survive. Perplexities compared on a
-                # small subsample do not transfer: in a 927-cell subsample most
-                # source clusters are already smaller than perplexity 30. Each
-                # perplexity is its own option so stratified allocation
-                # balances resamples across them; one option with three values
-                # would split t-SNE's share at random. The source's other Rtsne
-                # settings (5,000 iterations, random initialization, learning
-                # rate) are bound in PREPROCESSOR_DEFAULTS.
+                # The source's LSI, all 50 components, and its first 10: the
+                # number of components is the LSI's counterpart of the number
+                # of principal components. Keeping 30, the Signac and ArchR
+                # default, or dropping the depth-correlated first component
+                # gave the 50-component partition back up to Louvain's own
+                # run-to-run variation on 50,164 atlas cells (2026-10-03), so
+                # neither is a pipeline of its own; 10 components differ.
+                ("lsi", {"n_components": [50]}),
+                ("lsi", {"n_components": [10]}),
+                # t-SNE of all 50 components at the source's perplexity, 30,
+                # and at 100, the top of the standard range of 10 to 100 for
+                # large data (Kobak and Berens 2019) and near the log-scale
+                # midpoint between 30 and n/100 of a subsample (310 to 501).
+                # The preliminary run's perplexity 300 stayed within about
+                # 0.03 of 100 at every resolution, at 1.4 times the cost.
+                # Perplexities compared on a small subsample do not transfer:
+                # in a 927-cell subsample most source clusters are already
+                # smaller than perplexity 30. Each perplexity is its own
+                # option so stratified allocation balances resamples across
+                # them; one option with two values would split t-SNE's share
+                # at random. The source's other Rtsne settings (5,000
+                # iterations, random initialization, learning rate) are bound
+                # in PREPROCESSOR_DEFAULTS.
                 ("tsne", {"perplexity": [30]}),
                 ("tsne", {"perplexity": [100]}),
-                ("tsne", {"perplexity": [300]}),
             ),
         ),
     ),

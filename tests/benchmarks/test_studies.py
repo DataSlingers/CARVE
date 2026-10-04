@@ -844,24 +844,24 @@ class TestNewStudies:
         )
         assert grid["n_neighbors"] == [15]
 
-    def test_cusanovich_randomizes_over_the_lsi_and_three_tsne_perplexities(self):
+    def test_cusanovich_randomizes_over_two_lsi_truncations_and_two_perplexities(self):
         study = STUDIES["cusanovich"]
-        assert study.n_resamples == 50
+        assert study.n_resamples == 150
         assert study.preprocessing == PreprocessingSpec(
             normalization=(("identity", {}),),
             dim_reduction=(
-                ("identity", {}),
+                ("lsi", {"n_components": [50]}),
+                ("lsi", {"n_components": [10]}),
                 ("tsne", {"perplexity": [30]}),
                 ("tsne", {"perplexity": [100]}),
-                ("tsne", {"perplexity": [300]}),
             ),
         )
 
     def test_cusanovich_balances_resamples_across_its_four_pipelines(self):
-        # Stratified allocation is over options, and each perplexity is its
-        # own option, so 50 resamples split 12 or 13 to each of the LSI and
-        # the three t-SNE pipelines instead of t-SNE's share being drawn at
-        # random between perplexities.
+        # Stratified allocation is over options, and each truncation and
+        # perplexity is its own option, so 150 resamples split 37 or 38 to
+        # each pipeline instead of a family's share being drawn at random
+        # between its values.
         study = STUDIES["cusanovich"]
         options = resolve_preprocessing(study.preprocessing)
         pipelines = allocate_pipelines(
@@ -872,12 +872,12 @@ class TestNewStudies:
         )
         counts = Counter(pipeline.label for pipeline in pipelines)
         assert set(counts) == {
-            "identity | identity",
+            "identity | LSI(n_components=50)",
+            "identity | LSI(n_components=10)",
             "identity | TSNE(perplexity=30)",
             "identity | TSNE(perplexity=100)",
-            "identity | TSNE(perplexity=300)",
         }
-        assert sorted(counts.values()) == [12, 12, 13, 13]
+        assert sorted(counts.values()) == [37, 37, 38, 38]
 
     def test_cusanovich_pipelines_fit_the_pipeline_palette(self):
         # The per-pipeline panel samples PIPELINE_COLORS once per pipeline, so

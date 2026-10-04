@@ -13,6 +13,7 @@ from benchmarks._preprocessing import (
     PREPROCESSOR_CLASSES,
     PREPROCESSOR_DEFAULTS,
     PREPROCESSOR_NAMES,
+    LeadingComponents,
     preprocessing_fingerprint,
     preprocessor_class,
     resolve_preprocessing,
@@ -48,6 +49,7 @@ def test_every_known_preprocessor_is_registered():
         ("standard_scaler", StandardScaler),
         ("pca", PCA),
         ("tsne", TSNE),
+        ("lsi", LeadingComponents),
     ],
 )
 def test_registry_keys_name_their_classes(key, expected):
@@ -93,6 +95,7 @@ _FIT_CASES = [
     ("normalization", "standard_scaler", {}, 6),
     ("dim_reduction", "identity", {}, 6),
     ("dim_reduction", "pca", {"n_components": [3]}, 3),
+    ("dim_reduction", "lsi", {"n_components": [4]}, 4),
     ("dim_reduction", "tsne", {"perplexity": [5]}, 2),
     ("dim_reduction", "umap", {"n_neighbors": [5]}, 2),
 ]
@@ -124,6 +127,31 @@ def test_every_registry_key_resolves_to_an_option_carve_fits(role, key, grid, wi
         )
         Z = pipeline_from_spec(pipeline, random_state=0).fit_transform(X)
     assert Z.shape == (40, width)
+
+
+class TestLeadingComponents:
+    def test_keeps_the_leading_columns_in_order(self):
+        X = np.random.default_rng(0).normal(size=(10, 6))
+        np.testing.assert_array_equal(
+            LeadingComponents(n_components=4).fit_transform(X), X[:, :4]
+        )
+
+    def test_all_components_pass_the_input_through(self):
+        X = np.random.default_rng(0).normal(size=(10, 6))
+        np.testing.assert_array_equal(
+            LeadingComponents(n_components=6).fit_transform(X), X
+        )
+
+    @pytest.mark.parametrize("n_components", [0, 7])
+    def test_a_count_outside_the_input_raises(self, n_components):
+        X = np.zeros((10, 6))
+        with pytest.raises(ValueError, match="n_components"):
+            LeadingComponents(n_components=n_components).fit(X)
+
+    def test_the_pipeline_label_names_the_component_count(self):
+        spec = _spec(dim_reduction=(("lsi", {"n_components": [10]}),))
+        (pipeline,) = _pipelines(spec, n_resamples=1)
+        assert pipeline.label == "identity | LSI(n_components=10)"
 
 
 def test_the_fingerprint_names_the_bound_defaults(monkeypatch):

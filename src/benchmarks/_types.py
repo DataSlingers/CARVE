@@ -24,7 +24,7 @@ KNOWN_ESTIMATORS: frozenset[str] = frozenset(
 #: Registry keys a PreprocessingSpec may name. _preprocessing maps each one to
 #: its transformer; the names live here so this module stays a leaf.
 KNOWN_PREPROCESSORS: frozenset[str] = frozenset(
-    {"identity", "standard_scaler", "pca", "tsne", "umap"}
+    {"identity", "standard_scaler", "pca", "lsi", "tsne", "umap"}
 )
 
 #: Classifiers a Scenario may score generalizability with. _estimators maps
