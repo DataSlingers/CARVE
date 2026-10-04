@@ -1,6 +1,7 @@
 """Custom spectral clustering implementation for CARVE."""
 
 import importlib
+import random
 from typing import Literal
 
 import numpy as np
@@ -607,6 +608,10 @@ class LouvainClustering(BaseEstimator, ClusterMixin):
         Edge weighting scheme; see :func:`build_knn_graph`.
     scale : bool, default=False
         Whether to standardize X before building the graph.
+    random_state : int or None, default=None
+        Seed for the order in which Louvain visits nodes. ``None`` leaves
+        igraph's random number generator as it is, so repeated fits of one
+        graph can return different partitions.
 
     Attributes
     ----------
@@ -625,8 +630,12 @@ class LouvainClustering(BaseEstimator, ClusterMixin):
 
         pip install "carve-validate[graph]"
 
-    ``igraph.Graph.community_multilevel`` takes no seed; results are
-    deterministic given the graph, and the graph is deterministic given X.
+    ``igraph.Graph.community_multilevel`` visits nodes in a random order and
+    takes no seed argument; it draws from igraph's process-wide random number
+    generator. With a ``random_state``, the fit installs a generator seeded
+    with it and afterwards restores igraph's default, the ``random`` module.
+    A generator installed earlier with ``igraph.set_random_number_generator``
+    is therefore replaced by the default after a seeded fit.
 
     References
     ----------
@@ -641,12 +650,14 @@ class LouvainClustering(BaseEstimator, ClusterMixin):
         metric: str = "euclidean",
         weighting: Literal["connectivity", "jaccard"] = "connectivity",
         scale: bool = False,
+        random_state: int | None = None,
     ):
         self.resolution = resolution
         self.n_neighbors = n_neighbors
         self.metric = metric
         self.weighting = weighting
         self.scale = scale
+        self.random_state = random_state
 
     def fit(self, X, y=None):
         """Fit the Louvain model.
@@ -674,9 +685,19 @@ class LouvainClustering(BaseEstimator, ClusterMixin):
         )
         self.graph_ = graph
 
-        partition = graph.community_multilevel(
-            weights="weight", resolution=float(self.resolution)
-        )
+        if self.random_state is None:
+            partition = graph.community_multilevel(
+                weights="weight", resolution=float(self.resolution)
+            )
+        else:
+            ig = _require("igraph", "igraph")
+            ig.set_random_number_generator(random.Random(self.random_state))
+            try:
+                partition = graph.community_multilevel(
+                    weights="weight", resolution=float(self.resolution)
+                )
+            finally:
+                ig.set_random_number_generator(random)
 
         self.labels_ = np.asarray(partition.membership, dtype=np.int32)
         self.n_clusters_ = int(np.unique(self.labels_).size)

@@ -509,14 +509,14 @@ class TestLouvainClustering:
         assert est.metric == "euclidean"
         assert est.weighting == "connectivity"
         assert est.scale is False
+        assert est.random_state is None
 
     def test_get_params_round_trips_through_clone(self):
         est = LouvainClustering(resolution=0.7, n_neighbors=12)
         assert clone(est).get_params() == est.get_params()
 
-    def test_has_no_random_state(self):
-        """igraph's community_multilevel takes no seed."""
-        assert "random_state" not in LouvainClustering().get_params()
+    def test_random_state_defaults_to_none(self):
+        assert LouvainClustering().get_params()["random_state"] is None
 
     def test_fit_returns_self(self, X_blobs):
         est = LouvainClustering()
@@ -550,12 +550,37 @@ class TestLouvainClustering:
         ]
         assert counts == sorted(counts)
 
-    def test_deterministic(self, X_blobs):
-        """No seed, but the graph is deterministic given X."""
+    def test_seeded_fits_are_identical(self):
+        """community_multilevel visits nodes in a random order.
+
+        On points without cluster structure, unseeded fits of one graph
+        give a different partition almost every time (10 of 10 distinct
+        when this test was written), so equal labels here mean the seed
+        reached igraph.
+        """
+        X = np.random.default_rng(0).uniform(size=(600, 2))
         np.testing.assert_array_equal(
-            LouvainClustering(resolution=1.5).fit_predict(X_blobs),
-            LouvainClustering(resolution=1.5).fit_predict(X_blobs),
+            LouvainClustering(random_state=3).fit_predict(X),
+            LouvainClustering(random_state=3).fit_predict(X),
         )
+
+    def test_a_seeded_fit_restores_igraphs_default_generator(self):
+        """The seed is set for the fit only; igraph then draws from random again.
+
+        Were the seeded generator left in place, reseeding the random
+        module would no longer reproduce an unseeded igraph call.
+        """
+        import random
+
+        X = np.random.default_rng(0).uniform(size=(600, 2))
+        est = LouvainClustering(random_state=3).fit(X)
+        partitions = []
+        for _ in range(2):
+            random.seed(11)
+            partitions.append(
+                est.graph_.community_multilevel(weights="weight").membership
+            )
+        assert partitions[0] == partitions[1]
 
     def test_jaccard_weighting_runs(self, X_blobs):
         est = LouvainClustering(weighting="jaccard").fit(X_blobs)

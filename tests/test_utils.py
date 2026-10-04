@@ -182,6 +182,17 @@ class TestClusterLabels:
         l2 = cluster_labels(X_two_clusters, KMeans, random_state=42, n_clusters=2)
         np.testing.assert_array_equal(l1, l2)
 
+    @pytest.mark.requires_graph
+    def test_louvain_receives_the_seed(self):
+        # Unseeded Louvain gives a new partition of structureless points on
+        # almost every fit, so equal labels mean random_state reached it.
+        from carve.cluster import LouvainClustering
+
+        X = np.random.default_rng(0).uniform(size=(600, 2))
+        l1 = cluster_labels(X, LouvainClustering, random_state=42, resolution=1.0)
+        l2 = cluster_labels(X, LouvainClustering, random_state=42, resolution=1.0)
+        np.testing.assert_array_equal(l1, l2)
+
     def test_hdbscan_fits_without_the_copy_deprecation_warning(self, X_two_clusters):
         # scikit-learn 1.9 raises a FutureWarning at fit when HDBSCAN has no
         # explicit copy; filterwarnings = error turns it into a failure.
