@@ -125,10 +125,38 @@ class TestMemorySampler:
             time.sleep(0.2)
         assert len(pd.read_csv(path)) > 2
 
+    def test_a_failed_sample_warns_once_and_sampling_goes_on(
+        self, tmp_path, monkeypatch
+    ):
+        path = tmp_path / "memory.csv"
+        sample = MemorySampler._sample
+        calls = []
+
+        def flaky(self):
+            calls.append(None)
+            # The first call is __enter__'s; the second, the thread's first.
+            if len(calls) == 2:
+                raise OSError("disk quota exceeded")
+            sample(self)
+
+        monkeypatch.setattr(MemorySampler, "_sample", flaky)
+        with pytest.warns(RuntimeWarning, match="disk quota exceeded") as caught:
+            with MemorySampler(path, interval=0.01) as sampler:
+                deadline = time.monotonic() + 10.0
+                while len(calls) < 6 and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                assert sampler._thread.is_alive()
+        assert len(caught) == 1
+        # Entry, at least three samples after the failure, and exit.
+        assert len(pd.read_csv(path)) >= 5
+
 
 class TestRunFit:
     def test_fits_every_configuration_and_times_it(self, study, tmp_path, monkeypatch):
         monkeypatch.delenv("LOKY_MAX_CPU_COUNT", raising=False)
+        monkeypatch.setenv("OMP_NUM_THREADS", "3")
+        monkeypatch.delenv("OPENBLAS_NUM_THREADS", raising=False)
+        monkeypatch.delenv("MKL_NUM_THREADS", raising=False)
         run = tmp_path / "run"
         record = run_fit(run, study=study, n_jobs=1, sample_interval=0.05)
 
@@ -160,6 +188,12 @@ class TestRunFit:
 
         runtime = json.loads((fit_dir / "runtime.json").read_text())
         assert "git_sha" in runtime["provenance"]
+        assert runtime["cpu_s"] > 0
+        assert runtime["thread_env"] == {
+            "OMP_NUM_THREADS": "3",
+            "OPENBLAS_NUM_THREADS": None,
+            "MKL_NUM_THREADS": None,
+        }
 
     def test_without_n_jobs_it_needs_calibration(self, study, tmp_path):
         with pytest.raises(FileNotFoundError):
@@ -172,8 +206,30 @@ class TestRunFit:
         run_fit(run, study=study, n_jobs=1)
         with pytest.raises(StageOutputExists):
             run_fit(run, study=study, n_jobs=1)
+        # The previous run's accounting, as fit.sbatch leaves it.
+        stale = run / "fit" / "sacct.txt"
+        stale.write_text("JobID|TotalCPU\n1.0|00:01:00\n")
         run_fit(run, study=study, n_jobs=1, force=True)
         assert len(read_timings(run / "fit" / "timings")["leiden"]) == 24
+        assert not stale.exists()
+
+    def test_a_forced_rerun_that_fails_leaves_no_previous_results(
+        self, study, tmp_path, monkeypatch
+    ):
+        run = tmp_path / "run"
+        run_fit(run, study=study, n_jobs=1)
+        (run / "fit" / "sacct.txt").write_text("JobID|TotalCPU\n1.0|00:01:00\n")
+
+        def killed(*args, **kwargs):
+            raise RuntimeError("killed partway")
+
+        monkeypatch.setattr("benchmarks._heca_stages.fit_or_load_carve", killed)
+        with pytest.raises(RuntimeError, match="killed partway"):
+            run_fit(run, study=study, n_jobs=1, force=True)
+        # The new started.json must not sit beside the previous run's results.
+        assert (run / "fit" / "started.json").exists()
+        assert not (run / "fit" / "runtime.json").exists()
+        assert not (run / "fit" / "sacct.txt").exists()
 
 
 def _leiden_row(n_neighbors, n_samples, resolution, n_clusters):

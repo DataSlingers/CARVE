@@ -43,17 +43,22 @@ WHOLE_JOB_SACCT = (
 )
 
 
-def _stub_run(sacct: pd.DataFrame) -> HecaRun:
+def _stub_run(
+    sacct: pd.DataFrame | None,
+    *,
+    runtime: dict | None = None,
+    cached: bool = False,
+) -> HecaRun:
     """A HecaRun with only the fields fit_cpu_hours and runtime_table read."""
     return HecaRun(
         run_dir=Path("."),
         study=None,
         env={},
-        embed={"wall_clock_s": 10.0, "peak_rss_bytes": 1_000.0},
+        embed={"wall_clock_s": 10.0, "peak_rss_bytes": 1_000.0, "cached": cached},
         calibration={},
         scan=pd.DataFrame(),
         started={},
-        runtime={"wall_clock_s": 20.0, "n_jobs": 4},
+        runtime={"wall_clock_s": 20.0, "n_jobs": 4} if runtime is None else runtime,
         leiden=pd.DataFrame(),
         forest=pd.DataFrame(),
         memory=pd.DataFrame({"own_rss_bytes": [1], "children_rss_bytes": [1]}),
@@ -110,6 +115,32 @@ def test_a_capture_with_no_dot_zero_step_raises():
         fit_cpu_hours(run)
     with pytest.raises(ValueError, match="456"):
         runtime_table(run)
+
+
+class TestFitCpuHours:
+    RUNTIME = {"wall_clock_s": 20.0, "n_jobs": 4, "cpu_s": 7_200.0}
+
+    def test_slurms_total_cpu_wins_over_the_fits_own_count(self):
+        run = _stub_run(parse_sacct(SACCT), runtime=self.RUNTIME)
+        assert fit_cpu_hours(run) == pytest.approx(20 * 24)
+
+    def test_without_sacct_the_fits_own_count(self):
+        run = _stub_run(None, runtime=self.RUNTIME)
+        assert fit_cpu_hours(run) == pytest.approx(2.0)
+        fit = runtime_table(run).set_index("stage").loc["CARVE fit"]
+        assert fit["cpu_h"] == pytest.approx(2.0)
+
+    def test_without_either_nan(self):
+        run = _stub_run(None, runtime={"wall_clock_s": 20.0, "n_jobs": 4})
+        assert math.isnan(fit_cpu_hours(run))
+
+
+@pytest.mark.parametrize(
+    "cached, label", [(False, "embedding"), (True, "embedding (cache load)")]
+)
+def test_the_embedding_row_says_when_it_was_a_cache_load(cached, label):
+    table = runtime_table(_stub_run(parse_sacct(SACCT), cached=cached))
+    assert list(table["stage"]) == [label, "CARVE fit"]
 
 
 def test_study_composition_by_hand():

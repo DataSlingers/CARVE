@@ -18,10 +18,12 @@ Design: docs/superpowers/specs/2026-10-01-heca-longleaf-runtime-design.md.
 import csv
 import json
 import os
+import resource
 import shutil
 import socket
 import threading
 import time
+import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from datetime import UTC, datetime
@@ -67,6 +69,14 @@ EXTRA_PACKAGES: tuple[str, ...] = (
     "scanpy",
     "anndata",
     "threadpoolctl",
+)
+
+#: Thread-count variables joblib's loky backend keeps from the parent rather
+#: than setting per worker. fit.sbatch unsets them; run_fit records them.
+THREAD_ENV_VARS: tuple[str, ...] = (
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
 )
 
 
@@ -164,7 +174,10 @@ def record_stage(run_dir: Path, stage: str) -> dict[str, Any]:
 
     Provenance (commit, package versions, platform) is written once, by the
     first stage to run. Each stage then adds its host, SLURM job id, core
-    counts and memory, since the stages run on different nodes.
+    counts and memory, since the stages run on different nodes. env.json
+    records every stage run that passed its overwrite guard, including runs
+    that later failed; a stage's own output file (embed.json,
+    calibration.json, fit/runtime.json) shows that it completed.
     """
     import psutil
 
@@ -251,6 +264,11 @@ class MemorySampler:
     summed RSS of every descendant (the loky workers). A row is also written
     on entry and on exit, so even a short block leaves two. This is the
     fit's memory curve, and a cross-check on SLURM's accounting.
+
+    Summed RSS counts pages shared between workers, notably joblib's
+    memory-mapped copy of X, once per worker, so the curve overstates the
+    footprint; SLURM's MaxRSS is the primary figure. A sample that fails
+    warns once and does not stop the later ones.
     """
 
     COLUMNS = ("elapsed_s", "own_rss_bytes", "children_rss_bytes", "n_children")
@@ -276,8 +294,21 @@ class MemorySampler:
         return self
 
     def _run(self) -> None:
+        warned = False
         while not self._stop.wait(self.interval):
-            self._sample()
+            try:
+                self._sample()
+            except Exception as error:
+                # One failed sample must not end the curve for the rest of a
+                # multi-day fit.
+                if not warned:
+                    warnings.warn(
+                        f"Memory sampling failed ({type(error).__name__}: "
+                        f"{error}); sampling continues on later intervals.",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
+                    warned = True
 
     def _sample(self) -> None:
         import psutil
@@ -303,6 +334,19 @@ class MemorySampler:
         return False
 
 
+def _cpu_seconds() -> float:
+    """User plus system CPU seconds of this process and its reaped children.
+
+    RUSAGE_CHILDREN counts only children that have exited and been waited
+    for, so a worker's time appears in it once its pool has shut down.
+    """
+    total = 0.0
+    for who in (resource.RUSAGE_SELF, resource.RUSAGE_CHILDREN):
+        usage = resource.getrusage(who)
+        total += usage.ru_utime + usage.ru_stime
+    return total
+
+
 def run_fit(
     run_dir: Path,
     *,
@@ -323,6 +367,14 @@ def run_fit(
     The cache path comes from the study's plain grids, not the instrumented
     ones: the cache key hashes the grids' repr, which names the estimator
     class's module, and the notebook looks the fit up by the plain grids.
+
+    runtime.json records cpu_s, the fit's user plus system CPU time from
+    getrusage, read before the fit and after the timing block has shut the
+    worker pool down. RUSAGE_CHILDREN counts only reaped processes, so the
+    shutdown is what brings the workers' time in. The report prefers
+    SLURM's TotalCPU from sacct.txt and falls back to cpu_s. thread_env
+    records the thread-count variables the fit inherited (None when unset),
+    which joblib would pass on to every worker.
     """
     study = resolve_study(study)
     run_dir = Path(run_dir)
@@ -333,6 +385,10 @@ def run_fit(
     )
     guard_output(cache_path, force=force)
     guard_output(fit_dir / "runtime.json", force=force)
+    # The files the fit and fit.sbatch write last: a rerun that fails partway
+    # must not leave the previous run's beside its own started.json.
+    (fit_dir / "runtime.json").unlink(missing_ok=True)
+    (fit_dir / "sacct.txt").unlink(missing_ok=True)
     record_stage(run_dir, "fit")
 
     X, y, _ = load_study(study)
@@ -360,6 +416,7 @@ def run_fit(
         },
     )
 
+    thread_env = {name: os.environ.get(name) for name in THREAD_ENV_VARS}
     previous_cap = os.environ.get("LOKY_MAX_CPU_COUNT")
     os.environ["LOKY_MAX_CPU_COUNT"] = str(cores)
     try:
@@ -367,6 +424,7 @@ def run_fit(
             timing_directory(fit_dir / "timings"),
             MemorySampler(fit_dir / "memory.csv", interval=sample_interval),
         ):
+            cpu_before = _cpu_seconds()
             started = time.perf_counter()
             fit_or_load_carve(
                 X,
@@ -383,6 +441,9 @@ def run_fit(
                 ),
             )
             wall_clock_s = time.perf_counter() - started
+        # timing_directory has shut the pool down on exit, so the workers
+        # are reaped and counted in RUSAGE_CHILDREN.
+        cpu_s = _cpu_seconds() - cpu_before
     finally:
         if previous_cap is None:
             os.environ.pop("LOKY_MAX_CPU_COUNT", None)
@@ -393,11 +454,13 @@ def run_fit(
         "started_at": started_at,
         "finished_at": time.time(),
         "wall_clock_s": wall_clock_s,
+        "cpu_s": cpu_s,
         "n_jobs": int(n_jobs),
         "physical_cores": cores,
         "logical_cores": os.cpu_count(),
         "memory_bytes": node_memory_bytes(),
         "loky_max_cpu_count": cores,
+        "thread_env": thread_env,
         "resolutions": [float(r) for r in study.resolutions],
         "n_resamples": int(study.n_resamples),
         "seed": SEED,

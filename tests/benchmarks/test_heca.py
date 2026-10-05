@@ -41,6 +41,14 @@ def test_the_stages_run_in_order_end_to_end(tmp_path, monkeypatch, capsys):
     assert "Configurations complete: 4 of 4" in capsys.readouterr().out
 
 
+def test_status_before_the_fit_starts_says_so(tmp_path, capsys):
+    run = tmp_path / "run"
+    assert main(["status", "--run-dir", str(run)]) == 1
+    captured = capsys.readouterr()
+    assert captured.err.strip() == f"No fit has started in {run}."
+    assert captured.out == ""
+
+
 def test_a_stage_that_would_overwrite_exits_two(tmp_path, monkeypatch, capsys):
     monkeypatch.setitem(STUDIES, "heca", small_heca_study(tmp_path / "data"))
     run = str(tmp_path / "run")

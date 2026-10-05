@@ -157,18 +157,33 @@ def _fit_step_row(sacct: pd.DataFrame) -> pd.Series:
 
 
 def fit_cpu_hours(run: HecaRun) -> float:
-    """The fit step's total CPU time from SLURM, or NaN without sacct.txt."""
-    if run.sacct is None or run.sacct.empty:
-        return float("nan")
-    return float(_fit_step_row(run.sacct)["TotalCPU_s"]) / 3600
+    """The fit's total CPU time in hours.
+
+    SLURM's TotalCPU for the fit step wins when sacct.txt was copied back.
+    Without it, runtime.json's cpu_s: the fit's own getrusage count for
+    itself and its children. RUSAGE_CHILDREN counts only reaped processes;
+    the fit shuts its worker pool down before reading it, so the loky
+    workers are included. NaN when neither exists.
+    """
+    if run.sacct is not None and not run.sacct.empty:
+        return float(_fit_step_row(run.sacct)["TotalCPU_s"]) / 3600
+    if "cpu_s" in run.runtime:
+        return float(run.runtime["cpu_s"]) / 3600
+    return float("nan")
 
 
 def runtime_table(run: HecaRun) -> pd.DataFrame:
     """Wall-clock time, CPU time, workers and peak memory: embedding and fit.
 
-    The fit's peak memory is SLURM's MaxRSS when sacct.txt was copied back,
-    else the largest sampled total of the fit process and its workers; the
-    sampled value is reported beside it either way.
+    The embedding row reads "embedding (cache load)" when embed.json records
+    a cache load, so a load is never read as the embedding's cost. The fit's
+    CPU time comes from fit_cpu_hours. Its peak memory is SLURM's MaxRSS
+    when sacct.txt was copied back, else the largest sampled total of the
+    fit process and its workers; the sampled value is reported beside it
+    either way. The sampled total sums RSS, which counts pages shared
+    between workers, notably joblib's memory-mapped copy of X, once per
+    worker, so it overstates the footprint; SLURM's MaxRSS is the primary
+    figure.
     """
     sampled = float(
         (run.memory["own_rss_bytes"] + run.memory["children_rss_bytes"]).max()
@@ -183,7 +198,9 @@ def runtime_table(run: HecaRun) -> pd.DataFrame:
     return pd.DataFrame(
         [
             {
-                "stage": "embedding",
+                "stage": "embedding (cache load)"
+                if run.embed["cached"]
+                else "embedding",
                 "wall_clock_h": run.embed["wall_clock_s"] / 3600,
                 "cpu_h": float("nan"),
                 "workers": 1,
@@ -209,11 +226,11 @@ def component_table(run: HecaRun) -> pd.DataFrame:
 
     The graph and Leiden components are per setting; the forest is for the
     whole fit, since the classifier cannot tell which configuration it
-    serves. With sacct.txt, CARVE's own overhead (ARI scoring, consensus
-    accumulation, scheduling) is the rest of the step's CPU time; without
-    it, shares are of the timed components alone. Components are wall-clock
-    seconds in single-threaded workers, which equals their CPU time when the
-    fit ran one worker per physical core.
+    serves. With the fit's CPU time (fit_cpu_hours), CARVE's own overhead
+    (ARI scoring, consensus accumulation, scheduling) is the rest of it;
+    without it, shares are of the timed components alone. Components are
+    wall-clock seconds in single-threaded workers, which equals their CPU
+    time when the fit ran one worker per physical core.
     """
     rows = []
     for setting, part in run.leiden.groupby("setting", sort=False):

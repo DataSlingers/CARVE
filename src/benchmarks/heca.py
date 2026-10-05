@@ -68,6 +68,9 @@ def main(argv: list[str] | None = None) -> int:
                 f"{record['wall_clock_s'] / 3600:.2f} h."
             )
         else:
+            if not (args.run_dir / "fit" / "started.json").exists():
+                print(f"No fit has started in {args.run_dir}.", file=sys.stderr)
+                return 1
             print(format_status(fit_status(args.run_dir)))
     except StageOutputExists as error:
         print(error, file=sys.stderr)
