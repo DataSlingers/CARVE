@@ -10,6 +10,7 @@ import carve.cluster as cluster
 from benchmarks._heca_calibration import (
     GridRuleError,
     calibration_costs,
+    fine_end_row,
     project_runtime,
     propose_grid,
     run_calibrate,
@@ -149,6 +150,50 @@ def test_calibration_costs_average_leiden_inside_the_grid():
     }
 
 
+class TestForestCosts:
+    CALIBRATION = {
+        "graph_costs": {"a": {"graph_train_s": 10.0, "graph_test_s": 4.0}},
+        "forest_fit_s": 30.0,
+        "forest_predict_s": 1.0,
+    }
+    SCAN = pd.DataFrame({"setting": ["a"], "resolution": [1.0], "seconds": [2.0]})
+
+    def test_the_middle_and_fine_forests_are_averaged(self):
+        calibration = {
+            **self.CALIBRATION,
+            "forest_fit_fine_s": 90.0,
+            "forest_predict_fine_s": 3.0,
+        }
+        costs = calibration_costs(calibration, self.SCAN, resolutions=(1.0,))
+        assert costs["a"]["forest_fit_s"] == pytest.approx(60.0)
+        assert costs["a"]["forest_predict_s"] == pytest.approx(2.0)
+
+    def test_a_calibration_without_the_fine_forest_uses_the_middle_one(self):
+        # A calibration.json written before the fine-end forest was timed.
+        costs = calibration_costs(self.CALIBRATION, self.SCAN, resolutions=(1.0,))
+        assert costs["a"]["forest_fit_s"] == pytest.approx(30.0)
+        assert costs["a"]["forest_predict_s"] == pytest.approx(1.0)
+
+
+class TestFineEndRow:
+    def test_the_most_clusters_within_the_upper_target_across_settings(self):
+        # b at 3.0 sits exactly on the target and beats a's 80; the counts
+        # past it, a's 300 and b's 109, are out.
+        scan = _scan(
+            [
+                ("a", 0.1, 5), ("a", 1.0, 80), ("a", 10.0, 300),
+                ("b", 0.1, 4), ("b", 1.0, 100), ("b", 3.0, 108), ("b", 10.0, 109),
+            ]
+        )
+        assert fine_end_row(scan, upper_target=108) == ("b", 3.0)
+
+    def test_without_a_row_within_the_target_the_fewest_clusters(self):
+        scan = _scan(
+            [("a", 0.1, 200), ("a", 1.0, 400), ("b", 0.1, 150), ("b", 1.0, 300)]
+        )
+        assert fine_end_row(scan, upper_target=108) == ("b", 0.1)
+
+
 def test_scan_matches_leiden_clustering():
     rng = np.random.default_rng(0)
     X = np.vstack([rng.normal(0, 0.5, (60, 2)), rng.normal(5, 0.5, (60, 2))])
@@ -181,10 +226,28 @@ class TestRunCalibrate:
         assert (record["proposed_grid"] is None) != (record["grid_error"] is None)
         assert set(record["graph_costs"]) == {"leiden_15", "leiden_50"}
         assert record["forest_fit_s"] > 0
+        assert record["forest_predict_s"] > 0
+        # The second forest is fit on the scan's fine end, the most clusters
+        # a worker's forest trains on.
+        assert record["forest_fit_fine_s"] > 0
+        assert record["forest_predict_fine_s"] > 0
+        fine = record["forest_fine"]
+        assert set(fine) == {"setting", "resolution", "n_clusters"}
+        assert fine["n_clusters"] <= record["upper_target"]
+        assert (fine["setting"], fine["resolution"]) == fine_end_row(
+            scan, upper_target=record["upper_target"]
+        )
+        (scanned,) = scan.loc[
+            (scan["setting"] == fine["setting"])
+            & (scan["resolution"] == fine["resolution"]),
+            "n_clusters",
+        ]
+        assert fine["n_clusters"] == scanned
         assert record["projection"]["core_hours"] > 0
         assert record["worker_peak_bytes"] >= record["baseline_rss_bytes"]
         on_disk = json.loads((run / "calibration.json").read_text())
         assert on_disk["n_cells"] == record["n_cells"]
+        assert on_disk["forest_fine"] == fine
 
     def test_refuses_to_overwrite(self, tmp_path):
         study = small_heca_study(tmp_path / "data")

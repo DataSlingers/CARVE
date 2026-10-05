@@ -8,6 +8,13 @@ repeats, single-threaded as each fit worker runs. It proposes the grid by
 the spec's rule and projects the fit's runtime; the author commits the grid
 to STUDIES before submitting the fit. The scan and the costs are written
 even when the rule fails, so a failed rule never discards hours of scanning.
+
+The forest is timed at both ends of the grid: once on labels near the
+provisional grid's geometric middle, and once on the scan's fine end, the
+most clusters within the upper target. A fitted forest's size and fit time
+grow steeply with its class count, so a middle-only forest would understate
+both the per-worker memory peak the fit's worker count is chosen from and
+the forest's share of the projection.
 """
 
 import math
@@ -107,6 +114,22 @@ def propose_grid(
     return grid
 
 
+def fine_end_row(scan: pd.DataFrame, *, upper_target: int) -> tuple[str, float]:
+    """The (setting, resolution) of the scan's fine end.
+
+    The row with the most clusters not exceeding upper_target, across every
+    setting: the most classes a fit worker's forest trains on inside the
+    grid. When no row is within the target, the row with the fewest
+    clusters. Ties go to the earlier row.
+    """
+    within = scan[scan["n_clusters"] <= upper_target]
+    if within.empty:
+        row = scan.loc[scan["n_clusters"].idxmin()]
+    else:
+        row = within.loc[within["n_clusters"].idxmax()]
+    return str(row["setting"]), float(row["resolution"])
+
+
 def project_runtime(
     costs: Mapping[str, Mapping[str, float]],
     *,
@@ -157,9 +180,22 @@ def calibration_costs(
     """Per-setting costs for project_runtime, for a grid's range.
 
     Leiden's cost is the mean over the scanned resolutions inside the grid's
-    range, or over the whole scan when none falls inside.
+    range, or over the whole scan when none falls inside. The forest's cost
+    is the mean of the middle and fine-end forests, or the middle forest
+    alone for a calibration.json written before the fine end was timed.
     """
     lo, hi = min(resolutions), max(resolutions)
+    forest = {
+        key: float(
+            np.mean([calibration[key], calibration[fine_key]])
+            if fine_key in calibration
+            else calibration[key]
+        )
+        for key, fine_key in (
+            ("forest_fit_s", "forest_fit_fine_s"),
+            ("forest_predict_s", "forest_predict_fine_s"),
+        )
+    }
     costs: dict[str, dict[str, float]] = {}
     for label, graph in calibration["graph_costs"].items():
         rows = scan[scan["setting"] == label]
@@ -169,8 +205,7 @@ def calibration_costs(
             "graph_train_s": float(graph["graph_train_s"]),
             "graph_test_s": float(graph["graph_test_s"]),
             "leiden_s": leiden_s,
-            "forest_fit_s": float(calibration["forest_fit_s"]),
-            "forest_predict_s": float(calibration["forest_predict_s"]),
+            **forest,
         }
     return costs
 
@@ -209,6 +244,31 @@ def scan_resolutions(
     return results
 
 
+def _time_forest(
+    X_train: np.ndarray, labels: np.ndarray, X_test: np.ndarray
+) -> tuple[float, float]:
+    """Seconds to fit the default forest on labels and to predict X_test.
+
+    Single-threaded, as in a fit worker. The forest is dropped on return,
+    so a second call measures one forest at a time.
+    """
+    forest = default_generalizability_classifier(
+        classifier=None,
+        n_features=int(X_train.shape[1]),
+        n_trees=CARVE_N_TREES,
+        random_state=SEED,
+        n_jobs=1,
+    )
+    started = time.perf_counter()
+    forest.fit(X_train, labels)
+    fit_s = time.perf_counter() - started
+    started = time.perf_counter()
+    forest.predict(X_test)
+    predict_s = time.perf_counter() - started
+    del forest
+    return fit_s, predict_s
+
+
 def run_calibrate(
     run_dir: Path,
     *,
@@ -216,7 +276,15 @@ def run_calibrate(
     scan: Sequence[float] = SCAN_RESOLUTIONS,
     force: bool = False,
 ) -> dict[str, Any]:
-    """Scan, time and project; write calibration.csv and calibration.json."""
+    """Scan, time and project; write calibration.csv and calibration.json.
+
+    The default forest is fit and timed twice, one forest at a time as in a
+    fit worker: on the first setting's labels near the provisional grid's
+    geometric middle, then on the scan's fine end (fine_end_row). The fine
+    end has the most classes a worker's forest trains on, and a forest's
+    size grows steeply with its class count, so worker_peak_bytes, read
+    after the second fit, bounds what one fit worker needs.
+    """
     study = resolve_study(study)
     run_dir = Path(run_dir)
     csv_path = run_dir / "calibration.csv"
@@ -237,10 +305,15 @@ def run_calibrate(
     organ = obs["organ"].to_numpy()[train_idx]
     cell_type = obs["cell_type"].to_numpy()[train_idx]
     middle = math.sqrt(min(study.resolutions) * max(study.resolutions))
+    lower_target = int(obs["organ"].nunique())
+    upper_target = 2 * int(obs["cell_type"].nunique())
 
     rows: list[dict[str, Any]] = []
     graph_costs: dict[str, dict[str, float]] = {}
     forest_labels: np.ndarray | None = None
+    # The labels of the fine end over the settings scanned so far: only this
+    # one candidate's partition is kept, not every scanned one.
+    fine_labels: np.ndarray | None = None
     for setting in sweep_settings(study):
         k_train = scaled_neighbors(setting, n_fit=len(train_idx), n_full=n_cells)
         k_test = scaled_neighbors(setting, n_fit=len(test_idx), n_full=n_cells)
@@ -274,26 +347,28 @@ def run_calibrate(
             _, forest_labels, _ = min(
                 scanned, key=lambda item: abs(math.log(item[0] / middle))
             )
+        fine_setting, fine_resolution = fine_end_row(
+            pd.DataFrame(rows), upper_target=upper_target
+        )
+        if fine_setting == setting.label:
+            fine_labels = next(
+                labels for value, labels, _ in scanned if value == fine_resolution
+            )
+        del scanned
 
-    forest = default_generalizability_classifier(
-        classifier=None,
-        n_features=int(X.shape[1]),
-        n_trees=CARVE_N_TREES,
-        random_state=SEED,
-        n_jobs=1,
+    # After the last setting, fine_setting and fine_resolution are the whole
+    # scan's fine end. The middle forest is gone before the fine one is fit.
+    forest_fit_s, forest_predict_s = _time_forest(X_train, forest_labels, X_test)
+    forest_fit_fine_s, forest_predict_fine_s = _time_forest(
+        X_train, fine_labels, X_test
     )
-    started = time.perf_counter()
-    forest.fit(X_train, forest_labels)
-    forest_fit_s = time.perf_counter() - started
-    started = time.perf_counter()
-    forest.predict(X_test)
-    forest_predict_s = time.perf_counter() - started
+    # ru_maxrss is a running maximum: this covers the graphs and both
+    # forests, the fine-end one with the most classes.
+    worker_peak_bytes = int(peak_rss_bytes())
 
     scan_frame = pd.DataFrame(rows)
     scan_frame.to_csv(csv_path, index=False)
 
-    lower_target = int(obs["organ"].nunique())
-    upper_target = 2 * int(obs["cell_type"].nunique())
     grid: tuple[float, ...] | None
     try:
         grid = propose_grid(
@@ -315,8 +390,15 @@ def run_calibrate(
         "graph_costs": graph_costs,
         "forest_fit_s": forest_fit_s,
         "forest_predict_s": forest_predict_s,
+        "forest_fit_fine_s": forest_fit_fine_s,
+        "forest_predict_fine_s": forest_predict_fine_s,
+        "forest_fine": {
+            "setting": fine_setting,
+            "resolution": fine_resolution,
+            "n_clusters": int(np.unique(fine_labels).size),
+        },
         "baseline_rss_bytes": int(baseline_rss),
-        "worker_peak_bytes": int(peak_rss_bytes()),
+        "worker_peak_bytes": worker_peak_bytes,
     }
     costs = calibration_costs(
         record, scan_frame, resolutions=grid if grid is not None else tuple(scan)

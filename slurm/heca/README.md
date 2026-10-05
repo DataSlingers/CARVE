@@ -80,8 +80,11 @@ Read `$RUN_DIR/calibration.json`:
   `SCAN_RESOLUTIONS` in src/benchmarks/_heca_calibration.py as the message
   says, push, pull here, and rerun calibration with `--force`.
 - `projection.wall_clock_hours` at the fit node's physical core count, and
-  `worker_peak_bytes`. If the projection exceeds 8 days (192 h), decide before
-  fitting: fewer resamples (100 to 50) first, then fewer resolutions.
+  `worker_peak_bytes`. The peak includes the forest fit on the scan's fine
+  end (`forest_fine`, the most clusters within the upper target), the largest
+  forest a fit worker trains, so it bounds one worker's memory. If the
+  projection exceeds 8 days (192 h), decide before fitting: fewer resamples
+  (100 to 50) first, then fewer resolutions.
 
 On the laptop, set `STUDIES["heca"].resolutions` to the proposed values as a
 literal tuple, with a comment naming the calibration run, run
