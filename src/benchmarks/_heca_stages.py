@@ -15,9 +15,12 @@ in _heca_calibration, the notebook-side reading in _heca_report. Layout:
 Design: docs/superpowers/specs/2026-10-01-heca-longleaf-runtime-design.md.
 """
 
+import csv
 import json
 import os
+import shutil
 import socket
+import threading
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
@@ -33,7 +36,14 @@ from carve._utils import scale_neighbor_count
 from carve.cluster import LeidenClustering
 
 from ._artifacts import peak_rss_bytes, provenance
-from ._studies import STUDIES, load_study, study_resolution_grids
+from ._studies import (
+    STUDIES,
+    carve_cache_path,
+    fit_or_load_carve,
+    load_study,
+    study_resolution_grids,
+)
+from ._timing import instrumented_grids, timed_forest, timing_directory
 from ._types import Study
 
 #: The seed every stage draws with, as for the other case studies.
@@ -214,4 +224,185 @@ def run_embed(
         "n_studies": int(obs["study_id"].nunique()),
     }
     write_json(out, record)
+    return record
+
+
+#: Share of node memory the fit's workers may plan to fill.
+MEMORY_FRACTION = 0.9
+
+
+def choose_n_jobs(
+    *,
+    cores: int,
+    memory_bytes: int,
+    worker_peak_bytes: int,
+    memory_fraction: float = MEMORY_FRACTION,
+) -> int:
+    """Workers for the fit: one per physical core, unless memory allows fewer."""
+    by_memory = int(memory_fraction * memory_bytes // max(int(worker_peak_bytes), 1))
+    return max(1, min(int(cores), by_memory))
+
+
+class MemorySampler:
+    """Sample the resident memory of this process and of its children.
+
+    One row per interval: seconds since entry, this process's RSS, and the
+    summed RSS of every descendant (the loky workers). A row is also written
+    on entry and on exit, so even a short block leaves two. This is the
+    fit's memory curve, and a cross-check on SLURM's accounting.
+    """
+
+    COLUMNS = ("elapsed_s", "own_rss_bytes", "children_rss_bytes", "n_children")
+
+    def __init__(self, path: Path, *, interval: float = 60.0) -> None:
+        self.path = Path(path)
+        self.interval = float(interval)
+
+    def __enter__(self) -> "MemorySampler":
+        import psutil
+
+        self._process = psutil.Process()
+        self._started = time.perf_counter()
+        self._stop = threading.Event()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.open("w", newline="") as handle:
+            csv.writer(handle).writerow(self.COLUMNS)
+        self._sample()
+        self._thread = threading.Thread(
+            target=self._run, name="memory-sampler", daemon=True
+        )
+        self._thread.start()
+        return self
+
+    def _run(self) -> None:
+        while not self._stop.wait(self.interval):
+            self._sample()
+
+    def _sample(self) -> None:
+        import psutil
+
+        own = self._process.memory_info().rss
+        children_rss, n_children = 0, 0
+        for child in self._process.children(recursive=True):
+            try:
+                children_rss += child.memory_info().rss
+                n_children += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        elapsed = time.perf_counter() - self._started
+        with self.path.open("a", newline="") as handle:
+            csv.writer(handle).writerow(
+                [f"{elapsed:.3f}", own, children_rss, n_children]
+            )
+
+    def __exit__(self, *exc_info: object) -> bool:
+        self._stop.set()
+        self._thread.join()
+        self._sample()
+        return False
+
+
+def run_fit(
+    run_dir: Path,
+    *,
+    study: Study | None = None,
+    n_jobs: int | None = None,
+    force: bool = False,
+    sample_interval: float = 60.0,
+) -> dict[str, Any]:
+    """Fit CARVE on every cell with the timing classes in place.
+
+    n_jobs defaults to one worker per physical core, capped by node memory
+    over the per-worker peak calibration measured. LOKY_MAX_CPU_COUNT is set
+    to the physical core count for the fit, so CARVE's core budget sees
+    physical cores rather than hyperthreads: with one worker per core, each
+    worker's forest and BLAS run single-threaded, and the spare cores of a
+    memory-capped run go to forest threads.
+
+    The cache path comes from the study's plain grids, not the instrumented
+    ones: the cache key hashes the grids' repr, which names the estimator
+    class's module, and the notebook looks the fit up by the plain grids.
+    """
+    study = resolve_study(study)
+    run_dir = Path(run_dir)
+    fit_dir = run_dir / "fit"
+    grids = study_resolution_grids(study)
+    cache_path = carve_cache_path(
+        study, root=fit_dir, model_grids=grids, n_resamples=study.n_resamples
+    )
+    guard_output(cache_path, force=force)
+    guard_output(fit_dir / "runtime.json", force=force)
+    record_stage(run_dir, "fit")
+
+    X, y, _ = load_study(study)
+    cores = physical_cores()
+    if n_jobs is None:
+        calibration = read_json(run_dir / "calibration.json")
+        n_jobs = choose_n_jobs(
+            cores=cores,
+            memory_bytes=node_memory_bytes(),
+            worker_peak_bytes=int(calibration["worker_peak_bytes"]),
+        )
+
+    # A forced rerun starts its timing rows afresh; memory.csv is rewritten.
+    shutil.rmtree(fit_dir / "timings", ignore_errors=True)
+    started_at = time.time()
+    write_json(
+        fit_dir / "started.json",
+        {
+            "started_at": started_at,
+            "n_cells": int(X.shape[0]),
+            "n_jobs": int(n_jobs),
+            "resolutions": [float(r) for r in study.resolutions],
+            "n_resamples": int(study.n_resamples),
+            "settings": [setting.label for setting in sweep_settings(study)],
+        },
+    )
+
+    previous_cap = os.environ.get("LOKY_MAX_CPU_COUNT")
+    os.environ["LOKY_MAX_CPU_COUNT"] = str(cores)
+    try:
+        with (
+            timing_directory(fit_dir / "timings"),
+            MemorySampler(fit_dir / "memory.csv", interval=sample_interval),
+        ):
+            started = time.perf_counter()
+            fit_or_load_carve(
+                X,
+                y,
+                cache_path=cache_path,
+                model_grids=instrumented_grids(grids),
+                n_resamples=study.n_resamples,
+                n_jobs=int(n_jobs),
+                random_state=SEED,
+                force=force,
+                consensus_anchors=study.consensus_anchors,
+                classifier=timed_forest(
+                    n_features=int(X.shape[1]), n_trees=CARVE_N_TREES
+                ),
+            )
+            wall_clock_s = time.perf_counter() - started
+    finally:
+        if previous_cap is None:
+            os.environ.pop("LOKY_MAX_CPU_COUNT", None)
+        else:
+            os.environ["LOKY_MAX_CPU_COUNT"] = previous_cap
+
+    record = {
+        "started_at": started_at,
+        "finished_at": time.time(),
+        "wall_clock_s": wall_clock_s,
+        "n_jobs": int(n_jobs),
+        "physical_cores": cores,
+        "logical_cores": os.cpu_count(),
+        "memory_bytes": node_memory_bytes(),
+        "loky_max_cpu_count": cores,
+        "resolutions": [float(r) for r in study.resolutions],
+        "n_resamples": int(study.n_resamples),
+        "seed": SEED,
+        "n_cells": int(X.shape[0]),
+        "cache_file": cache_path.name,
+        "provenance": provenance(),
+    }
+    write_json(fit_dir / "runtime.json", record)
     return record
