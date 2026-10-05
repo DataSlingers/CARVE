@@ -89,6 +89,9 @@ benchmarks = [
   # own asv suite) that shadows src/benchmarks on sys.path. Fixed in 18.
   "pyarrow>=18",
   "scanpy>=1.11.4",
+  # The hECA stages read physical cores and node memory, and sample the fit's
+  # memory, through psutil.
+  "psutil>=5.9",
 ]
 
 [tool.setuptools.packages.find]

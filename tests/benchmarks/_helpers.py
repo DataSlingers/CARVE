@@ -501,3 +501,43 @@ def synthetic_ablation_frames(
         return _write_and_read(Path(tmp_path))
     with tempfile.TemporaryDirectory() as tmp_dir:
         return _write_and_read(Path(tmp_dir))
+
+
+def small_heca_study(root):
+    """STUDIES["heca"] on two synthetic organs, sized for a test.
+
+    Lung and Brain from different studies, the real 15- and 50-neighbor
+    settings, a two-value grid that splits the organs into at least two
+    clusters on every subsample (a single cluster warns, and warnings are
+    errors here), two resamples, and no anchors: the fit is far below
+    anchor_threshold.
+    """
+    from dataclasses import replace
+
+    from benchmarks._studies import STUDIES
+    from benchmarks.datasets import load_heca
+
+    root = Path(root)
+    directory = root / "hECA"
+    directory.mkdir(parents=True, exist_ok=True)
+    write_heca_organ(directory, "Lung", 90, 0, study_id="10.1000/lung")
+    write_heca_organ(directory, "Brain", 80, 1, study_id="10.1000/brain")
+
+    def loader(subsample):
+        return load_heca(
+            root=root,
+            organs=("Lung", "Brain"),
+            subsample=subsample,
+            random_state=42,
+            label_column="organ",
+            n_top_peaks=50,
+            n_components=5,
+        )
+
+    return replace(
+        STUDIES["heca"],
+        loader=loader,
+        resolutions=(1.0, 2.0),
+        n_resamples=2,
+        consensus_anchors=None,
+    )
