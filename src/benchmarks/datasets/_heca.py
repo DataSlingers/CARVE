@@ -62,6 +62,11 @@ _CACHE_PREFIX = ".heca_cache_"
 
 _OBS_COLUMNS = ("cell_type", "organ", "donor_id", "study_id")
 
+#: obs columns load_heca returns in meta["obs"], aligned to the rows of X, and
+#: stores in its cache: both reference labels and the study of origin, which
+#: a pooled clustering may partly recover.
+META_OBS_COLUMNS: tuple[str, ...] = ("cell_type", "organ", "study_id")
+
 
 def _organ_path(data_dir: Path, organ: str) -> Path:
     path = data_dir / f"ATAC-{organ}.h5ad"
@@ -272,16 +277,37 @@ def _read_cache(path: Path) -> dict | None:
     if not path.is_file():
         return None
     with np.load(path, allow_pickle=True) as payload:
+        # A cache written before meta["obs"] existed lacks these arrays. It
+        # is treated as a miss and rebuilt, not served without them.
+        if any(f"obs_{column}" not in payload.files for column in META_OBS_COLUMNS):
+            return None
         return {
             "X": payload["X"],
             "y": payload["y"],
+            "obs": pd.DataFrame(
+                {
+                    column: payload[f"obs_{column}"].astype(str)
+                    for column in META_OBS_COLUMNS
+                }
+            ),
             **{key: int(payload[key]) for key in _CACHE_SCALARS},
         }
 
 
-def _write_cache(path: Path, X: np.ndarray, y: np.ndarray, **scalars: int) -> None:
+def _write_cache(
+    path: Path, X: np.ndarray, y: np.ndarray, obs: pd.DataFrame, **scalars: int
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(path, X=X, y=np.asarray(y).astype(str), **scalars)
+    np.savez_compressed(
+        path,
+        X=X,
+        y=np.asarray(y).astype(str),
+        **{
+            f"obs_{column}": obs[column].to_numpy().astype(str)
+            for column in META_OBS_COLUMNS
+        },
+        **scalars,
+    )
 
 
 def _annotated(obs: pd.DataFrame) -> np.ndarray:
@@ -519,8 +545,8 @@ def load_heca(
         Keep cPeaks open in at least this fraction of pooled cells. 0.005 is
         the source publication's value.
     n_top_peaks : int
-        Highly variable cPeaks retained. The source uses 500,000; see the
-        recorded deviation.
+        Highly variable cPeaks retained. The source's PeakVI visualization
+        uses 500,000; see the recorded deviation.
     n_components : int
         PCA components retained.
     label_column : str
@@ -570,6 +596,7 @@ def load_heca(
     if cached is not None:
         X_full = np.asarray(cached["X"], dtype=np.float64)
         y_full = pd.Series(cached["y"], name=label_column).astype(str)
+        obs_full = cached["obs"]
         scalars = {key: cached[key] for key in _CACHE_SCALARS}
     else:
         paths = [_organ_path(data_dir, organ) for organ in organs]
@@ -596,11 +623,13 @@ def load_heca(
                 f"obs has no column {label_column!r}. Available: {sorted(obs.columns)}."
             )
         y_full = pd.Series(obs[label_column].to_numpy(), name=label_column).astype(str)
+        obs_full = obs[list(META_OBS_COLUMNS)].astype(str).reset_index(drop=True)
         if cache:
-            _write_cache(cache_path, X_full, y_full.to_numpy(), **scalars)
+            _write_cache(cache_path, X_full, y_full.to_numpy(), obs_full, **scalars)
 
     X = X_full
     y = y_full
+    obs_rows = obs_full
     n_annotated = int(scalars["n_cells_annotated"])
     # A subsample-first embedding already is the subsample; the pooled one
     # is subsampled here, on top of the cached or freshly computed result.
@@ -616,6 +645,7 @@ def load_heca(
         _, idx = next(splitter.split(X, y))
         X = X[idx]
         y = y.iloc[idx].reset_index(drop=True)
+        obs_rows = obs_full.iloc[idx].reset_index(drop=True)
 
     n_top = int(scalars["n_peaks_selected"])
     if population == "pooled":
@@ -649,6 +679,7 @@ def load_heca(
         "feature_selection_scope": feature_scope,
         "embedding_population": population,
         "label_name": label_column,
+        "obs": obs_rows,
         "preprocessing": [
             f"pool organs {list(organs)}",
             f"drop cells labeled {UNCLASSIFIED_LABEL!r} in {_ANNOTATION_COLUMN} "
@@ -660,7 +691,9 @@ def load_heca(
         ],
         "deviations": [
             "deviation from source: the publication selects 500,000 highly "
-            f"variable cPeaks; {n_top} are selected here, for memory",
+            "variable cPeaks for its PeakVI visualization, and its annotation "
+            "selected peaks per dataset with no fixed count; "
+            f"{n_top} are selected here, which keeps the embedding cheap",
         ],
         "batch_note": (
             "cells pool multiple study_id values, so a pooled clustering may "

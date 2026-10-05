@@ -303,6 +303,44 @@ def small_ablation(ablation, *, study=None):
     )
 
 
+HECA_N_PEAKS = 300
+
+
+def write_heca_organ(path, name, n_cells, seed, *, study_id="10.1000/x"):
+    """Write one synthetic hECA organ file in the real layout.
+
+    CSR raw counts, cells by cPeaks, annotations in obs, an empty obsm. An
+    organ-specific block plus a shared background gives the embedding
+    structure that clustering can recover. The random draws are made in the
+    order the loader tests were written against, so their numbers do not
+    move.
+    """
+    import anndata as ad
+    from scipy import sparse
+
+    rng = np.random.default_rng(seed)
+    types = rng.choice(["T cell", "Epithelial cell", "Unclassified"], n_cells)
+    M = np.zeros((n_cells, HECA_N_PEAKS))
+    offset = {"Lung": 0, "Brain": 100}.get(name, 200)
+    M[:, offset : offset + 100] = rng.random((n_cells, 100)) < 0.5
+    M[:, 250:] = rng.random((n_cells, 50)) < 0.4
+
+    adata = ad.AnnData(
+        X=sparse.csr_matrix(M.astype(np.int32)),
+        obs=pd.DataFrame(
+            {
+                "cell_type": types,
+                "organ": name,
+                "donor_id": rng.choice(["d1", "d2"], n_cells),
+                "study_id": study_id,
+            },
+            index=[f"{name}_{i}" for i in range(n_cells)],
+        ),
+        var=pd.DataFrame(index=[f"peak{i}" for i in range(HECA_N_PEAKS)]),
+    )
+    adata.write_h5ad(path / f"ATAC-{name}.h5ad")
+
+
 def synthetic_ablation_frames(
     ablation, scale: str, *, seed: int = 0, tmp_path: Path | None = None
 ) -> dict:

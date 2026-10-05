@@ -15,34 +15,8 @@ from scipy import sparse
 
 from benchmarks.datasets import load_heca
 from benchmarks.datasets._heca import peak_open_counts, read_rows, reduce_to_peaks
-
-N_PEAKS = 300
-
-
-def _organ(path, name, n_cells, seed):
-    rng = np.random.default_rng(seed)
-    types = rng.choice(["T cell", "Epithelial cell", "Unclassified"], n_cells)
-    M = np.zeros((n_cells, N_PEAKS))
-    # An organ-specific block plus a shared background gives the embedding
-    # structure that clustering can recover.
-    offset = {"Lung": 0, "Brain": 100}.get(name, 200)
-    M[:, offset : offset + 100] = rng.random((n_cells, 100)) < 0.5
-    M[:, 250:] = rng.random((n_cells, 50)) < 0.4
-
-    adata = ad.AnnData(
-        X=sparse.csr_matrix(M.astype(np.int32)),
-        obs=pd.DataFrame(
-            {
-                "cell_type": types,
-                "organ": name,
-                "donor_id": rng.choice(["d1", "d2"], n_cells),
-                "study_id": "10.1000/x",
-            },
-            index=[f"{name}_{i}" for i in range(n_cells)],
-        ),
-        var=pd.DataFrame(index=[f"peak{i}" for i in range(N_PEAKS)]),
-    )
-    adata.write_h5ad(path / f"ATAC-{name}.h5ad")
+from tests.benchmarks._helpers import HECA_N_PEAKS as N_PEAKS
+from tests.benchmarks._helpers import write_heca_organ as _organ
 
 
 @pytest.fixture
@@ -479,4 +453,60 @@ class TestSubsampleBeforeEmbedding:
         chain = " ".join(meta["preprocessing"])
         assert "subsample" in chain
         assert "subsample" in meta["feature_selection_scope"]
+
+
+class TestMetaObs:
+    def test_obs_is_aligned_with_the_rows(self, heca):
+        X, y, meta = load_heca(
+            root=heca, organs=["Lung", "Brain"], n_top_peaks=50, n_components=5
+        )
+        obs = meta["obs"]
+        assert list(obs.columns) == ["cell_type", "organ", "study_id"]
+        assert len(obs) == X.shape[0]
+        assert (obs["organ"].to_numpy() == y.to_numpy()).all()
+        assert "Unclassified" not in set(obs["cell_type"])
+
+    def test_obs_survives_the_cache(self, heca):
+        _, _, first = load_heca(
+            root=heca, organs=["Lung", "Brain"], n_top_peaks=50, n_components=5
+        )
+        for path in (heca / "hECA").glob("ATAC-*.h5ad"):
+            path.unlink()
+        _, _, second = load_heca(
+            root=heca, organs=["Lung", "Brain"], n_top_peaks=50, n_components=5
+        )
+        assert second["cached"]
+        pd.testing.assert_frame_equal(first["obs"], second["obs"])
+
+    def test_obs_follows_the_subsample(self, heca):
+        _, y, meta = load_heca(
+            root=heca,
+            organs=["Lung", "Brain"],
+            subsample=40,
+            n_top_peaks=50,
+            n_components=5,
+        )
+        assert len(meta["obs"]) == 40
+        assert (meta["obs"]["organ"].to_numpy() == y.to_numpy()).all()
+
+    def test_a_cache_without_obs_is_rebuilt(self, heca):
+        load_heca(root=heca, organs=["Lung", "Brain"], n_top_peaks=50, n_components=5)
+        (cache,) = (heca / "hECA").glob(".heca_cache_*.npz")
+        with np.load(cache, allow_pickle=True) as payload:
+            old = {k: payload[k] for k in payload.files if not k.startswith("obs_")}
+        np.savez_compressed(cache, **old)
+
+        _, _, meta = load_heca(
+            root=heca, organs=["Lung", "Brain"], n_top_peaks=50, n_components=5
+        )
+        assert not meta["cached"]
+        assert list(meta["obs"].columns) == ["cell_type", "organ", "study_id"]
+
+    def test_deviation_gives_the_sources_reason_not_memory(self, heca):
+        _, _, meta = load_heca(
+            root=heca, organs=["Lung"], n_top_peaks=50, n_components=5
+        )
+        text = " ".join(meta["deviations"])
+        assert "PeakVI" in text
+        assert "for memory" not in text
 
