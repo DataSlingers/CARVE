@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.cluster import AgglomerativeClustering, KMeans
+from sklearn.ensemble import RandomForestClassifier
 
 from benchmarks._estimators import param_grids, resolution_grids
 from benchmarks._preprocessing import PREPROCESSOR_DEFAULTS, resolve_preprocessing
@@ -23,7 +24,6 @@ from benchmarks._studies import (
     resolve_scale,
     study_model_grids,
     study_resolution_grids,
-    study_scaling_sweep,
 )
 from benchmarks._types import EstimatorSpec, PreprocessingSpec, Study
 from carve._pipeline import allocate_pipelines
@@ -311,18 +311,39 @@ class TestConsensusAnchorsForwarding:
 
         assert "consensus_anchors" not in spy.captured_kwargs
 
-    def test_study_scaling_sweep_forwards_consensus_anchors(self, blobs, monkeypatch):
+    def test_fit_or_load_carve_forwards_a_classifier(
+        self, blobs, tmp_path, monkeypatch
+    ):
+        X, y = blobs
+        grids = param_grids(EstimatorSpec(name="kmeans"), (2, 3))
+        spy = make_carve_spy()
+        monkeypatch.setattr("benchmarks._studies.CARVE", spy)
+        classifier = RandomForestClassifier(n_estimators=5)
+
+        fit_or_load_carve(
+            X,
+            y,
+            cache_path=tmp_path / "demo.carve",
+            model_grids=grids,
+            n_resamples=3,
+            classifier=classifier,
+        )
+
+        assert spy.captured_kwargs["classifier"] is classifier
+
+    def test_fit_or_load_carve_omits_the_classifier_when_none(
+        self, blobs, tmp_path, monkeypatch
+    ):
         X, y = blobs
         grids = param_grids(EstimatorSpec(name="kmeans"), (2, 3))
         spy = make_carve_spy()
         monkeypatch.setattr("benchmarks._studies.CARVE", spy)
 
-        frame = study_scaling_sweep(
-            X, y, sizes=[len(X)], model_grids=grids, n_resamples=3, consensus_anchors=77
+        fit_or_load_carve(
+            X, y, cache_path=tmp_path / "demo.carve", model_grids=grids, n_resamples=3
         )
 
-        assert spy.captured_kwargs["consensus_anchors"] == 77
-        assert list(frame["n"]) == [len(X)]
+        assert "classifier" not in spy.captured_kwargs
 
 
 _TSNE_SPEC = PreprocessingSpec(
@@ -415,11 +436,11 @@ class TestPreprocessingForwarding:
 
 
 class TestDenseEstimatorGuard:
-    """cvi_sweep, fit_or_load_carve, and study_scaling_sweep all bring X and
-    model_grids together before handing them to a real estimator, which is
-    why the O(n^2)-estimator guard lives in each of them rather than in
-    study_model_grids -- which never sees n, and which a caller assembling
-    model_grids by hand would not even go through.
+    """cvi_sweep and fit_or_load_carve both bring X and model_grids together
+    before handing them to a real estimator, which is why the O(n^2)-
+    estimator guard lives in each of them rather than in study_model_grids --
+    which never sees n, and which a caller assembling model_grids by hand
+    would not even go through.
     """
 
     def test_cvi_sweep_rejects_spectral_at_large_n(self):
@@ -443,13 +464,6 @@ class TestDenseEstimatorGuard:
                 model_grids=grids,
                 n_resamples=3,
             )
-
-    def test_study_scaling_sweep_rejects_spectral_at_a_large_rung(self):
-        rng = np.random.default_rng(0)
-        X = rng.normal(size=(6000, 2))
-        grids = param_grids(EstimatorSpec(name="spectral"), (2, 3))
-        with pytest.raises(ValueError, match="SpectralClustering"):
-            study_scaling_sweep(X, None, sizes=[6000], model_grids=grids, n_resamples=3)
 
     def test_error_names_the_resolved_n(self):
         rng = np.random.default_rng(0)
@@ -729,16 +743,26 @@ class TestCarveCachePath:
     def test_default_runs_keep_their_existing_filenames(self, tmp_path):
         # The Levine cache is hours of compute and was written before run
         # keys existed, so its default run must resolve to the same name as
-        # before, byte for byte. Klein's and hECA's publication scales are
-        # every cell, so their names carry that size's hash: neither Klein's
-        # half-subsample cache (1b390cd5) nor hECA's 25,000-cell development
-        # cache (dev_8314e95d) is ever served for them.
+        # before, byte for byte. Klein's publication scale is every cell, so
+        # its name carries that size's hash: Klein's half-subsample cache
+        # (1b390cd5) is never served for it.
         klein = carve_cache_path(STUDIES["klein"], root=tmp_path)
         levine = carve_cache_path(STUDIES["levine32"], root=tmp_path)
-        heca = carve_cache_path(STUDIES["heca"], root=tmp_path)
         assert klein.name == "carve_klein_publication_6eef6648.carve"
         assert levine.name == "carve_levine32_publication_f8237d89.carve"
-        assert heca.name == "carve_heca_publication_6eef6648.carve"
+
+    def test_heca_cache_name_carries_a_resolution_run_key(self, tmp_path):
+        # hECA has no k-based grid, so its fit names its grids, and the file
+        # name carries a run key after the every-cell size hash.
+        study = STUDIES["heca"]
+        path = carve_cache_path(
+            study,
+            root=tmp_path,
+            model_grids=study_resolution_grids(study),
+            n_resamples=study.n_resamples,
+        )
+        assert path.name.startswith("carve_heca_publication_6eef6648_")
+        assert path.suffix == ".carve"
 
     def test_passing_the_default_run_explicitly_changes_nothing(self, tmp_path):
         study = _study()
@@ -914,36 +938,50 @@ class TestNewStudies:
         assert path.name.startswith("carve_cusanovich_atlas_6eef6648_")
         assert path.name != "carve_cusanovich_dev_7841fb1f.carve"
 
-    def test_heca_sweeps_four_through_fifteen(self):
-        # Five pooled organs; the sweep starts just below that count.
-        assert STUDIES["heca"].candidate_k == tuple(range(4, 16))
+    def test_heca_sweeps_leiden_resolution_at_two_neighbor_counts(self):
+        study = STUDIES["heca"]
+        assert study.candidate_k == ()
+        grids = study_resolution_grids(study)
+        assert [cls for cls, _ in grids] == [LeidenClustering, LeidenClustering]
+        assert [grid["n_neighbors"] for _, grid in grids] == [[15], [50]]
+        assert all(grid["objective_function"] == ["modularity"] for _, grid in grids)
 
-    def test_heca_uses_estimators_that_can_run_at_scale(self):
-        # Spectral builds a dense n-by-n affinity and Ward is quadratic in
-        # memory, so neither may appear in the large-scale study.
-        classes = {cls for cls, _ in study_model_grids(STUDIES["heca"])}
-        assert SpectralClustering not in classes
-        assert AgglomerativeClustering not in classes
+    def test_heca_provisional_grid_spans_five_thousandths_to_three(self):
+        resolutions = STUDIES["heca"].resolutions
+        assert len(resolutions) == 15
+        assert resolutions[0] == pytest.approx(0.005)
+        assert resolutions[-1] == pytest.approx(3.0)
+        assert list(resolutions) == sorted(resolutions)
 
-    def test_heca_declares_a_resolution_sweep(self):
-        grids = study_resolution_grids(STUDIES["heca"])
-        assert len(grids) == 1
-        cls, grid = grids[0]
-        assert cls is LeidenClustering
-        assert grid["resolution"][0] == pytest.approx(0.1)
-        assert grid["resolution"][-1] == pytest.approx(2.0)
-        assert len(grid["resolution"]) == 20
+    def test_heca_runs_one_hundred_resamples(self):
+        assert STUDIES["heca"].n_resamples == 100
+
+    def test_heca_has_no_k_based_grid(self):
+        with pytest.raises(ValueError, match="study_resolution_grids"):
+            study_model_grids(STUDIES["heca"])
+
+    def test_resolution_partners_join_the_sweep(self):
+        study = _study(
+            estimator=EstimatorSpec(name="leiden", params=(("n_neighbors", 15),)),
+            partners=(EstimatorSpec(name="louvain"),),
+            candidate_k=(),
+            resolutions=(0.5, 1.0),
+        )
+        grids = study_resolution_grids(study)
+        assert [cls for cls, _ in grids] == [LeidenClustering, LouvainClustering]
+        assert all(grid["resolution"] == [0.5, 1.0] for _, grid in grids)
+
+    def test_a_k_based_study_has_no_resolution_sweep(self):
+        with pytest.raises(ValueError, match="does not take a resolution"):
+            study_resolution_grids(_study(resolutions=(0.5, 1.0)))
 
     def test_a_study_without_resolutions_raises(self):
         with pytest.raises(ValueError, match="declares no resolutions"):
             study_resolution_grids(STUDIES["klein"])
 
     def test_heca_pins_its_anchor_count(self):
-        # The 20-config Leiden resolution sweep retains both
-        # consensus_matrices_ and consensus_generalizability_matrices_ per
-        # config: 20 * 2 * 2000**2 * 8 B = 1.28 GB at m=2000, against 8.0 GB
-        # at the package default (anchor_threshold=5000), which applies at
-        # hECA's own scale.
+        # 30 configurations each retain a stability and a generalizability
+        # consensus block of 2000 x 2000 anchors, about 1 GB in all.
         assert STUDIES["heca"].consensus_anchors == 2000
 
     def test_cusanovich_pins_the_same_anchor_count_as_heca(self):
@@ -958,144 +996,3 @@ class TestNewStudies:
     def test_cusanovich_publication_scale_matches_levine(self):
         assert STUDIES["cusanovich"].scales["publication"] == 5000
         assert STUDIES["cusanovich"].scales["atlas"] is None
-
-
-@pytest.fixture
-def ladder_data():
-    rng = np.random.default_rng(0)
-    centers = np.array([[0.0, 0.0], [8.0, 0.0], [4.0, 7.0]])
-    labels = rng.integers(0, 3, 400)
-    X = centers[labels] + rng.normal(0, 1.0, (400, 2))
-    return X, pd.Series(labels.astype(str), name="truth")
-
-
-class TestStudyScalingSweep:
-    def _grids(self):
-        return [(KMeans, {"n_clusters": [2, 3, 4], "n_init": [10]})]
-
-    def test_one_row_per_size(self, ladder_data):
-        X, y = ladder_data
-        out = study_scaling_sweep(
-            X, y, sizes=[100, 200], model_grids=self._grids(), n_resamples=5
-        )
-        assert list(out["n"]) == [100, 200]
-        assert len(out) == 2
-
-    def test_columns_are_the_documented_contract(self, ladder_data):
-        X, y = ladder_data
-        out = study_scaling_sweep(
-            X, y, sizes=[100], model_grids=self._grids(), n_resamples=5
-        )
-        assert list(out.columns) == [
-            "n",
-            "n_configs",
-            "wall_clock_s",
-            "peak_rss_bytes",
-            "selected_k",
-            "ari",
-        ]
-
-    def test_measurements_are_populated(self, ladder_data):
-        X, y = ladder_data
-        out = study_scaling_sweep(
-            X, y, sizes=[100, 200], model_grids=self._grids(), n_resamples=5
-        )
-        assert (out["wall_clock_s"] > 0).all()
-        assert (out["peak_rss_bytes"] > 0).all()
-        assert out["n_configs"].nunique() == 1
-        assert out["selected_k"].between(2, 4).all()
-
-    def test_ari_reflects_the_planted_structure(self, ladder_data):
-        # A sweep that scored against shuffled labels would still produce a
-        # populated frame, so pin that the ARI is meaningful.
-        X, y = ladder_data
-        out = study_scaling_sweep(
-            X, y, sizes=[200], model_grids=self._grids(), n_resamples=8
-        )
-        assert out["ari"].iloc[0] > 0.5
-
-    def test_a_size_larger_than_n_is_skipped_with_a_warning(self, ladder_data):
-        # Failing on an oversized top rung after already running every
-        # smaller one would waste the prior rungs' compute for no reason
-        # better than a hardcoded target the data may not actually reach
-        # (see hECA's publication ladder). A skip-and-warn must not silently
-        # swallow every rung, though -- the rows for sizes that do fit must
-        # still come back.
-        X, y = ladder_data
-        with pytest.warns(UserWarning, match="10000"):
-            out = study_scaling_sweep(
-                X, y, sizes=[100, 10_000], model_grids=self._grids(), n_resamples=5
-            )
-        assert list(out["n"]) == [100]
-
-    def test_every_size_larger_than_n_yields_an_empty_frame(self, ladder_data):
-        X, y = ladder_data
-        with pytest.warns(UserWarning, match="10000"):
-            out = study_scaling_sweep(
-                X, y, sizes=[10_000], model_grids=self._grids(), n_resamples=5
-            )
-        assert list(out.columns) == [
-            "n",
-            "n_configs",
-            "wall_clock_s",
-            "peak_rss_bytes",
-            "selected_k",
-            "ari",
-        ]
-        assert len(out) == 0
-
-    def test_is_deterministic(self, ladder_data):
-        X, y = ladder_data
-        a = study_scaling_sweep(
-            X, y, sizes=[150], model_grids=self._grids(), n_resamples=5
-        )
-        b = study_scaling_sweep(
-            X, y, sizes=[150], model_grids=self._grids(), n_resamples=5
-        )
-        assert a["selected_k"].equals(b["selected_k"])
-        assert np.allclose(a["ari"], b["ari"])
-
-    def test_peak_rss_is_read_after_fit_not_before(self, ladder_data, monkeypatch):
-        # wall_clock_s > 0 and peak_rss_bytes > 0 (test_measurements_are_
-        # populated) cannot fail on a measurement taken at the wrong moment:
-        # any running process has nonzero RSS and any real fit takes
-        # nonzero time.
-        #
-        # A numeric "peak_rss_bytes is non-decreasing across an ascending
-        # size ladder" check was tried instead and does not work either:
-        # ru_maxrss is a per-process high-water mark that never falls, so
-        # sampling it anywhere in a sequential, ascending-size loop -- even
-        # right before fit() runs, which still lands after the previous
-        # size's fit finished -- yields a non-decreasing sequence regardless
-        # of where the sample is taken. Verified directly: moving the
-        # peak_rss_bytes() call in study_scaling_sweep to before carve.fit()
-        # left such a check green.
-        #
-        # This test instead pins the call order itself, independent of what
-        # any particular OS reports for RSS: peak_rss_bytes must be read
-        # after fit() has already run for that size, not before.
-        import benchmarks._artifacts as artifacts
-        from carve import CARVE
-
-        X, y = ladder_data
-        events: list[str] = []
-        real_fit = CARVE.fit
-
-        def spy_fit(self, X, *args, **kwargs):
-            result = real_fit(self, X, *args, **kwargs)
-            events.append("fit")
-            return result
-
-        def spy_peak_rss_bytes():
-            events.append("peak")
-            return 1
-
-        monkeypatch.setattr(CARVE, "fit", spy_fit)
-        monkeypatch.setattr(artifacts, "peak_rss_bytes", spy_peak_rss_bytes)
-
-        study_scaling_sweep(
-            X, y, sizes=[50, 100], model_grids=self._grids(), n_resamples=5
-        )
-
-        # One (fit, peak) pair per size, fit strictly before its peak.
-        assert events == ["fit", "peak", "fit", "peak"]

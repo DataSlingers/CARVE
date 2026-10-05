@@ -248,7 +248,7 @@ def make_carve_spy() -> type:
     Used where a test needs to see what a call site passed to CARVE(...)
     without paying for a fit. A new class per call keeps the record private
     to the test. Instances expose enough of a fitted model for
-    fit_or_load_carve and study_scaling_sweep to run to completion.
+    fit_or_load_carve to run to completion.
     """
 
     class SpyCARVE:

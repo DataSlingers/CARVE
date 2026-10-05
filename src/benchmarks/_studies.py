@@ -6,7 +6,6 @@ could not be reused without also drawing it.
 """
 
 import hashlib
-from collections.abc import Sequence
 from dataclasses import fields
 from itertools import product
 from pathlib import Path
@@ -15,7 +14,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
-from sklearn.base import ClusterMixin
+from sklearn.base import ClassifierMixin, ClusterMixin
 from sklearn.metrics import adjusted_rand_score
 
 from carve import CARVE
@@ -67,10 +66,10 @@ def _check_dense_fit(
     study_model_grids is scale-blind by design -- it knows an estimator and
     candidate_k, never n -- so a check placed there could not see this
     coming, and a caller who assembles model_grids by hand instead of going
-    through study_model_grids would walk straight past it anyway. cvi_sweep,
-    fit_or_load_carve, and study_scaling_sweep are the one place every
-    case-study entry point brings X and model_grids together before handing
-    them to a real estimator, which is why the check lives here instead.
+    through study_model_grids would walk straight past it anyway. cvi_sweep
+    and fit_or_load_carve are the one place every case-study entry point
+    brings X and model_grids together before handing them to a real
+    estimator, which is why the check lives here instead.
     """
     offending = sorted(
         {cls.__name__ for cls, _ in model_grids if cls in _DENSE_ESTIMATOR_CLASSES}
@@ -237,6 +236,7 @@ def fit_or_load_carve(
     randomize_preprocessing: bool = False,
     normalization_options: list[Any] | None = None,
     dim_reduction_options: list[Any] | None = None,
+    classifier: ClassifierMixin | None = None,
 ) -> CARVE:
     """Fit CARVE on a case study, caching the fitted state to disk.
 
@@ -260,6 +260,9 @@ def fit_or_load_carve(
         takes; _preprocessing.resolve_preprocessing builds both from a
         Study's preprocessing. Passing either without randomize_preprocessing
         raises, since CARVE would ignore it.
+    classifier : sklearn classifier or None, default=None
+        Forwarded to CARVE only when not None. hECA's fit passes a forest
+        with the default's settings that times itself (see _timing).
     """
     cache_path = Path(cache_path)
     _check_dense_fit(np.asarray(X).shape[0], model_grids)
@@ -283,6 +286,7 @@ def fit_or_load_carve(
             ("consensus_anchors", consensus_anchors),
             ("normalization_options", normalization_options),
             ("dim_reduction_options", dim_reduction_options),
+            ("classifier", classifier),
         )
         if value is not None
     }
@@ -554,21 +558,26 @@ STUDIES: dict[str, Study] = {
     "heca": Study(
         name="heca",
         loader=_heca_loader,
-        estimator=EstimatorSpec(name="minibatch_kmeans"),
-        candidate_k=tuple(range(4, 16)),
+        # Leiden on two graphs: 15 neighbors, the scanpy convention hECA's
+        # own EpiScanpy annotation inherits, and 50, the graph CATlas (Zhang
+        # 2021) and Hocker 2021 clustered; those two supply 221,029 of the
+        # pooled cells. Both optimize modularity. See the 2026-10-01 spec.
+        estimator=EstimatorSpec(name="leiden", params=(("n_neighbors", 15),)),
+        partners=(EstimatorSpec(name="leiden", params=(("n_neighbors", 50),)),),
+        candidate_k=(),
         scales={"publication": None},
         default_scale="publication",
-        # Spectral builds a dense n-by-n affinity and cannot run at this
-        # scale, so the partner is KMeans.
-        partners=(EstimatorSpec(name="kmeans"),),
-        resolutions=tuple(round(0.1 * i, 1) for i in range(1, 21)),
-        # See the cusanovich entry above for the arithmetic: both
-        # consensus_matrices_ and consensus_generalizability_matrices_ are
-        # retained per configuration, so the 20-config Leiden resolution
-        # sweep retains 20 * 2 * 2000**2 * 8 B = 1.28 GB here, against 8.0 GB
-        # at the package default (anchor_threshold=5000) at hECA's own
-        # scale, which is always above that threshold.
+        # Provisional: 15 log-spaced values from 0.005 to 3.0. The single
+        # studies the cells come from reported 1.0 and 1.5 on 8,500 to 91,500
+        # cells; each resample here clusters about 430,000, where modularity
+        # splits further at the same value, so organ level needs far smaller
+        # ones. python -m benchmarks.heca calibrate proposes the grid that
+        # replaces this one before the fit runs.
+        resolutions=tuple(float(f"{0.005 * 600 ** (i / 14):.2g}") for i in range(15)),
+        # 30 configurations each retain a stability and a generalizability
+        # consensus block of 2000 x 2000 anchors, about 1 GB in all.
         consensus_anchors=2000,
+        n_resamples=100,
     ),
 }
 
@@ -579,9 +588,9 @@ def study_model_grids(
     """The study's own estimator plus its declared partners, over candidate_k.
 
     Klein sweeps Ward agglomerative and spectral; Levine sweeps KMeans and
-    spectral; hECA pairs MiniBatchKMeans with KMeans. Each study declares
-    this on Study.partners. Cusanovich sweeps only Louvain resolution, so it
-    has no k-based grid and this raises for it.
+    spectral. Each study declares this on Study.partners. Cusanovich and
+    hECA sweep resolution only, so neither has a k-based grid and this
+    raises for both.
     """
     if study.estimator.name in RESOLUTION_ESTIMATORS:
         raise ValueError(
@@ -598,127 +607,21 @@ def study_model_grids(
 def study_resolution_grids(
     study: Study,
 ) -> list[tuple[type[ClusterMixin], dict[str, list[Any]]]]:
-    """The study's resolution sweep.
+    """The study's resolution sweep: its own estimator, then every partner.
 
-    The study's own estimator when it sweeps resolution (Cusanovich's
-    Louvain); otherwise Leiden, as for hECA, whose k-based sweep runs
-    separately. A separate CARVE run from study_model_grids: SweepSpec is
-    frozen, so a k-based and a resolution-based sweep cannot share one run.
+    Cusanovich sweeps Louvain alone; hECA sweeps Leiden at two neighbor
+    counts, declared as its estimator and one partner. A separate CARVE run
+    from study_model_grids: SweepSpec is frozen, so a k-based and a
+    resolution-based sweep cannot share one run.
     """
     if not study.resolutions:
         raise ValueError(f"Study {study.name!r} declares no resolutions.")
-    spec = (
-        study.estimator
-        if study.estimator.name in RESOLUTION_ESTIMATORS
-        else EstimatorSpec(name="leiden")
-    )
-    return resolution_grids(spec, study.resolutions)
-
-
-def study_scaling_sweep(
-    X: np.ndarray,
-    y: np.ndarray | pd.Series | None,
-    *,
-    sizes: Sequence[int],
-    model_grids: list[tuple[type[ClusterMixin], dict[str, list[Any]]]],
-    n_resamples: int = 100,
-    n_jobs: int = 1,
-    random_state: int = 42,
-    consensus_anchors: int | None = None,
-    measure: str = "stability",
-    rule: str = "1se",
-) -> pd.DataFrame:
-    """Fit CARVE at a ladder of subsample sizes and measure the cost.
-
-    Every size subsamples from the same (X, y), so the biology (which
-    clusters exist, their proportions and separation) is held constant and n
-    is the only thing varying. This is what a scaling sweep needs and a
-    per-dataset comparison cannot give: a runtime or memory difference
-    between datasets of different sizes could always be attributed to the
-    datasets differing in more than size.
-
-    peak_rss_bytes is the process high-water mark at the end of each fit, not
-    a per-fit delta: ru_maxrss only ever rises. Because the ladder grows
-    monotonically in n, the reported value is still the peak attributable to
-    that size, but it must not be read as the memory a single fit would need
-    in a fresh process. Callers should pass sizes in increasing order.
-
-    A rung larger than the data actually available is skipped, with a
-    warning naming it, rather than raised as an error. hECA's publication
-    ladder tops out at a literal 500_000, but the count that matters is the
-    pooled total after the Unclassified drop, which is not independently
-    verified anywhere; failing on an oversized top rung after already
-    running every smaller one would waste hours of prior compute for no
-    reason better than a hardcoded target the data may not actually reach.
-
-    Returns
-    -------
-    DataFrame with columns (n, n_configs, wall_clock_s, peak_rss_bytes,
-    selected_k, ari). ari is against y, or NaN when y is None. A row is
-    omitted for any size skipped as too large.
-    """
-    import time
-    import warnings
-
-    from sklearn.metrics import adjusted_rand_score
-
-    from ._artifacts import peak_rss_bytes
-
-    X = np.asarray(X)
-    y_arr = None if y is None else np.asarray(y)
-    n_total = X.shape[0]
-
-    rows: list[dict[str, Any]] = []
-    for size in sizes:
-        size = int(size)
-        if size > n_total:
-            warnings.warn(
-                f"Skipping scaling-sweep size {size}: it exceeds the "
-                f"{n_total} available samples.",
-                stacklevel=2,
-            )
-            continue
-        _check_dense_fit(size, model_grids)
-
-        rng = np.random.default_rng(random_state + size)
-        idx = np.sort(rng.choice(n_total, size=size, replace=False))
-
-        carve = CARVE(
-            estimator_param_grids=model_grids,
-            n_resamples=n_resamples,
-            n_jobs=n_jobs,
-            random_state=random_state,
-            consensus_anchors=consensus_anchors,
+    if study.estimator.name not in RESOLUTION_ESTIMATORS:
+        raise ValueError(
+            f"Study {study.name!r} sweeps {study.estimator.name!r}, which does "
+            "not take a resolution; use study_model_grids."
         )
-
-        started = time.perf_counter()
-        carve.fit(X[idx])
-        elapsed = time.perf_counter() - started
-
-        labels = carve.get_labels(measure=measure, rule=rule)
-        rows.append(
-            {
-                "n": size,
-                "n_configs": int(carve.estimator_results_.shape[0]),
-                "wall_clock_s": float(elapsed),
-                "peak_rss_bytes": int(peak_rss_bytes()),
-                "selected_k": int(carve.get_k(measure=measure, rule=rule)),
-                "ari": (
-                    float("nan")
-                    if y_arr is None
-                    else float(adjusted_rand_score(y_arr[idx], labels))
-                ),
-            }
-        )
-
-    return pd.DataFrame(
-        rows,
-        columns=[
-            "n",
-            "n_configs",
-            "wall_clock_s",
-            "peak_rss_bytes",
-            "selected_k",
-            "ari",
-        ],
-    )
+    grids = resolution_grids(study.estimator, study.resolutions)
+    for partner in study.partners:
+        grids += resolution_grids(partner, study.resolutions)
+    return grids
