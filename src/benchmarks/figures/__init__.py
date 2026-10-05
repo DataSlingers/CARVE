@@ -10,6 +10,9 @@ per-family views the benchmarking notebook's sections carry, built from the
 same primitives the manuscript figures use, and so default to save=False.
 The third is the case-study notebooks' opening view of their reference
 labels, and saves alongside the composites it precedes.
+
+_heca_calibration, _heca_carve and _heca_runtime draw the hECA notebook's
+views of a run on Longleaf.
 """
 
 from ._ablation import figure_ablation, figure_ablation_resampling
@@ -18,7 +21,9 @@ from ._benchmarking_results import figure_benchmarking_results
 from ._carve_output import figure_carve_output_klein, figure_carve_output_levine
 from ._case_study import CompositeInputs, composite_figure, prepare_composite
 from ._cusanovich_results import figure_cusanovich_results
-from ._heca_results import figure_heca_results
+from ._heca_calibration import figure_heca_calibration
+from ._heca_carve import figure_heca_carve
+from ._heca_runtime import figure_heca_runtime
 from ._klein_m3c import figure_klein_m3c
 from ._klein_results import figure_klein_results
 from ._levine_results import figure_levine_results
@@ -27,7 +32,6 @@ from ._reference_scatter import figure_reference_scatter
 from ._scaling import figure_scaling_ari, figure_scaling_runtime
 from ._scenario_dashboard import figure_scenario_dashboard
 from ._scenario_overview import figure_scenario_overview
-from ._study_scaling import figure_study_scaling
 
 __all__ = [
     "BENCHMARKING_DIR",
@@ -42,7 +46,9 @@ __all__ = [
     "figure_carve_output_klein",
     "figure_carve_output_levine",
     "figure_cusanovich_results",
-    "figure_heca_results",
+    "figure_heca_calibration",
+    "figure_heca_carve",
+    "figure_heca_runtime",
     "figure_klein_m3c",
     "figure_klein_results",
     "figure_levine_results",
@@ -52,6 +58,5 @@ __all__ = [
     "figure_scaling_runtime",
     "figure_scenario_dashboard",
     "figure_scenario_overview",
-    "figure_study_scaling",
     "prepare_composite",
 ]

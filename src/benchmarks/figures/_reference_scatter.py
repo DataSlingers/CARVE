@@ -34,9 +34,8 @@ DEFAULT_MARKER_SIZE = 8.0
 def _subsample(n: int, max_points: int | None, random_state: int) -> np.ndarray:
     """One sorted index shared by Z and y.
 
-    The same pattern as _heca_results.subsample_inputs: a single index so a
-    cell keeps its position and its label together, sorted so the drawing
-    order is the input order.
+    A single index so a cell keeps its position and its label together,
+    sorted so the drawing order is the input order.
     """
     if max_points is None or max_points >= n:
         return np.arange(n)
