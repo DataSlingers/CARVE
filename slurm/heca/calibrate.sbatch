@@ -11,9 +11,11 @@
 # repeats, proposes the grid and projects the fit's runtime. Every timed
 # component runs single-threaded, as each worker of the fit does. Exits 1
 # when no grid satisfies the rule; calibration.json then says why.
+# Arguments after the script's name, such as --force, are passed to the
+# stage.
 
 set -euo pipefail
 : "${RUN_DIR:?Set RUN_DIR to the run directory}"
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 source .venv/bin/activate
-python -m benchmarks.heca calibrate --run-dir "$RUN_DIR"
+python -m benchmarks.heca calibrate --run-dir "$RUN_DIR" "$@"

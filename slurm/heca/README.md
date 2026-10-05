@@ -78,7 +78,12 @@ Read `$RUN_DIR/calibration.json`:
 
 - `proposed_grid`, or `grid_error` when the rule failed. On a failure, widen
   `SCAN_RESOLUTIONS` in src/benchmarks/_heca_calibration.py as the message
-  says, push, pull here, and rerun calibration with `--force`.
+  says, push, pull here, and rerun calibration with `--force`, which the
+  script passes on to the stage:
+
+  ```bash
+  sbatch --export=ALL,RUN_DIR="$RUN_DIR" slurm/heca/calibrate.sbatch --force
+  ```
 - `projection.wall_clock_hours` at the fit node's physical core count, and
   `worker_peak_bytes`. The peak includes the forest fit on the scan's fine
   end (`forest_fine`, the most clusters within the upper target), the largest
@@ -101,7 +106,14 @@ sbatch --export=ALL,RUN_DIR="$RUN_DIR" slurm/heca/fit.sbatch
 enough for a login node. The first configuration completes within hours. If
 the abort rule triggers (projected total over 10 days), cancel with
 `scancel <jobid>` and revisit the grid or the resample count. The fit saves
-only when it finishes; a killed fit reruns from the start with `--force`.
+only when it finishes, so a killed fit leaves none of the outputs the stage
+refuses to overwrite: resubmit it with the same `sbatch` command, without
+`--force`, and it reruns from the start.
+
+SLURM's accounting can lag the step's end: if `fit/sacct.txt` is empty or
+lacks MaxRSS, rerun fit.sbatch's `sacct` line from a login node once the job
+has finished, with the job id in place of `${SLURM_JOB_ID}`, writing to the
+same file.
 
 ## 6. Copy back, on the laptop
 

@@ -67,12 +67,31 @@ def test_each_sbatch_script_runs_its_stage_and_parses(stage):
     assert subprocess.run(["bash", "-n", str(script)], check=False).returncode == 0
 
 
+@pytest.mark.parametrize("stage", ["embed", "calibrate", "fit"])
+def test_each_sbatch_script_passes_its_arguments_to_the_stage(stage):
+    # sbatch <script> --force reaches the stage as "$@", so a rerun the
+    # runbook asks for does not exit 2 on the overwrite guard.
+    (line,) = [
+        line
+        for line in (SLURM_DIR / f"{stage}.sbatch").read_text().splitlines()
+        if f"python -m benchmarks.heca {stage}" in line
+    ]
+    command = line.split("||")[0].strip()
+    assert command.endswith('"$@"')
+
+
 def test_the_fit_script_takes_a_whole_node_and_saves_its_accounting():
     text = (SLURM_DIR / "fit.sbatch").read_text()
     assert "#SBATCH --exclusive" in text
     assert '--cpus-per-task="${SLURM_CPUS_ON_NODE}"' in text
     assert "sacct -j" in text
     assert "fit/sacct.txt" in text
+    # --export=ALL carries the submitting shell's thread counts into the
+    # job, and joblib passes a parent's value on to every worker.
+    lines = text.splitlines()
+    unset = lines.index("unset OMP_NUM_THREADS OPENBLAS_NUM_THREADS MKL_NUM_THREADS")
+    (srun,) = [i for i, line in enumerate(lines) if line.startswith("srun ")]
+    assert unset < srun
 
 
 def test_calibration_runs_single_threaded():
