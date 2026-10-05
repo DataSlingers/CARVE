@@ -177,6 +177,10 @@ class TestRunFit:
         results = CARVE.load(str(cache)).estimator_results_
         assert set(results["estimator"]) == {"LeidenClustering"}
         assert sorted(set(results["n_neighbors"])) == [15, 50]
+        # The two settings are distinct methods, not one method's sweep.
+        method_ids = results.groupby("n_neighbors")["method_id"].unique()
+        assert all(len(ids) == 1 for ids in method_ids)
+        assert method_ids[15][0] != method_ids[50][0]
 
         started = json.loads((fit_dir / "started.json").read_text())
         assert started["n_jobs"] == 1

@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.cluster import KMeans
+from sklearn.ensemble import RandomForestClassifier
 
 import carve.cluster as cluster
 from benchmarks._estimators import resolution_grids
@@ -58,6 +59,23 @@ def test_without_the_variable_the_subclass_is_its_parent(blobs, monkeypatch):
     timed = LeidenClustering(n_neighbors=10, resolution=1.0, random_state=0)
     plain = cluster.LeidenClustering(n_neighbors=10, resolution=1.0, random_state=0)
     assert np.array_equal(timed.fit(blobs).labels_, plain.fit(blobs).labels_)
+
+
+def test_without_the_variable_the_forest_is_its_parent_and_writes_nothing(
+    tmp_path, blobs, monkeypatch
+):
+    monkeypatch.delenv(TIMING_DIR_ENV, raising=False)
+    monkeypatch.chdir(tmp_path)
+    y = np.random.default_rng(1).integers(0, 3, len(blobs))
+    timed = timed_forest(n_features=blobs.shape[1], n_trees=20).set_params(
+        random_state=0
+    )
+    plain = RandomForestClassifier(**timed.get_params())
+    timed.fit(blobs, y)
+    plain.fit(blobs, y)
+    assert np.array_equal(timed.predict(blobs), plain.predict(blobs))
+    assert np.array_equal(timed.predict_proba(blobs), plain.predict_proba(blobs))
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_a_leiden_fit_writes_one_row_whose_parts_sum_to_the_fit(tmp_path, blobs):

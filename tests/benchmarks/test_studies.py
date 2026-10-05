@@ -946,12 +946,14 @@ class TestNewStudies:
         assert [grid["n_neighbors"] for _, grid in grids] == [[15], [50]]
         assert all(grid["objective_function"] == ["modularity"] for _, grid in grids)
 
-    def test_heca_provisional_grid_spans_five_thousandths_to_three(self):
+    def test_heca_grid_is_fifteen_increasing_positive_two_figure_values(self):
+        # The shape propose_grid gives, not the provisional endpoints, so the
+        # grid calibration proposes passes once it is committed here.
         resolutions = STUDIES["heca"].resolutions
         assert len(resolutions) == 15
-        assert resolutions[0] == pytest.approx(0.005)
-        assert resolutions[-1] == pytest.approx(3.0)
-        assert list(resolutions) == sorted(resolutions)
+        assert all(value > 0 for value in resolutions)
+        assert all(a < b for a, b in zip(resolutions, resolutions[1:]))
+        assert all(float(f"{value:.2g}") == value for value in resolutions)
 
     def test_heca_runs_one_hundred_resamples(self):
         assert STUDIES["heca"].n_resamples == 100
