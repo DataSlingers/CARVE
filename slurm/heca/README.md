@@ -13,7 +13,7 @@ the datamover partition is for transfers.
 ## 0. Access
 
 - Request a Longleaf account from UNC Research Computing (see the page above).
-- On the laptop, push the branch the run uses: `git push origin heca-longleaf`.
+- On the laptop, push main, which the run uses: `git push origin main`.
 
 ## 1. Code and environment, once
 
@@ -22,7 +22,6 @@ ssh <onyen>@longleaf.unc.edu
 cd /work/users/<o>/<n>/<onyen>
 git clone git@github.com:DataSlingers/CARVE.git carve   # needs a GitHub SSH key on Longleaf
 cd carve
-git checkout heca-longleaf
 curl -LsSf https://astral.sh/uv/install.sh | sh          # installs uv into ~/.local/bin
 export UV_CACHE_DIR=/work/users/<o>/<n>/<onyen>/.uv-cache
 uv venv --python 3.13 .venv
@@ -63,6 +62,7 @@ print(len(paths), 'files open')"
 ```bash
 RUN_DIR=/work/users/<o>/<n>/<onyen>/carve-runs/heca/$(date +%Y%m%d)-$(git rev-parse --short HEAD)
 mkdir -p "$RUN_DIR"
+echo "$RUN_DIR" > ~/.heca-run-dir
 embed=$(sbatch --parsable --export=ALL,RUN_DIR="$RUN_DIR" slurm/heca/embed.sbatch)
 sbatch --dependency=afterok:"$embed" --export=ALL,RUN_DIR="$RUN_DIR" slurm/heca/calibrate.sbatch
 squeue -u "$USER"
@@ -71,6 +71,15 @@ squeue -u "$USER"
 The embed job requests 8 cores, 200 GB and one day; if it runs out of memory,
 resubmit with a larger `--mem` on the command line. Calibration requests
 4 cores, 64 GB and one day.
+
+Every later stage must use this same run directory. Its name holds the date
+and commit it was created with, so recomputing it after the gate's commit, or
+on another day, gives a different path. In a new session, restore it from the
+file written above:
+
+```bash
+RUN_DIR=$(cat ~/.heca-run-dir)
+```
 
 ## 4. The gate
 
