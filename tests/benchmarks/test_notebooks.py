@@ -244,16 +244,27 @@ def test_cusanovich_notebook_no_longer_runs_the_k_based_comparison(retired):
 def test_heca_notebook_reads_its_config_from_studies():
     source = _code(NOTEBOOKS["heca"])
     assert 'STUDIES["heca"]' in source
-    assert "study_resolution_grids(study)" in source
-    assert "consensus_anchors=study.consensus_anchors" in source
+    assert "load_heca_run(" in source
+
+
+def test_heca_notebook_computes_nothing():
+    # The fit runs on Longleaf; the notebook only reads its run directory.
+    source = _code(NOTEBOOKS["heca"])
+    for forbidden in (
+        "fit_or_load_carve(",
+        "CARVE(",
+        "run_fit(",
+        "run_calibrate(",
+        "cvi_sweep(",
+    ):
+        assert forbidden not in source
 
 
 # Each ATAC case-study notebook opens with a reference-label scatter of the
 # embedding its source provides. The Cusanovich atlas ships its own t-SNE,
 # which the loader carries through as meta["source_tsne"] and the figure's
-# panel B draws again. hECA ships nothing, so its notebook computes a UMAP the
-# way Levine_32dim.ipynb computes its t-SNE and hands that same embedding to
-# prepare_composite.
+# panel B draws again. hECA ships nothing, so its notebook computes a UMAP of
+# the cells it draws.
 def test_cusanovich_notebook_draws_the_source_tsne_and_writes_its_tables():
     source = _code(NOTEBOOKS["cusanovich"])
     assert 'meta["source_tsne"]' in source
@@ -277,8 +288,13 @@ def test_heca_notebook_draws_one_umap_throughout():
     source = _code(NOTEBOOKS["heca"])
     assert "UMAP(random_state=RANDOM_SEED)" in source
     assert "figure_reference_scatter(" in source
-    assert "embedding=" in source
     assert "plt.subplots" not in source
+    for figure in (
+        "figure_heca_calibration(",
+        "figure_heca_carve(",
+        "figure_heca_runtime(",
+    ):
+        assert figure in source
 
 
 def test_ablation_notebook_reads_its_config_from_the_registry():
