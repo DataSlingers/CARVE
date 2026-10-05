@@ -1,9 +1,9 @@
 """The Cusanovich mouse sci-ATAC case-study figure.
 
 Four panels over CusanovichInputs. (A) CARVE's consensus labels and (B) the
-source's clusters, both on the source's own t-SNE, which cell_metadata.txt
-ships and the loader carries as meta["source_tsne"], so the two partitions
-sit on one map whichever pipeline CARVE rates best. (C) CARVE's stability
+source's clusters, both on one map, the study's map_option fit on every cell
+(a t-SNE at perplexity 100), so the two partitions line up whichever
+pipeline CARVE rates best. (C) CARVE's stability
 and generalizability over resolution, pooled over pipelines, with the selected
 resolution and the source's operating point marked, and the mean observed
 cluster count on a secondary axis. (D) The same two criteria per pipeline at
@@ -46,7 +46,7 @@ def _panel_a_title(inputs: CusanovichInputs, selected, n_clusters: int) -> str:
     return (
         f"CARVE: {estimator}, {inputs.carve.sweep_.param} "
         f"{float(selected['sweep_value']):g}, {n_clusters} clusters\n"
-        "on the source's t-SNE"
+        f"on {inputs.map_name}"
     )
 
 
@@ -118,22 +118,22 @@ def figure_cusanovich_results(
 
         scatter_clusters(
             ax_a,
-            inputs.source_tsne,
+            inputs.map_coordinates,
             inputs.carve_labels,
             color_map=carve_cmap,
             s=MARKER_SIZE,
             title=_panel_a_title(inputs, selected, n_clusters),
         )
-        axis_arrows(ax_a, SOURCE_TSNE_LABELS)
+        axis_arrows(ax_a, inputs.map_axis_labels)
         scatter_clusters(
             ax_b,
-            inputs.source_tsne,
+            inputs.map_coordinates,
             inputs.y,
             color_map=source_cmap,
             s=MARKER_SIZE,
-            title=f"Cusanovich et al.: Louvain on t-SNE, {n_source} clusters",
+            title=f"Cusanovich et al.: {n_source} clusters\non {inputs.map_name}",
         )
-        axis_arrows(ax_b, SOURCE_TSNE_LABELS)
+        axis_arrows(ax_b, inputs.map_axis_labels)
 
         carve_lines(
             ax_c,

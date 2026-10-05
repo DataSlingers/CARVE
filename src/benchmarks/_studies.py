@@ -545,6 +545,11 @@ STUDIES: dict[str, Study] = {
                 ("tsne", {"perplexity": [100]}),
             ),
         ),
+        # The figure draws CARVE's partition and the source's on one t-SNE of
+        # every cell at perplexity 100, the more stable of the two t-SNE
+        # pipelines at the selected resolution of the 150-resample run
+        # (stability 0.792 against 0.776 at perplexity 30, 2026-10-04).
+        map_option=("tsne", {"perplexity": [100]}),
     ),
     "heca": Study(
         name="heca",

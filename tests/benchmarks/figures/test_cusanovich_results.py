@@ -11,7 +11,7 @@ from sklearn.preprocessing import FunctionTransformer
 
 from benchmarks._cusanovich_compare import CusanovichInputs
 from benchmarks.figures import figure_cusanovich_results
-from benchmarks.figures._cusanovich_results import MARKER_SIZE, SOURCE_TSNE_LABELS
+from benchmarks.figures._cusanovich_results import MARKER_SIZE
 from carve._pipeline import PipelineSpec, PipelineStep
 from tests.benchmarks._helpers import StubCarve, pipeline_results, resolution_results
 
@@ -54,7 +54,9 @@ def inputs():
         y=np.repeat(["1", "2", "3", "4", "5", "6"], n // 6),
         carve=carve,
         carve_labels=np.repeat([3, 1, 0, 2], n // 4),
-        source_tsne=rng.normal(size=(n, 2)),
+        map_coordinates=rng.normal(size=(n, 2)),
+        map_name="t-SNE, perplexity 100",
+        map_axis_labels=("t-SNE 1", "t-SNE 2"),
         best_pipeline_row=best,
         operating_point=(0.8, 16.0),
     )
@@ -90,9 +92,11 @@ def test_writes_under_its_manuscript_name(inputs, tmp_path):
 def test_titles_name_the_selection_and_the_source(inputs):
     panels = _panels(figure_cusanovich_results(inputs, save=False))
     assert panels["A"].get_title() == (
-        "CARVE: Leiden, resolution 0.6, 12 clusters\non the source's t-SNE"
+        "CARVE: Leiden, resolution 0.6, 12 clusters\non t-SNE, perplexity 100"
     )
-    assert panels["B"].get_title() == "Cusanovich et al.: Louvain on t-SNE, 6 clusters"
+    assert panels["B"].get_title() == (
+        "Cusanovich et al.: 6 clusters\non t-SNE, perplexity 100"
+    )
     assert panels["C"].get_title() == (
         "Stability & Generalizability over resolution, pooled over pipelines"
     )
@@ -101,13 +105,13 @@ def test_titles_name_the_selection_and_the_source(inputs):
     )
 
 
-def test_a_and_b_both_draw_the_source_tsne(inputs):
+def test_a_and_b_both_draw_the_map(inputs):
     # A shows CARVE's partition on the map B shows the source's on, whichever
     # pipeline CARVE rates best.
     panels = _panels(figure_cusanovich_results(inputs, save=False))
     for letter in ("A", "B"):
         ax = panels[letter]
-        points, names = inputs.source_tsne, SOURCE_TSNE_LABELS
+        points, names = inputs.map_coordinates, inputs.map_axis_labels
         drawn = np.concatenate([c.get_offsets() for c in _scatter_collections(ax)])
         assert sorted(map(tuple, drawn)) == sorted(map(tuple, points))
         assert set(names) <= {text.get_text() for text in ax.texts}

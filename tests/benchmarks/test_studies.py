@@ -857,6 +857,9 @@ class TestNewStudies:
             ),
         )
 
+    def test_cusanovich_draws_its_scatter_panels_on_the_perplexity_100_tsne(self):
+        assert STUDIES["cusanovich"].map_option == ("tsne", {"perplexity": [100]})
+
     def test_cusanovich_balances_resamples_across_its_four_pipelines(self):
         # Stratified allocation is over options, and each truncation and
         # perplexity is its own option, so 150 resamples split 37 or 38 to

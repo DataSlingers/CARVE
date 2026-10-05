@@ -446,6 +446,41 @@ class TestAblation:
             _ablation(scales={"dev": _scale(study_scale=None)})
 
 
+class TestStudyMapOption:
+    @staticmethod
+    def _study(**override):
+        options = {
+            "name": "demo",
+            "loader": lambda subsample: (None, None, {}),
+            "estimator": EstimatorSpec(name="louvain"),
+            "candidate_k": (),
+            "resolutions": (0.5,),
+            "scales": {"dev": 100},
+            "default_scale": "dev",
+            "preprocessing": PreprocessingSpec(
+                normalization=(("identity", {}),),
+                dim_reduction=(("identity", {}), ("tsne", {"perplexity": [30]})),
+            ),
+        }
+        options.update(override)
+        return Study(**options)
+
+    def test_defaults_to_none(self):
+        assert self._study().map_option is None
+
+    def test_accepts_one_of_the_studys_dim_reduction_options(self):
+        option = ("tsne", {"perplexity": [30]})
+        assert self._study(map_option=option).map_option == option
+
+    def test_rejects_an_option_the_study_does_not_draw(self):
+        with pytest.raises(ValueError, match="map_option"):
+            self._study(map_option=("tsne", {"perplexity": [100]}))
+
+    def test_rejects_a_map_without_preprocessing(self):
+        with pytest.raises(ValueError, match="map_option"):
+            self._study(preprocessing=None, map_option=("tsne", {"perplexity": [30]}))
+
+
 class TestStudyDefaults:
     def test_not_two_defaults_to_false(self):
         study = Study(

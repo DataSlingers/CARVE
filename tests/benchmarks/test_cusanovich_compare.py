@@ -19,6 +19,7 @@ from benchmarks._preprocessing import resolve_preprocessing
 from benchmarks._types import EstimatorSpec, PreprocessingSpec
 from benchmarks.figures._case_study import _align_to_reference
 from carve import CARVE
+from carve._pipeline import pipeline_from_spec
 
 def _row(method_id, pipeline, resolution, stability, generalizability, observed):
     return {
@@ -182,20 +183,57 @@ def fitted():
     return X, y, carve
 
 
+#: The fitted fixture's t-SNE option, and the pipeline label it becomes.
+_TSNE_30 = ("tsne", {"perplexity": [30]})
+_TSNE_30_LABEL = "identity | TSNE(perplexity=30)"
+
+
 @pytest.fixture(scope="module")
 def inputs(fitted):
     X, y, carve = fitted
-    return prepare_cusanovich_inputs(X, y, carve, source_tsne=X[:, :2])
+    return prepare_cusanovich_inputs(X, y, carve, map_option=_TSNE_30, random_state=0)
 
 
 @pytest.mark.requires_graph
 class TestPrepareCusanovichInputs:
-    def test_carries_the_best_pipeline_and_the_source_tsne(self, fitted, inputs):
-        X, _, carve = fitted
+    def test_carries_the_best_pipeline_and_the_selection(self, fitted, inputs):
+        _, _, carve = fitted
         row, _ = best_pipeline(carve, measure="stability", rule="1se")
         assert inputs.best_pipeline_row.equals(row)
-        np.testing.assert_array_equal(inputs.source_tsne, X[:, :2])
         assert (inputs.measure, inputs.rule, inputs.not_two) == ("stability", "1se", False)
+
+    def test_the_map_is_the_options_pipeline_fit_on_all_of_x(self, fitted, inputs):
+        X, _, carve = fitted
+        spec = carve.preprocessing_pipelines_[_TSNE_30_LABEL]
+        expected = pipeline_from_spec(spec, 0).fit_transform(X)
+        np.testing.assert_allclose(inputs.map_coordinates, expected)
+        assert inputs.map_name == "t-SNE, perplexity 30"
+        assert inputs.map_axis_labels == ("t-SNE 1", "t-SNE 2")
+
+    def test_the_map_is_fit_with_the_given_seed(self, fitted, inputs):
+        X, y, carve = fitted
+        seeded = prepare_cusanovich_inputs(
+            X, y, carve, map_option=_TSNE_30, random_state=7
+        )
+        spec = carve.preprocessing_pipelines_[_TSNE_30_LABEL]
+        np.testing.assert_allclose(
+            seeded.map_coordinates, pipeline_from_spec(spec, 7).fit_transform(X)
+        )
+        assert not np.allclose(seeded.map_coordinates, inputs.map_coordinates)
+
+    def test_an_option_the_fit_did_not_draw_raises(self, fitted):
+        X, y, carve = fitted
+        with pytest.raises(ValueError, match="map_option"):
+            prepare_cusanovich_inputs(
+                X, y, carve, map_option=("tsne", {"perplexity": [100]})
+            )
+
+    def test_a_map_needs_two_dimensions(self, fitted):
+        # The identity pipeline passes all six columns through; drawing its
+        # first two would show the smear the LSI's leading components give.
+        X, y, carve = fitted
+        with pytest.raises(ValueError, match="two columns"):
+            prepare_cusanovich_inputs(X, y, carve, map_option=("identity", {}))
 
     def test_carve_labels_are_relabeled_onto_the_reference_codes(self, fitted, inputs):
         _, y, carve = fitted

@@ -3,9 +3,9 @@
 The source clustered a two-dimensional t-SNE of its LSI into 30 clusters.
 These functions set that recipe beside CARVE's: which preprocessing pipeline
 CARVE rates best at the configuration it selects, and where the source's
-granularity falls on CARVE's pooled resolution axis.
-prepare_cusanovich_inputs gathers both into CusanovichInputs; nothing here
-draws, figures._cusanovich_results does.
+granularity falls on CARVE's pooled resolution axis, plus the map both
+scatter panels draw on. prepare_cusanovich_inputs gathers them into
+CusanovichInputs; nothing here draws, figures._cusanovich_results does.
 """
 
 import warnings
@@ -17,14 +17,22 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import adjusted_rand_score
 
-from carve._pipeline import PipelineSpec
+from carve._pipeline import PipelineSpec, pipeline_from_spec
 from carve._selection import MEASURE_MAP
+
+from ._preprocessing import PREPROCESSOR_NAMES
 
 #: How far the nearest pooled observed cluster count may sit from the target
 #: before source_operating_point warns, as a fraction of the target.
 OPERATING_POINT_TOLERANCE = 0.25
 
 _ARI_COLUMNS = ("ari_stability", "ari_generalizability")
+
+#: What a panel calls a two-dimensional map's axes, by display name.
+_MAP_AXIS_NAMES = {
+    PREPROCESSOR_NAMES["tsne"]: "t-SNE",
+    PREPROCESSOR_NAMES["umap"]: "UMAP",
+}
 
 
 def _per_pipeline_table(carve: Any) -> pd.DataFrame:
@@ -79,6 +87,45 @@ def best_pipeline(
     return row, carve.preprocessing_pipelines_[row["pipeline"]]
 
 
+def map_pipeline(carve: Any, option: tuple[str, dict[str, list[Any]]]) -> PipelineSpec:
+    """The fit's pipeline whose dimensionality reduction is option.
+
+    option is a PreprocessingSpec dim_reduction entry, (registry key, grid),
+    with one value per grid key, as Study.map_option holds.
+    """
+    key, grid = option
+    params = {name: values[0] for name, values in grid.items()}
+    for spec in carve.preprocessing_pipelines_.values():
+        step = spec.dim_reduction
+        if step.name == PREPROCESSOR_NAMES.get(key) and step.params == params:
+            return spec
+    raise ValueError(
+        f"map_option {option!r} matches no pipeline this fit drew; its pipelines "
+        f"are {sorted(carve.preprocessing_pipelines_)}."
+    )
+
+
+def map_coordinates(
+    X: np.ndarray, spec: PipelineSpec, *, random_state: int
+) -> tuple[np.ndarray, str, tuple[str, str]]:
+    """Fit one two-dimensional pipeline on all of X, for both scatter panels.
+
+    Returns the coordinates, the map's name for a title (a t-SNE with its
+    perplexity) and its axis names.
+    """
+    Z = np.asarray(pipeline_from_spec(spec, random_state).fit_transform(X))
+    if Z.ndim != 2 or Z.shape[1] != 2:
+        raise ValueError(
+            f"Pipeline {spec.label!r} gives an output of shape {Z.shape}; a map "
+            "needs two columns."
+        )
+    step = spec.dim_reduction
+    prefix = _MAP_AXIS_NAMES.get(step.name, step.name or step.label)
+    perplexity = step.params.get("perplexity")
+    name = prefix if perplexity is None else f"{prefix}, perplexity {perplexity:g}"
+    return Z, name, (f"{prefix} 1", f"{prefix} 2")
+
+
 def source_operating_point(
     carve: Any, *, method_id: str, target_k: int
 ) -> tuple[float, float]:
@@ -127,8 +174,8 @@ class CusanovichInputs:
 
     carve_labels are CARVE's consensus labels relabeled onto y's codes, so a
     CARVE cluster takes the color of the source cluster it best matches.
-    source_tsne is the source's own t-SNE, the map both A and B draw on.
-    operating_point is (resolution, observed cluster
+    map_coordinates is the map both A and B draw on, named by map_name and
+    map_axis_labels. operating_point is (resolution, observed cluster
     count) on the selected configuration's pooled curve. measure, rule and
     not_two are the selection every panel reads.
     """
@@ -137,7 +184,9 @@ class CusanovichInputs:
     y: np.ndarray
     carve: Any
     carve_labels: np.ndarray
-    source_tsne: np.ndarray
+    map_coordinates: np.ndarray
+    map_name: str
+    map_axis_labels: tuple[str, str]
     best_pipeline_row: pd.Series
     operating_point: tuple[float, float]
     measure: str = "stability"
@@ -150,24 +199,29 @@ def prepare_cusanovich_inputs(
     y: np.ndarray,
     carve: Any,
     *,
-    source_tsne: np.ndarray,
+    map_option: tuple[str, dict[str, list[Any]]],
     measure: str = "stability",
     rule: str = "1se",
     not_two: bool = False,
+    random_state: int = 42,
 ) -> CusanovichInputs:
     """Assemble the Cusanovich figure's inputs from a randomized fit.
 
     Finds the best pipeline at the selected configuration, relabels CARVE's
-    consensus labels onto y, and places the source's operating point on the
-    selected configuration's pooled curve at y's own cluster count. Nothing
-    is embedded: both scatter panels draw the source's own t-SNE. This is
-    compute; call it once and draw from the result.
+    consensus labels onto y, places the source's operating point on the
+    selected configuration's pooled curve at y's own cluster count, and fits
+    the map_option pipeline on all of X, seeded with random_state, as the map
+    both scatter panels draw on. This is compute; call it once and draw from
+    the result.
     """
     from .figures._case_study import _align_to_reference
 
     X = np.asarray(X)
     y = np.asarray(y)
     row, _ = best_pipeline(carve, measure=measure, rule=rule, not_two=not_two)
+    coordinates, name, axis_labels = map_coordinates(
+        X, map_pipeline(carve, map_option), random_state=random_state
+    )
     labels = carve.get_labels(measure=measure, rule=rule, not_two=not_two)
 
     return CusanovichInputs(
@@ -175,7 +229,9 @@ def prepare_cusanovich_inputs(
         y=y,
         carve=carve,
         carve_labels=_align_to_reference(labels, y),
-        source_tsne=np.asarray(source_tsne, dtype=np.float64),
+        map_coordinates=coordinates,
+        map_name=name,
+        map_axis_labels=axis_labels,
         best_pipeline_row=row,
         operating_point=source_operating_point(
             carve, method_id=str(row["method_id"]), target_k=int(np.unique(y).size)

@@ -235,6 +235,11 @@ class Study:
 
     reported_k is the k the manuscript reports for this study, read by
     figures that show a single k; None when the study reports none.
+
+    map_option, when set, is one of preprocessing's dim_reduction options:
+    the case-study figure fits it on every cell and draws its scatter panels
+    on the result, so the map does not change with whichever pipeline a fit
+    rates best.
     """
 
     name: str
@@ -251,6 +256,7 @@ class Study:
     preprocessing: PreprocessingSpec | None = None
     not_two: bool = False
     reported_k: int | None = None
+    map_option: tuple[str, dict[str, list[Any]]] | None = None
 
     def __post_init__(self) -> None:
         if not self.candidate_k and not self.resolutions:
@@ -264,6 +270,14 @@ class Study:
             raise ValueError(
                 f"Study {self.name!r}: default_scale {self.default_scale!r} is "
                 f"not among the declared scales {sorted(self.scales)}."
+            )
+        if self.map_option is not None and (
+            self.preprocessing is None
+            or self.map_option not in self.preprocessing.dim_reduction
+        ):
+            raise ValueError(
+                f"Study {self.name!r}: map_option {self.map_option!r} is not "
+                "one of the study's dim_reduction options."
             )
 
 
