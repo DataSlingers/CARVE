@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from carve import CARVE
 from carve._utils import scale_neighbor_count
@@ -43,7 +44,7 @@ from ._studies import (
     load_study,
     study_resolution_grids,
 )
-from ._timing import instrumented_grids, timed_forest, timing_directory
+from ._timing import instrumented_grids, read_timings, timed_forest, timing_directory
 from ._types import Study
 
 #: The seed every stage draws with, as for the other case studies.
@@ -406,3 +407,110 @@ def run_fit(
     }
     write_json(fit_dir / "runtime.json", record)
     return record
+
+
+#: The early-abort rule: cancel and revisit if the projected total passes this.
+ABORT_AFTER_S = 10 * 86_400
+
+
+def label_settings(leiden: pd.DataFrame, study: Study, *, n_cells: int) -> pd.DataFrame:
+    """Leiden timing rows with the setting each came from.
+
+    A row records the neighbor count CARVE actually fitted with, which it
+    scales to each subset's size; this maps (scaled count, subset size)
+    back to the setting.
+    """
+    n_train, n_test = split_sizes(n_cells)
+    lookup = {}
+    for setting in sweep_settings(study):
+        for n_fit in (n_train, n_test):
+            key = (scaled_neighbors(setting, n_fit=n_fit, n_full=n_cells), n_fit)
+            lookup[key] = setting.label
+    settings = [
+        lookup.get((int(k), int(n)))
+        for k, n in zip(leiden["n_neighbors"], leiden["n_samples"], strict=True)
+    ]
+    return leiden.assign(setting=settings)
+
+
+def fit_status(
+    run_dir: Path, *, study: Study | None = None, now: float | None = None
+) -> dict[str, Any]:
+    """Progress of a running or finished fit, from its live timing rows.
+
+    Configurations run one after another, each across every resample, so
+    the mean time of the completed ones projects the total. A configuration
+    is complete once it has 3 x n_resamples Leiden rows: both training
+    splits and the complement, per resample.
+    """
+    study = resolve_study(study)
+    fit_dir = Path(run_dir) / "fit"
+    started = read_json(fit_dir / "started.json")
+    n_cells = int(started["n_cells"])
+    n_resamples = int(started["n_resamples"])
+    n_train, _ = split_sizes(n_cells)
+    leiden = label_settings(
+        read_timings(fit_dir / "timings")["leiden"], study, n_cells=n_cells
+    )
+
+    total = len(sweep_settings(study)) * len(started["resolutions"])
+    counts = leiden.groupby(["setting", "resolution"]).size()
+    completed = int((counts >= 3 * n_resamples).sum())
+
+    now = time.time() if now is None else float(now)
+    elapsed = now - float(started["started_at"])
+    per_configuration = elapsed / completed if completed else None
+    projected_total = None if per_configuration is None else per_configuration * total
+    training = leiden[leiden["n_samples"] == n_train]
+    clusters = (
+        pd.DataFrame()
+        if training.empty
+        else training.groupby(["resolution", "setting"])["n_clusters"]
+        .median()
+        .unstack("setting")
+    )
+    return {
+        "completed": completed,
+        "total": total,
+        "elapsed_s": elapsed,
+        "seconds_per_configuration": per_configuration,
+        "projected_total_s": projected_total,
+        "projected_finish": None
+        if projected_total is None
+        else float(started["started_at"]) + projected_total,
+        "abort": projected_total is not None and projected_total > ABORT_AFTER_S,
+        "clusters": clusters,
+    }
+
+
+def format_status(status: Mapping[str, Any]) -> str:
+    """The lines python -m benchmarks.heca status prints."""
+    lines = [
+        f"Configurations complete: {status['completed']} of {status['total']}",
+        f"Elapsed: {status['elapsed_s'] / 3600:.1f} h",
+    ]
+    if status["seconds_per_configuration"] is None:
+        lines.append("No configuration has completed yet, so there is no projection.")
+    else:
+        finish = datetime.fromtimestamp(status["projected_finish"], UTC)
+        lines.append(
+            f"Per configuration: {status['seconds_per_configuration'] / 3600:.2f} h"
+        )
+        lines.append(
+            f"Projected total: {status['projected_total_s'] / 3600:.1f} h, "
+            f"finishing {finish:%Y-%m-%d %H:%M} UTC"
+        )
+    verdict = (
+        "triggered: cancel the fit and revisit the grid or the resample count"
+        if status["abort"]
+        else "not triggered"
+    )
+    lines.append(
+        f"Abort rule (projected total over {ABORT_AFTER_S / 86_400:.0f} days): "
+        f"{verdict}"
+    )
+    clusters = status["clusters"]
+    if not clusters.empty:
+        lines.append("Median clusters on the training split, by resolution:")
+        lines.append(clusters.to_string())
+    return "\n".join(lines)

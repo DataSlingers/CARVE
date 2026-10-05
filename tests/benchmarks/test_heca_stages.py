@@ -12,14 +12,17 @@ from benchmarks._heca_stages import (
     Setting,
     StageOutputExists,
     choose_n_jobs,
+    fit_status,
+    format_status,
     run_embed,
     run_fit,
     scaled_neighbors,
     split_sizes,
     sweep_settings,
+    write_json,
 )
 from benchmarks._studies import STUDIES, carve_cache_path, study_resolution_grids
-from benchmarks._timing import read_timings
+from benchmarks._timing import LEIDEN_COLUMNS, read_timings
 from carve import CARVE
 from carve._utils import split_subsample_indices
 from tests.benchmarks._helpers import small_heca_study
@@ -171,3 +174,91 @@ class TestRunFit:
             run_fit(run, study=study, n_jobs=1)
         run_fit(run, study=study, n_jobs=1, force=True)
         assert len(read_timings(run / "fit" / "timings")["leiden"]) == 24
+
+
+def _leiden_row(n_neighbors, n_samples, resolution, n_clusters):
+    return {
+        "pid": 1,
+        "host": "node",
+        "unix_time": 0.0,
+        "n_neighbors": n_neighbors,
+        "resolution": resolution,
+        "n_samples": n_samples,
+        "n_clusters": n_clusters,
+        "knn_s": 1.0,
+        "graph_s": 1.0,
+        "leiden_s": 1.0,
+        "fit_s": 3.0,
+    }
+
+
+class TestStatus:
+    N_CELLS = 1000
+
+    def _write(self, run, rows, *, started_at=1000.0):
+        fit_dir = run / "fit"
+        write_json(
+            fit_dir / "started.json",
+            {
+                "started_at": started_at,
+                "n_cells": self.N_CELLS,
+                "n_jobs": 4,
+                "resolutions": [1.0, 2.0],
+                "n_resamples": 2,
+                "settings": ["leiden_15", "leiden_50"],
+            },
+        )
+        (fit_dir / "timings").mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(rows, columns=list(LEIDEN_COLUMNS)).to_csv(
+            fit_dir / "timings" / "leiden-node-1.csv", index=False
+        )
+
+    def _rows(self):
+        # leiden_15 at 1.0 is complete (2 resamples x 3 subsets); at 2.0 it
+        # has half its rows.
+        n_train, n_test = split_sizes(self.N_CELLS)
+        setting = Setting("leiden_15", 15)
+        k_train = scaled_neighbors(setting, n_fit=n_train, n_full=self.N_CELLS)
+        k_test = scaled_neighbors(setting, n_fit=n_test, n_full=self.N_CELLS)
+        return (
+            [_leiden_row(k_train, n_train, 1.0, 4)] * 4
+            + [_leiden_row(k_test, n_test, 1.0, 3)] * 2
+            + [_leiden_row(k_train, n_train, 2.0, 7)] * 3
+        )
+
+    def test_counts_complete_configurations_and_projects_the_finish(self, tmp_path):
+        run = tmp_path / "run"
+        self._write(run, self._rows())
+        status = fit_status(run, now=1000.0 + 3600.0)
+        assert status["completed"] == 1
+        assert status["total"] == 4
+        assert status["seconds_per_configuration"] == pytest.approx(3600.0)
+        assert status["projected_total_s"] == pytest.approx(4 * 3600.0)
+        assert status["projected_finish"] == pytest.approx(1000.0 + 4 * 3600.0)
+        assert status["abort"] is False
+        assert status["clusters"].loc[1.0, "leiden_15"] == 4
+        assert status["clusters"].loc[2.0, "leiden_15"] == 7
+
+    def test_the_abort_rule_fires_past_ten_days(self, tmp_path):
+        run = tmp_path / "run"
+        self._write(run, self._rows())
+        # One configuration in three days projects twelve for four.
+        status = fit_status(run, now=1000.0 + 3 * 86_400)
+        assert status["abort"] is True
+
+    def test_no_projection_before_a_configuration_completes(self, tmp_path):
+        run = tmp_path / "run"
+        self._write(run, self._rows()[-3:])
+        status = fit_status(run, now=5000.0)
+        assert status["completed"] == 0
+        assert status["seconds_per_configuration"] is None
+        assert status["projected_total_s"] is None
+        assert status["abort"] is False
+
+    def test_format_names_the_count_and_the_rule(self, tmp_path):
+        run = tmp_path / "run"
+        self._write(run, self._rows())
+        text = format_status(fit_status(run, now=1000.0 + 3600.0))
+        assert "Configurations complete: 1 of 4" in text
+        assert "Abort rule" in text
+        assert "not triggered" in text
