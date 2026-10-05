@@ -1,6 +1,8 @@
 """Tests for the hECA command-line entry point."""
 
 import json
+import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -45,3 +47,32 @@ def test_a_stage_that_would_overwrite_exits_two(tmp_path, monkeypatch, capsys):
     assert main(["embed", "--run-dir", run]) == 0
     assert main(["embed", "--run-dir", run]) == 2
     assert "--force" in capsys.readouterr().err
+
+
+SLURM_DIR = Path(__file__).resolve().parents[2] / "slurm" / "heca"
+
+
+@pytest.mark.parametrize("stage", ["embed", "calibrate", "fit"])
+def test_each_sbatch_script_runs_its_stage_and_parses(stage):
+    script = SLURM_DIR / f"{stage}.sbatch"
+    assert f"python -m benchmarks.heca {stage} --run-dir" in script.read_text()
+    assert subprocess.run(["bash", "-n", str(script)], check=False).returncode == 0
+
+
+def test_the_fit_script_takes_a_whole_node_and_saves_its_accounting():
+    text = (SLURM_DIR / "fit.sbatch").read_text()
+    assert "#SBATCH --exclusive" in text
+    assert '--cpus-per-task="${SLURM_CPUS_ON_NODE}"' in text
+    assert "sacct -j" in text
+    assert "fit/sacct.txt" in text
+
+
+def test_calibration_runs_single_threaded():
+    text = (SLURM_DIR / "calibrate.sbatch").read_text()
+    assert "OMP_NUM_THREADS=1" in text
+
+
+def test_the_runbook_names_every_script():
+    text = (SLURM_DIR / "README.md").read_text()
+    for stage in ("embed", "calibrate", "fit"):
+        assert f"slurm/heca/{stage}.sbatch" in text

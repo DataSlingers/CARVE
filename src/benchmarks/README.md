@@ -33,3 +33,6 @@ gitignored. Publishing a run is a separate, deliberate step:
 ```bash
 python -m benchmarks.run --promote results/runs/gaussians/<config-hash>
 ```
+
+The full-scale hECA case study runs on UNC's Longleaf cluster in stages,
+through `python -m benchmarks.heca`; see `slurm/heca/README.md`.
