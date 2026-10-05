@@ -14,6 +14,7 @@ from benchmarks._estimators import (
     resolution_grids,
 )
 from benchmarks._types import KNOWN_CLASSIFIERS, KNOWN_ESTIMATORS, EstimatorSpec
+from carve.cluster import LeidenClustering
 
 
 def test_every_known_estimator_has_a_class():
@@ -151,3 +152,35 @@ class TestResolutionEstimators:
     def test_build_estimator_rejects_a_resolution_estimator(self):
         with pytest.raises(ValueError, match="sweeps resolution"):
             build_estimator(EstimatorSpec(name="leiden"), n_clusters=4, random_state=0)
+
+
+class TestFixedParams:
+    def test_params_override_the_registered_default(self):
+        spec = EstimatorSpec(name="leiden", params=(("n_neighbors", 50),))
+        ((cls, grid),) = resolution_grids(spec, (0.5, 1.0))
+        assert cls is LeidenClustering
+        assert grid == {
+            "resolution": [0.5, 1.0],
+            "n_neighbors": [50],
+            "objective_function": ["modularity"],
+        }
+
+    def test_a_spec_without_params_builds_the_grid_it_always_did(self):
+        ((_, grid),) = param_grids(EstimatorSpec(name="kmeans"), (2, 3))
+        assert grid == {"n_clusters": [2, 3], "n_init": [10]}
+
+    def test_params_reach_a_k_based_grid_and_build_estimator(self):
+        spec = EstimatorSpec(name="kmeans", params=(("n_init", 3),))
+        ((_, grid),) = param_grids(spec, (2,))
+        assert grid["n_init"] == [3]
+        assert build_estimator(spec, 4, random_state=0).n_init == 3
+
+    def test_an_unknown_parameter_raises(self):
+        spec = EstimatorSpec(name="leiden", params=(("n_neighbours", 50),))
+        with pytest.raises(ValueError, match="no parameter 'n_neighbours'"):
+            resolution_grids(spec, (1.0,))
+
+    def test_the_swept_parameter_cannot_be_fixed(self):
+        spec = EstimatorSpec(name="leiden", params=(("resolution", 1.0),))
+        with pytest.raises(ValueError, match="which the sweep sets"):
+            resolution_grids(spec, (1.0,))

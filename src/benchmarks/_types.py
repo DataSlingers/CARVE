@@ -74,15 +74,28 @@ class EstimatorSpec:
     Validation is strict on purpose. The routine this replaces had no else
     clause, so a misspelled name silently produced KMeans while the
     provenance column recorded the string that was passed.
+
+    params holds fixed hyperparameters as (name, value) pairs that override
+    the registered defaults for this spec, so two specs can run one
+    estimator at two settings (hECA's Leiden on 15 and on 50 neighbors). A
+    tuple of pairs rather than a dict keeps the spec frozen and hashable.
+    Whether each name is a parameter of the estimator is checked in
+    _estimators, where the class is known; this module stays a leaf.
     """
 
     name: str
+    params: tuple[tuple[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         if self.name not in KNOWN_ESTIMATORS:
             raise ValueError(
                 f"Unknown estimator {self.name!r}. "
                 f"Valid names are {sorted(KNOWN_ESTIMATORS)}."
+            )
+        names = [key for key, _ in self.params]
+        if len(set(names)) != len(names):
+            raise ValueError(
+                f"EstimatorSpec {self.name!r} sets a parameter more than once: {names}."
             )
 
 

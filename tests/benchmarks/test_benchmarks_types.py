@@ -59,6 +59,24 @@ class TestEstimatorSpec:
             EstimatorSpec(name="nope")
 
 
+class TestEstimatorSpecParams:
+    def test_params_default_to_none_fixed(self):
+        assert EstimatorSpec(name="leiden").params == ()
+
+    def test_a_spec_with_params_is_hashable_and_compares_by_value(self):
+        a = EstimatorSpec(name="leiden", params=(("n_neighbors", 50),))
+        b = EstimatorSpec(name="leiden", params=(("n_neighbors", 50),))
+        assert a == b
+        assert hash(a) == hash(b)
+        assert a != EstimatorSpec(name="leiden")
+
+    def test_setting_a_parameter_twice_raises(self):
+        with pytest.raises(ValueError, match="more than once"):
+            EstimatorSpec(
+                name="leiden", params=(("n_neighbors", 15), ("n_neighbors", 50))
+            )
+
+
 def _axis():
     return Axis(name="difficulty_level", values=(0, 1, 2), labels=("easy", "medium", "hard"))
 

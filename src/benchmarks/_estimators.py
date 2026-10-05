@@ -83,6 +83,35 @@ def apply_random_state(
     return params
 
 
+#: The parameters a grid builder sweeps. A spec may not fix them: the sweep
+#: would overwrite the value without a word.
+_SWEPT_PARAMETERS: frozenset[str] = frozenset({"n_clusters", "resolution"})
+
+
+def estimator_params(spec: EstimatorSpec) -> dict[str, Any]:
+    """The registered defaults for spec's estimator, overridden by spec.params.
+
+    Each name in spec.params must be a constructor parameter of the
+    estimator class, and none may be a swept parameter, which the grid
+    builders set themselves.
+    """
+    estimator_cls = ESTIMATOR_CLASSES[spec.name]
+    accepted = inspect.signature(estimator_cls.__init__).parameters
+    params: dict[str, Any] = dict(ESTIMATOR_DEFAULTS[spec.name])
+    for key, value in spec.params:
+        if key in _SWEPT_PARAMETERS:
+            raise ValueError(
+                f"EstimatorSpec {spec.name!r} fixes {key!r}, which the sweep sets."
+            )
+        if key not in accepted:
+            raise ValueError(
+                f"{estimator_cls.__name__} has no parameter {key!r} "
+                f"(EstimatorSpec {spec.name!r})."
+            )
+        params[key] = value
+    return params
+
+
 def build_estimator(
     spec: EstimatorSpec, n_clusters: int, random_state: int
 ) -> ClusterMixin:
@@ -93,7 +122,7 @@ def build_estimator(
             "resolution_grids and CARVE's resolution mode."
         )
     estimator_cls = ESTIMATOR_CLASSES[spec.name]
-    params: dict[str, Any] = dict(ESTIMATOR_DEFAULTS[spec.name])
+    params: dict[str, Any] = estimator_params(spec)
     params["n_clusters"] = int(n_clusters)
     apply_random_state(estimator_cls, params, random_state)
 
@@ -117,7 +146,7 @@ def param_grids(
         raise ValueError("candidate_k must not be empty.")
 
     grid: dict[str, list[Any]] = {"n_clusters": [int(k) for k in candidate_k]}
-    for key, value in ESTIMATOR_DEFAULTS[spec.name].items():
+    for key, value in estimator_params(spec).items():
         grid[key] = [value]
 
     return [(ESTIMATOR_CLASSES[spec.name], grid)]
@@ -140,7 +169,7 @@ def resolution_grids(
         raise ValueError("resolutions must not be empty.")
 
     grid: dict[str, list[Any]] = {"resolution": [float(r) for r in resolutions]}
-    for key, value in ESTIMATOR_DEFAULTS[spec.name].items():
+    for key, value in estimator_params(spec).items():
         grid[key] = [value]
 
     return [(ESTIMATOR_CLASSES[spec.name], grid)]
