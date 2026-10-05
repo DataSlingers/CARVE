@@ -137,11 +137,30 @@ def load_heca_run(
     )
 
 
+def _fit_step_row(sacct: pd.DataFrame) -> pd.Series:
+    """The one sacct.txt row for the fit's srun step.
+
+    fit.sbatch's single srun step is recorded as JobID "<job>.0"; a whole-job
+    capture (sacct -j <job> without the step suffix) also carries the job's
+    own row, a batch step and an extern step, none of which describe the fit
+    itself. Raises rather than guessing when the .0 row is not unique, so a
+    wrong capture fails loudly instead of silently reading another row's CPU
+    time or memory.
+    """
+    step = sacct[sacct["JobID"].astype(str).str.endswith(".0")]
+    if len(step) != 1:
+        raise ValueError(
+            "Expected exactly one sacct.txt row for the fit's .0 step, found "
+            f"JobID(s) {list(sacct['JobID'])}."
+        )
+    return step.iloc[0]
+
+
 def fit_cpu_hours(run: HecaRun) -> float:
     """The fit step's total CPU time from SLURM, or NaN without sacct.txt."""
     if run.sacct is None or run.sacct.empty:
         return float("nan")
-    return float(run.sacct["TotalCPU_s"].iloc[0]) / 3600
+    return float(_fit_step_row(run.sacct)["TotalCPU_s"]) / 3600
 
 
 def runtime_table(run: HecaRun) -> pd.DataFrame:
@@ -155,7 +174,10 @@ def runtime_table(run: HecaRun) -> pd.DataFrame:
         (run.memory["own_rss_bytes"] + run.memory["children_rss_bytes"]).max()
     )
     if run.sacct is not None and not run.sacct.empty:
-        fit_memory, fit_source = float(run.sacct["MaxRSS_bytes"].iloc[0]), "slurm"
+        fit_memory, fit_source = (
+            float(_fit_step_row(run.sacct)["MaxRSS_bytes"]),
+            "slurm",
+        )
     else:
         fit_memory, fit_source = sampled, "sampled"
     return pd.DataFrame(

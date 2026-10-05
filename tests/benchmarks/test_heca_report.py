@@ -2,6 +2,7 @@
 
 import math
 from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -9,7 +10,9 @@ import pytest
 
 from benchmarks._heca_calibration import run_calibrate
 from benchmarks._heca_report import (
+    HecaRun,
     component_table,
+    fit_cpu_hours,
     load_heca_run,
     parse_sacct,
     projection_vs_actual,
@@ -27,6 +30,36 @@ SACCT = (
     "JobID|Elapsed|TotalCPU|MaxRSS|AveRSS|NCPUS\n"
     "123.0|1-02:00:00|20-00:00:00|200G|180G|48\n"
 )
+
+# A whole-job capture (sacct -j <job>, no step suffix): the job's own row,
+# a batch step and an extern step, each with different numbers from the
+# fit's actual .0 step, so a test that silently read the wrong row fails.
+WHOLE_JOB_SACCT = (
+    "JobID|Elapsed|TotalCPU|MaxRSS|AveRSS|NCPUS\n"
+    "456|1-02:00:00|19-23:50:00|199G|179G|48\n"
+    "456.batch|00:00:05|00:00:05|4G|3G|48\n"
+    "456.extern|1-02:00:00|00:00:00|0|0|48\n"
+    "456.0|1-02:00:00|20-00:00:00|200G|180G|48\n"
+)
+
+
+def _stub_run(sacct: pd.DataFrame) -> HecaRun:
+    """A HecaRun with only the fields fit_cpu_hours and runtime_table read."""
+    return HecaRun(
+        run_dir=Path("."),
+        study=None,
+        env={},
+        embed={"wall_clock_s": 10.0, "peak_rss_bytes": 1_000.0},
+        calibration={},
+        scan=pd.DataFrame(),
+        started={},
+        runtime={"wall_clock_s": 20.0, "n_jobs": 4},
+        leiden=pd.DataFrame(),
+        forest=pd.DataFrame(),
+        memory=pd.DataFrame({"own_rss_bytes": [1], "children_rss_bytes": [1]}),
+        sacct=sacct,
+        carve=None,
+    )
 
 
 @pytest.mark.parametrize(
@@ -56,6 +89,27 @@ def test_parse_sacct_converts_the_fields():
     assert row["JobID"] == "123.0"
     assert row["TotalCPU_s"] == pytest.approx(20 * 86_400)
     assert row["MaxRSS_bytes"] == pytest.approx(200 * 1024**3)
+
+
+def test_whole_job_capture_reads_the_dot_zero_steps_cpu_and_memory():
+    run = _stub_run(parse_sacct(WHOLE_JOB_SACCT))
+    assert fit_cpu_hours(run) == pytest.approx(20 * 24)
+    fit = runtime_table(run).set_index("stage").loc["CARVE fit"]
+    assert fit["memory_source"] == "slurm"
+    assert fit["peak_memory_gb"] == pytest.approx(200 * 1024**3 / 1e9)
+
+
+def test_a_capture_with_no_dot_zero_step_raises():
+    sacct = parse_sacct(
+        "JobID|Elapsed|TotalCPU|MaxRSS|AveRSS|NCPUS\n"
+        "456|1-02:00:00|19-23:50:00|199G|179G|48\n"
+        "456.batch|00:00:05|00:00:05|4G|3G|48\n"
+    )
+    run = _stub_run(sacct)
+    with pytest.raises(ValueError, match="456"):
+        fit_cpu_hours(run)
+    with pytest.raises(ValueError, match="456"):
+        runtime_table(run)
 
 
 def test_study_composition_by_hand():
