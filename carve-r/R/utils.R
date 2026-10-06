@@ -169,6 +169,9 @@ format_params <- function(params) {
 }
 
 format_param_value <- function(val) {
+  if (is.null(val)) {
+    return("None")
+  }
   if (is.logical(val) && length(val) == 1L && !is.na(val)) {
     return(if (val) "True" else "False")
   }
@@ -326,8 +329,9 @@ call_estimator <- function(estimator, X, params, random_state = NULL) {
 # ranger forest with the settings of Python's default classifier: n_trees
 # trees, depth at most n_features, floor(sqrt(n_features)) candidate
 # features per split. As in sklearn, it predicts the class with the largest
-# mean leaf probability, not the majority vote of the trees. A custom classifier gets n_threads and random_state
-# only when it has those arguments.
+# mean leaf probability, not the majority vote of the trees. A custom
+# classifier gets n_threads and random_state only when it has those
+# arguments.
 default_generalizability_classifier <- function(classifier, n_features, n_trees,
                                                 random_state, n_threads) {
   check <- function(predicted, x_test) {

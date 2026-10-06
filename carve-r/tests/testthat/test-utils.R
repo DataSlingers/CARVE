@@ -128,6 +128,7 @@ test_that("format_param_value matches the Python method labels", {
   expect_identical(format_param_value(1234.5), "1.23e+03")
   expect_identical(format_param_value(TRUE), "True")
   expect_identical(format_param_value("ward"), "ward")
+  expect_identical(format_param_value(NULL), "None")
 })
 
 test_that("format_repr, python_list and format_params follow Python's repr", {
