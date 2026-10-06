@@ -505,10 +505,11 @@ class TestStudies:
     def test_klein_sweeps_k_two_through_ten(self):
         assert STUDIES["klein"].candidate_k == tuple(range(2, 11))
 
-    def test_klein_selection_excludes_k_two(self):
-        # The manuscript's Klein result (Ward at k=4) is selected with
-        # not_two=True; the notebook and the ablation both read it from here.
-        assert STUDIES["klein"].not_two is True
+    def test_klein_selection_keeps_k_two(self):
+        # The manuscript reports stability's selection at k=2 for Klein, so
+        # k=2 is not excluded; the notebook and the ablation both read it
+        # from here.
+        assert STUDIES["klein"].not_two is False
 
     def test_klein_reports_k_four(self):
         # The manuscript reports k=4 for Klein; figures read it from here

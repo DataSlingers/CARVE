@@ -423,13 +423,47 @@ class TestCarveOutputFigures:
         ``source="accuracy"`` regression would still draw one scatter with
         varying point sizes (the previous test's only check), so it needs
         its own guard. plot_cluster_scatter's auto-generated legend title
-        names the score source directly.
+        names the score source directly. Klein's figure drops that legend, so
+        the guard reads Levine's, which shares the panel E call.
         """
-        fig = figure_carve_output_klein(inputs, save=False)
+        fig = figure_carve_output_levine(inputs, save=False)
         ax_e = _panel_by_letter(fig)["E"]
         legend = ax_e.get_legend()
         assert legend is not None
         assert "Gini Stability" in legend.get_title().get_text()
+        plt.close(fig)
+
+    def test_klein_panels_e_and_f_carry_no_legend(self, inputs):
+        fig = figure_carve_output_klein(inputs, save=False)
+        panels = _panel_by_letter(fig)
+        assert panels["E"].get_legend() is None
+        assert panels["F"].get_legend() is None
+        plt.close(fig)
+
+    def test_klein_scatter_row_is_taller_and_rows_a_to_d_keep_their_size(
+        self, inputs
+    ):
+        klein = figure_carve_output_klein(inputs, save=False)
+        levine = figure_carve_output_levine(inputs, save=False)
+        klein_gs = (
+            _panel_by_letter(klein)["E"]
+            .get_subplotspec()
+            .get_topmost_subplotspec()
+            .get_gridspec()
+        )
+        assert tuple(klein_gs.get_height_ratios()) == (1.0, 1.0, 1.2)
+        # The extra height goes to row E-F alone: Klein is taller than Levine
+        # by exactly 0.2 of one Levine row.
+        levine_height = levine.get_size_inches()[1]
+        assert klein.get_size_inches()[1] == pytest.approx(levine_height * 3.2 / 3)
+        plt.close(klein)
+        plt.close(levine)
+
+    def test_levine_panels_e_and_f_keep_their_legends(self, inputs):
+        fig = figure_carve_output_levine(inputs, save=False)
+        panels = _panel_by_letter(fig)
+        assert panels["E"].get_legend() is not None
+        assert panels["F"].get_legend() is not None
         plt.close(fig)
 
     def test_panel_f_reports_gini_stability_not_a_different_source(self, inputs):

@@ -162,7 +162,6 @@ def test_klein_prepare_composite_uses_the_generalizability_selection():
     source = _code(NOTEBOOKS["klein"])
     assert 'measure="generalizability"' in source
     assert 'rule="1se"' in source
-    assert "not_two=True" in source
 
 
 def test_klein_notebook_not_two_agrees_with_the_study():

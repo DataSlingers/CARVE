@@ -43,6 +43,8 @@ def carve_output_figure(
     marker_size: float,
     axis_labels: Sequence[str],
     save_name: str,
+    scatter_legends: bool = True,
+    scatter_row_height: float = 1.0,
     save: bool = True,
     out_dir: Path | None = None,
 ) -> Figure:
@@ -53,6 +55,14 @@ def carve_output_figure(
     exactly) and panel E's ``size_range`` proportionally, so the two
     datasets' scatters differ only in dot size, not in the score encoding
     itself.
+
+    ``scatter_legends=False`` drops the cluster legends of panels E and F,
+    together with the configuration note CARVE writes into them; panel F's
+    colorbar stays.
+
+    ``scatter_row_height`` is the height of the E-F row relative to each of
+    the other two rows. The figure grows with it, so panels A to D keep
+    their size.
     """
     carve = inputs.carve
     measure = inputs.measure
@@ -74,8 +84,9 @@ def carve_output_figure(
         # figure is "not compatible with tight_layout" on every subsequent
         # call. Leaving spacing to the default lets those internal calls lay
         # the panels out cleanly instead.
-        fig = plt.figure(figsize=(13.0, 14.0))
-        gs = fig.add_gridspec(3, 2)
+        row_height = 14.0 / 3
+        fig = plt.figure(figsize=(13.0, row_height * (2 + scatter_row_height)))
+        gs = fig.add_gridspec(3, 2, height_ratios=(1.0, 1.0, scatter_row_height))
         ax_a = fig.add_subplot(gs[0, 0])
         ax_b = fig.add_subplot(gs[0, 1])
         ax_c = fig.add_subplot(gs[1, 0])
@@ -134,6 +145,7 @@ def carve_output_figure(
             ax=ax_e,
             palette=cluster_panel_cmap,
             size_range=scatter_size_range,
+            legend=scatter_legends,
             title="Consensus labels",
             xlabel=axis_labels[0],
             ylabel=axis_labels[1],
@@ -148,6 +160,7 @@ def carve_output_figure(
             embedding=inputs.Z,
             ax=ax_f,
             marker_size=marker_size,
+            legend=scatter_legends,
             title="Consensus assignment (diagnostic)",
             xlabel=axis_labels[0],
             ylabel=axis_labels[1],
@@ -170,12 +183,19 @@ def carve_output_figure(
 def figure_carve_output_klein(
     inputs: CompositeInputs, *, save: bool = True, out_dir: Path | None = None
 ) -> Figure:
-    """Build Fig 3: CARVE output on the Klein droplet scRNA-seq case study."""
+    """Build Fig 3: CARVE output on the Klein droplet scRNA-seq case study.
+
+    Panels E and F carry no legend; the manuscript caption names their
+    encodings. Their row is a fifth taller than the others, since panel F
+    shares its cell with the colorbar.
+    """
     return carve_output_figure(
         inputs,
         marker_size=20.0,
         axis_labels=("PC1", "PC2"),
         save_name="CARVE_output_klein.png",
+        scatter_legends=False,
+        scatter_row_height=1.2,
         save=save,
         out_dir=out_dir,
     )

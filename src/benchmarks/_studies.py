@@ -464,10 +464,11 @@ STUDIES: dict[str, Study] = {
         scales={"publication": None},
         default_scale="publication",
         partners=(EstimatorSpec(name="spectral"),),
-        # The manuscript's headline selection (Ward at k=4, generalizability,
-        # 1SE) excludes k=2 and reports k=4; the Klein notebook and the
-        # ablation read both from here.
-        not_two=True,
+        # k=2 stays a candidate: the manuscript reports stability's own
+        # selection (spectral at k=2) next to the headline k=4 (Ward,
+        # generalizability, 1SE, which k=2 does not affect). The Klein
+        # notebook and the ablation read both from here.
+        not_two=False,
         reported_k=4,
     ),
     "levine32": Study(
