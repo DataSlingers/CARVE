@@ -61,9 +61,11 @@ from ._sweep import (
 )
 from ._types import GridSpec, NoisePolicy, PreprocOption, RunMode, resolve_mode
 from ._utils import (
+    NOISE_MARGIN,
     align_cluster_labels,
     default_generalizability_classifier,
     ensure_2d_array,
+    noise_mask,
     resolve_anchors,
     resolve_core_budget,
     summarize_preprocessing_records,
@@ -815,6 +817,9 @@ class CARVE(BaseEstimator):
         not_two: bool = False,
         mode: Literal["default", "generalizability"] = "default",
         estimator: ClusterMixin | None = None,
+        noise_labels: bool = False,
+        noise_quantile: float = 0.05,
+        noise_score: Literal["gini", "ce", "accuracy"] = "gini",
     ) -> np.ndarray:
         """Return clustering labels from the selected consensus matrix.
 
@@ -852,20 +857,65 @@ class CARVE(BaseEstimator):
             If provided, uses this estimator to cluster the consensus
             distance matrix; otherwise defaults to average-linkage
             ``AgglomerativeClustering`` with precomputed distances.
+        noise_labels : bool, default=False
+            If True, label ambiguous samples ``-1``, the label scikit-learn
+            and HDBSCAN use for noise. A sample is ambiguous when its
+            ``noise_score`` at the selected configuration is NaN, or when the
+            score lies strictly below the ``noise_quantile`` of the scores
+            and more than 0.05 below their median. Samples tied with the
+            quantile stay labeled, so identical scores flag no sample, and
+            the 0.05 margin keeps samples that score practically like the
+            median one. The scores belong to the selected configuration and
+            do not depend on ``consensus_k`` or ``estimator``. Every other
+            sample keeps the label a call without noise returns, and a
+            cluster can lose every member to noise.
+        noise_quantile : float, default=0.05
+            Fraction of the samples considered for noise, strictly between 0
+            and 1. The default considers the least stable 5 percent. Checked
+            on every call, also when ``noise_labels`` is False.
+        noise_score : {"gini", "ce", "accuracy"}, default="gini"
+            Per-sample score that ranks the samples: Gini stability
+            (``stability_gini_scores_``), cross-entropy stability
+            (``stability_ce_scores_``) or out-of-sample accuracy
+            (``generalizability_scores_``). Gini and CE are NaN for a sample
+            never co-sampled with any partner, which then becomes noise.
+            Accuracy is 0 for a sample never held out, which can then become
+            noise. Checked on every call, also when ``noise_labels`` is
+            False.
 
         Returns
         -------
         labels : ndarray of shape (n_samples,)
             Clustering labels derived from the selected consensus matrix.
+            With ``noise_labels=True``, ambiguous samples are ``-1``.
 
         Raises
         ------
         RuntimeError
-            If the instance has not been fitted yet or if the required
-            consensus matrix is not available.
+            If the instance has not been fitted yet, if the required
+            consensus matrix is not available, or if ``noise_labels`` is
+            True and this fit did not compute ``noise_score``.
         ValueError
-            If no configurations match the given *k*.
+            If no configurations match the given *k*, if ``noise_score`` or
+            ``noise_quantile`` is invalid, or if ``noise_labels`` is True and
+            every ``noise_score`` of the selected configuration is NaN.
+
+        Warns
+        -----
+        UserWarning
+            If ``noise_labels`` is True and fewer samples are flagged than
+            the quantile asks for, because of ties at the quantile, the 0.05
+            margin, or both. The message gives both counts, the quantile
+            value and the median.
         """
+        if noise_score not in ("gini", "ce", "accuracy"):
+            raise ValueError("noise_score must be one of: 'gini', 'ce', 'accuracy'.")
+        if not 0.0 < noise_quantile < 1.0:
+            raise ValueError(
+                "noise_quantile must be strictly between 0 and 1, got "
+                f"{noise_quantile!r}."
+            )
+
         policy = resolve_mode(mode)
 
         if (
@@ -886,6 +936,14 @@ class CARVE(BaseEstimator):
             k=k,
             sweep_value=sweep_value,
         )
+
+        # Scored before the cut, so a missing score or an all-NaN score row
+        # raises before reference_labels changes.
+        noise_scores = None
+        noise_cut = None
+        if noise_labels:
+            noise_scores = self._sample_scores(noise_score, config_id)
+            noise_cut = noise_mask(noise_scores, quantile=noise_quantile)
 
         # In resolution mode number of clusters is an outcome;
         # consensus dendrogram is cut at count actually observed.
@@ -952,7 +1010,27 @@ class CARVE(BaseEstimator):
         else:
             labels = align_cluster_labels(ref, labels)
 
-        return np.asarray(labels, dtype=np.int32)
+        # np.array, not np.asarray: when no alignment ran, reference_labels is
+        # the same array, and the noise below must not reach it.
+        labels = np.array(labels, dtype=np.int32)
+        if noise_cut is None:
+            return labels
+
+        labels[noise_cut.mask] = -1
+
+        scored = np.isfinite(noise_scores)
+        n_flagged = int(np.count_nonzero(noise_cut.mask & scored))
+        if n_flagged < noise_cut.n_target:
+            warnings.warn(
+                f"noise_quantile={noise_quantile} asks for about "
+                f"{noise_cut.n_target} of {int(scored.sum())} samples by "
+                f"{noise_score}; {n_flagged} were flagged. Samples tied at the "
+                f"cutoff ({noise_cut.cutoff:.3f}) or within {NOISE_MARGIN} of "
+                f"the median ({noise_cut.median:.3f}) stay labeled.",
+                UserWarning,
+                stacklevel=2,
+            )
+        return labels
 
     def _extend_anchor_labels(self, anchor_labels: np.ndarray) -> np.ndarray:
         """Label every sample from a cut taken over the anchor subset.

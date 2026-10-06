@@ -1,6 +1,7 @@
 """Tests for CARVE public API (fit, get_labels, get_k, get_estimator, plotting, persistence)."""
 
 import copy
+import re
 import warnings
 
 import matplotlib.pyplot as plt
@@ -2298,3 +2299,165 @@ class TestSampleScores:
     def test_unknown_source_raises(self, fitted_identity):
         with pytest.raises(ValueError, match="source must be one of"):
             fitted_identity._sample_scores("nope", 0)
+
+
+# Five samples spread over the three blobs of fitted_identity_single (rows
+# 0-29, 30-59, 60-89), so the noise positions are not one contiguous block.
+NOISE_LOW = np.array([3, 17, 41, 58, 84])
+
+
+def _known_scores(n, low):
+    """Distinct scores on [0.5, 1.0] whose lowest ``len(low)`` sit at ``low``.
+
+    At quantile 0.05 the rule flags exactly ``low`` as long as
+    ``len(low) == ceil(0.05 * (n - 1))``: 5 for n=90, 3 for n=60. The
+    median, 0.75, lies far above the margin, so no warning fires.
+    """
+    values = np.linspace(0.5, 1.0, n)
+    scores = np.empty(n)
+    rest = np.setdiff1d(np.arange(n), low)
+    scores[low] = values[: low.size]
+    scores[rest] = values[low.size :]
+    return scores
+
+
+def _with_scores(model, source, config_id, scores):
+    """Deep copy of ``model`` with ``scores`` at ``config_id``.
+
+    Every other configuration gets the reversed pattern, whose low samples
+    sit elsewhere, so reading the wrong configuration moves the noise.
+    """
+    model = copy.deepcopy(model)
+    model.reference_labels = None
+    for cid in range(len(model.consensus_matrices_)):
+        row = scores if cid == config_id else scores[::-1].copy()
+        _set_scores(model, source, cid, row)
+    return model
+
+
+def _config_id(model, **pin):
+    _, config_id, _, _ = model._select_row(measure="stability", rule="1se", **pin)
+    return config_id
+
+
+class TestNoiseLabels:
+    def test_off_by_default(self, fitted_identity_single):
+        model = copy.deepcopy(fitted_identity_single)
+        model.reference_labels = None
+        plain = model.get_labels(k=3)
+        off = model.get_labels(k=3, noise_labels=False)
+        np.testing.assert_array_equal(off, plain)
+        assert not (plain == -1).any()
+
+    @pytest.mark.parametrize("source", ["gini", "ce", "accuracy"])
+    def test_noise_lands_on_the_known_low_samples(self, fitted_identity_single, source):
+        cid = _config_id(fitted_identity_single, k=3)
+        model = _with_scores(
+            fitted_identity_single, source, cid, _known_scores(90, NOISE_LOW)
+        )
+        plain = model.get_labels(k=3)
+        noisy = model.get_labels(k=3, noise_labels=True, noise_score=source)
+        np.testing.assert_array_equal(np.flatnonzero(noisy == -1), NOISE_LOW)
+        keep = noisy != -1
+        np.testing.assert_array_equal(noisy[keep], plain[keep])
+        assert noisy.dtype == np.int32
+
+    def test_scores_are_joined_on_config_id(self, fitted_identity_single):
+        cid = _config_id(fitted_identity_single, k=3)
+        model = _with_scores(
+            fitted_identity_single, "gini", cid, _known_scores(90, NOISE_LOW)
+        )
+        model.estimator_results_ = TestRowIdentity._reindexed(
+            model.estimator_results_
+        )
+        position = int(
+            np.flatnonzero(model.estimator_results_["config_id"].to_numpy() == cid)[0]
+        )
+        assert position != cid  # non-vacuity: row position and config_id differ
+        noisy = model.get_labels(k=3, noise_labels=True)
+        np.testing.assert_array_equal(np.flatnonzero(noisy == -1), NOISE_LOW)
+
+    def test_reference_labels_stay_free_of_noise(self, fitted_identity_single):
+        cid = _config_id(fitted_identity_single, k=3)
+        model = _with_scores(
+            fitted_identity_single, "gini", cid, _known_scores(90, NOISE_LOW)
+        )
+        noisy = model.get_labels(k=3, noise_labels=True)
+        assert not (model.reference_labels == -1).any()
+        plain = model.get_labels(k=3)
+        assert not (plain == -1).any()
+        keep = noisy != -1
+        np.testing.assert_array_equal(plain[keep], noisy[keep])
+
+    def test_ties_at_the_cutoff_warn_with_the_counts(self, fitted_identity_single):
+        cid = _config_id(fitted_identity_single, k=3)
+        scores = np.ones(90)
+        scores[[3, 41, 84]] = 0.5
+        scores[[10, 25, 35, 50, 65, 80]] = 0.9
+        model = _with_scores(fitted_identity_single, "gini", cid, scores)
+        message = (
+            "noise_quantile=0.05 asks for about 5 of 90 samples by gini; 3 were "
+            "flagged. Samples tied at the cutoff (0.900) or within 0.05 of the "
+            "median (1.000) stay labeled."
+        )
+        with pytest.warns(UserWarning, match=re.escape(message)):
+            noisy = model.get_labels(k=3, noise_labels=True)
+        np.testing.assert_array_equal(np.flatnonzero(noisy == -1), [3, 41, 84])
+
+    @pytest.mark.parametrize("noise_labels", [False, True])
+    def test_unknown_noise_score_raises_before_the_fit_check(self, noise_labels):
+        # An unfitted model would raise "Call fit() first." from any later check.
+        with pytest.raises(ValueError, match="noise_score must be one of"):
+            CARVE(verbose=0).get_labels(noise_labels=noise_labels, noise_score="nope")
+
+    @pytest.mark.parametrize("noise_labels", [False, True])
+    @pytest.mark.parametrize("quantile", [0.0, 1.0, 1.5])
+    def test_quantile_outside_the_open_unit_interval_raises(
+        self, noise_labels, quantile
+    ):
+        with pytest.raises(
+            ValueError, match="noise_quantile must be strictly between 0 and 1"
+        ):
+            CARVE(verbose=0).get_labels(
+                noise_labels=noise_labels, noise_quantile=quantile
+            )
+
+    def test_missing_stability_scores_raise(self, split_mode_fits):
+        generalizability_only = copy.deepcopy(split_mode_fits[1])
+        generalizability_only.reference_labels = None
+        with pytest.raises(
+            RuntimeError, match="Gini stability scores are not available"
+        ):
+            generalizability_only.get_labels(
+                measure="generalizability",
+                rule="max",
+                mode="generalizability",
+                noise_labels=True,
+                noise_score="gini",
+            )
+        # Scored before the cut, so the failed call left no reference behind.
+        assert generalizability_only.reference_labels is None
+
+    def test_missing_accuracy_scores_raise(self, split_mode_fits):
+        stability_only = copy.deepcopy(split_mode_fits[0])
+        with pytest.raises(
+            RuntimeError, match="Generalizability scores are not available"
+        ):
+            stability_only.get_labels(noise_labels=True, noise_score="accuracy")
+
+    def test_anchored_run_flags_non_anchor_samples(self):
+        X = _blobs(60)
+        model = CARVE(
+            estimator_param_grids=_grids(),
+            n_resamples=6,
+            random_state=0,
+            anchor_threshold=30,
+        )
+        with pytest.warns(RuntimeWarning, match="anchored consensus"):
+            model.fit(X)
+        low = np.setdiff1d(np.arange(60), model.consensus_anchors_)[:3]
+        cid = _config_id(model, k=2)
+        model = _with_scores(model, "gini", cid, _known_scores(60, low))
+        noisy = model.get_labels(k=2, noise_labels=True)
+        assert noisy.shape == (60,)
+        np.testing.assert_array_equal(np.flatnonzero(noisy == -1), low)
