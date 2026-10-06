@@ -141,6 +141,11 @@ test_that("reference labels are coded as integers", {
   expect_identical(fit@reference_labels, rep(c(3L, 1L, 2L), each = 30))
 })
 
+test_that("whole numbers with an NA are coded like any other labels", {
+  # Python factorizes here too: a numpy array with a NaN is not an integer array.
+  expect_identical(coerce_reference_labels(c(3, 1, NA, 3), 4L), c(1L, 2L, -1L, 1L))
+})
+
 test_that("a fixed random_state reproduces the fit and NULL means 0", {
   expect_identical(small_fit(), small_fit())
   null_seed <- carve(blobs$X, n_clusters = 2:4, n_resamples = 4, estimator_param_grids = k_grid)

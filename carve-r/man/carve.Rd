@@ -54,9 +54,9 @@ fills them in.}
 \code{classifier} is given.}
 
 \item{reference_labels}{Labels, one per sample, that \code{\link[=get_labels]{get_labels()}}
-renames its clusters to match. Whole numbers keep their values; other
-vectors are coded 1, 2, ... in order of first appearance, and \code{NA}
-becomes -1.}
+renames its clusters to match. Whole numbers without \code{NA} keep their
+values. Any other vector, including whole numbers with an \code{NA}, is
+coded 1, 2, ... in order of first appearance, and \code{NA} becomes -1.}
 
 \item{mode}{\code{"default"} scores both criteria, \code{"stability"} skips
 generalizability and \code{"generalizability"} skips stability. The last two

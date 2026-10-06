@@ -51,9 +51,9 @@ NULL
 #' @param n_trees Trees in the default random forest. Not used when
 #'   `classifier` is given.
 #' @param reference_labels Labels, one per sample, that [get_labels()]
-#'   renames its clusters to match. Whole numbers keep their values; other
-#'   vectors are coded 1, 2, ... in order of first appearance, and `NA`
-#'   becomes -1.
+#'   renames its clusters to match. Whole numbers without `NA` keep their
+#'   values. Any other vector, including whole numbers with an `NA`, is
+#'   coded 1, 2, ... in order of first appearance, and `NA` becomes -1.
 #' @param mode `"default"` scores both criteria, `"stability"` skips
 #'   generalizability and `"generalizability"` skips stability. The last two
 #'   are experimental.
@@ -242,8 +242,11 @@ resolve_seed <- function(random_state, n_resamples) {
   as.integer(random_state)
 }
 
-# Whole numbers keep their values. Anything else is coded 1, 2, ... in order
-# of first appearance, and NA becomes -1, a sample without a reference label.
+# Whole numbers without NA keep their values. Anything else, whole numbers
+# with an NA included, is coded 1, 2, ... in order of first appearance, and
+# NA becomes -1, a sample without a reference label. Python's pd.factorize
+# codes the same cases, since a numpy integer array cannot hold a missing
+# value.
 coerce_reference_labels <- function(reference_labels, n_samples) {
   if (is.null(reference_labels)) {
     return(NULL)
