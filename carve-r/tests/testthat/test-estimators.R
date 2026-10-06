@@ -63,3 +63,61 @@ test_that("AgglomerativeClustering rejects an unknown linkage", {
     fixed = TRUE
   )
 })
+
+test_that("standard_scale matches StandardScaler", {
+  fx <- read_fixture("spectral")
+  expect_equal(standard_scale(fixture_matrix(fx$X)), fixture_matrix(fx$scaled), tolerance = 1e-10)
+  expect_identical(standard_scale(cbind(c(1, 2, 3), 5))[, 2], c(0, 0, 0))
+})
+
+test_that("each affinity and its spectrum match Python", {
+  fx <- read_fixture("spectral")
+  Xp <- fixture_matrix(fx$scaled)
+  settings <- list(
+    self_tuning = list(affinity = "self_tuning", gamma = NULL),
+    rbf = list(affinity = "rbf", gamma = NULL),
+    rbf_gamma = list(affinity = "rbf", gamma = 0.3),
+    knn = list(affinity = "knn", gamma = NULL)
+  )
+  for (name in names(settings)) {
+    a <- spectral_affinity(Xp, affinity = settings[[name]]$affinity, gamma = settings[[name]]$gamma, n_neighbors = 7L)
+    expect_equal(as.matrix(a$W), fixture_matrix(fx[[name]]$W), tolerance = 1e-10, info = name)
+    expect_equal(a$gamma, fx[[name]]$gamma, tolerance = 1e-10, info = name)
+    expect_equal(
+      spectral_embedding(a$W, 3L)$values,
+      fixture_vector(fx[[name]]$evals),
+      tolerance = 1e-8,
+      info = name
+    )
+  }
+})
+
+test_that("SpectralClustering separates two moons", {
+  d <- make_moons(200L)
+  expect_gt(adjusted_rand_index(SpectralClustering(d$X, n_clusters = 2L, random_state = 0L), d$y), 0.9)
+})
+
+test_that("from 1,000 samples on the sparse solver is used, reproducibly", {
+  d <- make_moons(1200L)
+  a <- SpectralClustering(d$X, n_clusters = 2L, random_state = 0L)
+  expect_identical(a, SpectralClustering(d$X, n_clusters = 2L, random_state = 0L))
+  expect_gt(adjusted_rand_index(a, d$y), 0.9)
+})
+
+test_that("a failing sparse solve falls back to the dense one", {
+  calls <- 0L
+  local_mocked_bindings(sparse_eigs = function(L, k) {
+    calls <<- calls + 1L
+    stop("Factor is exactly singular")
+  })
+  d <- make_moons(1200L)
+  expect_gt(adjusted_rand_index(SpectralClustering(d$X, n_clusters = 2L, random_state = 0L), d$y), 0.9)
+  expect_identical(calls, 1L)
+})
+
+test_that("the spectral helpers reject impossible settings", {
+  X <- matrix(as.numeric(1:20), 10)
+  expect_error(spectral_affinity(X, affinity = "cosine"), "Unknown affinity: 'cosine'", fixed = TRUE)
+  expect_error(spectral_affinity(X, n_neighbors = 1L), "n_neighbors must be at least 2.", fixed = TRUE)
+  expect_error(spectral_affinity(X, n_neighbors = 11L), "n_neighbors=11 is larger than the 10 samples.", fixed = TRUE)
+})

@@ -3,6 +3,7 @@
 S3method(print,carve_estimator_grid)
 export(AgglomerativeClustering)
 export(KMeans)
+export(SpectralClustering)
 export(estimator_grid)
 exportClasses(SweepSpec)
 exportMethods(show)
