@@ -126,6 +126,25 @@ test_that("get_estimator rebuilds the selected configuration", {
   expect_identical(selected(blobs$X, random_state = 0L), KMeans(blobs$X, n_clusters = 3L, random_state = 0L))
 })
 
+test_that("get_estimator keeps the parameters of an estimator that takes ...", {
+  dots <- function(X, ...) KMeans(X, ...)
+  dots_fit <- carve(blobs$X, n_clusters = 2:4, n_resamples = 10, random_state = 0,
+                    estimator_param_grids = list(estimator_grid(dots, n_clusters = 2:4)))
+  expect_identical(get_k(dots_fit), 3L)
+  selected <- get_estimator(dots_fit)
+  expect_identical(attr(selected, "params"), list(n_clusters = 3L))
+  expect_identical(count_clusters(selected(blobs$X)), 3L)
+})
+
+test_that("get_estimator keeps a random_state the grid sets", {
+  grid_seed_fit <- carve(blobs$X, n_clusters = 2:4, n_resamples = 10, random_state = 0,
+                         estimator_param_grids = list(estimator_grid(KMeans, n_clusters = 2:4, random_state = 5L)))
+  selected <- get_estimator(grid_seed_fit)
+  expect_identical(attr(selected, "params"), list(n_clusters = 3L, random_state = 5L))
+  # The grid's seed wins over the one passed to the returned function.
+  expect_identical(selected(blobs$X, random_state = 0L), KMeans(blobs$X, n_clusters = 3L, random_state = 5L))
+})
+
 test_that("the accessors return the fit's contents", {
   expect_identical(estimator_results(fit), fit@estimator_results)
   expect_identical(estimator_param_grids(fit), fit@estimator_param_grids)

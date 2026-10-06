@@ -136,7 +136,10 @@ setMethod("get_estimator", "CARVE", function(fit, measure = "stability", rule = 
   row <- select_best_row_by_rule(fit@estimator_results, measure, rule, not_two = not_two)
   grid <- Find(function(g) identical(g$name, row$estimator[[1L]]), fit@estimator_param_grids)
   estimator <- grid$estimator
-  arguments <- setdiff(names(formals(estimator))[-1L], c("random_state", "..."))
+  # The grid's names count as parameters too, for an estimator whose
+  # parameters pass through `...`. A random_state column has a value in this
+  # row only when this grid set it, and then it is kept, as in Python.
+  arguments <- setdiff(union(names(formals(estimator))[-1L], names(grid$grid)), "...")
   params <- row_to_estimator_params(row, arguments)
   selected <- function(X, random_state = NULL) {
     call_estimator(estimator, as_data_matrix(X), params, random_state = random_state)
