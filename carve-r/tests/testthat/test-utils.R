@@ -332,3 +332,76 @@ test_that("vote ties in the default classifier do not depend on the session RNG"
   })
   for (p in predictions[-1]) expect_identical(p, predictions[[1]])
 })
+
+test_that("largest_probability_class returns the class of the largest probability", {
+  probabilities <- matrix(
+    c(0.2, 0.7, 0.1, 0.5, 0.3, 0.2, 0.1, 0.1, 0.8),
+    nrow = 3, byrow = TRUE, dimnames = list(NULL, c("1", "2", "3"))
+  )
+  expect_identical(largest_probability_class(probabilities), c(2L, 1L, 3L))
+})
+
+test_that("largest_probability_class sends ties to the first class in sorted order", {
+  probabilities <- matrix(
+    c(0.25, 0.25, 0.5, 0.5, 0.5, 0),
+    nrow = 2, byrow = TRUE, dimnames = list(NULL, c("3", "1", "2"))
+  )
+  # Columns arrive unsorted; the tie in row 2 is between classes 3 and 1.
+  expect_identical(largest_probability_class(probabilities), c(2L, 1L))
+  tied <- matrix(c(0.5, 0.5), nrow = 1, dimnames = list(NULL, c("7", "4")))
+  expect_identical(largest_probability_class(tied), 4L)
+})
+
+test_that("the default forest grows probability trees with leaves of one sample", {
+  seen <- NULL
+  local_mocked_bindings(
+    ranger = function(...) {
+      seen <<- list(...)
+      structure(list(), class = "fake_forest")
+    },
+    .package = "ranger"
+  )
+  local_mocked_bindings(
+    predict = function(object, data, ...) {
+      list(predictions = matrix(c(0.1, 0.9), nrow = nrow(data), ncol = 2, byrow = TRUE,
+                                dimnames = list(NULL, c("1", "2"))))
+    },
+    .package = "stats"
+  )
+  out <- ranger_predict(
+    matrix(c(0, 1, 2, 3), 4, 1), c(1L, 1L, 2L, 2L), matrix(0, 3, 1),
+    n_trees = 7L, mtry = 1L, max_depth = 1L, seed = 4L, n_threads = 1L
+  )
+  expect_true(seen$probability)
+  expect_identical(seen$min.node.size, 1L)
+  expect_identical(seen$num.trees, 7L)
+  expect_identical(seen$seed, 5L)
+  expect_identical(out, rep(2L, 3))
+})
+
+test_that("a depth-limited forest predicts the largest mean probability, not the tree vote", {
+  set.seed(1)
+  angle <- runif(300, 0, 2 * pi)
+  radius <- rep(c(1, 0.5), each = 150)
+  X <- cbind(radius * cos(angle), radius * sin(angle)) + matrix(rnorm(600, sd = 0.05), ncol = 2)
+  y <- rep(1:2, each = 150)
+  test_rows <- seq(2L, 300L, by = 2L)
+  train_rows <- seq(1L, 300L, by = 2L)
+  soft <- ranger_predict(
+    X[train_rows, ], y[train_rows], X[test_rows, ],
+    n_trees = 100L, mtry = 1L, max_depth = 2L, seed = 0L, n_threads = 1L
+  )
+  colnames(X) <- c("x1", "x2")
+  forest <- ranger::ranger(
+    x = X[train_rows, ], y = factor(y[train_rows]), num.trees = 100L, mtry = 1L,
+    max.depth = 2L, min.node.size = 1L, probability = TRUE, seed = 1L, num.threads = 1L
+  )
+  probabilities <- predict(forest, data = X[test_rows, ], seed = 1L, num.threads = 1L)$predictions
+  expect_identical(soft, as.integer(colnames(probabilities)[max.col(probabilities, ties.method = "first")]))
+  hard <- ranger::ranger(
+    x = X[train_rows, ], y = factor(y[train_rows]), num.trees = 100L, mtry = 1L,
+    max.depth = 2L, seed = 1L, num.threads = 1L
+  )
+  tree_vote <- as.integer(as.character(predict(hard, data = X[test_rows, ], seed = 1L, num.threads = 1L)$predictions))
+  expect_gt(sum(soft != tree_vote), 0L)
+})

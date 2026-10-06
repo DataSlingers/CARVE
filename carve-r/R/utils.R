@@ -325,7 +325,8 @@ call_estimator <- function(estimator, X, params, random_state = NULL) {
 # Builds the function that predicts held-out labels. The default is a
 # ranger forest with the settings of Python's default classifier: n_trees
 # trees, depth at most n_features, floor(sqrt(n_features)) candidate
-# features per split. A custom classifier gets n_threads and random_state
+# features per split. As in sklearn, it predicts the class with the largest
+# mean leaf probability, not the majority vote of the trees. A custom classifier gets n_threads and random_state
 # only when it has those arguments.
 default_generalizability_classifier <- function(classifier, n_features, n_trees,
                                                 random_state, n_threads) {
@@ -376,18 +377,32 @@ ranger_predict <- function(x_train, y_train, x_test, n_trees, mtry, max_depth,
   # ranger treats seed 0 as "no seed" and draws from the R generator, so the
   # seed is shifted by one. predict() takes its own seed, used to break ties
   # in the vote.
+  # probability = TRUE grows probability trees, whose leaves hold class
+  # shares as in sklearn. ranger's default leaf size for them is 10, so
+  # min.node.size = 1 matches sklearn's min_samples_leaf = 1.
   forest <- ranger::ranger(
     x = x_train,
     y = factor(y_train, levels = classes),
     num.trees = n_trees,
     mtry = mtry,
     max.depth = max_depth,
+    min.node.size = 1L,
+    probability = TRUE,
     seed = seed + 1L,
     num.threads = n_threads,
     verbose = FALSE
   )
-  predicted <- stats::predict(
+  probabilities <- stats::predict(
     forest, data = x_test, seed = seed + 1L, num.threads = n_threads
   )$predictions
-  as.integer(as.character(predicted))
+  largest_probability_class(probabilities)
+}
+
+# The class with the largest probability in each row. Ties go to the first
+# class in sorted order, as np.argmax does over sklearn's sorted classes_.
+largest_probability_class <- function(probabilities) {
+  classes <- as.integer(colnames(probabilities))
+  ordered <- order(classes)
+  probabilities <- probabilities[, ordered, drop = FALSE]
+  classes[ordered][max.col(probabilities, ties.method = "first")]
 }
