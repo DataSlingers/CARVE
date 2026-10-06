@@ -47,6 +47,37 @@ test_that("kmeans_plusplus picks distinct data points as centers", {
   expect_true(all(is_data_point))
 })
 
+test_that("kmeans_plusplus keeps the candidate with the lowest potential", {
+  # Points at 0, 1 and 10, and draws that pick the first and the last point
+  # that can be drawn. With the first center at 0 or 1, the candidates are
+  # the other of the two and the point at 10, which leaves a potential of 1
+  # instead of 81. With the first center at 10 the two candidates tie.
+  local_mocked_bindings(runif = function(n, ...) c(1e-6, 0.999)[seq_len(n)], .package = "stats")
+  X <- matrix(c(0, 1, 10), ncol = 1L)
+  first <- numeric()
+  for (seed in 1:6) {
+    centers <- seeded(seed, kmeans_plusplus(X, 2L))
+    first <- c(first, centers[1L, 1L])
+    expect_true(10 %in% centers[, 1L], info = paste("seed", seed))
+  }
+  # Some first center is not the point at 10, so a wrong choice shows.
+  expect_true(any(first != 10))
+})
+
+test_that("KMeans keeps the start with the lowest inertia", {
+  d <- make_blobs(n_per = 20L, centers = rbind(c(0, 0), c(3, 0), c(0, 3), c(3, 3), c(9, 9)), sd = 0.9)
+  Xc <- sweep(d$X, 2L, colMeans(d$X))
+  tol <- mean(colMeans(Xc^2)) * 1e-4
+  # The ten starts KMeans(n_init = 10) runs under this seed, in order.
+  starts <- seeded(1L, lapply(1:10, function(i) {
+    kmeans_lloyd(Xc, kmeans_plusplus(Xc, 4L), max_iter = 300L, tol = tol)
+  }))
+  inertias <- vapply(starts, function(s) s$inertia, numeric(1))
+  expect_gt(max(inertias) - min(inertias), 1)
+  expect_gt(which.min(inertias), 1L)
+  expect_identical(KMeans(d$X, 4L, n_init = 10L, random_state = 1L), starts[[which.min(inertias)]]$labels)
+})
+
 test_that("AgglomerativeClustering matches sklearn up to label names", {
   fx <- read_fixture("agglomerative")
   X <- fixture_matrix(fx$X)
@@ -102,6 +133,23 @@ test_that("from 1,000 samples on the sparse solver is used, reproducibly", {
   a <- SpectralClustering(d$X, n_clusters = 2L, random_state = 0L)
   expect_identical(a, SpectralClustering(d$X, n_clusters = 2L, random_state = 0L))
   expect_gt(adjusted_rand_index(a, d$y), 0.9)
+})
+
+test_that("the sparse and dense solvers find the same smallest eigenvalues", {
+  # The Python package once used an eigensolver call that returned
+  # unconverged values without failing, so the two solvers are compared on
+  # the Laplacian SpectralClustering builds for 1,200 moons.
+  d <- make_moons(1200L)
+  W <- spectral_affinity(standard_scale(d$X), affinity = "self_tuning", n_neighbors = 7L)$W
+  n <- nrow(W)
+  dinv <- 1 / sqrt(rowSums(W))
+  L <- diag(n) - dinv * W * rep(dinv, each = n)
+  sparse <- sort(sparse_eigs(L, 3L)$values)
+  dense <- sort(dense_eigs(L, 3L)$values)
+  # Each value within the sparse solver's relative tolerance, 1e-4, with an
+  # absolute floor for the eigenvalue at 0.
+  expect_true(all(isclose(sparse, dense, rtol = 1e-4, atol = 1e-10)),
+              info = paste(format(sparse), "vs", format(dense), collapse = "; "))
 })
 
 test_that("a failing sparse solve falls back to the dense one", {
