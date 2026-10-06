@@ -39,6 +39,7 @@ Collate:
     'CARVE-package.R'
     'accuracy.R'
     'consensus.R'
+    'estimators.R'
     'selection.R'
     'sweep.R'
     'types.R'
