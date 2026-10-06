@@ -88,6 +88,13 @@ test_that("sweep_rank_of matches values up to rounding and rejects others", {
   )
 })
 
+test_that("sweep_rank_of returns the rank, not the position, on a descending axis", {
+  s <- resolve_sweep(sweep = "min_cluster_size", sweep_values = c(5, 10, 20))
+  expect_identical(sweep_rank_of(s, 10), 1L)
+  expect_identical(sweep_rank_of(s, 20), 0L)
+  expect_identical(sweep_rank_of(s, 5), 2L)
+})
+
 test_that("infer_sweep_param finds the one swept registry parameter", {
   expect_identical(infer_sweep_param(list(estimator_grid(toy, n_clusters = 2:4, linkage = "ward"))), "n_clusters")
   expect_null(infer_sweep_param(list(estimator_grid(toy, n_clusters = 3L))))

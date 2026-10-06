@@ -51,6 +51,22 @@ test_that("1se picks the finest rank within one standard error", {
   expect_identical(select_best_row_1se(df, "stability")$n_clusters, 4L)
 })
 
+test_that("the rules order by sweep_rank, not by the observed cluster count", {
+  # A min_cluster_size axis: smaller values are finer and rank higher. The
+  # observed counts do not follow the ranks, as can happen with noise.
+  df <- data.frame(
+    sweep_value = c(5, 10, 20, 40), sweep_rank = 3:0, n_clusters_observed = c(4, 6, 5, 2),
+    ari_stability = c(0.87, 0.86, 0.90, 0.50), ari_stability_se = 0.05,
+    ari_stability_upper = 0.95, ari_stability_lower = 0.84
+  )
+  # The best row has rank 1. Ranks 3, 2 and 1 lie within one standard error
+  # and within the percentiles; rank 3 is the finest, and rank 2 has the
+  # most clusters.
+  expect_identical(select_best_row_max(df, "stability")$sweep_value, 20)
+  expect_identical(select_best_row_1se(df, "stability")$sweep_value, 5)
+  expect_identical(select_best_row_quantile(df, "stability")$sweep_value, 5)
+})
+
 test_that("1se with a NaN standard error returns the best row", {
   df <- data.frame(
     n_clusters = 2:3, sweep_rank = 0:1, n_clusters_observed = 2:3,

@@ -77,6 +77,27 @@ test_that("each fit gets the neighbor count scaled to its rows", {
   expect_identical(fits[, 2], c(6L, 4L, 6L))
 })
 
+test_that("resample b gives the estimator and the classifier the seed random_state + b", {
+  seen <- new.env()
+  seen$estimator <- integer()
+  seen$classifier <- integer()
+  record_estimator <- function(X, n_clusters = 2L, random_state = NULL) {
+    seen$estimator <- c(seen$estimator, random_state)
+    rep_len(seq_len(n_clusters), nrow(X))
+  }
+  record_classifier <- function(x_train, y_train, x_test, random_state) {
+    seen$classifier <- c(seen$classifier, random_state)
+    rep(y_train[1], nrow(x_test))
+  }
+  run_validation(blobs$X, list(estimator_grid(record_estimator, n_clusters = 2L)), 3L, 0.618,
+                 classifier = record_classifier, random_state = 10L,
+                 sweep = resolve_sweep(n_clusters = 2L))
+  # Three fits per resample: the first subsample, the held-out samples and
+  # the second subsample.
+  expect_identical(seen$estimator, rep(10:12, each = 3L))
+  expect_identical(seen$classifier, 10:12)
+})
+
 test_that("the classifier gets the thread count it is given", {
   seen <- new.env()
   clf <- function(x_train, y_train, x_test, n_threads) {
