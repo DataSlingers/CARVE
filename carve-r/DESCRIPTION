@@ -37,6 +37,7 @@ Config/roxygen2/version: 8.0.0
 Collate: 
     'AllClasses.R'
     'CARVE-package.R'
+    'selection.R'
     'sweep.R'
     'types.R'
     'utils.R'
