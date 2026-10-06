@@ -17,7 +17,7 @@ from unittest import mock
 import numpy as np
 import pandas as pd
 from scipy import sparse
-from sklearn.cluster import AgglomerativeClustering, KMeans
+from sklearn.cluster import HDBSCAN, AgglomerativeClustering, KMeans
 from sklearn.datasets import make_blobs
 from sklearn.metrics import adjusted_rand_score
 from sklearn.model_selection import ParameterGrid
@@ -28,7 +28,9 @@ from carve._accuracy import compute_generalizability_scores
 from carve._consensus import (
     compute_consensus_matrix,
     compute_consensus_pac,
+    consensus_anchor_block,
     stability_from_consensus,
+    stability_from_runs_anchored,
 )
 from carve._grids import estimate_knn_gamma
 from carve._selection import select_best_k, select_best_row_by_rule
@@ -36,9 +38,12 @@ from carve._sweep import format_method_label, resolve_sweep
 from carve._utils import (
     _summarize_ari_scores,
     align_cluster_labels,
+    noise_mask,
     resolve_core_budget,
     scale_neighbor_count,
 )
+from carve._pipeline import PipelineSpec, PipelineStep
+from carve.cluster import build_knn_graph
 
 OUT = Path(__file__).resolve().parents[1] / "tests" / "testthat" / "fixtures"
 
@@ -388,6 +393,133 @@ def consensus_cut():
     write("consensus_cut", {"cases": cases})
 
 
+def anchored():
+    rng = np.random.default_rng(1)
+    n = 15
+    runs = []
+    for _ in range(6):
+        # Sample 14 is never drawn, so its scores are NaN. The indices stay
+        # unsorted, as the runner passes them.
+        idx = rng.choice(n - 1, size=9, replace=False)
+        labels = rng.integers(0, 3, size=9)
+        runs.append((idx, labels))
+    anchors = np.array([0, 2, 5, 9, 13, 14])
+    gini, ce = stability_from_runs_anchored(n, runs, anchors, chunk_size=4)
+    write(
+        "anchored",
+        {
+            "n": n,
+            "runs": [{"indices": idx, "labels": labels} for idx, labels in runs],
+            "anchors": anchors,
+            "block": consensus_anchor_block(n, runs, anchors),
+            "gini": gini,
+            "ce": ce,
+        },
+    )
+
+
+def noise_masks():
+    ties = np.ones(90)
+    ties[[3, 41, 84]] = 0.5
+    ties[[10, 25, 35, 50, 65, 80]] = 0.9
+    with_nan = ties.copy()
+    with_nan[[20, 60]] = np.nan
+    spread = np.random.default_rng(2).uniform(0.0, 1.0, 40)
+    # Every score is within 0.03 of 1, so the margin flags nothing even
+    # though some scores lie below the quantile.
+    near_one = np.linspace(0.97, 1.0, 40)
+    flat = np.full(30, 0.8)
+    cases = []
+    for name, scores, quantile in [
+        ("ties", ties, 0.05),
+        ("with_nan", with_nan, 0.05),
+        ("spread", spread, 0.1),
+        ("spread_quarter", spread, 0.25),
+        ("near_one", near_one, 0.1),
+        ("flat", flat, 0.05),
+    ]:
+        cut = noise_mask(scores, quantile=quantile)
+        cases.append(
+            {
+                "name": name,
+                "scores": scores,
+                "quantile": quantile,
+                "mask": cut.mask,
+                "n_target": cut.n_target,
+                "cutoff": cut.cutoff,
+                "median": cut.median,
+            }
+        )
+    write("noise_mask", {"cases": cases})
+
+
+def knn_graph():
+    X = np.random.RandomState(3).randn(25, 2)
+    cases = []
+    for weighting, n_neighbors in [("connectivity", 4), ("jaccard", 4), ("jaccard", 7)]:
+        graph = build_knn_graph(X, n_neighbors=n_neighbors, weighting=weighting)
+        cases.append(
+            {
+                "weighting": weighting,
+                "n_neighbors": n_neighbors,
+                "edges": np.array(graph.get_edgelist()),
+                "weights": graph.es["weight"],
+            }
+        )
+    write("knn_graph", {"X": X, "cases": cases})
+
+
+def hdbscan():
+    # Two close groups and a far one. On these data scikit-learn's eom and
+    # leaf selections differ, and dbscan::hdbscan() orders its tied merges so
+    # that both of its selections match scikit-learn's exactly (checked with
+    # dbscan 1.2.7 when this fixture was written). Other data need not match
+    # exactly; the HDBSCAN help page explains why.
+    X, _ = make_blobs(
+        n_samples=[40, 40, 40],
+        centers=[[0, 0], [2.0, 0], [8, 0]],
+        cluster_std=[0.4, 0.4, 0.8],
+        random_state=0,
+    )
+    labels = {}
+    for m in (5, 10):
+        for method in ("eom", "leaf"):
+            labels[f"{method}_{m}"] = HDBSCAN(
+                min_cluster_size=m, cluster_selection_method=method, copy=True
+            ).fit_predict(X)
+    write("hdbscan", {"X": X, "labels": labels})
+
+
+def pipeline_labels():
+    # A user-supplied name renders like a class name, so each step is built
+    # with a name and a stand-in class; the label depends only on the name
+    # and the sampled values.
+    steps = [
+        ("identity", {}),
+        ("log1p", {}),
+        ("StandardScaler", {}),
+        ("PCA", {"n_components": 10}),
+        ("TSNE", {"n_components": 2, "perplexity": 30}),
+        ("TSNE", {"perplexity": 12.5, "n_components": 2}),
+        ("UMAP", {"n_components": 2, "n_neighbors": 15, "min_dist": 0.1}),
+        ("Scaled", {"factor": 0.000123}),
+        ("Flag", {"center": True}),
+    ]
+    cases = [
+        {
+            "name": name,
+            "params": params,
+            "label": PipelineStep(cls=object, params=params, name=name).label,
+        }
+        for name, params in steps
+    ]
+    spec = PipelineSpec(
+        normalization=PipelineStep(cls=object, params={}, name="identity"),
+        dim_reduction=PipelineStep(cls=object, params={"n_components": 10}, name="PCA"),
+    )
+    write("pipeline_labels", {"steps": cases, "spec": {"label": spec.label}})
+
+
 if __name__ == "__main__":
     for make in (
         consensus,
@@ -403,6 +535,11 @@ if __name__ == "__main__":
         agglomerative,
         spectral,
         consensus_cut,
+        anchored,
+        noise_masks,
+        knn_graph,
+        hdbscan,
+        pipeline_labels,
     ):
         make()
         print(f"wrote {make.__name__}.json")

@@ -32,3 +32,18 @@ nan_to_na <- function(x) {
   x[is.nan(x)] <- NA
   x
 }
+
+# TRUE when two label vectors put -1 on the same samples and group the other
+# samples the same way, whatever the label values. Used to compare clusterings
+# with Python's, which number clusters differently.
+same_partition <- function(a, b) {
+  if (!identical(which(a < 0), which(b < 0))) {
+    return(FALSE)
+  }
+  keep <- a >= 0
+  if (!any(keep)) {
+    return(TRUE)
+  }
+  counts <- table(a[keep], b[keep])
+  all(rowSums(counts > 0) == 1L) && all(colSums(counts > 0) == 1L)
+}

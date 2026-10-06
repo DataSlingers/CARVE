@@ -1,0 +1,68 @@
+{
+ "steps": [
+  {
+   "name": "identity",
+   "params": {},
+   "label": "identity"
+  },
+  {
+   "name": "log1p",
+   "params": {},
+   "label": "log1p"
+  },
+  {
+   "name": "StandardScaler",
+   "params": {},
+   "label": "StandardScaler"
+  },
+  {
+   "name": "PCA",
+   "params": {
+    "n_components": 10
+   },
+   "label": "PCA(n_components=10)"
+  },
+  {
+   "name": "TSNE",
+   "params": {
+    "n_components": 2,
+    "perplexity": 30
+   },
+   "label": "TSNE(n_components=2, perplexity=30)"
+  },
+  {
+   "name": "TSNE",
+   "params": {
+    "perplexity": 12.5,
+    "n_components": 2
+   },
+   "label": "TSNE(perplexity=12.5, n_components=2)"
+  },
+  {
+   "name": "UMAP",
+   "params": {
+    "n_components": 2,
+    "n_neighbors": 15,
+    "min_dist": 0.1
+   },
+   "label": "UMAP(n_components=2, n_neighbors=15, min_dist=0.1)"
+  },
+  {
+   "name": "Scaled",
+   "params": {
+    "factor": 0.000123
+   },
+   "label": "Scaled(factor=0.000123)"
+  },
+  {
+   "name": "Flag",
+   "params": {
+    "center": true
+   },
+   "label": "Flag(center=True)"
+  }
+ ],
+ "spec": {
+  "label": "identity | PCA(n_components=10)"
+ }
+}
