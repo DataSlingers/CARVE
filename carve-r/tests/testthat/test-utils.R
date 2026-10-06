@@ -141,3 +141,143 @@ test_that("format_repr, python_list and format_params follow Python's repr", {
   expect_identical(format_params(list()), "{}")
   expect_identical(title_case("max eps"), "Max Eps")
 })
+
+test_that("adjusted_rand_index matches sklearn", {
+  for (case in read_fixture("ari")$cases) {
+    expect_equal(adjusted_rand_index(case$a, case$b), case$ari, tolerance = 1e-12)
+  }
+})
+
+test_that("align_cluster_labels matches Python", {
+  for (case in read_fixture("align")$cases) {
+    expect_identical(
+      align_cluster_labels(case$reference, case$labels),
+      case$aligned,
+      info = case$name
+    )
+  }
+})
+
+test_that("reference entries outside keep take no part in the matching", {
+  reference <- c(-1L, -1L, 0L, 0L, 1L, 1L)
+  labels <- c(1L, 1L, 2L, 2L, 3L, 3L)
+  # Without keep, label 1 is matched onto -1. With it, label 1 has no
+  # partner and takes the fresh id 2.
+  expect_identical(align_cluster_labels(reference, labels)[1:2], c(-1L, -1L))
+  expect_identical(
+    align_cluster_labels(reference, labels, keep = reference >= 0),
+    c(2L, 2L, 0L, 0L, 1L, 1L)
+  )
+})
+
+test_that("resolve_core_budget matches Python", {
+  for (case in read_fixture("core_budget")$cases) {
+    local_mocked_bindings(n_cores = function() as.integer(case$cores))
+    expect_identical(
+      resolve_core_budget(case$n_jobs, case$n_resamples),
+      c(outer = as.integer(case$outer), inner = as.integer(case$inner)),
+      info = paste(case$cores, format_repr(case$n_jobs), case$n_resamples)
+    )
+  }
+})
+
+test_that("n_jobs = 0 is rejected", {
+  expect_error(
+    resolve_core_budget(0, 10L),
+    "n_jobs == 0 has no meaning; use 1 or a negative count",
+    fixed = TRUE
+  )
+})
+
+test_that("n_cores honors R CMD check's core limit", {
+  withr::local_envvar(c("_R_CHECK_LIMIT_CORES_" = "TRUE"))
+  expect_lte(n_cores(), 2L)
+})
+
+test_that("scale_neighbor_count matches Python", {
+  estimator <- function(X, n_neighbors = 7L, n_clusters = 2L) NULL
+  for (case in read_fixture("scale_neighbor")$cases) {
+    scaled <- scale_neighbor_count(estimator, case$params, case$n_fit, case$n_full)
+    expect_equal(scaled$n_neighbors, case$n_neighbors)
+  }
+})
+
+test_that("an estimator without n_neighbors passes through scaling", {
+  estimator <- function(X, n_clusters = 2L) NULL
+  expect_identical(
+    scale_neighbor_count(estimator, list(n_clusters = 3L), 10, 100),
+    list(n_clusters = 3L)
+  )
+})
+
+test_that("call_estimator passes random_state only to estimators that take it", {
+  with_seed_arg <- function(X, n_clusters, random_state = NULL) rep(random_state, nrow(X))
+  without <- function(X, n_clusters) rep(n_clusters, nrow(X))
+  X <- matrix(0, 3, 1)
+  expect_identical(call_estimator(with_seed_arg, X, list(n_clusters = 2L), random_state = 9L), rep(9L, 3))
+  expect_identical(call_estimator(without, X, list(n_clusters = 2L), random_state = 9L), rep(2L, 3))
+})
+
+test_that("call_estimator checks what the estimator returns", {
+  X <- matrix(0, 3, 1)
+  expect_error(
+    call_estimator(function(X) 1:2, X, list()),
+    "A clustering function must return one integer label per row of X (3).",
+    fixed = TRUE
+  )
+  expect_error(
+    call_estimator(function(X) c(1.5, 1, 1), X, list()),
+    "A clustering function must return one integer label per row of X (3).",
+    fixed = TRUE
+  )
+  expect_identical(call_estimator(function(X) factor(c("a", "b", "a")), X, list()), c(1L, 2L, 1L))
+})
+
+test_that("the default classifier predicts separable classes", {
+  d <- make_blobs()
+  train <- seq(1L, 90L, by = 2L)
+  test <- seq(2L, 90L, by = 2L)
+  predict_fn <- default_generalizability_classifier(NULL, n_features = 2L, n_trees = 50L, random_state = 1L, n_threads = 1L)
+  expect_identical(predict_fn(d$X[train, ], d$y[train], d$X[test, ]), d$y[test])
+})
+
+test_that("the default classifier gives the same predictions at any thread count", {
+  d <- make_blobs(sd = 2)
+  train <- seq(1L, 90L, by = 2L)
+  test <- seq(2L, 90L, by = 2L)
+  one <- default_generalizability_classifier(NULL, 2L, 50L, random_state = 1L, n_threads = 1L)
+  two <- default_generalizability_classifier(NULL, 2L, 50L, random_state = 1L, n_threads = 2L)
+  expect_identical(
+    one(d$X[train, ], d$y[train], d$X[test, ]),
+    two(d$X[train, ], d$y[train], d$X[test, ])
+  )
+})
+
+test_that("a single training class predicts that class", {
+  predict_fn <- default_generalizability_classifier(NULL, 2L, 10L, 1L, 1L)
+  expect_identical(predict_fn(matrix(0, 3, 2), c(4L, 4L, 4L), matrix(1, 2, 2)), c(4L, 4L))
+})
+
+test_that("a custom classifier gets n_threads and random_state when it takes them", {
+  seen <- new.env()
+  clf <- function(x_train, y_train, x_test, n_threads, random_state) {
+    seen$args <- c(n_threads, random_state)
+    rep(y_train[1], nrow(x_test))
+  }
+  predict_fn <- default_generalizability_classifier(clf, 2L, 100L, random_state = 5L, n_threads = 3L)
+  expect_identical(predict_fn(matrix(0, 2, 2), c(1L, 2L), matrix(0, 4, 2)), rep(1L, 4))
+  expect_identical(seen$args, c(3L, 5L))
+  plain <- function(x_train, y_train, x_test) rep(y_train[1], nrow(x_test))
+  plain_fn <- default_generalizability_classifier(plain, 2L, 100L, 5L, 3L)
+  expect_identical(plain_fn(matrix(0, 2, 2), c(1L, 2L), matrix(0, 4, 2)), rep(1L, 4))
+})
+
+test_that("a custom classifier must return one label per test row", {
+  bad <- function(x_train, y_train, x_test) 1L
+  predict_fn <- default_generalizability_classifier(bad, 2L, 100L, 5L, 1L)
+  expect_error(
+    predict_fn(matrix(0, 2, 2), c(1L, 2L), matrix(0, 4, 2)),
+    "A classifier must return one label per row of x_test (4).",
+    fixed = TRUE
+  )
+})

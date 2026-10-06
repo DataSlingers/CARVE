@@ -191,3 +191,198 @@ title_case <- function(x) {
     collapse = " "
   )
 }
+
+# sklearn's adjusted_rand_score, through the pair confusion matrix. Counts
+# are doubles, so very large n loses exactness but not accuracy.
+adjusted_rand_index <- function(a, b) {
+  n <- length(a)
+  counts <- as.numeric(table(a, b))
+  sum_squares <- sum(counts^2)
+  n_rows <- as.numeric(table(a))
+  n_cols <- as.numeric(table(b))
+  tp <- sum_squares - n
+  fp <- sum(n_cols^2) - sum_squares
+  fn <- sum(n_rows^2) - sum_squares
+  tn <- n^2 - fp - fn - sum_squares
+  if (fn == 0 && fp == 0) {
+    return(1)
+  }
+  2 * (tp * tn - fn * fp) / ((tp + fn) * (fn + tn) + (tp + fp) * (fp + tn))
+}
+
+# Renames labels to the reference values by maximum-overlap (Hungarian)
+# matching. Labels with no partner, when there are more clusters than
+# reference values, take fresh ids past the largest matched reference
+# value, so they never merge with a matched cluster. Only positions where
+# keep is TRUE take part in the matching.
+align_cluster_labels <- function(reference_labels, labels, keep = NULL) {
+  if (is.null(keep)) {
+    keep <- rep(TRUE, length(labels))
+  }
+  ref <- reference_labels[keep]
+  lab <- labels[keep]
+  ref_classes <- sort(unique(ref))
+  pred_classes <- sort(unique(lab))
+  overlap <- table(factor(ref, levels = ref_classes), factor(lab, levels = pred_classes))
+  overlap <- matrix(as.numeric(overlap), nrow = length(ref_classes))
+
+  mapping <- rep(NA_real_, length(pred_classes))
+  if (nrow(overlap) <= ncol(overlap)) {
+    cols <- as.integer(clue::solve_LSAP(overlap, maximum = TRUE))
+    mapping[cols] <- ref_classes
+  } else {
+    rows <- as.integer(clue::solve_LSAP(t(overlap), maximum = TRUE))
+    mapping <- as.numeric(ref_classes[rows])
+  }
+
+  all_pred <- sort(unique(labels))
+  full <- mapping[match(all_pred, pred_classes)]
+  next_id <- max(ref_classes) + 1
+  for (i in which(is.na(full))) {
+    full[i] <- next_id
+    next_id <- next_id + 1
+  }
+  aligned <- full[match(labels, all_pred)]
+  if (is.integer(reference_labels)) as.integer(aligned) else aligned
+}
+
+n_cores <- function() {
+  n <- parallel::detectCores(logical = TRUE)
+  if (is.na(n) || n < 1L) {
+    n <- 1L
+  }
+  limit <- Sys.getenv("_R_CHECK_LIMIT_CORES_")
+  if (nzchar(limit) && !identical(tolower(limit), "false")) {
+    n <- min(n, 2L)
+  }
+  as.integer(n)
+}
+
+# Splits n_jobs into resample workers (outer) and classifier threads per
+# worker (inner), following joblib's convention for n_jobs: a positive
+# count, -1 for every core, -2 for all but one, NULL for one worker. The
+# worker count is capped at n_resamples.
+resolve_core_budget <- function(n_jobs, n_resamples) {
+  cores <- n_cores()
+  if (is.null(n_jobs)) {
+    outer <- 1L
+  } else if (n_jobs == 0) {
+    stop("n_jobs == 0 has no meaning; use 1 or a negative count", call. = FALSE)
+  } else if (n_jobs < 0) {
+    outer <- max(cores + 1L + as.integer(n_jobs), 1L)
+  } else {
+    outer <- as.integer(n_jobs)
+  }
+  outer <- max(1L, min(outer, as.integer(n_resamples)))
+  c(outer = outer, inner = max(1L, cores %/% outer))
+}
+
+# A neighbor count chosen for the full data reaches further on a subsample.
+# Scaling it by n_fit / n_full keeps the neighborhood the same size. The
+# count comes from params or else from the estimator's default; it is
+# rounded half to even, as Python's round() does, never set below 2 and
+# never raised.
+scale_neighbor_count <- function(estimator, params, n_fit, n_full) {
+  if (n_fit >= n_full) {
+    return(params)
+  }
+  base <- if ("n_neighbors" %in% names(params)) {
+    params$n_neighbors
+  } else if ("n_neighbors" %in% names(formals(estimator))) {
+    formals(estimator)$n_neighbors
+  } else {
+    NULL
+  }
+  if (!is.numeric(base) || length(base) != 1L || is.na(base) || base != round(base)) {
+    return(params)
+  }
+  scaled <- max(2, round(base * n_fit / n_full))
+  params$n_neighbors <- as.integer(min(base, scaled))
+  params
+}
+
+# Runs a clustering function on X. random_state is passed only when the
+# function has that argument and the grid does not set it.
+call_estimator <- function(estimator, X, params, random_state = NULL) {
+  args <- c(list(X), params)
+  if ("random_state" %in% names(formals(estimator)) && !"random_state" %in% names(params)) {
+    args["random_state"] <- list(random_state)
+  }
+  labels <- do.call(estimator, args)
+  if (is.factor(labels)) {
+    labels <- as.integer(labels)
+  }
+  if (!is.numeric(labels) || length(labels) != nrow(X) || anyNA(labels) ||
+      any(labels != round(labels))) {
+    stop(sprintf(
+      "A clustering function must return one integer label per row of X (%d).",
+      nrow(X)
+    ), call. = FALSE)
+  }
+  as.integer(labels)
+}
+
+# Builds the function that predicts held-out labels. The default is a
+# ranger forest with the settings of Python's default classifier: n_trees
+# trees, depth at most n_features, floor(sqrt(n_features)) candidate
+# features per split. A custom classifier gets n_threads and random_state
+# only when it has those arguments.
+default_generalizability_classifier <- function(classifier, n_features, n_trees,
+                                                random_state, n_threads) {
+  check <- function(predicted, x_test) {
+    if (length(predicted) != nrow(x_test)) {
+      stop(sprintf(
+        "A classifier must return one label per row of x_test (%d).",
+        nrow(x_test)
+      ), call. = FALSE)
+    }
+    as.integer(predicted)
+  }
+  if (is.null(classifier)) {
+    return(function(x_train, y_train, x_test) {
+      check(ranger_predict(
+        x_train, y_train, x_test,
+        n_trees = n_trees,
+        mtry = max(1L, as.integer(floor(sqrt(n_features)))),
+        max_depth = as.integer(n_features),
+        seed = random_state,
+        n_threads = n_threads
+      ), x_test)
+    })
+  }
+  arguments <- names(formals(classifier))
+  function(x_train, y_train, x_test) {
+    args <- list(x_train = x_train, y_train = y_train, x_test = x_test)
+    if ("n_threads" %in% arguments) {
+      args$n_threads <- n_threads
+    }
+    if ("random_state" %in% arguments) {
+      args["random_state"] <- list(random_state)
+    }
+    check(do.call(classifier, args), x_test)
+  }
+}
+
+ranger_predict <- function(x_train, y_train, x_test, n_trees, mtry, max_depth,
+                           seed, n_threads) {
+  classes <- sort(unique(y_train))
+  if (length(classes) == 1L) {
+    return(rep(classes, nrow(x_test)))
+  }
+  # ranger finds no covariates in a matrix without column names.
+  feature_names <- paste0("x", seq_len(ncol(x_train)))
+  colnames(x_train) <- feature_names
+  colnames(x_test) <- feature_names
+  forest <- ranger::ranger(
+    x = x_train,
+    y = factor(y_train, levels = classes),
+    num.trees = n_trees,
+    mtry = mtry,
+    max.depth = max_depth,
+    seed = seed,
+    num.threads = n_threads,
+    verbose = FALSE
+  )
+  predicted <- stats::predict(forest, data = x_test, num.threads = n_threads)$predictions
+  as.integer(as.character(predicted))
+}
