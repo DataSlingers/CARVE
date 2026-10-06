@@ -1,45 +1,36 @@
 Package: CARVE
 Title: Cluster Analysis with Resampling for Validation and Exploration
-Version: 1.0.0
+Version: 2.0.0
 Authors@R: c(
     person("Kai", "Wycik", email = "kai.wycik@columbia.edu", role = c("aut", "cre"))
   )
-Description: Stability- and generalizability-based validation of clustering
-    methods via repeated subsampling, consensus matrices, and rule-based
-    selection. Provides a scikit-learn style estimator with integration for
-    Seurat and SingleCellExperiment workflows.
+Description: Chooses the number of clusters and the clustering method by
+    resampling. Every candidate configuration clusters many subsamples of
+    the data and is scored for stability, the agreement between the
+    clusterings of two overlapping subsamples, and for generalizability,
+    how well a classifier trained on one subsample predicts the clusters
+    of the held-out samples.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Depends: R (>= 4.1.0)
 Imports:
+    BiocParallel,
     clue,
     FNN,
-    furrr,
-    future,
-    ggplot2,
     Matrix,
-    patchwork,
-    progressr,
-    R6,
+    methods,
+    parallel,
     ranger,
     RSpectra,
     stats,
-    utils
-Suggests:
-    testthat (>= 3.0.0),
-    Seurat,
-    SeuratObject,
-    SingleCellExperiment,
-    SummarizedExperiment,
-    knitr,
-    rmarkdown,
-    ClusterR,
-    RcppHungarian,
-    reticulate,
-    vdiffr,
+    utils,
     withr
+Suggests:
+    jsonlite,
+    testthat (>= 3.0.0)
+biocViews: Clustering, SingleCell, Software
 Config/testthat/edition: 3
-VignetteBuilder: knitr
-RoxygenNote: 7.3.3
+Roxygen: list(markdown = TRUE)
 URL: https://github.com/DataSlingers/CARVE
 BugReports: https://github.com/DataSlingers/CARVE/issues
+Config/roxygen2/version: 8.0.0

@@ -2,15 +2,15 @@
 % Please edit documentation in R/CARVE-package.R
 \docType{package}
 \name{CARVE-package}
+\alias{CARVE}
 \alias{CARVE-package}
-\title{CARVE: Cluster Analysis with Resampling for Validation and Exploration}
+\title{CARVE: cluster analysis with resampling for validation and exploration}
 \description{
-Stability- and generalizability-based validation of clustering methods via
-repeated subsampling, consensus matrices, and rule-based selection.
-}
-\details{
-The entry point is [CARVE], an R6 estimator class, with S3 dispatch via
-[carve()] for matrix, Seurat, and SingleCellExperiment inputs.
+CARVE chooses the number of clusters, and the clustering method, by
+resampling. \code{\link[=carve]{carve()}} clusters many subsamples of the data with every
+candidate configuration and scores each one for stability and
+generalizability. \code{\link[=get_k]{get_k()}} and \code{\link[=get_labels]{get_labels()}} then pick a configuration
+with a selection rule.
 }
 \seealso{
 Useful links:
@@ -22,6 +22,11 @@ Useful links:
 }
 \author{
 \strong{Maintainer}: Kai Wycik \email{kai.wycik@columbia.edu}
+
+Authors:
+\itemize{
+  \item Kai Wycik \email{kai.wycik@columbia.edu}
+}
 
 }
 \keyword{internal}
