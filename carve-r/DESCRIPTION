@@ -36,8 +36,10 @@ BugReports: https://github.com/DataSlingers/CARVE/issues
 Config/roxygen2/version: 8.0.0
 Collate: 
     'AllClasses.R'
+    'AllGenerics.R'
     'CARVE-package.R'
     'accuracy.R'
+    'carve.R'
     'consensus.R'
     'estimators.R'
     'grids.R'
