@@ -167,3 +167,14 @@ test_that("config_id must count from 0 in table order", {
   fit@estimator_results$config_id <- c(1L, 0L, 2L)
   expect_error(validObject(fit), "config_id is misaligned", fixed = TRUE)
 })
+
+test_that("random_state must leave room for every derived seed", {
+  limit <- .Machine$integer.max - 8L
+  expect_error(
+    carve(blobs$X, n_resamples = 4, random_state = limit + 1),
+    sprintf("random_state must be at most %.0f so that every derived seed fits in an R integer.", limit),
+    fixed = TRUE
+  )
+  expect_identical(resolve_seed(limit, 4L), as.integer(limit))
+  expect_error(resolve_seed(limit + 1, 4L), "random_state must be at most", fixed = TRUE)
+})
