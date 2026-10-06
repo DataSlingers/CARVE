@@ -315,3 +315,20 @@ test_that("the default classifier is deterministic at seed 0 and leaves the call
     expect_identical(predict_fn(d$X[train, ], d$y[train], d$X[test, ]), first)
   }
 })
+
+test_that("vote ties in the default classifier do not depend on the session RNG", {
+  versicolor_virginica <- which(iris$Species != "setosa")
+  X <- as.matrix(iris[versicolor_virginica, 1:4])
+  y <- as.integer(iris$Species[versicolor_virginica]) - 1L
+  train <- seq(1L, 100L, by = 2L)
+  test <- seq(2L, 100L, by = 2L)
+  predict_fn <- default_generalizability_classifier(NULL, 4L, 2L, random_state = 2L, n_threads = 1L)
+  predictions <- lapply(1:8, function(s) {
+    set.seed(s)
+    before <- .Random.seed
+    out <- predict_fn(X[train, ], y[train], X[test, ])
+    expect_identical(.Random.seed, before)
+    out
+  })
+  for (p in predictions[-1]) expect_identical(p, predictions[[1]])
+})
