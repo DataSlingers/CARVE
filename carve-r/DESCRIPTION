@@ -38,6 +38,7 @@ Collate:
     'AllClasses.R'
     'AllGenerics.R'
     'CARVE-package.R'
+    'accessors.R'
     'accuracy.R'
     'carve.R'
     'consensus.R'
