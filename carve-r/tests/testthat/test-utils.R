@@ -301,3 +301,17 @@ test_that("the default classifier passes the forest settings to ranger", {
     expect_identical(seen$n_threads, 3L)
   }
 })
+
+test_that("the default classifier is deterministic at seed 0 and leaves the caller's RNG alone", {
+  d <- make_blobs(sd = 3)
+  train <- seq(1L, 90L, by = 2L)
+  test <- seq(2L, 90L, by = 2L)
+  predict_fn <- default_generalizability_classifier(NULL, 2L, 25L, random_state = 0L, n_threads = 1L)
+  set.seed(5)
+  before <- .Random.seed
+  first <- predict_fn(d$X[train, ], d$y[train], d$X[test, ])
+  expect_identical(.Random.seed, before)
+  for (i in 1:4) {
+    expect_identical(predict_fn(d$X[train, ], d$y[train], d$X[test, ]), first)
+  }
+})

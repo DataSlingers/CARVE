@@ -373,16 +373,21 @@ ranger_predict <- function(x_train, y_train, x_test, n_trees, mtry, max_depth,
   feature_names <- paste0("x", seq_len(ncol(x_train)))
   colnames(x_train) <- feature_names
   colnames(x_test) <- feature_names
-  forest <- ranger::ranger(
-    x = x_train,
-    y = factor(y_train, levels = classes),
-    num.trees = n_trees,
-    mtry = mtry,
-    max.depth = max_depth,
-    seed = seed,
-    num.threads = n_threads,
-    verbose = FALSE
-  )
-  predicted <- stats::predict(forest, data = x_test, num.threads = n_threads)$predictions
+  # ranger treats seed 0 as "no seed" and grows a different forest on every
+  # call, so the seed is shifted by one. It also draws from the R generator
+  # even when seeded; the caller's RNG state is restored afterward.
+  withr::with_preserve_seed({
+    forest <- ranger::ranger(
+      x = x_train,
+      y = factor(y_train, levels = classes),
+      num.trees = n_trees,
+      mtry = mtry,
+      max.depth = max_depth,
+      seed = seed + 1L,
+      num.threads = n_threads,
+      verbose = FALSE
+    )
+    predicted <- stats::predict(forest, data = x_test, num.threads = n_threads)$predictions
+  })
   as.integer(as.character(predicted))
 }

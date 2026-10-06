@@ -87,3 +87,131 @@ test_that("the classifier gets the thread count it is given", {
                   classifier = clf, random_state = 0L, classifier_threads = 3L)
   expect_identical(seen$threads, 3L)
 })
+
+k_grid <- list(estimator_grid(KMeans, n_clusters = 2:4))
+k_sweep <- resolve_sweep(n_clusters = 2:4)
+
+test_that("run_validation returns one record and one artifact per configuration", {
+  run <- run_validation(blobs$X, k_grid, n_resamples = 4L, subsample_ratio = 0.618,
+                        random_state = 0L, sweep = k_sweep)
+  expect_identical(run$records$config_id, 0:2)
+  for (container in run[c("consensus_matrices", "consensus_generalizability_matrices",
+                          "generalizability_scores", "summaries")]) {
+    expect_identical(names(container), c("0", "1", "2"))
+  }
+  expect_identical(dim(run$consensus_matrices[["1"]]), c(90L, 90L))
+  expect_identical(
+    colnames(run$records),
+    c("config_id", "method_id", "method_label", "estimator", "n_clusters",
+      "sweep_param", "sweep_value", "sweep_rank", "n_clusters_observed",
+      "n_clusters_observed_se", "noise_fraction",
+      "ari_stability", "ari_stability_se", "ari_stability_upper", "ari_stability_lower",
+      "ari_generalizability", "ari_generalizability_se", "ari_generalizability_upper",
+      "ari_generalizability_lower",
+      "ari_average", "ari_average_se", "ari_average_upper", "ari_average_lower")
+  )
+})
+
+test_that("records carry the sweep bookkeeping and one method id per curve", {
+  grids <- list(
+    estimator_grid(KMeans, n_clusters = 2:3),
+    estimator_grid(AgglomerativeClustering, n_clusters = 2:3, linkage = c("ward", "average"))
+  )
+  run <- run_validation(blobs$X, grids, n_resamples = 3L, subsample_ratio = 0.618,
+                        random_state = 0L, sweep = resolve_sweep(n_clusters = 2:3))
+  r <- run$records
+  expect_identical(r$method_id, c("m0", "m0", "m1", "m1", "m2", "m2"))
+  expect_identical(r$method_label, c(
+    "KMeans", "KMeans",
+    "AgglomerativeClustering, linkage=ward", "AgglomerativeClustering, linkage=ward",
+    "AgglomerativeClustering, linkage=average", "AgglomerativeClustering, linkage=average"
+  ))
+  expect_identical(r$linkage, c(NA, NA, "ward", "ward", "average", "average"))
+  expect_identical(r$sweep_rank, rep(0:1, 3))
+  expect_identical(r$sweep_value, rep(2:3, 3))
+  expect_identical(r$n_clusters_observed, rep(c(2, 3), 3))
+  expect_identical(r$sweep_param, rep("n_clusters", 6))
+})
+
+test_that("the summaries come from the stored consensus matrix", {
+  run <- run_validation(blobs$X, k_grid, 3L, 0.618, random_state = 0L, sweep = k_sweep)
+  M <- run$consensus_matrices[["1"]]
+  expect_identical(run$summaries[["1"]]$gini, stability_from_consensus(M)$gini)
+  expect_identical(run$summaries[["1"]]$pac, compute_consensus_pac(M))
+})
+
+test_that("run_validation is reproducible and leaves the caller's RNG state alone", {
+  set.seed(3)
+  before <- .Random.seed
+  a <- run_validation(blobs$X, k_grid, 3L, 0.618, random_state = 1L, sweep = k_sweep)
+  expect_identical(.Random.seed, before)
+  expect_identical(a, run_validation(blobs$X, k_grid, 3L, 0.618, random_state = 1L, sweep = k_sweep))
+})
+
+test_that("results do not depend on the parallel backend", {
+  skip_on_os("windows")
+  serial <- run_validation(blobs$X, k_grid, 4L, 0.618, random_state = 0L, sweep = k_sweep)
+  forked <- run_validation(blobs$X, k_grid, 4L, 0.618, random_state = 0L, sweep = k_sweep,
+                           BPPARAM = BiocParallel::MulticoreParam(2L))
+  expect_identical(serial, forked)
+})
+
+# The classifier stops on an unexpected thread count. An error, unlike a
+# value recorded into an environment, gets back from any backend.
+threads_must_be <- function(expected) {
+  function(x_train, y_train, x_test, n_threads) {
+    if (!identical(n_threads, expected)) {
+      stop(sprintf("classifier got %s threads", format(n_threads)))
+    }
+    rep(y_train[1], nrow(x_test))
+  }
+}
+
+test_that("with one worker the classifier gets every core", {
+  local_mocked_bindings(n_cores = function() 8L)
+  expect_no_error(run_validation(blobs$X, k_grid, 2L, 0.618, classifier = threads_must_be(8L),
+                                 n_jobs = 1L, random_state = 0L, sweep = k_sweep))
+})
+
+test_that("a BPPARAM sets the worker count and the classifier gets the rest", {
+  local_mocked_bindings(n_cores = function() 8L)
+  expect_no_error(run_validation(blobs$X, k_grid, 2L, 0.618, classifier = threads_must_be(8L),
+                                 n_jobs = 4L, BPPARAM = BiocParallel::SerialParam(),
+                                 random_state = 0L, sweep = k_sweep))
+})
+
+test_that("warnings raised in resamples reach the caller once per configuration", {
+  noisy <- function(X, n_clusters = 2L) {
+    warning("noisy estimator")
+    rep_len(seq_len(n_clusters), nrow(X))
+  }
+  out <- collect_warnings(run_validation(
+    blobs$X, list(estimator_grid(noisy, n_clusters = 2:3)), 3L, 0.618,
+    random_state = 0L, sweep = resolve_sweep(n_clusters = 2:3)
+  ))
+  expect_identical(out$warnings, c("noisy estimator", "noisy estimator"))
+})
+
+test_that("mode = 'stability' builds no generalizability artifacts", {
+  run <- run_validation(blobs$X, k_grid, 3L, 0.618, random_state = 0L, sweep = k_sweep, mode = "stability")
+  expect_true(all(vapply(run$consensus_generalizability_matrices, is.null, logical(1))))
+  expect_true(all(vapply(run$generalizability_scores, is.null, logical(1))))
+  expect_true(all(is.nan(run$records$ari_generalizability)))
+  expect_true(all(is.nan(run$records$ari_average)))
+  expect_false(anyNA(run$records$ari_stability))
+})
+
+test_that("mode = 'generalizability' builds no stability artifacts", {
+  run <- run_validation(blobs$X, k_grid, 3L, 0.618, random_state = 0L, sweep = k_sweep, mode = "generalizability")
+  expect_null(run$summaries)
+  expect_true(all(vapply(run$consensus_matrices, is.null, logical(1))))
+  expect_true(all(is.nan(run$records$ari_stability)))
+})
+
+test_that("show_progress draws a bar over the configurations", {
+  out <- capture.output(
+    invisible(run_validation(blobs$X, k_grid, 2L, 0.618, random_state = 0L, sweep = k_sweep, show_progress = TRUE)),
+    type = "message"
+  )
+  expect_match(paste(out, collapse = ""), "100%", fixed = TRUE)
+})
