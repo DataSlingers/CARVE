@@ -41,6 +41,7 @@ Collate:
     'consensus.R'
     'estimators.R'
     'grids.R'
+    'runner.R'
     'selection.R'
     'sweep.R'
     'types.R'
