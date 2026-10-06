@@ -106,10 +106,14 @@ validation_iter <- function(X, estimator, estimator_name, params, subsample_rati
 # run_validation would carry that frame, with every consensus matrix
 # computed so far, to every worker. The data argument is not called X, which
 # would clash with the X of lapply and bplapply.
+# The resample runs under the seed random_state + b, so an estimator or
+# classifier that draws without a random_state argument gives the same
+# results on every backend and leaves the caller's stream alone. The
+# built-in functions reseed themselves inside it.
 run_resample <- function(b, data, estimator, estimator_name, params, subsample_ratio,
                          n_resamples, classifier, n_trees, sweep_param, mode,
                          random_state, classifier_threads) {
-  collect_warnings(validation_iter(
+  seeded(random_state + b, collect_warnings(validation_iter(
     data, estimator, estimator_name, params,
     subsample_ratio = subsample_ratio,
     n_resamples = n_resamples,
@@ -120,7 +124,7 @@ run_resample <- function(b, data, estimator, estimator_name, params, subsample_r
     mode = mode,
     random_state = random_state,
     classifier_threads = classifier_threads
-  ))
+  )))
 }
 
 # The BiocParallel backend for the resamples, or NULL to run them in this

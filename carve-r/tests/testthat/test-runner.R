@@ -156,6 +156,40 @@ test_that("results do not depend on the parallel backend", {
   expect_identical(serial, forked)
 })
 
+# Custom functions without a random_state argument that draw from the
+# session's random number stream.
+session_kmeans <- function(X, n_clusters) as.integer(stats::kmeans(X, n_clusters)$cluster)
+random_guess <- function(x_train, y_train, x_test) sample(y_train, nrow(x_test), replace = TRUE)
+session_kmeans_grid <- list(estimator_grid(session_kmeans, n_clusters = 2:4))
+
+test_that("an estimator that draws without random_state is reproducible", {
+  set.seed(7)
+  before <- .Random.seed
+  a <- run_validation(blobs$X, session_kmeans_grid, 4L, 0.618, random_state = 5L, sweep = k_sweep)
+  expect_identical(.Random.seed, before)
+  expect_identical(a, run_validation(blobs$X, session_kmeans_grid, 4L, 0.618, random_state = 5L, sweep = k_sweep))
+})
+
+test_that("a classifier that draws without random_state is reproducible", {
+  set.seed(7)
+  before <- .Random.seed
+  a <- run_validation(blobs$X, k_grid, 4L, 0.618, classifier = random_guess, random_state = 5L, sweep = k_sweep)
+  expect_identical(.Random.seed, before)
+  expect_identical(
+    a,
+    run_validation(blobs$X, k_grid, 4L, 0.618, classifier = random_guess, random_state = 5L, sweep = k_sweep)
+  )
+})
+
+test_that("custom functions that draw give the same results on a parallel backend", {
+  skip_on_os("windows")
+  serial <- run_validation(blobs$X, session_kmeans_grid, 4L, 0.618, classifier = random_guess,
+                           random_state = 5L, sweep = k_sweep)
+  forked <- run_validation(blobs$X, session_kmeans_grid, 4L, 0.618, classifier = random_guess,
+                           random_state = 5L, sweep = k_sweep, BPPARAM = BiocParallel::MulticoreParam(2L))
+  expect_identical(serial, forked)
+})
+
 test_that("what a worker receives does not grow with the configuration index", {
   # A SnowParam serializes the function and its arguments for every
   # resample. If the function's enclosure were run_validation's frame, every
