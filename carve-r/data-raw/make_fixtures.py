@@ -336,7 +336,9 @@ def kmeans():
 
 
 def agglomerative():
-    X, _ = make_blobs(n_samples=40, centers=4, cluster_std=2.0, random_state=6)
+    # This seed gives four pairwise different partitions, one per linkage, so
+    # swapping or misnaming a linkage in the R port changes the result.
+    X, _ = make_blobs(n_samples=40, centers=4, cluster_std=2.0, random_state=11)
     labels = {
         linkage: AgglomerativeClustering(n_clusters=4, linkage=linkage).fit_predict(X)
         for linkage in ("ward", "average", "single", "complete")
