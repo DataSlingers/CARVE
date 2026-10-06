@@ -6,7 +6,7 @@ algorithm, ARI score summarization, and array coercion utilities.
 
 import inspect
 import warnings
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -502,6 +502,75 @@ def align_cluster_labels(
 
     aligned = np.array([mapping[lbl] for lbl in labels], dtype=reference_labels.dtype)
     return aligned
+
+
+# How far below the median sample's score, on the [0, 1] score scale, a
+# sample must lie before noise_mask may flag it.
+NOISE_MARGIN = 0.05
+
+
+class NoiseCut(NamedTuple):
+    """Result of :func:`noise_mask`."""
+
+    mask: np.ndarray
+    n_target: int
+    cutoff: float
+    median: float
+
+
+def noise_mask(
+    scores: np.ndarray, *, quantile: float, margin: float = NOISE_MARGIN
+) -> NoiseCut:
+    """Flag the samples whose per-sample score marks them as ambiguous.
+
+    A sample is flagged when its score is NaN, or when it lies strictly
+    below the ``quantile`` of the finite scores and more than ``margin``
+    below their median. The strict comparison keeps samples tied with the
+    cutoff, so identical scores flag nothing. The margin keeps samples that
+    score practically like the median one, which a plain quantile would
+    flag whenever nearly every score sits just under 1.
+
+    Parameters
+    ----------
+    scores : ndarray of shape (n_samples,)
+        Per-sample scores on [0, 1], higher meaning more stable.
+    quantile : float
+        Fraction of the samples considered for noise, strictly between 0
+        and 1. The caller validates it.
+    margin : float, default=NOISE_MARGIN
+        Distance below the median a flagged score must exceed.
+
+    Returns
+    -------
+    NoiseCut
+        ``mask``, True for flagged samples, NaN ones included. ``n_target``,
+        the number of finite samples the quantile would flag if all finite
+        scores were distinct. ``cutoff`` and ``median``, over the finite
+        scores.
+
+    Raises
+    ------
+    ValueError
+        If no score is finite.
+    """
+    scores = np.asarray(scores, dtype=float)
+    finite = np.isfinite(scores)
+    if not finite.any():
+        raise ValueError("scores contains no finite value.")
+
+    values = scores[finite]
+    cutoff = float(np.quantile(values, quantile))
+    median = float(np.median(values))
+
+    mask = ~finite
+    mask[finite] = (values < cutoff) & (values < median - margin)
+
+    # Counted through np.quantile itself, so it matches the cutoff's own
+    # floating-point position exactly.
+    ranks = np.arange(values.size)
+    n_target = int((ranks < np.quantile(ranks, quantile)).sum())
+
+    return NoiseCut(mask=mask, n_target=n_target, cutoff=cutoff, median=median)
 
 
 def ensure_2d_array(

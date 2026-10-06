@@ -15,6 +15,7 @@ import carve._utils as carve_utils
 from carve._pipeline import PipelineSpec, PipelineStep
 from carve._runner import ResampleResult
 from carve._utils import (
+    NOISE_MARGIN,
     _coerce_n_clusters,
     _summarize_ari_scores,
     align_cluster_labels,
@@ -23,6 +24,7 @@ from carve._utils import (
     count_clusters,
     default_generalizability_classifier,
     ensure_2d_array,
+    noise_mask,
     resolve_anchors,
     resolve_core_budget,
     scale_neighbor_count,
@@ -917,3 +919,63 @@ class TestResolveCoreBudget:
             outer, inner = resolve_core_budget(n_jobs, n_resamples=100)
             assert outer * inner <= 11
             assert inner >= 1
+
+# -----------------------------------------------------------------------
+# noise_mask
+# -----------------------------------------------------------------------
+
+
+class TestNoiseMask:
+    def test_wide_spread_flags_the_plain_quantile(self):
+        scores = np.linspace(0.0, 1.0, 101)
+        cut = noise_mask(scores, quantile=0.05)
+        # The 0.05 quantile is exactly scores[5]; the strict comparison keeps
+        # it labeled, so a <= rule would flag six samples here.
+        np.testing.assert_array_equal(np.flatnonzero(cut.mask), [0, 1, 2, 3, 4])
+        assert cut.n_target == 5
+        assert cut.cutoff == pytest.approx(0.05)
+        assert cut.median == pytest.approx(0.5)
+
+    def test_equal_scores_flag_nothing(self):
+        cut = noise_mask(np.full(50, 0.8), quantile=0.05)
+        assert not cut.mask.any()
+        assert cut.n_target == 3
+
+    def test_margin_spares_a_bulk_just_under_one(self):
+        bulk = np.linspace(0.995, 1.0, 95)
+        low = np.array([0.4, 0.6, 0.4, 0.6, 0.4])
+        cut = noise_mask(np.concatenate([bulk, low]), quantile=0.10)
+        # Without the margin the quantile would also take five bulk samples.
+        np.testing.assert_array_equal(np.flatnonzero(cut.mask), [95, 96, 97, 98, 99])
+        assert cut.n_target == 10
+
+    def test_margin_is_anchored_at_the_median_not_the_maximum(self):
+        scores = np.concatenate([np.linspace(0.70, 0.72, 99), [1.0]])
+        cut = noise_mask(scores, quantile=0.05)
+        assert not cut.mask.any()
+        # Non-vacuity: a margin anchored at the maximum flags five here.
+        at_max = (scores < cut.cutoff) & (scores < scores.max() - NOISE_MARGIN)
+        assert at_max.sum() == 5
+
+    def test_ties_at_the_cutoff_stay_labeled(self):
+        scores = np.concatenate([np.ones(90), np.full(6, 0.9), np.full(4, 0.5)])
+        cut = noise_mask(scores, quantile=0.05)
+        np.testing.assert_array_equal(np.flatnonzero(cut.mask), [96, 97, 98, 99])
+        assert cut.cutoff == pytest.approx(0.9)
+        assert cut.n_target == 5
+
+    def test_nan_scores_are_flagged_and_left_out_of_the_statistics(self):
+        clean = np.linspace(0.0, 1.0, 101)
+        scores = np.concatenate([clean[:50], [np.nan], clean[50:], [np.nan]])
+        cut = noise_mask(scores, quantile=0.05)
+        reference = noise_mask(clean, quantile=0.05)
+        np.testing.assert_array_equal(
+            np.flatnonzero(cut.mask), [0, 1, 2, 3, 4, 50, 102]
+        )
+        assert cut.cutoff == reference.cutoff
+        assert cut.median == reference.median
+        assert cut.n_target == reference.n_target
+
+    def test_all_nan_raises(self):
+        with pytest.raises(ValueError, match="scores contains no finite value"):
+            noise_mask(np.full(5, np.nan), quantile=0.05)
