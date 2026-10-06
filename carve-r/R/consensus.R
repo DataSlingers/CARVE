@@ -1,0 +1,56 @@
+# Consensus matrices and the stability scores derived from them. Mirrors
+# the exact path of _consensus.py; the anchored path comes in stage 2.
+
+# Entry (i, j) is the share of the runs that drew both i and j in which they
+# landed in the same cluster; NaN when no run drew both. S marks which runs
+# drew each sample and B which run-cluster each sample fell in, so the two
+# counts are tcrossprod(S) and tcrossprod(B).
+compute_consensus_matrix <- function(n_samples, runs) {
+  n_labels <- vapply(runs, function(r) length(unique(r$labels)), integer(1))
+  S <- matrix(0, n_samples, length(runs))
+  B <- matrix(0, n_samples, sum(n_labels))
+  col <- 0L
+  for (r in seq_along(runs)) {
+    indices <- runs[[r]]$indices
+    labels <- runs[[r]]$labels
+    S[indices, r] <- 1
+    for (label in unique(labels)) {
+      col <- col + 1L
+      B[indices[labels == label], col] <- 1
+    }
+  }
+  co_sampled <- tcrossprod(S)
+  co_clustered <- tcrossprod(B)
+  consensus <- co_clustered / co_sampled
+  consensus[co_sampled == 0] <- NaN
+  consensus
+}
+
+# Per-sample stability from the off-diagonal consensus values of each row.
+# Gini uncertainty p(1 - p) and binary entropy are averaged over the row
+# and rescaled so that 1 means every pair always agreed.
+stability_from_consensus <- function(consensus_matrix) {
+  p <- consensus_matrix
+  diag(p) <- NaN
+  gini_term <- p * (1 - p)
+  clipped <- pmin(pmax(p, 1e-12), 1 - 1e-12)
+  entropy <- -(clipped * log(clipped) + (1 - clipped) * log(1 - clipped))
+  uncertainty_gini <- 2 * rowMeans(gini_term, na.rm = TRUE)
+  uncertainty_ce <- rowMeans(entropy, na.rm = TRUE)
+  list(
+    gini = 1 - pmin(pmax(2 * uncertainty_gini, 0), 1),
+    ce = 1 - pmin(pmax(uncertainty_ce / log(2), 0), 1)
+  )
+}
+
+# 1 minus the proportion of ambiguous consensus values, those strictly
+# between tau and 1 - tau, over the off-diagonal pairs drawn together.
+compute_consensus_pac <- function(consensus_matrix, tau = 0.05) {
+  off_diagonal <- row(consensus_matrix) != col(consensus_matrix)
+  values <- consensus_matrix[off_diagonal]
+  values <- values[!is.na(values)]
+  if (length(values) == 0L) {
+    return(NaN)
+  }
+  1 - mean(values > tau & values < 1 - tau)
+}
