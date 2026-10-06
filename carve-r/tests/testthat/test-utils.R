@@ -379,6 +379,17 @@ test_that("the default forest grows probability trees with leaves of one sample"
   expect_identical(out, rep(2L, 3))
 })
 
+test_that("ranger_predict returns the training labels, whatever their values", {
+  d <- make_blobs()
+  y <- c(2L, 5L, 9L)[d$y]
+  train <- seq(1L, 90L, by = 2L)
+  test <- seq(2L, 90L, by = 2L)
+  predicted <- ranger_predict(d$X[train, ], y[train], d$X[test, ], n_trees = 50L, mtry = 1L,
+                              max_depth = 2L, seed = 1L, n_threads = 1L)
+  expect_true(all(predicted %in% c(2L, 5L, 9L)))
+  expect_identical(predicted, y[test])
+})
+
 test_that("a depth-limited forest predicts the largest mean probability, not the tree vote", {
   set.seed(1)
   angle <- runif(300, 0, 2 * pi)
