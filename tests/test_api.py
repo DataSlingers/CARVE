@@ -2255,3 +2255,46 @@ class TestNonRandomizedRegressionGate:
         randomized = gate_arrays(model.fit(gate_dataset(), randomize_preprocessing=True))
         before = np.load(GATE_PATH)
         assert not np.allclose(randomized["results"], before["results"], equal_nan=True)
+
+
+# ---------------------------------------------------------------------------
+# Per-sample scores: _sample_scores and get_labels(noise_labels=True)
+# ---------------------------------------------------------------------------
+
+
+def _set_scores(model, source, config_id, row):
+    """Write one configuration's per-sample ``source`` scores in place."""
+    if source == "gini":
+        model.stability_gini_scores_[config_id] = row
+    elif source == "ce":
+        model.stability_ce_scores_[config_id] = row
+    elif source == "accuracy":
+        model.generalizability_scores_[config_id] = row
+    else:
+        raise AssertionError(f"unknown source {source!r}")
+
+
+class TestSampleScores:
+    @pytest.mark.parametrize("source", ["gini", "ce", "accuracy"])
+    def test_returns_the_entry_at_config_id(self, fitted_identity, source):
+        # Fitted scores can coincide across configurations (accuracy is often
+        # 1.0 everywhere on separated blobs), which would hide a wrong lookup.
+        # Each configuration gets its own constant instead.
+        model = copy.deepcopy(fitted_identity)
+        n_configs = len(model.consensus_matrices_)
+        n_samples = model.X_.shape[0]
+        for cid in range(n_configs):
+            _set_scores(model, source, cid, np.full(n_samples, cid / n_configs))
+        for cid in range(n_configs):
+            np.testing.assert_array_equal(
+                model._sample_scores(source, cid), np.full(n_samples, cid / n_configs)
+            )
+
+    def test_returns_floats(self, fitted_identity):
+        scores = fitted_identity._sample_scores("accuracy", 0)
+        assert scores.dtype == np.float64
+        assert scores.shape == (fitted_identity.X_.shape[0],)
+
+    def test_unknown_source_raises(self, fitted_identity):
+        with pytest.raises(ValueError, match="source must be one of"):
+            fitted_identity._sample_scores("nope", 0)

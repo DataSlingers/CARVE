@@ -751,6 +751,59 @@ class CARVE(BaseEstimator):
 
         return row, config_id_of(row), observed_k(row), pin is not None
 
+    def _sample_scores(self, source: str, config_id: int) -> np.ndarray:
+        """Per-sample scores of one configuration.
+
+        Parameters
+        ----------
+        source : {"gini", "ce", "accuracy"}
+            Gini stability, cross-entropy stability, or out-of-sample
+            accuracy.
+        config_id : int
+            Key into the per-configuration containers, as returned by
+            ``_select_row``. A join key, never a row position.
+
+        Returns
+        -------
+        scores : ndarray of shape (n_samples,)
+            Scores on [0, 1], higher meaning more stable or more accurate.
+            Gini and CE are NaN for a sample never co-sampled with any
+            partner; accuracy is 0 for a sample never held out.
+
+        Raises
+        ------
+        RuntimeError
+            If this fit did not compute the requested scores.
+        ValueError
+            If ``source`` is not one of the three.
+        """
+        if source == "gini":
+            if self.stability_gini_scores_ is None:
+                raise RuntimeError(
+                    "Gini stability scores are not available for this run."
+                )
+            return np.asarray(self.stability_gini_scores_[config_id], dtype=float)
+
+        if source == "ce":
+            if self.stability_ce_scores_ is None:
+                raise RuntimeError(
+                    "CE stability scores are not available for this run."
+                )
+            return np.asarray(self.stability_ce_scores_[config_id], dtype=float)
+
+        if source == "accuracy":
+            # A stability-only fit leaves a list of None, not None itself.
+            if (
+                self.generalizability_scores_ is None
+                or self.generalizability_scores_[config_id] is None
+            ):
+                raise RuntimeError(
+                    "Generalizability scores are not available for this run."
+                )
+            return np.asarray(self.generalizability_scores_[config_id], dtype=float)
+
+        raise ValueError("source must be one of: 'accuracy', 'gini', 'ce'.")
+
     def get_labels(
         self,
         *,
@@ -1659,35 +1712,12 @@ class CARVE(BaseEstimator):
         df = self.estimator_results_
 
         # --- Resolve score source ---
-        if source == "gini":
-            if self.stability_gini_scores_ is None:
-                raise RuntimeError(
-                    "Gini stability scores are not available for this run."
-                )
-            scores = np.asarray(self.stability_gini_scores_[config_id], dtype=float)
-            default_ylabel = "Cluster Stability (Gini)"
-
-        elif source == "ce":
-            if self.stability_ce_scores_ is None:
-                raise RuntimeError(
-                    "CE stability scores are not available for this run."
-                )
-            scores = np.asarray(self.stability_ce_scores_[config_id], dtype=float)
-            default_ylabel = "Cluster Stability (CE)"
-
-        elif source == "accuracy":
-            if (
-                self.generalizability_scores_ is None
-                or self.generalizability_scores_[config_id] is None
-            ):
-                raise RuntimeError(
-                    "Generalizability scores are not available for this run."
-                )
-            scores = np.asarray(self.generalizability_scores_[config_id], dtype=float)
-            default_ylabel = "Cluster Generalizability"
-
-        else:
-            raise ValueError("source must be one of: 'accuracy', 'gini', 'ce'.")
+        scores = self._sample_scores(source, config_id)
+        default_ylabel = {
+            "gini": "Cluster Stability (Gini)",
+            "ce": "Cluster Stability (CE)",
+            "accuracy": "Cluster Generalizability",
+        }[source]
 
         # --- Resolve labels mode and get labels ---
         labels_mode: Literal["default", "generalizability"]
@@ -1861,35 +1891,12 @@ class CARVE(BaseEstimator):
         df = self.estimator_results_
 
         # --- Resolve score source ---
-        if source == "gini":
-            if self.stability_gini_scores_ is None:
-                raise RuntimeError(
-                    "Gini stability scores are not available for this run."
-                )
-            scores = np.asarray(self.stability_gini_scores_[config_id], dtype=float)
-            default_ylabel = "Cluster Stability (Gini)"
-
-        elif source == "ce":
-            if self.stability_ce_scores_ is None:
-                raise RuntimeError(
-                    "CE stability scores are not available for this run."
-                )
-            scores = np.asarray(self.stability_ce_scores_[config_id], dtype=float)
-            default_ylabel = "Cluster Stability (CE)"
-
-        elif source == "accuracy":
-            if (
-                self.generalizability_scores_ is None
-                or self.generalizability_scores_[config_id] is None
-            ):
-                raise RuntimeError(
-                    "Generalizability scores are not available for this run."
-                )
-            scores = np.asarray(self.generalizability_scores_[config_id], dtype=float)
-            default_ylabel = "Cluster Generalizability"
-
-        else:
-            raise ValueError("source must be one of: 'accuracy', 'gini', 'ce'.")
+        scores = self._sample_scores(source, config_id)
+        default_ylabel = {
+            "gini": "Cluster Stability (Gini)",
+            "ce": "Cluster Stability (CE)",
+            "accuracy": "Cluster Generalizability",
+        }[source]
 
         # --- Resolve labels mode and get labels ---
         labels_mode: Literal["default", "generalizability"]
@@ -2074,32 +2081,12 @@ class CARVE(BaseEstimator):
         df = self.estimator_results_
 
         # --- Resolve score source ---
-        if source == "gini":
-            if self.stability_gini_scores_ is None:
-                raise RuntimeError(
-                    "Gini stability scores are not available for this run."
-                )
-            scores = np.asarray(self.stability_gini_scores_[config_id], dtype=float)
-            scores_name = "Gini Stability"
-        elif source == "ce":
-            if self.stability_ce_scores_ is None:
-                raise RuntimeError(
-                    "CE stability scores are not available for this run."
-                )
-            scores = np.asarray(self.stability_ce_scores_[config_id], dtype=float)
-            scores_name = "CE Stability"
-        elif source == "accuracy":
-            if (
-                self.generalizability_scores_ is None
-                or self.generalizability_scores_[config_id] is None
-            ):
-                raise RuntimeError(
-                    "Generalizability scores are not available for this run."
-                )
-            scores = np.asarray(self.generalizability_scores_[config_id], dtype=float)
-            scores_name = "Generalizability"
-        else:
-            raise ValueError("source must be one of: 'accuracy', 'gini', 'ce'.")
+        scores = self._sample_scores(source, config_id)
+        scores_name = {
+            "gini": "Gini Stability",
+            "ce": "CE Stability",
+            "accuracy": "Generalizability",
+        }[source]
 
         # --- Resolve labels mode ---
         labels_mode: Literal["default", "generalizability"]
@@ -2306,32 +2293,12 @@ class CARVE(BaseEstimator):
         df = self.estimator_results_
 
         # --- Resolve score source ---
-        if source == "gini":
-            if self.stability_gini_scores_ is None:
-                raise RuntimeError(
-                    "Gini stability scores are not available for this run."
-                )
-            scores = np.asarray(self.stability_gini_scores_[config_id], dtype=float)
-            scores_name = "Gini Stability"
-        elif source == "ce":
-            if self.stability_ce_scores_ is None:
-                raise RuntimeError(
-                    "CE stability scores are not available for this run."
-                )
-            scores = np.asarray(self.stability_ce_scores_[config_id], dtype=float)
-            scores_name = "CE Stability"
-        elif source == "accuracy":
-            if (
-                self.generalizability_scores_ is None
-                or self.generalizability_scores_[config_id] is None
-            ):
-                raise RuntimeError(
-                    "Generalizability scores are not available for this run."
-                )
-            scores = np.asarray(self.generalizability_scores_[config_id], dtype=float)
-            scores_name = "Generalizability"
-        else:
-            raise ValueError("source must be one of: 'accuracy', 'gini', 'ce'.")
+        scores = self._sample_scores(source, config_id)
+        scores_name = {
+            "gini": "Gini Stability",
+            "ce": "CE Stability",
+            "accuracy": "Generalizability",
+        }[source]
 
         # --- Resolve labels mode ---
         labels_mode: Literal["default", "generalizability"]
