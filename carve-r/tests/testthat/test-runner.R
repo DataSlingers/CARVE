@@ -156,6 +156,54 @@ test_that("results do not depend on the parallel backend", {
   expect_identical(serial, forked)
 })
 
+test_that("what a worker receives does not grow with the configuration index", {
+  # A SnowParam serializes the function and its arguments for every
+  # resample. If the function's enclosure were run_validation's frame, every
+  # consensus matrix computed so far would travel with it.
+  local_mocked_bindings(resample_backend = function(...) {
+    function(X, FUN, ...) {
+      sizes <<- c(sizes, length(serialize(list(FUN, list(...)), NULL)))
+      lapply(X, FUN, ...)
+    }
+  })
+  # The first run lets R's just-in-time compiler compile the functions it
+  # calls, which changes their serialized size once. The second is measured.
+  for (run in 1:2) {
+    sizes <- numeric()
+    run_validation(blobs$X, list(estimator_grid(KMeans, n_clusters = 2:6)), 2L, 0.618,
+                   random_state = 0L, sweep = resolve_sweep(n_clusters = 2:6))
+  }
+  expect_length(sizes, 5L)
+  expect_identical(sizes, rep(sizes[[1L]], 5L))
+})
+
+test_that("the backend run_validation starts serves the whole run", {
+  skip_on_os("windows")
+  # Each resample reports the process it ran in. A backend started once has
+  # the same two workers for every configuration.
+  report_pid <- function(X, n_clusters = 2L) {
+    warning(sprintf("process %d", Sys.getpid()))
+    rep_len(seq_len(n_clusters), nrow(X))
+  }
+  out <- collect_warnings(run_validation(
+    blobs$X, list(estimator_grid(report_pid, n_clusters = 2:4)), 4L, 0.618,
+    n_jobs = 2L, random_state = 0L, sweep = resolve_sweep(n_clusters = 2:4)
+  ))
+  expect_lte(length(unique(out$warnings)), 2L)
+})
+
+test_that("a BPPARAM the caller started stays up, and one run_validation started is stopped", {
+  skip_on_os("windows")
+  started <- BiocParallel::MulticoreParam(2L)
+  BiocParallel::bpstart(started)
+  withr::defer(BiocParallel::bpstop(started))
+  run_validation(blobs$X, k_grid, 2L, 0.618, random_state = 0L, sweep = k_sweep, BPPARAM = started)
+  expect_true(BiocParallel::bpisup(started))
+  idle <- BiocParallel::MulticoreParam(2L)
+  run_validation(blobs$X, k_grid, 2L, 0.618, random_state = 0L, sweep = k_sweep, BPPARAM = idle)
+  expect_false(BiocParallel::bpisup(idle))
+})
+
 # The classifier stops on an unexpected thread count. An error, unlike a
 # value recorded into an environment, gets back from any backend.
 threads_must_be <- function(expected) {

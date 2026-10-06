@@ -101,18 +101,49 @@ validation_iter <- function(X, estimator, estimator_name, params, subsample_rati
   )
 }
 
-resample_backend <- function(outer, BPPARAM = NULL) {
-  if (is.null(BPPARAM) && outer == 1L) {
-    return(function(X, FUN) lapply(X, FUN))
+# One resample of one configuration. It is a namespace function, so a
+# worker receives these arguments and nothing else; a closure made inside
+# run_validation would carry that frame, with every consensus matrix
+# computed so far, to every worker. The data argument is not called X, which
+# would clash with the X of lapply and bplapply.
+run_resample <- function(b, data, estimator, estimator_name, params, subsample_ratio,
+                         n_resamples, classifier, n_trees, sweep_param, mode,
+                         random_state, classifier_threads) {
+  collect_warnings(validation_iter(
+    data, estimator, estimator_name, params,
+    subsample_ratio = subsample_ratio,
+    n_resamples = n_resamples,
+    seed = b,
+    classifier = classifier,
+    n_trees = n_trees,
+    sweep_param = sweep_param,
+    mode = mode,
+    random_state = random_state,
+    classifier_threads = classifier_threads
+  ))
+}
+
+# The BiocParallel backend for the resamples, or NULL to run them in this
+# process.
+resample_bpparam <- function(outer, BPPARAM = NULL) {
+  if (!is.null(BPPARAM)) {
+    return(BPPARAM)
   }
+  if (outer == 1L) {
+    return(NULL)
+  }
+  if (.Platform$OS.type == "windows") {
+    BiocParallel::SnowParam(workers = outer)
+  } else {
+    BiocParallel::MulticoreParam(workers = outer)
+  }
+}
+
+resample_backend <- function(BPPARAM = NULL) {
   if (is.null(BPPARAM)) {
-    BPPARAM <- if (.Platform$OS.type == "windows") {
-      BiocParallel::SnowParam(workers = outer)
-    } else {
-      BiocParallel::MulticoreParam(workers = outer)
-    }
+    return(function(X, FUN, ...) lapply(X, FUN, ...))
   }
-  function(X, FUN) BiocParallel::bplapply(X, FUN, BPPARAM = BPPARAM)
+  function(X, FUN, ...) BiocParallel::bplapply(X, FUN, ..., BPPARAM = BPPARAM)
 }
 
 summary_columns <- function(prefix, scores) {
@@ -150,7 +181,16 @@ run_validation <- function(X, estimator_grids, n_resamples, subsample_ratio, cla
     workers <- as.integer(BiocParallel::bpnworkers(BPPARAM))
     budget <- c(outer = workers, inner = max(1L, n_cores() %/% workers))
   }
-  apply_resamples <- resample_backend(budget[["outer"]], BPPARAM)
+  # The backend starts once for the whole run. Left to bplapply, a backend
+  # that is not running starts and stops for every configuration, and a
+  # SnowParam launches new R processes each time. A backend the caller
+  # already started stays up.
+  BPPARAM <- resample_bpparam(budget[["outer"]], BPPARAM)
+  if (!is.null(BPPARAM) && !BiocParallel::bpisup(BPPARAM)) {
+    BiocParallel::bpstart(BPPARAM)
+    on.exit(BiocParallel::bpstop(BPPARAM), add = TRUE)
+  }
+  apply_resamples <- resample_backend(BPPARAM)
 
   configs <- unlist(lapply(estimator_grids, function(g) {
     lapply(expand_param_grid(g$grid), function(params) list(grid = g, params = params))
@@ -174,20 +214,21 @@ run_validation <- function(X, estimator_grids, n_resamples, subsample_ratio, cla
   for (i in seq_len(total)) {
     g <- configs[[i]]$grid
     params <- configs[[i]]$params
-    outputs <- apply_resamples(seq_len(n_resamples) - 1L, function(b) {
-      collect_warnings(validation_iter(
-        X, g$estimator, g$name, params,
-        subsample_ratio = subsample_ratio,
-        n_resamples = n_resamples,
-        seed = b,
-        classifier = classifier,
-        n_trees = n_trees,
-        sweep_param = sweep@param,
-        mode = mode,
-        random_state = random_state,
-        classifier_threads = budget[["inner"]]
-      ))
-    })
+    outputs <- apply_resamples(
+      seq_len(n_resamples) - 1L, run_resample,
+      data = X,
+      estimator = g$estimator,
+      estimator_name = g$name,
+      params = params,
+      subsample_ratio = subsample_ratio,
+      n_resamples = n_resamples,
+      classifier = classifier,
+      n_trees = n_trees,
+      sweep_param = sweep@param,
+      mode = mode,
+      random_state = random_state,
+      classifier_threads = budget[["inner"]]
+    )
     for (text in unique(unlist(lapply(outputs, function(o) o$warnings)))) {
       warning(text, call. = FALSE)
     }
