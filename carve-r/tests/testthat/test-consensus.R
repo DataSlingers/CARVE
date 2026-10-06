@@ -43,3 +43,18 @@ test_that("perfect consensus scores 1 everywhere", {
 test_that("PAC is NaN when no pair was drawn together", {
   expect_true(is.nan(compute_consensus_pac(matrix(NaN, 3, 3))))
 })
+
+test_that("PAC uses tau and counts only values strictly between tau and 1 - tau", {
+  # Six off-diagonal pairs: 0.15, 0.85, 0.2, 0.8, 0.5 and 1.
+  # tau = 0.1: 0.15, 0.85, 0.2, 0.8 and 0.5 are ambiguous, 5 of 6, PAC = 1/6.
+  # tau = 0.2: only 0.5 is ambiguous; 0.2 and 0.8 sit on the bounds and are
+  # excluded by the strict inequalities, so PAC = 5/6.
+  M <- diag(4)
+  pairs <- list(c(1, 2, 0.15), c(1, 3, 0.85), c(1, 4, 0.2), c(2, 3, 0.8), c(2, 4, 0.5), c(3, 4, 1))
+  for (p in pairs) {
+    M[p[1], p[2]] <- p[3]
+    M[p[2], p[1]] <- p[3]
+  }
+  expect_equal(compute_consensus_pac(M, tau = 0.1), 1 / 6, tolerance = 1e-12)
+  expect_equal(compute_consensus_pac(M, tau = 0.2), 5 / 6, tolerance = 1e-12)
+})
