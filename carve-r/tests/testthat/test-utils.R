@@ -281,3 +281,23 @@ test_that("a custom classifier must return one label per test row", {
     fixed = TRUE
   )
 })
+
+test_that("the default classifier passes the forest settings to ranger", {
+  seen <- NULL
+  local_mocked_bindings(ranger_predict = function(x_train, y_train, x_test, n_trees,
+                                                  mtry, max_depth, seed, n_threads) {
+    seen <<- list(n_trees = n_trees, mtry = mtry, max_depth = max_depth,
+                  seed = seed, n_threads = n_threads)
+    rep(1L, nrow(x_test))
+  })
+  expected_mtry <- c("1" = 1L, "2" = 1L, "5" = 2L, "16" = 4L)
+  for (p in c(1L, 2L, 5L, 16L)) {
+    predict_fn <- default_generalizability_classifier(NULL, p, 37L, random_state = 11L, n_threads = 3L)
+    predict_fn(matrix(0, 2, p), c(1L, 2L), matrix(0, 2, p))
+    expect_identical(seen$mtry, expected_mtry[[as.character(p)]], info = p)
+    expect_identical(seen$max_depth, p, info = p)
+    expect_identical(seen$n_trees, 37L)
+    expect_identical(seen$seed, 11L)
+    expect_identical(seen$n_threads, 3L)
+  }
+})
