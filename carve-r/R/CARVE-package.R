@@ -8,5 +8,5 @@
 #'
 #' @keywords internal
 #' @importFrom methods new setClass setClassUnion setGeneric setMethod
-#'   setValidity show validObject
+#' @importFrom methods setValidity show validObject
 "_PACKAGE"
