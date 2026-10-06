@@ -48,6 +48,31 @@ test_that("the stability columns are the plain means of the per-sample scores", 
   expect_identical(results$consensus_ce_stability[3], mean(ce[["2"]]))
 })
 
+test_that("the stability summaries are joined to the results by config_id", {
+  real_run <- run_validation
+  local_mocked_bindings(run_validation = function(...) {
+    run <- real_run(...)
+    run$summaries <- rev(run$summaries)
+    run
+  })
+  fit <- small_fit_n(30)
+  results <- fit@estimator_results
+  keys <- as.character(results$config_id)
+  expect_identical(names(fit@stability_gini_scores), keys)
+  expect_identical(
+    results$consensus_pac_stability,
+    unname(vapply(keys, function(k) compute_consensus_pac(fit@consensus_matrices[[k]]), numeric(1)))
+  )
+  expect_identical(
+    results$consensus_gini_stability,
+    unname(vapply(keys, function(k) mean(fit@stability_gini_scores[[k]]), numeric(1)))
+  )
+  expect_identical(
+    results$consensus_ce_stability,
+    unname(vapply(keys, function(k) mean(fit@stability_ce_scores[[k]]), numeric(1)))
+  )
+})
+
 test_that("the light preset runs three estimators per k", {
   fit <- carve(blobs$X, n_clusters = 3, n_resamples = 2, random_state = 0)
   expect_identical(

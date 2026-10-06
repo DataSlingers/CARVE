@@ -171,12 +171,16 @@ fit_carve <- function(X, n_clusters, n_resamples, subsample_ratio, estimator_par
   )
 
   results <- run$records
+  # config_id is the join key between the table and the per-configuration
+  # lists.
+  keys <- as.character(results$config_id)
   gini <- NULL
   ce <- NULL
   if (policy$run_stability) {
-    gini <- lapply(run$summaries, function(s) s$gini)
-    ce <- lapply(run$summaries, function(s) s$ce)
-    results$consensus_pac_stability <- unname(vapply(run$summaries, function(s) s$pac, numeric(1)))
+    summaries <- run$summaries[keys]
+    gini <- lapply(summaries, function(s) s$gini)
+    ce <- lapply(summaries, function(s) s$ce)
+    results$consensus_pac_stability <- unname(vapply(summaries, function(s) s$pac, numeric(1)))
     # A plain mean, as in Python: one sample never drawn with a partner
     # makes the configuration's mean NaN.
     results$consensus_gini_stability <- unname(vapply(gini, mean, numeric(1)))
@@ -187,7 +191,7 @@ fit_carve <- function(X, n_clusters, n_resamples, subsample_ratio, estimator_par
     results$consensus_ce_stability <- NaN
   }
   results$accuracy_generalizability <- if (policy$run_generalizability) {
-    unname(vapply(run$generalizability_scores, mean, numeric(1)))
+    unname(vapply(run$generalizability_scores[keys], mean, numeric(1)))
   } else {
     NaN
   }
