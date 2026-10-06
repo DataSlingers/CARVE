@@ -920,6 +920,7 @@ class TestResolveCoreBudget:
             assert outer * inner <= 11
             assert inner >= 1
 
+
 # -----------------------------------------------------------------------
 # noise_mask
 # -----------------------------------------------------------------------
@@ -979,3 +980,12 @@ class TestNoiseMask:
     def test_all_nan_raises(self):
         with pytest.raises(ValueError, match="scores contains no finite value"):
             noise_mask(np.full(5, np.nan), quantile=0.05)
+
+    def test_margin_boundary_is_strict(self):
+        scores = np.array([1.0] * 96 + [0.95] * 2 + [0.5] * 2)
+        cut = noise_mask(scores, quantile=0.05)
+        # The cutoff lies above 0.95, so the margin decides. 1.0 - 0.05 is
+        # exactly 0.95 in float64; a <= comparison would also flag 96 and 97.
+        assert 1.0 - NOISE_MARGIN == 0.95
+        assert cut.cutoff > 0.95
+        np.testing.assert_array_equal(np.flatnonzero(cut.mask), [98, 99])

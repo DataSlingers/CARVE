@@ -888,6 +888,9 @@ class CARVE(BaseEstimator):
         labels : ndarray of shape (n_samples,)
             Clustering labels derived from the selected consensus matrix.
             With ``noise_labels=True``, ambiguous samples are ``-1``.
+            An ``estimator`` that itself labels samples ``-1``, such as
+            DBSCAN or HDBSCAN, also yields ``-1``, and the two cannot be
+            told apart.
 
         Raises
         ------

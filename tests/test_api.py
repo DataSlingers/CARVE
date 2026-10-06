@@ -2461,3 +2461,30 @@ class TestNoiseLabels:
         noisy = model.get_labels(k=2, noise_labels=True)
         assert noisy.shape == (60,)
         np.testing.assert_array_equal(np.flatnonzero(noisy == -1), low)
+
+    def test_nan_scores_are_noise_and_left_out_of_the_warning(self, fitted_identity_single):
+        cid = _config_id(fitted_identity_single, k=3)
+        scores = np.ones(90)
+        scores[[3, 41, 84]] = 0.5
+        scores[[10, 25, 35, 50, 65, 80]] = 0.9
+        scores[[20, 60]] = np.nan
+        model = _with_scores(fitted_identity_single, "gini", cid, scores)
+        message = (
+            "noise_quantile=0.05 asks for about 5 of 88 samples by gini; 3 were "
+            "flagged. Samples tied at the cutoff (0.900) or within 0.05 of the "
+            "median (1.000) stay labeled."
+        )
+        with pytest.warns(UserWarning, match=re.escape(message)):
+            noisy = model.get_labels(k=3, noise_labels=True)
+        np.testing.assert_array_equal(np.flatnonzero(noisy == -1), [3, 20, 41, 60, 84])
+
+    def test_int32_estimator_keeps_noise_out_of_the_reference(self, fitted_identity_single):
+        cid = _config_id(fitted_identity_single, k=3)
+        model = _with_scores(
+            fitted_identity_single, "gini", cid, _known_scores(90, NOISE_LOW)
+        )
+        estimator = KMeans(n_clusters=3, n_init=10, random_state=0)
+        noisy = model.get_labels(k=3, noise_labels=True, estimator=estimator)
+        assert model.reference_labels.dtype == np.int32  # non-vacuity: no dtype copy
+        np.testing.assert_array_equal(np.flatnonzero(noisy == -1), NOISE_LOW)
+        assert not (model.reference_labels == -1).any()
