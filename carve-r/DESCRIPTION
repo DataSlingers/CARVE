@@ -34,3 +34,9 @@ Roxygen: list(markdown = TRUE)
 URL: https://github.com/DataSlingers/CARVE
 BugReports: https://github.com/DataSlingers/CARVE/issues
 Config/roxygen2/version: 8.0.0
+Collate: 
+    'AllClasses.R'
+    'CARVE-package.R'
+    'sweep.R'
+    'types.R'
+    'utils.R'

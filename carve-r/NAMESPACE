@@ -2,6 +2,8 @@
 
 S3method(print,carve_estimator_grid)
 export(estimator_grid)
+exportClasses(SweepSpec)
+exportMethods(show)
 importFrom(methods,new)
 importFrom(methods,setClass)
 importFrom(methods,setClassUnion)
