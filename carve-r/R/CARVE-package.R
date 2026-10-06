@@ -7,5 +7,6 @@
 #' with a selection rule.
 #'
 #' @keywords internal
-#' @importFrom methods new setClass setClassUnion setGeneric setMethod setValidity show standardGeneric validObject
+#' @importFrom methods new setClass setClassUnion setGeneric setMethod
+#'   setValidity show validObject
 "_PACKAGE"
