@@ -1,0 +1,666 @@
+{
+ "table": {
+  "config_id": [
+   3,
+   8,
+   4,
+   9,
+   2,
+   6,
+   0,
+   1,
+   5,
+   7
+  ],
+  "method_id": [
+   "m0",
+   "m1",
+   "m0",
+   "m1",
+   "m0",
+   "m1",
+   "m0",
+   "m0",
+   "m1",
+   "m1"
+  ],
+  "method_label": [
+   "KMeans",
+   "AgglomerativeClustering",
+   "KMeans",
+   "AgglomerativeClustering",
+   "KMeans",
+   "AgglomerativeClustering",
+   "KMeans",
+   "KMeans",
+   "AgglomerativeClustering",
+   "AgglomerativeClustering"
+  ],
+  "estimator": [
+   "KMeans",
+   "AgglomerativeClustering",
+   "KMeans",
+   "AgglomerativeClustering",
+   "KMeans",
+   "AgglomerativeClustering",
+   "KMeans",
+   "KMeans",
+   "AgglomerativeClustering",
+   "AgglomerativeClustering"
+  ],
+  "n_clusters": [
+   5,
+   5,
+   6,
+   6,
+   4,
+   3,
+   2,
+   3,
+   2,
+   4
+  ],
+  "sweep_param": [
+   "n_clusters",
+   "n_clusters",
+   "n_clusters",
+   "n_clusters",
+   "n_clusters",
+   "n_clusters",
+   "n_clusters",
+   "n_clusters",
+   "n_clusters",
+   "n_clusters"
+  ],
+  "sweep_value": [
+   5,
+   5,
+   6,
+   6,
+   4,
+   3,
+   2,
+   3,
+   2,
+   4
+  ],
+  "sweep_rank": [
+   3,
+   3,
+   4,
+   4,
+   2,
+   1,
+   0,
+   1,
+   0,
+   2
+  ],
+  "n_clusters_observed": [
+   5.0,
+   5.0,
+   6.0,
+   6.0,
+   4.0,
+   3.0,
+   2.0,
+   3.0,
+   2.0,
+   4.0
+  ],
+  "n_clusters_observed_se": [
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "noise_fraction": [
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "ari_stability": [
+   0.8974189181131538,
+   0.691606652770029,
+   0.9223778870490255,
+   0.9261458981424683,
+   0.8311750235997631,
+   0.7941581013627812,
+   0.6299772085002685,
+   0.699470407312077,
+   0.6443642429014068,
+   0.7220980520030448
+  ],
+  "ari_stability_se": [
+   0.022726729968455085,
+   0.030719821240518377,
+   0.014259877170305848,
+   0.01597534219953657,
+   0.04691587346336096,
+   0.013916737112608985,
+   0.01565647279682449,
+   0.03418462431859213,
+   0.018354099577525228,
+   0.02066088809112153
+  ],
+  "ari_stability_upper": [
+   0.940996792759013,
+   0.7238586673688936,
+   0.9919409657704411,
+   0.9464403996627947,
+   0.8556784053654333,
+   0.8388212187702594,
+   0.6960664210647163,
+   0.7582055270789879,
+   0.6888635314261101,
+   0.7657516419242255
+  ],
+  "ari_stability_lower": [
+   0.8771754982300799,
+   0.6383006945659433,
+   0.9005487752561294,
+   0.8965533073401933,
+   0.7770687096147891,
+   0.7753794382776135,
+   0.5792258659757628,
+   0.6689799548812029,
+   0.5749020141181392,
+   0.7055676043904459
+  ],
+  "ari_generalizability": [
+   0.8444492207314827,
+   0.803845785595115,
+   0.9375252023129979,
+   0.718903532071986,
+   0.7043570817300986,
+   0.7682614506741225,
+   0.6329450247841397,
+   0.6005215292280927,
+   0.9378309972930814,
+   0.791361592781
+  ],
+  "ari_generalizability_se": [
+   0.0181390377194533,
+   0.00969795384718871,
+   0.03306617276477683,
+   0.015130219669671272,
+   0.03837905060311987,
+   0.02913102165064152,
+   0.024490712310641323,
+   0.04880571236448858,
+   0.03686651468092588,
+   0.04646423579152018
+  ],
+  "ari_generalizability_upper": [
+   0.9154289612170339,
+   0.8448150212042509,
+   0.9900070674736989,
+   0.7664456836464599,
+   0.7649086183000469,
+   0.8324487878158449,
+   0.6764786156539981,
+   0.6314096148392739,
+   0.9627891026532198,
+   0.8407661373225817
+  ],
+  "ari_generalizability_lower": [
+   0.8151730143451172,
+   0.7665559444164997,
+   0.8595860888937141,
+   0.643318162875247,
+   0.6790470020102822,
+   0.7307049151645295,
+   0.6117633007595442,
+   0.568542509085689,
+   0.8896822095910211,
+   0.7292878782664618
+  ],
+  "ari_average": [
+   0.7966334015558114,
+   0.8473283438851346,
+   0.8754614498260698,
+   0.6441065980302887,
+   0.8904604059960093,
+   0.6068601464930633,
+   0.857102002993225,
+   0.912098874655805,
+   0.8470856650454104,
+   0.931499232107987
+  ],
+  "ari_average_se": [
+   0.022984529950870376,
+   0.00896597797146736,
+   0.04054628642398495,
+   0.02368240757975091,
+   0.03459434948929595,
+   0.028748746994607652,
+   0.010115240896463155,
+   0.031332332295090866,
+   0.007334713747698132,
+   0.04289519241945114
+  ],
+  "ari_average_upper": [
+   0.8495370659889822,
+   0.8691554159573344,
+   0.8892480128770374,
+   0.7008776189026666,
+   0.9482563295462338,
+   0.6312264209645695,
+   0.8944879763279214,
+   0.9550905512185331,
+   0.9046775567510954,
+   0.9935796761608607
+  ],
+  "ari_average_lower": [
+   0.7728686547717627,
+   0.8014465219682502,
+   0.8396114083994604,
+   0.57217654925631,
+   0.8230551034840718,
+   0.5449721198694575,
+   0.8109301902097296,
+   0.8479694839803879,
+   0.8113059365856747,
+   0.8645777703643678
+  ],
+  "consensus_pac_stability": [
+   0.5901437704215475,
+   0.7022968644239078,
+   0.542447386082734,
+   0.9999015141425991,
+   0.7142864521492309,
+   0.6943486152083684,
+   0.715314010207089,
+   0.5151730038312357,
+   0.7948501433896041,
+   0.9100695208134784
+  ],
+  "consensus_gini_stability": [
+   0.873430192824919,
+   0.8326733400908597,
+   0.5967637907327572,
+   0.5718184731738427,
+   0.8793527305774596,
+   0.6902365820664011,
+   0.7933992857190704,
+   0.8534825478278117,
+   0.8347666405708325,
+   0.6268775973810166
+  ],
+  "consensus_ce_stability": [
+   0.8761117091846387,
+   0.6664283438779252,
+   0.6069334953460737,
+   0.768648862213658,
+   0.939240092333127,
+   0.9547272898846485,
+   0.8689188936460801,
+   0.6871219167392354,
+   0.834563748072968,
+   0.7409815235941912
+  ],
+  "accuracy_generalizability": [
+   0.7834889372264562,
+   0.598609384172498,
+   0.9293209660829522,
+   0.9406002643627459,
+   0.5511599609610371,
+   0.6964852219776045,
+   0.9781336274180492,
+   0.5454263567521289,
+   0.7615248877629281,
+   0.6713583753292576
+  ]
+ },
+ "expected": [
+  {
+   "measure": "stability",
+   "rule": "max",
+   "not_two": false,
+   "config_id": 9,
+   "k": 6,
+   "warning": null
+  },
+  {
+   "measure": "stability",
+   "rule": "max",
+   "not_two": true,
+   "config_id": 9,
+   "k": 6,
+   "warning": null
+  },
+  {
+   "measure": "stability",
+   "rule": "1se",
+   "not_two": false,
+   "config_id": 4,
+   "k": 6,
+   "warning": null
+  },
+  {
+   "measure": "stability",
+   "rule": "1se",
+   "not_two": true,
+   "config_id": 4,
+   "k": 6,
+   "warning": null
+  },
+  {
+   "measure": "stability",
+   "rule": "quantile",
+   "not_two": false,
+   "config_id": 4,
+   "k": 6,
+   "warning": null
+  },
+  {
+   "measure": "stability",
+   "rule": "quantile",
+   "not_two": true,
+   "config_id": 4,
+   "k": 6,
+   "warning": null
+  },
+  {
+   "measure": "generalizability",
+   "rule": "max",
+   "not_two": false,
+   "config_id": 5,
+   "k": 2,
+   "warning": null
+  },
+  {
+   "measure": "generalizability",
+   "rule": "max",
+   "not_two": true,
+   "config_id": 4,
+   "k": 6,
+   "warning": null
+  },
+  {
+   "measure": "generalizability",
+   "rule": "1se",
+   "not_two": false,
+   "config_id": 4,
+   "k": 6,
+   "warning": null
+  },
+  {
+   "measure": "generalizability",
+   "rule": "1se",
+   "not_two": true,
+   "config_id": 4,
+   "k": 6,
+   "warning": null
+  },
+  {
+   "measure": "generalizability",
+   "rule": "quantile",
+   "not_two": false,
+   "config_id": 4,
+   "k": 6,
+   "warning": null
+  },
+  {
+   "measure": "generalizability",
+   "rule": "quantile",
+   "not_two": true,
+   "config_id": 4,
+   "k": 6,
+   "warning": null
+  },
+  {
+   "measure": "average",
+   "rule": "max",
+   "not_two": false,
+   "config_id": 7,
+   "k": 4,
+   "warning": null
+  },
+  {
+   "measure": "average",
+   "rule": "max",
+   "not_two": true,
+   "config_id": 7,
+   "k": 4,
+   "warning": null
+  },
+  {
+   "measure": "average",
+   "rule": "1se",
+   "not_two": false,
+   "config_id": 2,
+   "k": 4,
+   "warning": null
+  },
+  {
+   "measure": "average",
+   "rule": "1se",
+   "not_two": true,
+   "config_id": 2,
+   "k": 4,
+   "warning": null
+  },
+  {
+   "measure": "average",
+   "rule": "quantile",
+   "not_two": false,
+   "config_id": 4,
+   "k": 6,
+   "warning": null
+  },
+  {
+   "measure": "average",
+   "rule": "quantile",
+   "not_two": true,
+   "config_id": 4,
+   "k": 6,
+   "warning": null
+  },
+  {
+   "measure": "pac",
+   "rule": "max",
+   "not_two": false,
+   "config_id": 9,
+   "k": 6,
+   "warning": null
+  },
+  {
+   "measure": "pac",
+   "rule": "max",
+   "not_two": true,
+   "config_id": 9,
+   "k": 6,
+   "warning": null
+  },
+  {
+   "measure": "pac",
+   "rule": "1se",
+   "not_two": false,
+   "config_id": 9,
+   "k": 6,
+   "warning": "Column 'consensus_pac_stability_se' not found; falling back to 'max' rule."
+  },
+  {
+   "measure": "pac",
+   "rule": "1se",
+   "not_two": true,
+   "config_id": 9,
+   "k": 6,
+   "warning": "Column 'consensus_pac_stability_se' not found; falling back to 'max' rule."
+  },
+  {
+   "measure": "pac",
+   "rule": "quantile",
+   "not_two": false,
+   "config_id": 9,
+   "k": 6,
+   "warning": "Column 'consensus_pac_stability_upper' not found; falling back to 'max' rule."
+  },
+  {
+   "measure": "pac",
+   "rule": "quantile",
+   "not_two": true,
+   "config_id": 9,
+   "k": 6,
+   "warning": "Column 'consensus_pac_stability_upper' not found; falling back to 'max' rule."
+  },
+  {
+   "measure": "gini",
+   "rule": "max",
+   "not_two": false,
+   "config_id": 2,
+   "k": 4,
+   "warning": null
+  },
+  {
+   "measure": "gini",
+   "rule": "max",
+   "not_two": true,
+   "config_id": 2,
+   "k": 4,
+   "warning": null
+  },
+  {
+   "measure": "gini",
+   "rule": "1se",
+   "not_two": false,
+   "config_id": 2,
+   "k": 4,
+   "warning": "Column 'consensus_gini_stability_se' not found; falling back to 'max' rule."
+  },
+  {
+   "measure": "gini",
+   "rule": "1se",
+   "not_two": true,
+   "config_id": 2,
+   "k": 4,
+   "warning": "Column 'consensus_gini_stability_se' not found; falling back to 'max' rule."
+  },
+  {
+   "measure": "gini",
+   "rule": "quantile",
+   "not_two": false,
+   "config_id": 2,
+   "k": 4,
+   "warning": "Column 'consensus_gini_stability_upper' not found; falling back to 'max' rule."
+  },
+  {
+   "measure": "gini",
+   "rule": "quantile",
+   "not_two": true,
+   "config_id": 2,
+   "k": 4,
+   "warning": "Column 'consensus_gini_stability_upper' not found; falling back to 'max' rule."
+  },
+  {
+   "measure": "ce",
+   "rule": "max",
+   "not_two": false,
+   "config_id": 6,
+   "k": 3,
+   "warning": null
+  },
+  {
+   "measure": "ce",
+   "rule": "max",
+   "not_two": true,
+   "config_id": 6,
+   "k": 3,
+   "warning": null
+  },
+  {
+   "measure": "ce",
+   "rule": "1se",
+   "not_two": false,
+   "config_id": 6,
+   "k": 3,
+   "warning": "Column 'consensus_ce_stability_se' not found; falling back to 'max' rule."
+  },
+  {
+   "measure": "ce",
+   "rule": "1se",
+   "not_two": true,
+   "config_id": 6,
+   "k": 3,
+   "warning": "Column 'consensus_ce_stability_se' not found; falling back to 'max' rule."
+  },
+  {
+   "measure": "ce",
+   "rule": "quantile",
+   "not_two": false,
+   "config_id": 6,
+   "k": 3,
+   "warning": "Column 'consensus_ce_stability_upper' not found; falling back to 'max' rule."
+  },
+  {
+   "measure": "ce",
+   "rule": "quantile",
+   "not_two": true,
+   "config_id": 6,
+   "k": 3,
+   "warning": "Column 'consensus_ce_stability_upper' not found; falling back to 'max' rule."
+  },
+  {
+   "measure": "accuracy",
+   "rule": "max",
+   "not_two": false,
+   "config_id": 0,
+   "k": 2,
+   "warning": null
+  },
+  {
+   "measure": "accuracy",
+   "rule": "max",
+   "not_two": true,
+   "config_id": 9,
+   "k": 6,
+   "warning": null
+  },
+  {
+   "measure": "accuracy",
+   "rule": "1se",
+   "not_two": false,
+   "config_id": 0,
+   "k": 2,
+   "warning": "Column 'accuracy_generalizability_se' not found; falling back to 'max' rule."
+  },
+  {
+   "measure": "accuracy",
+   "rule": "1se",
+   "not_two": true,
+   "config_id": 9,
+   "k": 6,
+   "warning": "Column 'accuracy_generalizability_se' not found; falling back to 'max' rule."
+  },
+  {
+   "measure": "accuracy",
+   "rule": "quantile",
+   "not_two": false,
+   "config_id": 0,
+   "k": 2,
+   "warning": "Column 'accuracy_generalizability_upper' not found; falling back to 'max' rule."
+  },
+  {
+   "measure": "accuracy",
+   "rule": "quantile",
+   "not_two": true,
+   "config_id": 9,
+   "k": 6,
+   "warning": "Column 'accuracy_generalizability_upper' not found; falling back to 'max' rule."
+  }
+ ]
+}
