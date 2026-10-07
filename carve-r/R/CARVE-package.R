@@ -9,4 +9,5 @@
 #' @keywords internal
 #' @importFrom methods new setClass setClassUnion setGeneric setMethod
 #' @importFrom methods setValidity show validObject
+#' @importFrom ggplot2 .data
 "_PACKAGE"

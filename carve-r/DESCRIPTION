@@ -17,6 +17,7 @@ Imports:
     BiocParallel,
     clue,
     FNN,
+    ggplot2 (>= 3.5.0),
     igraph,
     irlba,
     Matrix,
@@ -25,6 +26,7 @@ Imports:
     ranger,
     RSpectra,
     Rtsne,
+    scales,
     stats,
     utils,
     withr (>= 2.4.2)
@@ -51,6 +53,7 @@ Collate:
     'grids.R'
     'output.R'
     'pipeline.R'
+    'plotting.R'
     'runner.R'
     'selection.R'
     'sweep.R'
