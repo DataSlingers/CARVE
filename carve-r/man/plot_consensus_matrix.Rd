@@ -85,8 +85,8 @@ For a fit, the plot selects a configuration with \code{measure}, \code{rule},
 \code{not_two}, \code{k} and \code{sweep_value}, as \code{\link[=get_labels]{get_labels()}} does, and colors the
 band with the labels of the cut at the selected number of clusters. On an
 anchored run it draws the block over the anchors, with the anchors'
-labels; a matrix over every sample would be too large to draw at the
-sizes where anchoring applies.
+labels, because an anchored run computes the consensus only among the
+anchors and never builds the matrix over every sample.
 
 For a SingleCellExperiment or a Seurat object, the plot draws the matrix
 stored under \code{key} with the stored labels. \code{\link[=run_carve]{run_carve()}} and

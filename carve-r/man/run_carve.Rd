@@ -49,8 +49,11 @@ attach_results(
 \item{...}{Arguments of \code{\link[=carve]{carve()}}, such as \code{n_clusters}, \code{resolution} or
 \code{n_resamples}.}
 
-\item{assay, reduction, n_dims}{Which data to cluster; see \code{\link[=carve]{carve()}}. They
-are recorded, so the scatter plots can find the same data.}
+\item{assay, reduction, n_dims}{For \code{run_carve()}, which data to cluster;
+see \code{\link[=carve]{carve()}}. For \code{attach_results()}, which data \code{fit} clustered: the
+call does not read that data or check it against the fit. Both
+functions record the three values, so the scatter plots can find the
+same data.}
 
 \item{key}{Name of the label column and of the record, and prefix of the
 score columns.}
@@ -68,9 +71,15 @@ labels, which the stored labels are renamed to match; see
 
 \item{mode}{The \code{mode} of \code{\link[=carve]{carve()}}. For \code{attach_results()}, the mode the
 fit was run with: under \code{"generalizability"} the labels and the stored
-matrix come from the consensus of the held-out predictions.}
+matrix come from the consensus of the held-out predictions.
+\code{mode = "generalizability"} computes no stability criterion, so pass
+\code{measure = "generalizability"} or \code{measure = "accuracy"} with it. With
+the default measure, \code{run_carve()} runs the whole fit and then fails
+when it selects a configuration.}
 
-\item{random_state}{Seed of the run.}
+\item{random_state}{Seed of the run. The default is 0, as in Python's
+\code{tl.carve}, which follows scanpy's convention. \code{\link[=carve]{carve()}} defaults to
+\code{NULL} instead and reads it as 0, so both defaults give the same seeds.}
 
 \item{fit}{A \link[=CARVE-class]{CARVE} fit on the cells of \code{object}, in the same
 order.}

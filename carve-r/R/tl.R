@@ -174,8 +174,11 @@ record_params <- function(fit, selected, measure, rule, not_two, consensus_k, as
 #' @param object A SingleCellExperiment or a Seurat object.
 #' @param ... Arguments of [carve()], such as `n_clusters`, `resolution` or
 #'   `n_resamples`.
-#' @param assay,reduction,n_dims Which data to cluster; see [carve()]. They
-#'   are recorded, so the scatter plots can find the same data.
+#' @param assay,reduction,n_dims For `run_carve()`, which data to cluster;
+#'   see [carve()]. For `attach_results()`, which data `fit` clustered: the
+#'   call does not read that data or check it against the fit. Both
+#'   functions record the three values, so the scatter plots can find the
+#'   same data.
 #' @param key Name of the label column and of the record, and prefix of the
 #'   score columns.
 #' @param measure,rule,not_two,k,sweep_value,consensus_k Which configuration
@@ -188,7 +191,13 @@ record_params <- function(fit, selected, measure, rule, not_two, consensus_k, as
 #' @param mode The `mode` of [carve()]. For `attach_results()`, the mode the
 #'   fit was run with: under `"generalizability"` the labels and the stored
 #'   matrix come from the consensus of the held-out predictions.
-#' @param random_state Seed of the run.
+#'   `mode = "generalizability"` computes no stability criterion, so pass
+#'   `measure = "generalizability"` or `measure = "accuracy"` with it. With
+#'   the default measure, `run_carve()` runs the whole fit and then fails
+#'   when it selects a configuration.
+#' @param random_state Seed of the run. The default is 0, as in Python's
+#'   `tl.carve`, which follows scanpy's convention. [carve()] defaults to
+#'   `NULL` instead and reads it as 0, so both defaults give the same seeds.
 #' @param fit A [CARVE-class] fit on the cells of `object`, in the same
 #'   order.
 #' @return The object, with the results added.

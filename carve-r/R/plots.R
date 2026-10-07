@@ -207,8 +207,9 @@ setMethod("plot_metric_over_n_clusters", "ANY", function(object, ...) {
 #' [preprocessing_results()] for one configuration, one line per pipeline,
 #' with error bars of one standard error over the resamples each pipeline
 #' received. The dashed line marks the value CARVE selects from
-#' [estimator_results()], which pools the pipelines, and each line crosses it
-#' at that pipeline's score for the selected configuration. For a
+#' [estimator_results()], which pools the pipelines. Each pipeline's line
+#' crosses the dashed line at that pipeline's score for the selected
+#' configuration. For a
 #' `method_id` that CARVE did not select, the dashed line marks the value
 #' `rule` picks among that configuration's rows.
 #'
@@ -406,8 +407,8 @@ setMethod("plot_n_clusters_over_sweep", "ANY", function(object, ...) {
 #' `not_two`, `k` and `sweep_value`, as [get_labels()] does, and colors the
 #' band with the labels of the cut at the selected number of clusters. On an
 #' anchored run it draws the block over the anchors, with the anchors'
-#' labels; a matrix over every sample would be too large to draw at the
-#' sizes where anchoring applies.
+#' labels, because an anchored run computes the consensus only among the
+#' anchors and never builds the matrix over every sample.
 #'
 #' For a SingleCellExperiment or a Seurat object, the plot draws the matrix
 #' stored under `key` with the stored labels. [run_carve()] and

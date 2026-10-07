@@ -90,8 +90,9 @@ For a run with \code{randomize_preprocessing = TRUE}: draws the rows of
 \code{\link[=preprocessing_results]{preprocessing_results()}} for one configuration, one line per pipeline,
 with error bars of one standard error over the resamples each pipeline
 received. The dashed line marks the value CARVE selects from
-\code{\link[=estimator_results]{estimator_results()}}, which pools the pipelines, and each line crosses it
-at that pipeline's score for the selected configuration. For a
+\code{\link[=estimator_results]{estimator_results()}}, which pools the pipelines. Each pipeline's line
+crosses the dashed line at that pipeline's score for the selected
+configuration. For a
 \code{method_id} that CARVE did not select, the dashed line marks the value
 \code{rule} picks among that configuration's rows.
 }
