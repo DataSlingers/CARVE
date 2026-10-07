@@ -494,3 +494,38 @@ largest_probability_class <- function(probabilities) {
   probabilities <- probabilities[, ordered, drop = FALSE]
   classes[ordered][max.col(probabilities, ties.method = "first")]
 }
+
+# The anchors of a run, sorted, or NULL when the exact path applies. With
+# consensus_anchors = NULL there are min(n_samples, anchor_threshold)
+# anchors, so the anchor count does not jump as n crosses the threshold. A
+# value in (0, 1] is a share of the samples and a whole number above 1 a
+# count. Python tells the two apart by type; R numbers are doubles.
+resolve_anchors <- function(n_samples, consensus_anchors, anchor_threshold, random_state) {
+  if (is.null(consensus_anchors)) {
+    m <- min(n_samples, anchor_threshold)
+  } else {
+    valid <- is.numeric(consensus_anchors) && length(consensus_anchors) == 1L &&
+      !is.na(consensus_anchors)
+    if (valid && consensus_anchors > 1 && consensus_anchors == round(consensus_anchors)) {
+      m <- consensus_anchors
+    } else if (valid && consensus_anchors > 0 && consensus_anchors <= 1) {
+      m <- round(consensus_anchors * n_samples)
+    } else {
+      stop(sprintf(
+        "consensus_anchors given as a fraction must be in (0, 1], got %s.",
+        format_repr(consensus_anchors)
+      ), call. = FALSE)
+    }
+  }
+  # The exact path comes first: a run this small is exact, not misconfigured.
+  if (m >= n_samples) {
+    return(NULL)
+  }
+  if (m < 2) {
+    stop(sprintf(
+      "The consensus anchor count must be at least 2, got %d. It comes from consensus_anchors=%s when that is set, and otherwise from min(n_samples, anchor_threshold=%s).",
+      as.integer(m), format_repr(consensus_anchors), format_param_value(anchor_threshold)
+    ), call. = FALSE)
+  }
+  sort(seeded(random_state, sample.int(n_samples, m), kind = "L'Ecuyer-CMRG"))
+}

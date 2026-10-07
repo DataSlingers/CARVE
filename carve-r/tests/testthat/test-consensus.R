@@ -58,3 +58,84 @@ test_that("PAC uses tau and counts only values strictly between tau and 1 - tau"
   expect_equal(compute_consensus_pac(M, tau = 0.1), 1 / 6, tolerance = 1e-12)
   expect_equal(compute_consensus_pac(M, tau = 0.2), 5 / 6, tolerance = 1e-12)
 })
+
+anchored_fixture <- function() {
+  f <- read_fixture("anchored")
+  list(
+    n = as.integer(f$n),
+    runs = lapply(f$runs, function(r) {
+      list(indices = as.integer(r$indices) + 1L, labels = as.integer(r$labels))
+    }),
+    anchors = as.integer(f$anchors) + 1L,
+    block = fixture_matrix(f$block),
+    gini = fixture_vector(f$gini),
+    ce = fixture_vector(f$ce)
+  )
+}
+
+test_that("the anchor block matches Python", {
+  f <- anchored_fixture()
+  expect_equal(nan_to_na(consensus_anchor_block(f$n, f$runs, f$anchors)), f$block, tolerance = 1e-6)
+})
+
+test_that("the anchor block is the exact matrix restricted to the anchors", {
+  f <- anchored_fixture()
+  full <- compute_consensus_matrix(f$n, f$runs)
+  expect_equal(consensus_anchor_block(f$n, f$runs, f$anchors), full[f$anchors, f$anchors], tolerance = 1e-12)
+})
+
+test_that("anchored stability matches Python with and without chunks", {
+  f <- anchored_fixture()
+  for (chunk in list(NULL, 4L)) {
+    scores <- stability_from_runs_anchored(f$n, f$runs, f$anchors, chunk_size = chunk)
+    expect_equal(nan_to_na(scores$gini), f$gini, tolerance = 1e-6)
+    expect_equal(nan_to_na(scores$ce), f$ce, tolerance = 1e-6)
+  }
+})
+
+test_that("with every sample an anchor, anchored stability equals the exact scores", {
+  f <- anchored_fixture()
+  exact <- stability_from_consensus(compute_consensus_matrix(f$n, f$runs))
+  anchored <- stability_from_runs_anchored(f$n, f$runs, seq_len(f$n), chunk_size = 4L)
+  expect_equal(anchored, exact, tolerance = 1e-12)
+})
+
+test_that("the chunk size does not change the scores", {
+  f <- anchored_fixture()
+  one <- stability_from_runs_anchored(f$n, f$runs, f$anchors, chunk_size = 1L)
+  for (chunk in c(3L, 100L)) {
+    expect_equal(stability_from_runs_anchored(f$n, f$runs, f$anchors, chunk_size = chunk), one, tolerance = 1e-12)
+  }
+})
+
+test_that("unsorted run indices give the same scores as sorted ones", {
+  f <- anchored_fixture()
+  sorted <- lapply(f$runs, function(r) {
+    o <- order(r$indices)
+    list(indices = r$indices[o], labels = r$labels[o])
+  })
+  expect_equal(
+    stability_from_runs_anchored(f$n, sorted, f$anchors),
+    stability_from_runs_anchored(f$n, f$runs, f$anchors),
+    tolerance = 1e-12
+  )
+})
+
+test_that("a sample never drawn with an anchor scores NaN without a warning", {
+  f <- anchored_fixture()
+  expect_no_warning(scores <- stability_from_runs_anchored(f$n, f$runs, f$anchors))
+  expect_true(is.nan(scores$gini[15]))
+  expect_true(is.nan(scores$ce[15]))
+})
+
+test_that("a run without stability runs gets an all-NaN block", {
+  block <- consensus_anchor_block(10L, list(), c(2L, 5L))
+  expect_true(all(is.nan(block)))
+  expect_identical(dim(block), c(2L, 2L))
+})
+
+test_that("the default chunk size keeps a chunk near 2^23 entries", {
+  expect_identical(default_anchor_chunk_size(1000L), 8192L)
+  expect_identical(default_anchor_chunk_size(5000L), 1677L)
+  expect_identical(default_anchor_chunk_size(100000L), 256L)
+})

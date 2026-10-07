@@ -516,3 +516,59 @@ test_that("a keep that selects nothing leaves the labels as they are", {
     c(2L, 1L, 2L)
   )
 })
+
+test_that("runs at or below the anchor threshold take the exact path", {
+  expect_null(resolve_anchors(100L, NULL, 100, 0L))
+  expect_null(resolve_anchors(100L, NULL, 5000, 0L))
+  # One sample resolves to one anchor, which is the exact path, not an error.
+  expect_null(resolve_anchors(1L, NULL, 5000, 0L))
+})
+
+test_that("above the threshold the anchor count is the threshold", {
+  anchors <- resolve_anchors(200L, NULL, 50, 0L)
+  expect_true(is.integer(anchors))
+  expect_length(anchors, 50L)
+  expect_false(is.unsorted(anchors, strictly = TRUE))
+  expect_true(all(anchors >= 1L & anchors <= 200L))
+})
+
+test_that("consensus_anchors is a count above 1 and a share up to 1", {
+  expect_length(resolve_anchors(100L, 30, 1000, 0L), 30L)
+  expect_length(resolve_anchors(100L, 0.25, 1000, 0L), 25L)
+  expect_null(resolve_anchors(100L, 1, 1000, 0L))
+  expect_null(resolve_anchors(100L, 500, 1000, 0L))
+})
+
+test_that("the anchors depend on random_state", {
+  expect_identical(resolve_anchors(500L, NULL, 50, 3L), resolve_anchors(500L, NULL, 50, 3L))
+  expect_false(identical(resolve_anchors(500L, NULL, 50, 3L), resolve_anchors(500L, NULL, 50, 4L)))
+})
+
+test_that("the anchors are not the start of resample 0's first subsample", {
+  anchors <- resolve_anchors(1000L, NULL, 100, 0L)
+  first <- split_subsample_indices(1000L, 0.618, 0L)$train
+  expect_false(all(anchors %in% first))
+})
+
+test_that("an invalid consensus_anchors value is an error", {
+  for (value in list(0, -3, 2.5, "a", c(10, 20), NA_real_)) {
+    expect_error(
+      resolve_anchors(100L, value, 1000, 0L),
+      "consensus_anchors given as a fraction must be in (0, 1], got",
+      fixed = TRUE
+    )
+  }
+})
+
+test_that("too few anchors name the setting they came from", {
+  expect_error(
+    resolve_anchors(100L, NULL, 1, 0L),
+    "The consensus anchor count must be at least 2, got 1. It comes from consensus_anchors=None when that is set, and otherwise from min(n_samples, anchor_threshold=1).",
+    fixed = TRUE
+  )
+  expect_error(
+    resolve_anchors(100L, 0.01, 1000, 0L),
+    "got 1. It comes from consensus_anchors=0.01 when that is set",
+    fixed = TRUE
+  )
+})
