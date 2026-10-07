@@ -570,10 +570,17 @@ test_that("each resample's task carries that resample's embeddings", {
   # The first call is the embedding pass; the configuration calls follow.
   tasks <- seen[[2L]]
   expect_identical(vapply(tasks, function(t) t$b, integer(1)), 0:7)
+  # The reference is built independently of the run: the allocation and each
+  # resample's embedding are recomputed here.
+  specs <- allocate_pipelines(norm_opts, dr_opts, 8L, 0L)
   expect_identical(
     vapply(tasks, function(t) t$embeddings$spec$label, character(1)),
-    run$pipeline_records[[1L]]$runs$pipeline
+    vapply(specs, function(s) s$label, character(1))
   )
+  for (k in 1:8) {
+    expected <- embed_resample(blobs$X, specs[[k]], k - 1L, 8L, 0.618, 0L)$X_1
+    expect_identical(tasks[[k]]$embeddings$X_1, expected)
+  }
 })
 
 test_that("an identity pipeline gives the records of a run without preprocessing", {
