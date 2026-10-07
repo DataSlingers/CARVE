@@ -2,14 +2,27 @@
 # suppressMessages() silences it.
 
 print_run_header <- function(X, sweep, n_resamples, subsample_ratio, estimator_grids,
-                             n_jobs, random_state, verbose, mode = "default") {
+                             n_jobs, random_state, verbose, mode = "default", anchors = NULL,
+                             randomize_preprocessing = FALSE, normalization_options = list(),
+                             dim_reduction_options = list()) {
   if (verbose < 2) {
     return(invisible(NULL))
   }
   total <- sum(vapply(estimator_grids, function(g) length(expand_param_grid(g$grid)), integer(1)))
   policy <- resolve_mode(mode)
   n_matrices <- total * (policy$run_stability + policy$run_generalizability)
-  memory_gb <- n_matrices * as.numeric(nrow(X))^2 * 8 / 1e9
+  # An anchored run keeps m by m blocks instead of n by n matrices.
+  side <- if (is.null(anchors)) nrow(X) else length(anchors)
+  memory_gb <- n_matrices * as.numeric(side)^2 * 8 / 1e9
+  option_names <- function(options) {
+    paste(vapply(options, function(o) o$name, character(1)), collapse = ", ")
+  }
+  preprocessing <- if (isTRUE(randomize_preprocessing)) {
+    c(
+      sprintf("[CARVE] normalization      : %s", option_names(normalization_options)),
+      sprintf("[CARVE] dim_reduction      : %s", option_names(dim_reduction_options))
+    )
+  }
   line <- strrep("=", 60)
   message(paste(c(
     paste("[CARVE]", line),
@@ -26,6 +39,9 @@ print_run_header <- function(X, sweep, n_resamples, subsample_ratio, estimator_g
     sprintf("[CARVE] subsample_ratio    : %s", format(subsample_ratio)),
     sprintf("[CARVE] n_jobs             : %s", if (is.null(n_jobs)) "NULL" else format(n_jobs)),
     sprintf("[CARVE] total configs      : %d", total),
+    sprintf("[CARVE] randomize_preproc  : %s", if (isTRUE(randomize_preprocessing)) "TRUE" else "FALSE"),
+    preprocessing,
+    sprintf("[CARVE] consensus anchors  : %s", if (is.null(anchors)) "none" else length(anchors)),
     sprintf("[CARVE] consensus memory   : %.2f GB", memory_gb),
     sprintf("[CARVE] random_state       : %d", as.integer(random_state)),
     paste("[CARVE]", line),

@@ -40,3 +40,38 @@ test_that("the footer prints only at verbose 2", {
     fixed = TRUE
   )
 })
+
+header_text <- function(...) {
+  grids <- list(estimator_grid(KMeans, n_clusters = 2:3))
+  paste(capture_messages(print_run_header(
+    ..., sweep = resolve_sweep(n_clusters = 2:3), n_resamples = 10L, subsample_ratio = 0.618,
+    estimator_grids = grids, n_jobs = 1L, random_state = 0L, verbose = 2L
+  )), collapse = "")
+}
+
+test_that("a randomized header names the options", {
+  text <- header_text(
+    X = matrix(0, 100, 2),
+    randomize_preprocessing = TRUE,
+    normalization_options = list(preprocessing_option(Identity), preprocessing_option(StandardScaler)),
+    dim_reduction_options = list(preprocessing_option(PCA, n_components = 2L))
+  )
+  expect_match(text, "[CARVE] randomize_preproc  : TRUE", fixed = TRUE)
+  expect_match(text, "[CARVE] normalization      : identity, StandardScaler", fixed = TRUE)
+  expect_match(text, "[CARVE] dim_reduction      : PCA", fixed = TRUE)
+})
+
+test_that("without randomization the header lists no options", {
+  text <- header_text(X = matrix(0, 100, 2))
+  expect_match(text, "[CARVE] randomize_preproc  : FALSE", fixed = TRUE)
+  expect_match(text, "[CARVE] consensus anchors  : none", fixed = TRUE)
+  expect_false(grepl("normalization", text, fixed = TRUE))
+})
+
+test_that("an anchored header projects the memory of the anchor blocks", {
+  # Two configurations, two matrices each, of 5,000 by 5,000 doubles; the
+  # 20,000-sample matrices of an exact run would take 12.80 GB.
+  text <- header_text(X = matrix(0, 20000, 1), anchors = seq_len(5000L))
+  expect_match(text, "[CARVE] consensus anchors  : 5000", fixed = TRUE)
+  expect_match(text, "[CARVE] consensus memory   : 0.80 GB", fixed = TRUE)
+})
