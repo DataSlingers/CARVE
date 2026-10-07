@@ -300,7 +300,7 @@ test_that("HDBSCAN numbers clusters from 1 and marks noise -1", {
   skip_if_not_installed("dbscan")
   X <- fixture_matrix(read_fixture("hdbscan")$X)
   for (method in c("eom", "leaf")) {
-    labels <- HDBSCAN(X, min_cluster_size = 10L, cluster_selection_method = method)
+    labels <- HDBSCAN(X, min_cluster_size = 5L, cluster_selection_method = method)
     clusters <- sort(unique(labels[labels >= 0L]))
     expect_identical(clusters, seq_along(clusters), info = method)
     expect_true(all(labels == -1L | labels >= 1L), info = method)
