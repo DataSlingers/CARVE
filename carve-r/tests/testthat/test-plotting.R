@@ -469,3 +469,162 @@ test_that("a cluster with one score gets points but no violin body", {
   expect_identical(unique(bodies$fill), palette_colors("Accent", 2L)[[1L]])
   expect_identical(nrow(layer_with(plot, "GeomPoint")), 4L)
 })
+
+scatter_case <- function(n = 30L, p = 4L, k = 3L) {
+  withr::with_seed(0L, list(
+    X = matrix(stats::rnorm(n * p), n, p),
+    labels = rep(seq_len(k), each = n %/% k),
+    scores = stats::runif(n)
+  ))
+}
+
+test_that("scatter sizes, opacities and legend match Python's", {
+  f <- read_fixture("plotting")$scatter
+  X <- fixture_matrix(f$X)
+  labels <- fixture_vector(f$labels) + 1
+  scores <- fixture_vector(f$scores)
+  encoding <- scatter_encoding(scores, c(15, 60), c(0.45, 0.9))
+  expect_equal(encoding$size, fixture_vector(f$sizes))
+  expect_equal(encoding$alpha, fixture_vector(f$alphas))
+  flat <- scatter_encoding(rep(0.8, 12L), c(15, 60), c(0.45, 0.9))
+  expect_equal(flat$size, fixture_vector(f$flat_sizes))
+  expect_equal(flat$alpha, fixture_vector(f$flat_alphas))
+  plot <- cluster_scatter_plot(X, labels, scores, sort_order = FALSE)
+  expect_identical(guide_labels(plot, "fill"), unlist(f$legend))
+  points <- layer_with(plot, "GeomPoint")
+  expect_equal(points$size, point_size(fixture_vector(f$sizes)))
+  expect_equal(points$alpha, fixture_vector(f$alphas))
+  expect_equal(cbind(points$x, points$y), unname(X))
+  expect_identical(points$fill, palette_colors("Accent", 3L)[labels])
+})
+
+test_that("scatter coordinates come from the embedding, the data or its principal components", {
+  case <- scatter_case(n = 20L, p = 10L, k = 2L)
+  expect_equal(scatter_coordinates(case$X[, 1:2]), unname(case$X[, 1:2]))
+  expect_equal(scatter_coordinates(case$X[, 1L, drop = FALSE]), cbind(case$X[, 1L], 0))
+  reduced <- scatter_coordinates(case$X)
+  expect_equal(reduced, PCA(case$X, n_components = 2L, random_state = 0L))
+  # Two of ten components go through irlba, hence test-transforms.R's tolerance.
+  expect_equal(abs(reduced), abs(unname(stats::prcomp(case$X)$x[, 1:2])), tolerance = 1e-4)
+  embedding <- matrix(seq_len(60), 20, 3)
+  expect_equal(scatter_coordinates(case$X, embedding), embedding[, 1:2] + 0)
+  expect_error(scatter_coordinates(case$X, embedding[, 1L, drop = FALSE]), "embedding must be a 2D array with at least 2 columns.", fixed = TRUE)
+  expect_error(scatter_coordinates(case$X, embedding[1:5, ]), "embedding must have the same number of rows as X.", fixed = TRUE)
+})
+
+test_that("the scatter plot orders, bounds and drops points by score", {
+  case <- scatter_case()
+  sorted <- layer_with(cluster_scatter_plot(case$X, case$labels, case$scores, alpha_range = c(0.3, 0.9)), "GeomPoint")
+  expect_equal(min(sorted$alpha), 0.3)
+  expect_equal(max(sorted$alpha), 0.9)
+  expect_false(is.unsorted(sorted$alpha))
+  unsorted <- layer_with(cluster_scatter_plot(case$X, case$labels, case$scores, sort_order = FALSE), "GeomPoint")
+  expect_true(is.unsorted(unsorted$alpha))
+  scores <- case$scores
+  scores[4] <- NaN
+  expect_identical(nrow(layer_with(cluster_scatter_plot(case$X, case$labels, scores), "GeomPoint")), 29L)
+})
+
+test_that("the scatter annotation goes into the legend title or the caption", {
+  case <- scatter_case()
+  in_legend <- cluster_scatter_plot(case$X, case$labels, case$scores, annotation = "note", scores_name = "Gini Stability")
+  expect_identical(in_legend$scales$get_scales("fill")$name, "note\nCluster, Gini Stability")
+  expect_null(in_legend$labels$caption)
+  boxed <- cluster_scatter_plot(case$X, case$labels, case$scores, annotation = "note", annotation_style = "box")
+  expect_identical(boxed$labels$caption, "note")
+  expect_identical(boxed$scales$get_scales("fill")$name, "Cluster, Score")
+  expect_error(
+    cluster_scatter_plot(case$X, case$labels, case$scores, annotation_style = "nope"),
+    "annotation_style must be 'legend' or 'box'.",
+    fixed = TRUE
+  )
+})
+
+test_that("the scatter legend, ticks and frame can be turned off and on", {
+  case <- scatter_case()
+  plot <- cluster_scatter_plot(case$X, case$labels, case$scores)
+  expect_true(inherits(plot$theme$axis.ticks, "element_blank"))
+  expect_true(inherits(plot$theme$panel.border, "element_blank"))
+  expect_identical(plot$labels$x, "Component 1")
+  framed <- cluster_scatter_plot(case$X, case$labels, case$scores, show_ticks = TRUE, frameon = TRUE)
+  expect_false(inherits(framed$theme$axis.ticks, "element_blank"))
+  expect_false(inherits(framed$theme$panel.border, "element_blank"))
+  expect_null(ggplot2::get_guide_data(cluster_scatter_plot(case$X, case$labels, case$scores, legend = FALSE), "fill"))
+})
+
+test_that("the scatter plots check their input as Python does", {
+  case <- scatter_case(n = 20L, p = 2L, k = 2L)
+  expect_error(cluster_scatter_plot(case$X, case$labels, case$scores[1:10]), "X, labels, and scores must have matching n_samples.", fixed = TRUE)
+  expect_error(cluster_scatter_plot(case$X, case$labels, rep(NaN, 20L)), "No finite scores available for plotting.", fixed = TRUE)
+  expect_error(diagnostic_scatter_plot(case$X, case$labels, case$scores[-1L]), "matching n_samples", fixed = TRUE)
+  expect_error(diagnostic_scatter_plot(case$X, case$labels, rep(NaN, 20L)), "No finite scores", fixed = TRUE)
+})
+
+test_that("diagnostic drawing order and opacities match Python's", {
+  f <- read_fixture("plotting")
+  X <- fixture_matrix(f$scatter$X)
+  labels <- fixture_vector(f$scatter$labels) + 1
+  scores <- fixture_vector(f$diagnostic$scores)
+  encoding <- diagnostic_encoding(scores, TRUE, c(0.3, 1))
+  for (name in c("unsorted", "sorted")) {
+    rows <- diagnostic_draw_order(labels, scores, encoding$norm, sort_order = name == "sorted")
+    expect_identical(rows, as.integer(fixture_vector(f$diagnostic[[paste0("order_", name)]])) + 1L, info = name)
+    expect_equal(encoding$alpha[rows], fixture_vector(f$diagnostic[[paste0("alpha_", name)]]), info = name)
+  }
+  points <- layer_with(diagnostic_scatter_plot(X, labels, scores), "GeomPoint")
+  rows <- diagnostic_draw_order(labels, scores, encoding$norm, sort_order = TRUE)
+  expect_equal(cbind(points$x, points$y), unname(X[rows, ]))
+  expect_equal(points$alpha, encoding$alpha[rows])
+})
+
+test_that("diagnostic fills run from dark for low scores, with NaN in faint gray", {
+  case <- scatter_case()
+  scores <- case$scores
+  scores[5] <- NaN
+  points <- layer_with(diagnostic_scatter_plot(case$X, case$labels, scores, sort_order = FALSE), "GeomPoint")
+  original <- diagnostic_draw_order(case$labels, scores, rep(0.5, 30L), sort_order = FALSE)
+  at <- function(i) which(original == i)
+  expect_identical(points$fill[at(which.min(scores))], "#00441B")
+  expect_identical(points$fill[at(which.max(scores))], "#F7FCF5")
+  expect_identical(points$fill[at(5L)], "#808080")
+  expect_equal(points$alpha[at(5L)], 0.2)
+  bounded <- layer_with(diagnostic_scatter_plot(case$X, case$labels, case$scores, alpha_range = c(0.4, 0.9)), "GeomPoint")
+  expect_equal(range(bounded$alpha), c(0.4, 0.9))
+  plain <- layer_with(diagnostic_scatter_plot(case$X, case$labels, case$scores, alpha_encoding = FALSE), "GeomPoint")
+  expect_true(all(plain$alpha == 1))
+})
+
+test_that("each cluster gets a marker shape, in label order", {
+  case <- scatter_case()
+  plot <- diagnostic_scatter_plot(case$X, case$labels, case$scores, markers = c(21, 22, 24))
+  expect_identical(ggplot2::get_guide_data(plot, "shape")$shape, c(21, 22, 24))
+  points <- layer_with(plot, "GeomPoint")
+  expect_identical(sort(unique(points$shape)), c(21, 22, 24))
+  expect_warning(
+    cycled <- diagnostic_scatter_plot(case$X, case$labels, case$scores, markers = c(21, 22)),
+    "Number of clusters (3) exceeds available markers (2). Markers will cycle.",
+    fixed = TRUE
+  )
+  expect_identical(ggplot2::get_guide_data(cycled, "shape")$shape, c(21, 22, 21))
+  expect_error(
+    diagnostic_scatter_plot(case$X, case$labels, case$scores, markers = c(1, 2)),
+    "markers must be ggplot2 shapes 21 to 25, the shapes with a fill.",
+    fixed = TRUE
+  )
+})
+
+test_that("the diagnostic color bar and legend titles", {
+  case <- scatter_case()
+  named <- diagnostic_scatter_plot(case$X, case$labels, case$scores, scores_name = "Foo")
+  expect_identical(named$scales$get_scales("fill")$name, "Foo")
+  expect_false(is.null(ggplot2::get_guide_data(named, "fill")))
+  relabeled <- diagnostic_scatter_plot(case$X, case$labels, case$scores, scores_name = "Foo", colorbar_label = "Bar")
+  expect_identical(relabeled$scales$get_scales("fill")$name, "Bar")
+  expect_null(ggplot2::get_guide_data(diagnostic_scatter_plot(case$X, case$labels, case$scores, colorbar = FALSE), "fill"))
+  in_legend <- diagnostic_scatter_plot(case$X, case$labels, case$scores, annotation = "note")
+  expect_identical(in_legend$scales$get_scales("shape")$name, "note\nCluster")
+  boxed <- diagnostic_scatter_plot(case$X, case$labels, case$scores, annotation = "note", annotation_style = "box")
+  expect_identical(boxed$scales$get_scales("shape")$name, "Cluster")
+  expect_identical(boxed$labels$caption, "note")
+  expect_null(ggplot2::get_guide_data(diagnostic_scatter_plot(case$X, case$labels, case$scores, legend = FALSE), "shape"))
+})

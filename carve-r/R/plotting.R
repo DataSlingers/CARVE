@@ -644,3 +644,259 @@ cluster_violin_plot <- function(scores, labels, order = NULL, palette = "Accent"
   }
   score_plot_frame(plot, prepared, ylim, fit_ylim, title, xlabel, ylabel, annotation, rotation)
 }
+
+check_scatter_inputs <- function(X, labels, scores) {
+  if (!is.null(dim(labels)) && length(dim(labels)) > 1L) {
+    stop("labels must be a 1D array.", call. = FALSE)
+  }
+  if (!is.null(dim(scores)) && length(dim(scores)) > 1L) {
+    stop("scores must be a 1D array.", call. = FALSE)
+  }
+  X <- as_data_matrix(X)
+  labels <- as.vector(labels)
+  scores <- as.numeric(scores)
+  if (nrow(X) != length(labels) || nrow(X) != length(scores)) {
+    stop("X, labels, and scores must have matching n_samples.", call. = FALSE)
+  }
+  if (!any(is.finite(scores))) {
+    stop("No finite scores available for plotting.", call. = FALSE)
+  }
+  list(X = X, labels = labels, scores = scores)
+}
+
+check_annotation_style <- function(annotation_style) {
+  if (!identical(annotation_style, "legend") && !identical(annotation_style, "box")) {
+    stop("annotation_style must be 'legend' or 'box'.", call. = FALSE)
+  }
+}
+
+# Two columns to draw: the embedding's first two, or the data's, or the
+# first two principal components of data with more than two columns.
+scatter_coordinates <- function(X, embedding = NULL) {
+  if (is.null(embedding)) {
+    if (ncol(X) > 2L) {
+      return(PCA(X, n_components = 2L, random_state = 0L))
+    }
+    if (ncol(X) == 2L) {
+      return(unname(X))
+    }
+    if (ncol(X) == 1L) {
+      return(unname(cbind(X[, 1L], 0)))
+    }
+    stop("X must have at least 1 feature for scatter plotting.", call. = FALSE)
+  }
+  coords <- as.matrix(embedding)
+  if (length(dim(coords)) != 2L || ncol(coords) < 2L) {
+    stop("embedding must be a 2D array with at least 2 columns.", call. = FALSE)
+  }
+  if (nrow(coords) != nrow(X)) {
+    stop("embedding must have the same number of rows as X.", call. = FALSE)
+  }
+  coords <- unname(coords[, 1:2, drop = FALSE])
+  storage.mode(coords) <- "double"
+  coords
+}
+
+# Marker area and opacity from the score. size_range and alpha_range give
+# the value for the highest score first, so stable samples are small and
+# faint, and unstable ones large and opaque. Samples without a finite score
+# get NA and are not drawn.
+scatter_encoding <- function(scores, size_range, alpha_range) {
+  finite <- is.finite(scores)
+  lo <- min(scores[finite])
+  hi <- max(scores[finite])
+  if (isclose(lo, hi)) {
+    size <- rep(mean(size_range), length(scores))
+    alpha <- rep(mean(alpha_range), length(scores))
+  } else {
+    norm <- (scores - lo) / (hi - lo)
+    size <- size_range[[2L]] + norm * (size_range[[1L]] - size_range[[2L]])
+    alpha <- alpha_range[[2L]] + norm * (alpha_range[[1L]] - alpha_range[[2L]])
+  }
+  size[!finite] <- NA_real_
+  alpha[!finite] <- NA_real_
+  list(size = size, alpha = pmin(pmax(alpha, 0), 1))
+}
+
+cluster_means <- function(scores, labels, clusters, empty) {
+  vapply(clusters, function(label) {
+    values <- scores[labels == label & is.finite(scores)]
+    if (length(values) > 0L) mean(values) else empty
+  }, numeric(1), USE.NAMES = FALSE)
+}
+
+# Labels, theme and legend position the two scatter plots share.
+scatter_frame <- function(plot, title, xlabel, ylabel, caption, legend_loc, show_ticks, frameon) {
+  plot <- plot +
+    ggplot2::labs(x = xlabel, y = ylabel, title = title, caption = caption) +
+    carve_theme() +
+    ggplot2::theme(panel.grid = ggplot2::element_blank()) +
+    legend_position(legend_loc)
+  if (!isTRUE(show_ticks)) {
+    plot <- plot + ggplot2::theme(axis.text = ggplot2::element_blank(), axis.ticks = ggplot2::element_blank())
+  }
+  if (!isTRUE(frameon)) {
+    plot <- plot + ggplot2::theme(panel.border = ggplot2::element_blank())
+  }
+  plot
+}
+
+cluster_scatter_plot <- function(X, labels, scores, embedding = NULL, palette = "Accent",
+                                 alpha_range = c(0.45, 0.9), size_range = c(15, 60),
+                                 sort_order = TRUE, legend = TRUE, legend_loc = "right",
+                                 annotation = NULL, annotation_style = "legend", title = NULL,
+                                 scores_name = "Score", xlabel = "Component 1",
+                                 ylabel = "Component 2", show_ticks = FALSE, frameon = FALSE) {
+  check_annotation_style(annotation_style)
+  inputs <- check_scatter_inputs(X, labels, scores)
+  coords <- scatter_coordinates(inputs$X, embedding)
+  labels <- inputs$labels
+  scores <- inputs$scores
+  encoding <- scatter_encoding(scores, size_range, alpha_range)
+  clusters <- sort(unique(labels))
+  keys <- as.character(clusters)
+  means <- cluster_means(scores, labels, clusters, NaN)
+  data <- data.frame(
+    x = coords[, 1L],
+    y = coords[, 2L],
+    cluster = factor(as.character(labels), levels = keys),
+    size = point_size(encoding$size),
+    alpha = encoding$alpha
+  )
+  # Samples without a finite score are not drawn, so they are not in the data.
+  data <- data[is.finite(scores), , drop = FALSE]
+  if (isTRUE(sort_order)) {
+    # Faint markers first, so the opaque ones are drawn on top.
+    data <- data[order(data$alpha), , drop = FALSE]
+  }
+  legend_title <- if (nzchar(scores_name)) paste0("Cluster, ", scores_name) else "Cluster"
+  if (!is.null(annotation) && annotation_style == "legend") {
+    legend_title <- paste0(annotation, "\n", legend_title)
+  }
+  plot <- ggplot2::ggplot(data, ggplot2::aes(x = .data$x, y = .data$y)) +
+    ggplot2::geom_point(
+      ggplot2::aes(fill = .data$cluster, size = .data$size, alpha = .data$alpha),
+      shape = 21, colour = "black", stroke = edge_stroke(0.2), na.rm = TRUE
+    ) +
+    ggplot2::scale_fill_manual(
+      values = stats::setNames(palette_colors(palette, length(clusters)), keys),
+      breaks = keys,
+      labels = sprintf("%s (Mean = %.2f)", keys, means),
+      name = legend_title
+    ) +
+    ggplot2::scale_size_identity() +
+    ggplot2::scale_alpha_identity() +
+    ggplot2::guides(fill = if (isTRUE(legend)) {
+      ggplot2::guide_legend(override.aes = list(size = point_size(49), alpha = 0.8, colour = NA))
+    } else {
+      "none"
+    })
+  caption <- if (!is.null(annotation) && annotation_style == "box") annotation else NULL
+  scatter_frame(plot, title, xlabel, ylabel, caption, legend_loc, show_ticks, frameon)
+}
+
+# The score as a position between the lowest and the highest finite score
+# (0.5 when they are equal, or for a non-finite score), and the opacity:
+# alpha_range gives the value for the highest score first. A sample without
+# a finite score is faint.
+diagnostic_encoding <- function(scores, alpha_encoding, alpha_range) {
+  finite <- is.finite(scores)
+  lo <- min(scores[finite])
+  hi <- max(scores[finite])
+  norm <- rep(0.5, length(scores))
+  if (!isclose(lo, hi)) {
+    norm[finite] <- (scores[finite] - lo) / (hi - lo)
+  }
+  alpha <- rep(1, length(scores))
+  if (isTRUE(alpha_encoding)) {
+    if (isclose(alpha_range[[1L]], alpha_range[[2L]])) {
+      alpha[] <- mean(alpha_range)
+    } else {
+      alpha[finite] <- alpha_range[[2L]] + norm[finite] * (alpha_range[[1L]] - alpha_range[[2L]])
+    }
+  }
+  alpha[!finite] <- 0.2
+  list(norm = norm, alpha = alpha, limits = c(lo, hi))
+}
+
+# Clusters with the highest mean score first, and within a cluster the
+# highest scores first, so unstable samples are drawn on top.
+diagnostic_draw_order <- function(labels, scores, norm, sort_order) {
+  clusters <- sort(unique(labels))
+  means <- cluster_means(scores, labels, clusters, 0)
+  rows <- lapply(clusters[order(-means)], function(label) {
+    members <- which(labels == label)
+    if (isTRUE(sort_order)) members[order(-norm[members])] else members
+  })
+  unlist(rows, use.names = FALSE)
+}
+
+diagnostic_scatter_plot <- function(X, labels, scores, embedding = NULL, cmap = "Greens_r",
+                                    alpha_encoding = TRUE, alpha_range = c(0.3, 1),
+                                    marker_size = 30, marker_linewidth = 0.2, markers = NULL,
+                                    sort_order = TRUE, legend = TRUE, legend_loc = "right",
+                                    colorbar = TRUE, colorbar_label = NULL, annotation = NULL,
+                                    annotation_style = "legend", title = NULL,
+                                    scores_name = "Score", xlabel = "Component 1",
+                                    ylabel = "Component 2", show_ticks = FALSE, frameon = FALSE) {
+  check_annotation_style(annotation_style)
+  inputs <- check_scatter_inputs(X, labels, scores)
+  coords <- scatter_coordinates(inputs$X, embedding)
+  labels <- inputs$labels
+  scores <- inputs$scores
+  if (is.null(markers)) {
+    markers <- DIAGNOSTIC_MARKERS
+  }
+  if (!is.numeric(markers) || length(markers) == 0L || !all(markers %in% 21:25)) {
+    stop("markers must be ggplot2 shapes 21 to 25, the shapes with a fill.", call. = FALSE)
+  }
+  clusters <- sort(unique(labels))
+  keys <- as.character(clusters)
+  if (length(clusters) > length(markers)) {
+    warning(sprintf(
+      "Number of clusters (%d) exceeds available markers (%d). Markers will cycle.",
+      length(clusters), length(markers)
+    ), call. = FALSE)
+  }
+  shapes <- stats::setNames(markers[(seq_along(clusters) - 1L) %% length(markers) + 1L], keys)
+  encoding <- diagnostic_encoding(scores, alpha_encoding, alpha_range)
+  rows <- diagnostic_draw_order(labels, scores, encoding$norm, sort_order)
+  data <- data.frame(
+    x = coords[rows, 1L],
+    y = coords[rows, 2L],
+    score = scores[rows],
+    cluster = factor(as.character(labels[rows]), levels = keys),
+    alpha = encoding$alpha[rows]
+  )
+  legend_title <- "Cluster"
+  if (!is.null(annotation) && annotation_style == "legend") {
+    legend_title <- paste0(annotation, "\n", legend_title)
+  }
+  plot <- ggplot2::ggplot(data, ggplot2::aes(x = .data$x, y = .data$y)) +
+    ggplot2::geom_point(
+      ggplot2::aes(fill = .data$score, shape = .data$cluster, alpha = .data$alpha),
+      size = point_size(marker_size), colour = "black", stroke = edge_stroke(marker_linewidth)
+    ) +
+    ggplot2::scale_fill_gradientn(
+      colours = continuous_colours(cmap),
+      limits = encoding$limits,
+      na.value = "#808080",
+      name = if (is.null(colorbar_label)) scores_name else colorbar_label
+    ) +
+    ggplot2::scale_shape_manual(values = shapes, breaks = keys, name = legend_title) +
+    ggplot2::scale_alpha_identity() +
+    ggplot2::guides(
+      fill = if (isTRUE(colorbar)) {
+        ggplot2::guide_colourbar(direction = "horizontal", position = "bottom")
+      } else {
+        "none"
+      },
+      shape = if (isTRUE(legend)) {
+        ggplot2::guide_legend(override.aes = list(fill = "gray50", size = point_size(49), alpha = 1))
+      } else {
+        "none"
+      }
+    )
+  caption <- if (!is.null(annotation) && annotation_style == "box") annotation else NULL
+  scatter_frame(plot, title, xlabel, ylabel, caption, legend_loc, show_ticks, frameon)
+}
