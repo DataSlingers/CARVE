@@ -282,6 +282,7 @@ test_that("every noise policy records the same noise fraction", {
 })
 
 test_that("the new settings are checked before the run", {
+  local_mocked_bindings(run_validation = function(...) stop("the run started"))
   X <- blobs$X
   expect_error(
     carve(X, noise_policy = "keep"),
