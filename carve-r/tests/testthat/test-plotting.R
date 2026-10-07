@@ -299,3 +299,64 @@ test_that("the three line plots draw through one helper", {
     list("method_id", "Estimators", "n_clusters_observed", 6L)
   ))
 })
+
+test_that("consensus_display symmetrizes, fills unsampled pairs and orders by cluster", {
+  M <- rbind(c(1, NaN, 0.2), c(NaN, 1, 0.6), c(0.4, 0.8, 1))
+  display <- consensus_display(M, c(2, 1, 2))
+  expect_equal(display$matrix, rbind(c(1, 0.5, 0.7), c(0.5, 1, 0.3), c(0.7, 0.3, 1)))
+  expect_identical(display$labels, c(1, 2, 2))
+  # Python's test_nan_handling: never co-sampled pairs show 0.5, the value
+  # get_labels() also uses, and the diagonal is 1.
+  expect_equal(consensus_display(rbind(c(1, NaN), c(NaN, 1)), c(1, 2))$matrix, rbind(c(1, 0.5), c(0.5, 1)))
+  expect_equal(consensus_display(rbind(c(0.3, -0.2), c(-0.2, 1.4)), c(1, 1))$matrix, rbind(c(1, 0), c(0, 1)))
+})
+
+test_that("consensus_display checks its input", {
+  expect_error(consensus_display(matrix(0, 3, 4), c(1, 1, 1)), "consensus_matrix must be a square 2D array.", fixed = TRUE)
+  expect_error(consensus_display(diag(3), c(1, 2)), "consensus_matrix and labels must have matching first dimension.", fixed = TRUE)
+  expect_error(consensus_display(diag(3), matrix(1:3, 1)), "labels must be a 1D array.", fixed = TRUE)
+})
+
+test_that("the heatmap shows the ordered matrix in the cmap's colors under a band of cluster colors", {
+  M <- matrix(0, 6, 6)
+  M[1:3, 1:3] <- 1
+  M[4:6, 4:6] <- 1
+  M[1, 4] <- 0.3
+  labels <- c(9, 9, 9, 4, 4, 4)
+  plot <- consensus_plot(M, labels)
+  rasters <- raster_layers(plot)
+  expect_length(rasters, 2L)
+  display <- consensus_display(M, labels)
+  expect_identical(
+    raster_colours(rasters[[1L]]),
+    matrix(lut_colours(display$matrix, colour_lut(continuous_colours("viridis"))), 6L, 6L)
+  )
+  expect_identical(as.vector(raster_colours(rasters[[2L]])), rep(palette_colors("Accent", 2L), each = 3L))
+  greens <- consensus_plot(M, labels, cmap = "Greens")
+  expect_identical(
+    raster_colours(raster_layers(greens)[[1L]]),
+    matrix(lut_colours(display$matrix, colour_lut(GREENS)), 6L, 6L)
+  )
+})
+
+test_that("white lines separate the clusters", {
+  # Row 1 is drawn at the top, at y = n, so the line between rows 1 and 2
+  # is at y = n - 0.5.
+  plot <- consensus_plot(diag(4), c(1, 2, 2, 2))
+  expect_equal(layer_with(plot, "GeomVline")$xintercept, 1.5)
+  expect_equal(layer_with(plot, "GeomHline")$yintercept, 3.5)
+  expect_false(has_layer(consensus_plot(diag(3), c(1, 1, 1)), "GeomVline"))
+})
+
+test_that("the color bar, labels and frame of the heatmap", {
+  plot <- consensus_plot(diag(4), c(1, 1, 2, 2), title = "T")
+  expect_identical(plot$scales$get_scales("fill")$name, "Consensus")
+  expect_false(is.null(ggplot2::get_guide_data(plot, "fill")))
+  expect_identical(plot$labels$x, "Samples (ordered by cluster)")
+  expect_identical(plot$labels$title, "T")
+  ranges <- ggplot2::ggplot_build(plot)$layout$panel_params[[1L]]
+  expect_equal(ranges$x.range, c(0.5, 4.5))
+  expect_equal(ranges$y.range, c(0.5, 4.5 + 0.04 * 4))
+  expect_identical(consensus_plot(diag(4), c(1, 1, 2, 2), colorbar_label = "Share")$scales$get_scales("fill")$name, "Share")
+  expect_null(ggplot2::get_guide_data(consensus_plot(diag(4), c(1, 1, 2, 2), colorbar = FALSE), "fill"))
+})

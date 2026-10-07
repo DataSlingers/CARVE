@@ -176,3 +176,11 @@ panel_breaks <- function(plot, axis) {
 
 x_breaks <- function(plot) panel_breaks(plot, "x")
 y_breaks <- function(plot) panel_breaks(plot, "y")
+
+raster_layers <- function(plot) {
+  Filter(function(layer) inherits(layer$geom, "GeomRasterAnn"), plot$layers)
+}
+
+raster_colours <- function(layer) {
+  as.matrix(layer$geom_params$raster)
+}

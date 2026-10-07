@@ -411,3 +411,73 @@ n_clusters_over_sweep_plot <- function(results, measure = "stability", rule = "1
     palette = palette
   )
 }
+
+# The matrix as drawn: symmetric, pairs never drawn together at 0.5 (the
+# value get_labels() uses), clipped to [0, 1], diagonal 1, and ordered by
+# cluster so that each cluster is a block.
+consensus_display <- function(consensus_matrix, labels) {
+  M <- consensus_matrix
+  if (!is.matrix(M) || nrow(M) != ncol(M)) {
+    stop("consensus_matrix must be a square 2D array.", call. = FALSE)
+  }
+  if (!is.null(dim(labels)) && length(dim(labels)) > 1L) {
+    stop("labels must be a 1D array.", call. = FALSE)
+  }
+  labels <- as.vector(labels)
+  if (nrow(M) != length(labels)) {
+    stop("consensus_matrix and labels must have matching first dimension.", call. = FALSE)
+  }
+  storage.mode(M) <- "double"
+  M <- 0.5 * (M + t(M))
+  M[is.na(M)] <- 0.5
+  M <- pmin(pmax(M, 0), 1)
+  diag(M) <- 1
+  ord <- order(labels)
+  list(matrix = unname(M[ord, ord, drop = FALSE]), labels = labels[ord])
+}
+
+# The matrix and the band of cluster colors are rasters in one panel, the
+# band above the matrix. A raster is far cheaper than one tile per pair: at
+# 5,000 anchors, about a second and 1 GB against 20 seconds and 5 GB. The
+# invisible tile layer carries the fill scale, so the color bar shows.
+consensus_plot <- function(consensus_matrix, labels, cmap = "viridis", palette = "Accent",
+                           colorbar = TRUE, colorbar_label = "Consensus", title = NULL) {
+  display <- consensus_display(consensus_matrix, labels)
+  n <- length(display$labels)
+  colours <- continuous_colours(cmap)
+  cells <- matrix(lut_colours(display$matrix, colour_lut(colours)), n, n)
+  clusters <- sort(unique(display$labels))
+  band <- matrix(palette_colors(palette, length(clusters))[match(display$labels, clusters)], nrow = 1L)
+  band_height <- 0.04 * n
+  # Row 1 of the matrix is drawn at the top, at y = n, so the line between
+  # rows b and b + 1 is at y = n + 0.5 - b.
+  boundaries <- which(diff(display$labels) != 0) + 0.5
+  key <- data.frame(x = 1, y = 1, value = c(0, 1))
+
+  plot <- ggplot2::ggplot(key, ggplot2::aes(x = .data$x, y = .data$y, fill = .data$value)) +
+    ggplot2::geom_tile(width = 0, height = 0, alpha = 0) +
+    ggplot2::annotation_raster(
+      cells, xmin = 0.5, xmax = n + 0.5, ymin = 0.5, ymax = n + 0.5, interpolate = FALSE
+    ) +
+    ggplot2::annotation_raster(
+      band, xmin = 0.5, xmax = n + 0.5, ymin = n + 0.5, ymax = n + 0.5 + band_height,
+      interpolate = FALSE
+    )
+  if (length(boundaries) > 0L) {
+    plot <- plot +
+      ggplot2::geom_vline(xintercept = boundaries, colour = "white", linewidth = line_width(0.6), alpha = 0.8) +
+      ggplot2::geom_hline(yintercept = n + 1 - boundaries, colour = "white", linewidth = line_width(0.6), alpha = 0.8)
+  }
+  plot <- plot +
+    ggplot2::scale_fill_gradientn(colours = colours, limits = c(0, 1), name = colorbar_label) +
+    ggplot2::scale_x_continuous(breaks = NULL) +
+    ggplot2::scale_y_continuous(breaks = NULL) +
+    ggplot2::coord_fixed(xlim = c(0.5, n + 0.5), ylim = c(0.5, n + 0.5 + band_height), expand = FALSE) +
+    ggplot2::labs(x = "Samples (ordered by cluster)", y = NULL, title = title) +
+    ggplot2::theme_bw(base_size = 11) +
+    ggplot2::theme(panel.grid = ggplot2::element_blank(), panel.border = ggplot2::element_blank())
+  if (!isTRUE(colorbar)) {
+    plot <- plot + ggplot2::guides(fill = "none")
+  }
+  plot
+}
