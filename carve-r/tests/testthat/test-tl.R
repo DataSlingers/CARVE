@@ -25,9 +25,15 @@ test_that("the stored labels, scores, table and matrix are the fit's", {
   id <- select_row(fit, "stability", "1se")$config_id
   data <- SummarizedExperiment::colData(written)
   expect_identical(as.integer(as.character(data$carve)), get_labels(fit))
-  expect_identical(data$carve_stability, as.numeric(sample_scores(fit, id, "gini")))
-  expect_identical(data$carve_stability_ce, as.numeric(sample_scores(fit, id, "ce")))
+  expect_equal(data$carve_stability, sample_scores(fit, id, "gini"))
+  expect_equal(data$carve_stability_ce, sample_scores(fit, id, "ce"))
   expect_equal(data$carve_generalizability, sample_scores(fit, id, "accuracy"))
+  # At k = 3 the Gini and CE scores are both 1 on separated blobs; at k = 2
+  # they differ, so a swapped column shows here.
+  id2 <- select_row(fit, "stability", "1se", k = 2)$config_id
+  data2 <- SummarizedExperiment::colData(attach_results(sce, fit, k = 2))
+  expect_equal(data2$carve_stability, sample_scores(fit, id2, "gini"))
+  expect_equal(data2$carve_stability_ce, sample_scores(fit, id2, "ce"))
   record <- S4Vectors::metadata(written)$carve
   expect_equal(record$consensus, consensus_matrix(fit, id))
   expect_identical(record$results, estimator_results(fit))
