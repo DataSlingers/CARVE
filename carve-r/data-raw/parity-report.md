@@ -1,6 +1,6 @@
 # R and Python parity report
 
-Generated on 2026-10-06 with CARVE 2.0.0 in R and carve 1.0.0 in Python, 100 resamples per configuration and random_state 0. The k cases use the light preset over k = 2 to 6.
+Generated on 2026-10-07 with CARVE 2.0.0 in R and carve 1.0.0 in Python, 100 resamples per configuration and random_state 0. The k cases use the light preset over k = 2 to 6.
 
 ## easy blobs
 
@@ -208,4 +208,33 @@ Rows compared: 36 of 36.
 | n_resamples | 0.000 | 0.00 |
 | ari_stability | 0.191 (over) | 0.05 |
 | ari_generalizability | 0.222 (over) | 0.05 |
+
+## resolution sweep, PBMC 3k principal components
+
+The 1,000 cells and 30 principal components of pbmc3k_subset. Leiden runs in igraph in R and in leidenalg in Python.
+
+Rows compared: 10 of 10.
+
+| Column | Largest difference | Tolerance |
+|---|---|---|
+| ari_stability | 0.023 | 0.05 |
+| ari_generalizability | 0.024 | 0.05 |
+| ari_average | 0.022 | 0.05 |
+| consensus_pac_stability | 0.038 (over) | 0.03 |
+| consensus_gini_stability | 0.020 | 0.03 |
+| consensus_ce_stability | 0.023 | 0.03 |
+| accuracy_generalizability | 0.023 | 0.03 |
+| n_clusters_observed | 0.210 | 0.50 |
+| noise_fraction | 0.000 | 0.02 |
+
+| Measure | Rule | R | Python |
+|---|---|---|---|
+| stability | max | 0.5 | 0.5 |
+| generalizability | max | 0.5 | 0.5 |
+| average | max | 0.5 | 0.5 |
+| stability | 1se | 0.5 | 0.5 |
+| generalizability | 1se | 0.5 | 0.5 |
+| average | 1se | 0.5 | 0.5 |
+
+ARI between the R and Python labels at the default selection (stability, 1se): 0.918
 

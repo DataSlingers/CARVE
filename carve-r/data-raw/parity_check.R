@@ -177,6 +177,18 @@ randomized_case <- function() {
   )
 }
 
+pbmc_case <- function() {
+  X <- pbmc3k_subset$pca
+  resolutions <- c(0.25, 0.5, 0.75, 1, 1.5)
+  r_fit <- carve(X, resolution = resolutions, n_resamples = n_resamples, random_state = 0)
+  py_fit <- pycarve$CARVE(resolution = np$array(resolutions), n_resamples = n_resamples, random_state = 0L)$fit(X)
+  compare_fits(
+    "resolution sweep, PBMC 3k principal components", r_fit, py_fit, c("method_label", "resolution"),
+    by_value = TRUE,
+    note = "The 1,000 cells and 30 principal components of pbmc3k_subset. Leiden runs in igraph in R and in leidenalg in Python."
+  )
+}
+
 format_table <- function(comparison, limits) {
   over <- !is.na(comparison$differences) & comparison$differences > limits
   shown <- ifelse(is.na(comparison$differences), "NA", sprintf("%.3f", comparison$differences))
@@ -228,7 +240,8 @@ results <- list(
   resolution_case(),
   hdbscan_case(),
   anchored_case(easy),
-  randomized_case()
+  randomized_case(),
+  pbmc_case()
 )
 report <- c(
   "# R and Python parity report",
