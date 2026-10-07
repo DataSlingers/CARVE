@@ -76,3 +76,19 @@ setGeneric("plot_n_clusters_over_sweep", function(object, ...) {
 #' @rdname plot_consensus_matrix
 #' @export
 setGeneric("plot_consensus_matrix", function(object, ...) standardGeneric("plot_consensus_matrix"))
+
+#' @rdname plot_cluster_boxplot
+#' @export
+setGeneric("plot_cluster_boxplot", function(object, ...) standardGeneric("plot_cluster_boxplot"))
+
+#' @rdname plot_cluster_violin
+#' @export
+setGeneric("plot_cluster_violin", function(object, ...) standardGeneric("plot_cluster_violin"))
+
+#' @rdname plot_cluster_scatter
+#' @export
+setGeneric("plot_cluster_scatter", function(object, ...) standardGeneric("plot_cluster_scatter"))
+
+#' @rdname plot_diagnostic_scatter
+#' @export
+setGeneric("plot_diagnostic_scatter", function(object, ...) standardGeneric("plot_diagnostic_scatter"))
