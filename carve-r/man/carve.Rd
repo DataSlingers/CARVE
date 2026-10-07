@@ -10,9 +10,19 @@ carve(x, ...)
 \S4method{carve}{ANY}(
   x,
   n_clusters = 2:10,
+  resolution = NULL,
+  sweep = NULL,
+  sweep_values = NULL,
+  finer_is_larger = NULL,
+  noise_policy = "drop",
   n_resamples = 100,
   subsample_ratio = 0.618,
+  anchor_threshold = 5000,
+  consensus_anchors = NULL,
   estimator_param_grids = "light",
+  normalization_options = NULL,
+  dim_reduction_options = NULL,
+  randomize_preprocessing = FALSE,
   classifier = NULL,
   n_trees = 100,
   reference_labels = NULL,
@@ -34,16 +44,58 @@ frame, a sparse matrix from the Matrix package, or a numeric vector.}
 \item{n_clusters}{Numbers of clusters to evaluate. A single number \code{K}
 means \code{2:K}. Custom grids set their own values.}
 
+\item{resolution}{Resolutions to evaluate with the graph estimators.
+Giving it makes \code{resolution} the swept parameter.}
+
+\item{sweep}{Name of the swept parameter. Defaults to \code{"resolution"} when
+\code{resolution} is given and to \code{"n_clusters"} otherwise; custom grids set
+it themselves. Estimators that take a number of clusters and estimators
+that take a resolution cannot share a run.}
+
+\item{sweep_values}{Values of \code{sweep} when it is neither \code{"n_clusters"}
+nor \code{"resolution"}, such as minimum cluster sizes for \code{\link[=HDBSCAN]{HDBSCAN()}}.}
+
+\item{finer_is_larger}{Whether larger values of \code{sweep} give more
+clusters. It is known for \code{n_clusters} and \code{resolution} (\code{TRUE}) and for
+\code{min_cluster_size} (\code{FALSE}), and required for any other parameter.}
+
+\item{noise_policy}{What to do with the -1 labels of density-based
+methods such as \code{\link[=HDBSCAN]{HDBSCAN()}}. \code{"drop"} leaves those samples out of the
+resample, so the consensus matrix, the ARI and the classifier treat them
+as not drawn. \code{"as_cluster"} keeps -1 as an ordinary label, and
+\code{"singleton"} puts each of them in a cluster of its own.}
+
 \item{n_resamples}{Resamples per configuration.}
 
 \item{subsample_ratio}{Share of the samples drawn, without replacement,
 into each subsample. Must lie strictly between 0 and 1.}
 
-\item{estimator_param_grids}{\code{"light"} (KMeans, Ward-linkage agglomerative
-and self-tuning spectral clustering), \code{"full"} (adds average, single and
-complete linkage and RBF spectral clustering), or a list of
-\code{\link[=estimator_grid]{estimator_grid()}} specifications. All grids must sweep the same
-parameter over the same values.}
+\item{anchor_threshold}{Runs with at most this many samples build full
+consensus matrices; larger runs are anchored. See Details.}
+
+\item{consensus_anchors}{Number of anchors, or a share of the samples in
+(0, 1]. \code{NULL} means \code{min(nrow(x), anchor_threshold)}. Setting it anchors
+a run of any size; lowering it shrinks the blocks, \code{8 * m^2} bytes each.}
+
+\item{estimator_param_grids}{\code{"light"}, \code{"full"}, or a list of
+\code{\link[=estimator_grid]{estimator_grid()}} specifications. On the \code{n_clusters} axis \code{"light"}
+runs KMeans, Ward-linkage agglomerative and self-tuning spectral
+clustering, and \code{"full"} adds average, single and complete linkage and
+RBF spectral clustering. On the \code{resolution} axis \code{"light"} runs Leiden
+and Louvain on 15-neighbor graphs, and \code{"full"} adds 10- and 30-neighbor
+graphs. On the \code{min_cluster_size} axis \code{"light"} runs HDBSCAN with
+excess-of-mass selection, and \code{"full"} adds leaf selection. All grids
+must sweep the same parameter over the same values.}
+
+\item{normalization_options, dim_reduction_options}{Lists of
+\code{\link[=preprocessing_option]{preprocessing_option()}} objects for randomized preprocessing. \code{NULL}
+uses the defaults: identity, standardization and, for data without
+negative values, log1p; identity, PCA, t-SNE and, when uwot is
+installed, UMAP, over the values the smallest subsample supports. Not
+used unless \code{randomize_preprocessing = TRUE}.}
+
+\item{randomize_preprocessing}{Draw a preprocessing pipeline for each
+resample. See Details.}
 
 \item{classifier}{\code{NULL} for the default random forest, or a function
 \verb{(x_train, y_train, x_test)} that returns one predicted label per row of
@@ -70,7 +122,8 @@ the resamples. Its worker count replaces the one \code{n_jobs} would set.}
 
 \item{random_state}{Seed of the run. \code{NULL} means 0.}
 
-\item{show_progress}{Show a progress bar over the configurations.}
+\item{show_progress}{Show a progress bar over the configurations and,
+under randomized preprocessing, one before it over the embedding pass.}
 
 \item{verbose}{0 prints nothing, 1 prints a line per configuration, and 2
 also prints a header and a footer.}
@@ -90,11 +143,24 @@ matrices: for every pair of samples, the share of the subsamples drawing
 both in which the two fell in the same cluster.
 }
 \details{
+A run sweeps one parameter. By default it is \code{n_clusters}. Giving
+\code{resolution} sweeps the resolution of \code{\link[=LeidenClustering]{LeidenClustering()}} and
+\code{\link[=LouvainClustering]{LouvainClustering()}}, and \code{sweep = "min_cluster_size"} with
+\code{sweep_values} sweeps the minimum cluster size of \code{\link[=HDBSCAN]{HDBSCAN()}}. Off the
+\code{n_clusters} axis the number of clusters is an outcome, recorded for each
+configuration as its mean over the resamples.
+
 Resample \code{b}, counting from 0, draws its first subsample with seed
 \code{random_state + b} and its second with \code{random_state + b + n_resamples},
 and its estimator and classifier use \code{random_state + b}. The results are
 therefore the same for every \code{n_jobs} and \code{BPPARAM}, and the session's
 random number stream is left as it was.
+
+The \code{n_neighbors} of \code{\link[=SpectralClustering]{SpectralClustering()}}, \code{\link[=LeidenClustering]{LeidenClustering()}} and
+\code{\link[=LouvainClustering]{LouvainClustering()}} is a count at the density of the full data. Each
+subsample is clustered with the count scaled by its share of the samples,
+rounded and at least 2, so that it covers the same neighborhood. The
+neighbor settings of preprocessing transforms are not scaled.
 
 \code{n_jobs} is a core budget. The resamples are spread over \code{n_jobs} worker
 processes, at most \code{n_resamples} of them, and each worker's random forest
@@ -107,6 +173,30 @@ memory grows with the worker count.
 The fit keeps two \code{n} by \code{n} consensus matrices per configuration, stored
 as doubles: \code{8 * n^2} bytes each, twice what the Python package needs for
 the same run. With \code{verbose = 2} the header reports the total.
+
+Above \code{anchor_threshold} samples those matrices would not fit in memory,
+and the run is anchored: it draws \code{m} anchor samples once and keeps only
+the \code{m} by \code{m} blocks over them. Per-sample stability is computed against
+the anchors, so every sample still gets a score, and \code{\link[=get_labels]{get_labels()}} cuts
+the anchor block and labels the other samples with the classifier,
+trained on the anchors. PAC then covers anchor pairs only and cannot be
+compared with the PAC of an exact run. A warning says when a run is
+anchored, and \code{\link[=consensus_anchors]{consensus_anchors()}} returns the anchors.
+
+With \code{randomize_preprocessing = TRUE}, each resample draws a pipeline: one
+normalization option and one dimensionality reduction option, with one
+value drawn for each of their arguments. Every pair of options gets
+\code{n_resamples} divided by the number of pairs, rounded up or down, in a
+seeded random order. The pipeline is fit separately on each of the
+resample's subsamples, with seeds \code{random_state + b},
+\code{random_state + b + n_resamples} and \code{random_state + b + 2 * n_resamples},
+so an embedding that does not reproduce across fits lowers both criteria.
+Each resample is embedded once, before the configurations run, and the
+embeddings stay in memory during the fit. The classifier trains on the
+raw features of the first subsample with the labels clustered from its
+embedding, so a cluster that exists only in the embedding does not
+generalize, and t-SNE, which cannot embed new samples, can take part.
+\code{\link[=preprocessing_results]{preprocessing_results()}} splits the scores by pipeline.
 }
 \examples{
 set.seed(1)
@@ -117,6 +207,9 @@ X <- rbind(
 fit <- carve(X, n_clusters = 2:4, n_resamples = 10, random_state = 0)
 fit
 estimator_results(fit)[, c("method_label", "n_clusters", "ari_stability")]
+
+graph_fit <- carve(X, resolution = c(0.25, 0.5, 1), n_resamples = 10, random_state = 0)
+estimator_results(graph_fit)[, c("method_label", "resolution", "n_clusters_observed")]
 }
 \seealso{
 \code{\link[=get_k]{get_k()}}, \code{\link[=get_labels]{get_labels()}}, \code{\link[=estimator_results]{estimator_results()}}

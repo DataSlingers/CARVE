@@ -2,6 +2,7 @@
 
 setClassUnion("carveListOrNULL", c("list", "NULL"))
 setClassUnion("carveIntegerOrNULL", c("integer", "NULL"))
+setClassUnion("carveDataFrameOrNULL", c("data.frame", "NULL"))
 
 #' Sweep axis of a CARVE run
 #'
@@ -36,13 +37,16 @@ setClass(
 #'   coded as integers, or `NULL`.
 #' @slot run_params List of the run settings: `n_resamples`,
 #'   `subsample_ratio`, `n_trees`, `n_jobs`, `mode`, `random_state` (the seed
-#'   the run used) and `classifier`.
+#'   the run used), `classifier`, `noise_policy`, `anchor_threshold`,
+#'   `consensus_anchors`, `randomize_preprocessing`, and `n_threads`, the
+#'   threads of the classifier [get_labels()] trains on an anchored run.
 #' @slot estimator_results Data frame with one row per configuration; see
 #'   [estimator_results()].
 #' @slot estimator_param_grids The estimator grids the run evaluated.
 #' @slot sweep The run's [SweepSpec-class] object.
 #' @slot consensus_matrices Stability consensus matrices, a list named by
-#'   `config_id`. Entries are `NULL` when the run skipped stability.
+#'   `config_id`. Entries are `NULL` when the run skipped stability. On an
+#'   anchored run each is the block over the anchors.
 #' @slot consensus_generalizability_matrices Consensus matrices of the
 #'   classifier's held-out predictions, a list named by `config_id`. Entries
 #'   are `NULL` when the run skipped generalizability.
@@ -52,6 +56,12 @@ setClass(
 #'   by `config_id`, or `NULL` when the run skipped stability.
 #' @slot generalizability_scores Per-sample held-out accuracy, a list named by
 #'   `config_id`. Entries are `NULL` when the run skipped generalizability.
+#' @slot consensus_anchors Sorted row indices of the anchors of an anchored
+#'   run, or `NULL` for an exact run.
+#' @slot preprocessing_results Scores split by preprocessing pipeline, or
+#'   `NULL` for a run without randomized preprocessing.
+#' @slot preprocessing_pipelines The pipelines of a randomized run, named by
+#'   their labels, or `NULL`.
 #' @seealso [carve()], [estimator_results()], [get_labels()]
 #' @export
 setClass(
@@ -67,7 +77,10 @@ setClass(
     consensus_generalizability_matrices = "list",
     stability_gini_scores = "carveListOrNULL",
     stability_ce_scores = "carveListOrNULL",
-    generalizability_scores = "list"
+    generalizability_scores = "list",
+    consensus_anchors = "carveIntegerOrNULL",
+    preprocessing_results = "carveDataFrameOrNULL",
+    preprocessing_pipelines = "carveListOrNULL"
   )
 )
 

@@ -25,7 +25,9 @@ coded as integers, or \code{NULL}.}
 
 \item{\code{run_params}}{List of the run settings: \code{n_resamples},
 \code{subsample_ratio}, \code{n_trees}, \code{n_jobs}, \code{mode}, \code{random_state} (the seed
-the run used) and \code{classifier}.}
+the run used), \code{classifier}, \code{noise_policy}, \code{anchor_threshold},
+\code{consensus_anchors}, \code{randomize_preprocessing}, and \code{n_threads}, the
+threads of the classifier \code{\link[=get_labels]{get_labels()}} trains on an anchored run.}
 
 \item{\code{estimator_results}}{Data frame with one row per configuration; see
 \code{\link[=estimator_results]{estimator_results()}}.}
@@ -35,7 +37,8 @@ the run used) and \code{classifier}.}
 \item{\code{sweep}}{The run's \link[=SweepSpec-class]{SweepSpec} object.}
 
 \item{\code{consensus_matrices}}{Stability consensus matrices, a list named by
-\code{config_id}. Entries are \code{NULL} when the run skipped stability.}
+\code{config_id}. Entries are \code{NULL} when the run skipped stability. On an
+anchored run each is the block over the anchors.}
 
 \item{\code{consensus_generalizability_matrices}}{Consensus matrices of the
 classifier's held-out predictions, a list named by \code{config_id}. Entries
@@ -49,6 +52,15 @@ by \code{config_id}, or \code{NULL} when the run skipped stability.}
 
 \item{\code{generalizability_scores}}{Per-sample held-out accuracy, a list named by
 \code{config_id}. Entries are \code{NULL} when the run skipped generalizability.}
+
+\item{\code{consensus_anchors}}{Sorted row indices of the anchors of an anchored
+run, or \code{NULL} for an exact run.}
+
+\item{\code{preprocessing_results}}{Scores split by preprocessing pipeline, or
+\code{NULL} for a run without randomized preprocessing.}
+
+\item{\code{preprocessing_pipelines}}{The pipelines of a randomized run, named by
+their labels, or \code{NULL}.}
 }}
 
 \seealso{

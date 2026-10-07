@@ -199,7 +199,9 @@ test_that("config_id must count from 0 in table order", {
 })
 
 test_that("random_state must leave room for every derived seed", {
-  limit <- .Machine$integer.max - 8L
+  # The held-out embedding of the last resample uses
+  # random_state + 3 * n_resamples - 1.
+  limit <- .Machine$integer.max - 12L
   expect_error(
     carve(blobs$X, n_resamples = 4, random_state = limit + 1),
     sprintf("random_state must be at most %.0f so that every derived seed fits in an R integer.", limit),
@@ -207,4 +209,203 @@ test_that("random_state must leave room for every derived seed", {
   )
   expect_identical(resolve_seed(limit, 4L), as.integer(limit))
   expect_error(resolve_seed(limit + 1, 4L), "random_state must be at most", fixed = TRUE)
+})
+
+blobs3d <- make_blobs(n_per = 30L, centers = diag(5, 3), sd = 1, seed = 42L)
+resolution_fit <- carve(blobs3d$X, resolution = c(0.2, 0.5, 1), n_resamples = 4, random_state = 0)
+
+test_that("a resolution sweep records its axis and the observed cluster counts", {
+  axis <- resolution_fit@sweep
+  expect_identical(axis@param, "resolution")
+  expect_identical(axis@values, c(0.2, 0.5, 1))
+  expect_true(axis@finer_is_larger)
+  expect_false(axis@fixes_k)
+  results <- resolution_fit@estimator_results
+  expect_false("n_clusters" %in% names(results))
+  expect_identical(results$estimator, rep(c("LeidenClustering", "LouvainClustering"), each = 3))
+  expect_identical(results$method_label, rep(c("LeidenClustering, n_neighbors=15", "LouvainClustering, n_neighbors=15"), each = 3))
+  expect_identical(results$sweep_value, rep(c(0.2, 0.5, 1), 2))
+  expect_identical(results$sweep_rank, rep(0:2, 2))
+  expect_identical(results$noise_fraction, rep(0, 6))
+  expect_true(get_sweep_value(resolution_fit) %in% c(0.2, 0.5, 1))
+  expect_true(get_k(resolution_fit) %in% round(results$n_clusters_observed))
+})
+
+test_that("labels on a resolution sweep pin sweep values, not k", {
+  expect_length(get_labels(resolution_fit), 90L)
+  expect_error(get_labels(resolution_fit, k = 3), "This run swept 'resolution', not 'n_clusters'.", fixed = TRUE)
+  expect_length(get_labels(resolution_fit, sweep_value = 0.5), 90L)
+  expect_error(get_labels(resolution_fit, sweep_value = 0.7), "No configurations found for resolution=0.7.", fixed = TRUE)
+  expect_identical(length(unique(get_labels(resolution_fit, consensus_k = 4))), 4L)
+})
+
+test_that("resolution and a different sweep cannot be combined", {
+  expect_error(
+    carve(blobs$X, resolution = 1, sweep = "n_clusters"),
+    "resolution= was given but sweep='n_clusters'. Pass sweep_values= instead, or drop resolution=.",
+    fixed = TRUE
+  )
+})
+
+test_that("a min_cluster_size sweep runs HDBSCAN with ranks running backwards", {
+  skip_if_not_installed("dbscan")
+  fit <- carve(blobs3d$X, sweep = "min_cluster_size", sweep_values = c(5, 8, 10),
+               n_resamples = 4, random_state = 0)
+  expect_false(fit@sweep@finer_is_larger)
+  results <- fit@estimator_results
+  expect_identical(unique(results$estimator), "HDBSCAN")
+  expect_identical(results$min_cluster_size, c(5L, 8L, 10L))
+  expect_identical(results$sweep_rank, c(2L, 1L, 0L))
+  expect_true(all(results$noise_fraction >= 0 & results$noise_fraction < 1))
+  expect_length(get_labels(fit, sweep_value = 10), 90L)
+  selected <- get_estimator(fit)
+  expect_identical(attr(selected, "estimator"), "HDBSCAN")
+  expect_identical(attr(selected, "params")$cluster_selection_method, "eom")
+})
+
+# Labels the first five rows of every subsample noise.
+first_five_noise <- function(X, n_clusters = 3L, random_state = NULL) {
+  labels <- KMeans(X, n_clusters, random_state = random_state)
+  labels[1:5] <- -1L
+  labels
+}
+
+test_that("every noise policy records the same noise fraction", {
+  grid <- list(estimator_grid(first_five_noise, n_clusters = 3L))
+  fractions <- vapply(c("drop", "as_cluster", "singleton"), function(policy) {
+    # "singleton" makes each noise sample a cluster, so the k-axis check warns.
+    fit <- suppressWarnings(carve(blobs$X, n_resamples = 3, random_state = 0,
+                                  estimator_param_grids = grid, noise_policy = policy))
+    fit@estimator_results$noise_fraction
+  }, numeric(1))
+  expect_equal(unname(fractions), rep(5 / 55, 3))
+})
+
+test_that("the new settings are checked before the run", {
+  X <- blobs$X
+  expect_error(
+    carve(X, noise_policy = "keep"),
+    "Unknown noise_policy 'keep'. Expected 'drop', 'as_cluster', or 'singleton'.",
+    fixed = TRUE
+  )
+  expect_error(carve(X, anchor_threshold = -1), "anchor_threshold must be a non-negative whole number.", fixed = TRUE)
+  expect_error(carve(X, randomize_preprocessing = NA), "randomize_preprocessing must be TRUE or FALSE.", fixed = TRUE)
+  expect_error(
+    carve(X, normalization_options = list(Identity)),
+    "normalization_options must be NULL or a list of preprocessing_option() specifications.",
+    fixed = TRUE
+  )
+  expect_error(carve(X, consensus_anchors = 2.5), "consensus_anchors given as a fraction must be in (0, 1], got 2.5.", fixed = TRUE)
+})
+
+two <- make_blobs(n_per = 30L, centers = rbind(c(0, 0), c(6, 0)), seed = 4L)
+anchored_fit <- function(...) {
+  carve(two$X, n_resamples = 6, random_state = 0,
+        estimator_param_grids = list(estimator_grid(KMeans, n_clusters = 2:3)), ...)
+}
+
+test_that("above anchor_threshold the run is anchored and says why", {
+  fit <- NULL
+  expect_warning(
+    fit <- anchored_fit(anchor_threshold = 30),
+    "n=60 exceeds anchor_threshold=30, so CARVE is using anchored consensus over 30 anchors. Per-sample scores and labels still cover every sample; consensus matrices and PAC are computed over the anchors.",
+    fixed = TRUE
+  )
+  expect_no_error(validObject(fit))
+  expect_length(fit@consensus_anchors, 30L)
+  expect_false(is.unsorted(fit@consensus_anchors, strictly = TRUE))
+  expect_identical(dim(fit@consensus_matrices[["0"]]), c(30L, 30L))
+  expect_identical(dim(fit@consensus_generalizability_matrices[["1"]]), c(30L, 30L))
+  expect_length(fit@stability_gini_scores[["0"]], 60L)
+  expect_length(fit@generalizability_scores[["0"]], 60L)
+  # One anchor draw serves every configuration.
+  expect_identical(is.nan(fit@consensus_matrices[["0"]]), is.nan(fit@consensus_matrices[["1"]]))
+  expect_output(show(fit), "Consensus: anchored over 30 anchors", fixed = TRUE)
+})
+
+test_that("consensus_anchors anchors a run below the threshold and the warning says so", {
+  fit <- NULL
+  expect_warning(
+    fit <- anchored_fit(anchor_threshold = 1000, consensus_anchors = 25),
+    "consensus_anchors=25 opts this run in regardless of anchor_threshold, so CARVE is using anchored consensus over 25 anchors.",
+    fixed = TRUE
+  )
+  expect_length(fit@consensus_anchors, 25L)
+})
+
+test_that("at or below the threshold the run is exact", {
+  fit <- anchored_fit(anchor_threshold = 100)
+  expect_null(fit@consensus_anchors)
+  expect_identical(dim(fit@consensus_matrices[["0"]]), c(60L, 60L))
+  expect_output(show(fit), "Consensus: exact", fixed = TRUE)
+})
+
+test_that("the fit stores the threads its whole budget allows", {
+  local_mocked_bindings(n_cores = function() 11L)
+  grid <- list(estimator_grid(KMeans, n_clusters = 2L))
+  fit <- carve(blobs$X, n_resamples = 4, random_state = 0, estimator_param_grids = grid,
+               BPPARAM = BiocParallel::SerialParam())
+  expect_identical(fit@run_params$n_threads, 11L)
+  skip_on_os("windows")
+  # Four workers with two threads each.
+  fit <- carve(blobs$X, n_resamples = 4, random_state = 0, estimator_param_grids = grid, n_jobs = 4)
+  expect_identical(fit@run_params$n_threads, 8L)
+})
+
+randomized_fit <- function(...) {
+  carve(blobs$X, n_resamples = 8, random_state = 0, estimator_param_grids = k_grid,
+        randomize_preprocessing = TRUE,
+        normalization_options = list(preprocessing_option(Identity), preprocessing_option(StandardScaler)),
+        dim_reduction_options = list(preprocessing_option(Identity), preprocessing_option(PCA, n_components = c(1L, 2L))),
+        ...)
+}
+
+test_that("a randomized fit splits each configuration's scores by pipeline", {
+  fit <- randomized_fit()
+  table <- fit@preprocessing_results
+  expect_identical(names(table), c(
+    "method_id", "method_label", "pipeline", "normalization", "dim_reduction", "n_clusters",
+    "n_resamples", "ari_stability", "ari_stability_se", "ari_generalizability",
+    "ari_generalizability_se", "n_clusters_observed", "sweep_param", "sweep_value", "sweep_rank"
+  ))
+  expect_identical(as.vector(tapply(table$n_resamples, table$n_clusters, sum)), rep(8L, 3))
+  expect_setequal(unique(table$pipeline), names(fit@preprocessing_pipelines))
+  expect_identical(table$pipeline, paste(table$normalization, table$dim_reduction, sep = " | "))
+  joined <- merge(table, fit@estimator_results[, c("method_id", "n_clusters", "config_id")],
+                  by = c("method_id", "n_clusters"))
+  expect_identical(nrow(joined), nrow(table))
+  expect_true(all(vapply(fit@preprocessing_pipelines, inherits, logical(1), "carve_pipeline_spec")))
+  expect_true(fit@run_params$randomize_preprocessing)
+  expect_output(show(fit), sprintf("Preprocessing: randomized over %d pipelines", length(fit@preprocessing_pipelines)), fixed = TRUE)
+})
+
+test_that("a fit without randomization has no preprocessing results", {
+  fit <- small_fit()
+  expect_null(fit@preprocessing_results)
+  expect_null(fit@preprocessing_pipelines)
+})
+
+test_that("the default options are resolved only for a randomized fit", {
+  local_mocked_bindings(
+    default_normalization_options = function(X) stop("resolved"),
+    default_dim_reduction_options = function(X, subsample_ratio) stop("resolved")
+  )
+  expect_no_error(small_fit())
+  expect_error(small_fit(randomize_preprocessing = TRUE), "resolved", fixed = TRUE)
+})
+
+test_that("an empty reduction list under randomization is an error", {
+  expect_error(
+    small_fit(randomize_preprocessing = TRUE, dim_reduction_options = list(),
+              normalization_options = list(preprocessing_option(Identity))),
+    "randomize_preprocessing=TRUE needs at least one normalization option and one dimensionality reduction option.",
+    fixed = TRUE
+  )
+})
+
+test_that("the verbose header names the resolved options", {
+  messages <- capture_messages(randomized_fit(verbose = 2))
+  text <- paste(messages, collapse = "")
+  expect_match(text, "[CARVE] normalization      : identity, StandardScaler", fixed = TRUE)
+  expect_match(text, "[CARVE] dim_reduction      : identity, PCA", fixed = TRUE)
 })

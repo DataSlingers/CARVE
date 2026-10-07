@@ -396,5 +396,11 @@ setMethod("show", "CARVE", function(object) {
   cat("Resamples: ", settings$n_resamples, " per configuration, subsample_ratio ",
       format(settings$subsample_ratio), "\n", sep = "")
   cat("Mode: ", settings$mode, "\n", sep = "")
+  anchors <- object@consensus_anchors
+  cat("Consensus: ", if (is.null(anchors)) "exact" else sprintf("anchored over %d anchors", length(anchors)),
+      "\n", sep = "")
+  if (!is.null(object@preprocessing_pipelines)) {
+    cat("Preprocessing: randomized over ", length(object@preprocessing_pipelines), " pipelines\n", sep = "")
+  }
   invisible(object)
 })
