@@ -38,8 +38,9 @@ setClass(
 #' @slot run_params List of the run settings: `n_resamples`,
 #'   `subsample_ratio`, `n_trees`, `n_jobs`, `mode`, `random_state` (the seed
 #'   the run used), `classifier`, `noise_policy`, `anchor_threshold`,
-#'   `consensus_anchors`, `randomize_preprocessing`, and `n_threads`, the
-#'   threads of the classifier [get_labels()] trains on an anchored run.
+#'   `consensus_anchors`, `randomize_preprocessing`, `estimator_param_grids`
+#'   (`"light"`, `"full"` or `"custom"`), and `n_threads`, the threads of the
+#'   classifier [get_labels()] trains on an anchored run.
 #' @slot estimator_results Data frame with one row per configuration; see
 #'   [estimator_results()].
 #' @slot estimator_param_grids The estimator grids the run evaluated.

@@ -26,8 +26,9 @@ coded as integers, or \code{NULL}.}
 \item{\code{run_params}}{List of the run settings: \code{n_resamples},
 \code{subsample_ratio}, \code{n_trees}, \code{n_jobs}, \code{mode}, \code{random_state} (the seed
 the run used), \code{classifier}, \code{noise_policy}, \code{anchor_threshold},
-\code{consensus_anchors}, \code{randomize_preprocessing}, and \code{n_threads}, the
-threads of the classifier \code{\link[=get_labels]{get_labels()}} trains on an anchored run.}
+\code{consensus_anchors}, \code{randomize_preprocessing}, \code{estimator_param_grids}
+(\code{"light"}, \code{"full"} or \code{"custom"}), and \code{n_threads}, the threads of the
+classifier \code{\link[=get_labels]{get_labels()}} trains on an anchored run.}
 
 \item{\code{estimator_results}}{Data frame with one row per configuration; see
 \code{\link[=estimator_results]{estimator_results()}}.}

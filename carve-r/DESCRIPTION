@@ -63,6 +63,7 @@ Collate:
     'selection.R'
     'seurat.R'
     'sweep.R'
+    'tl.R'
     'transforms.R'
     'types.R'
     'utils.R'

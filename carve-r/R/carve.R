@@ -408,6 +408,7 @@ fit_carve <- function(X, n_clusters, resolution, sweep, sweep_values, finer_is_l
       anchor_threshold = anchor_threshold,
       consensus_anchors = consensus_anchors,
       randomize_preprocessing = randomize_preprocessing,
+      estimator_param_grids = if (is_preset) estimator_param_grids else "custom",
       n_threads = as.integer(min(n_cores(), budget[["outer"]] * budget[["inner"]]))
     ),
     estimator_results = results,

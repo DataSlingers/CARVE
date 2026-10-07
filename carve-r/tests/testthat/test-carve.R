@@ -410,3 +410,12 @@ test_that("the verbose header names the resolved options", {
   expect_match(text, "[CARVE] normalization      : identity, StandardScaler", fixed = TRUE)
   expect_match(text, "[CARVE] dim_reduction      : identity, PCA", fixed = TRUE)
 })
+
+test_that("run_params records which estimator grids the run used", {
+  X <- make_blobs()$X
+  light <- carve(X, n_clusters = 2:3, n_resamples = 2, random_state = 0)
+  expect_identical(light@run_params$estimator_param_grids, "light")
+  custom <- carve(X, n_resamples = 2, random_state = 0,
+                  estimator_param_grids = list(estimator_grid(KMeans, n_clusters = 2:3)))
+  expect_identical(custom@run_params$estimator_param_grids, "custom")
+})
