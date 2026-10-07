@@ -577,3 +577,50 @@ summarize_preprocessing_records <- function(pipeline_records, pipelines, sweep_p
   rownames(summary) <- NULL
   summary
 }
+
+# Single-cell input. SingleCellExperiment and Seurat objects keep cells as
+# columns; CARVE clusters a matrix with cells as rows.
+check_one_source <- function(assay, reduction) {
+  if (!is.null(assay) && !is.null(reduction)) {
+    stop(
+      "Pass at most one of reduction= and assay=; they select the same thing from different places.",
+      call. = FALSE
+    )
+  }
+}
+
+# A sparse matrix stays sparse, so as_data_matrix() can warn before it
+# densifies a large one.
+cells_by_features <- function(values) {
+  if (inherits(values, "Matrix")) Matrix::t(values) else t(as.matrix(values))
+}
+
+select_dims <- function(X, n_dims) {
+  if (is.null(n_dims)) {
+    return(X)
+  }
+  if (!is.numeric(n_dims) || length(n_dims) != 1L || is.na(n_dims) || n_dims < 1 ||
+      n_dims != round(n_dims)) {
+    stop("n_dims must be a positive whole number.", call. = FALSE)
+  }
+  if (n_dims > ncol(X)) {
+    stop(sprintf(
+      "n_dims=%d exceeds the %d available components in the selected representation.",
+      as.integer(n_dims), ncol(X)
+    ), call. = FALSE)
+  }
+  X[, seq_len(n_dims), drop = FALSE]
+}
+
+# The first two columns of an embedding, for the scatter plots. where names
+# the embedding in the error.
+embedding_2d <- function(values, where) {
+  values <- as.matrix(values)
+  if (ncol(values) < 2L) {
+    stop(sprintf(
+      "%s has shape (%d, %d); a basis needs at least two columns.",
+      where, nrow(values), ncol(values)
+    ), call. = FALSE)
+  }
+  unname(values[, 1:2, drop = FALSE])
+}

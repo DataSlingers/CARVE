@@ -608,3 +608,25 @@ test_that("the preprocessing summary splits each configuration by pipeline", {
   expect_identical(out$sweep_param, rep("n_clusters", 3))
   expect_identical(rownames(out), c("1", "2", "3"))
 })
+
+test_that("cells_by_features turns cells-as-columns into cells-as-rows", {
+  values <- matrix(1:6, 2, 3)
+  expect_identical(cells_by_features(values), t(values))
+  sparse <- Matrix::Matrix(values, sparse = TRUE)
+  expect_s4_class(cells_by_features(sparse), "Matrix")
+  expect_equal(as.matrix(cells_by_features(sparse)), t(values) + 0)
+})
+
+test_that("select_dims keeps the first n_dims columns", {
+  X <- matrix(1:6, 2, 3)
+  expect_identical(select_dims(X, NULL), X)
+  expect_identical(select_dims(X, 2), X[, 1:2])
+  expect_error(select_dims(X, 4), "n_dims=4 exceeds the 3 available components in the selected representation.", fixed = TRUE)
+  expect_error(select_dims(X, 1.5), "n_dims must be a positive whole number.", fixed = TRUE)
+})
+
+test_that("embedding_2d keeps two columns or names what is wrong", {
+  values <- matrix(1:6, 2, 3, dimnames = list(c("a", "b"), NULL))
+  expect_identical(embedding_2d(values, "here"), unname(values[, 1:2]))
+  expect_error(embedding_2d(values[, 1L, drop = FALSE], "here"), "here has shape (2, 1); a basis needs at least two columns.", fixed = TRUE)
+})

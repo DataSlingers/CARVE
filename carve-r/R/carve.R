@@ -68,9 +68,12 @@ NULL
 #' generalize, and t-SNE, which cannot embed new samples, can take part.
 #' [preprocessing_results()] splits the scores by pipeline.
 #'
-#' @param x The data, one row per sample: a numeric matrix, a numeric data
-#'   frame, a sparse matrix from the Matrix package, or a numeric vector.
-#' @param ... Not used. An argument name `carve()` does not know is an error.
+#' @param x The data: a numeric matrix with one row per sample, a numeric
+#'   data frame, a sparse matrix from the Matrix package, a numeric vector,
+#'   or a SingleCellExperiment, whose cells are its columns.
+#' @param ... For a SingleCellExperiment, the arguments of the matrix
+#'   method, from `n_clusters` on. For other input, not used: an argument
+#'   name `carve()` does not know is an error.
 #' @param n_clusters Numbers of clusters to evaluate. A single number `K`
 #'   means `2:K`. Custom grids set their own values.
 #' @param resolution Resolutions to evaluate with the graph estimators.
