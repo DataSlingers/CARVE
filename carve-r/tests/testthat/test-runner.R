@@ -456,3 +456,76 @@ test_that("embeddings that do not fit the resample are an error", {
     fixed = TRUE
   )
 })
+
+test_that("an anchored run keeps anchor blocks and full-length scores", {
+  anchors <- seq(1L, 90L, by = 3L)
+  run <- run_validation(blobs$X, k_grid, 4L, 0.618, random_state = 0L, sweep = k_sweep, anchors = anchors)
+  expect_identical(dim(run$consensus_matrices[["1"]]), c(30L, 30L))
+  expect_identical(dim(run$consensus_generalizability_matrices[["1"]]), c(30L, 30L))
+  expect_length(run$summaries[["1"]]$gini, 90L)
+  expect_length(run$summaries[["1"]]$ce, 90L)
+  expect_length(run$generalizability_scores[["1"]], 90L)
+  expect_identical(run$summaries[["1"]]$pac, compute_consensus_pac(run$consensus_matrices[["1"]]))
+})
+
+test_that("an anchored block is the exact matrix over the anchors", {
+  anchors <- seq(2L, 90L, by = 4L)
+  exact <- run_validation(blobs$X, k_grid, 4L, 0.618, random_state = 0L, sweep = k_sweep)
+  anchored <- run_validation(blobs$X, k_grid, 4L, 0.618, random_state = 0L, sweep = k_sweep, anchors = anchors)
+  expect_equal(anchored$consensus_matrices[["2"]], exact$consensus_matrices[["2"]][anchors, anchors])
+  expect_identical(anchored$records, exact$records)
+})
+
+test_that("with every sample an anchor the run equals the exact run", {
+  exact <- run_validation(blobs$X, k_grid, 4L, 0.618, random_state = 0L, sweep = k_sweep)
+  everything <- run_validation(blobs$X, k_grid, 4L, 0.618, random_state = 0L, sweep = k_sweep, anchors = 1:90)
+  expect_equal(everything$summaries, exact$summaries)
+  expect_equal(everything$consensus_matrices, exact$consensus_matrices)
+})
+
+test_that("the noise policy reaches every resample", {
+  grid <- list(estimator_grid(noisy_kmeans, n_clusters = 3L))
+  axis <- resolve_sweep(n_clusters = 3L)
+  dropped <- run_validation(blobs$X, grid, 3L, 0.618, random_state = 0L, sweep = axis)
+  kept <- run_validation(blobs$X, grid, 3L, 0.618, random_state = 0L, sweep = axis, noise_policy = "as_cluster")
+  expect_equal(dropped$records$noise_fraction, 5 / 55)
+  expect_equal(kept$records$noise_fraction, 5 / 55)
+  expect_false(identical(dropped$consensus_matrices, kept$consensus_matrices))
+})
+
+test_that("resamples that are all noise are left out of the aggregates", {
+  # Resample 1 labels every sample noise; resamples 0 and 2 cluster.
+  sometimes_noise <- function(X, min_cluster_size = 5L, random_state = NULL) {
+    if (identical(random_state, 1L)) {
+      return(rep(-1L, nrow(X)))
+    }
+    KMeans(X, 3L, random_state = random_state)
+  }
+  out <- collect_warnings(run_validation(
+    blobs$X, list(estimator_grid(sometimes_noise, min_cluster_size = 5L)), 3L, 0.618,
+    random_state = 0L, sweep = resolve_sweep(sweep = "min_cluster_size", sweep_values = 5L)
+  ))
+  run <- out$value
+  expect_length(out$warnings, 3L)
+  expect_equal(run$records$noise_fraction, 1 / 3)
+  expect_false(is.nan(run$records$ari_stability))
+  expect_false(all(is.nan(run$consensus_matrices[["0"]])))
+  expect_false(anyNA(run$generalizability_scores[["0"]]))
+})
+
+test_that("with a BPPARAM the thread split counts only workers that get a resample", {
+  local_mocked_bindings(n_cores = function() 8L)
+  expect_identical(run_core_budget(1L, 2L, BiocParallel::SnowParam(4L)), c(outer = 4L, inner = 4L))
+  expect_identical(run_core_budget(1L, 10L, BiocParallel::SnowParam(4L)), c(outer = 4L, inner = 2L))
+  expect_identical(run_core_budget(4L, 10L), resolve_core_budget(4L, 10L))
+})
+
+test_that("an anchored run with noise does not depend on the backend", {
+  skip_on_os("windows")
+  grid <- list(estimator_grid(noisy_kmeans, n_clusters = 3L))
+  axis <- resolve_sweep(n_clusters = 3L)
+  serial <- run_validation(blobs$X, grid, 4L, 0.618, random_state = 0L, sweep = axis, anchors = seq(1L, 90L, by = 2L))
+  forked <- run_validation(blobs$X, grid, 4L, 0.618, random_state = 0L, sweep = axis, anchors = seq(1L, 90L, by = 2L),
+                           BPPARAM = BiocParallel::MulticoreParam(2L))
+  expect_identical(serial, forked)
+})

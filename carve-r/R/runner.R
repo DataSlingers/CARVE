@@ -193,30 +193,47 @@ embed_resample <- function(X, spec, seed, n_resamples, subsample_ratio, random_s
   )
 }
 
-# One resample of one configuration. It is a namespace function, so a
-# worker receives these arguments and nothing else; a closure made inside
-# run_validation would carry that frame, with every consensus matrix
-# computed so far, to every worker. The data argument is not called X, which
-# would clash with the X of lapply and bplapply.
+# One resample of one configuration, described by its task: the resample
+# index b and, under randomized preprocessing, that resample's embeddings.
+# It is a namespace function, so a worker receives these arguments and
+# nothing else; a closure made inside run_validation would carry that frame,
+# with every consensus matrix computed so far, to every worker. The data
+# argument is not called X, which would clash with the X of lapply and
+# bplapply.
 # The resample runs under the seed random_state + b, so an estimator or
 # classifier that draws without a random_state argument gives the same
 # results on every backend and leaves the caller's stream alone. The
 # built-in functions reseed themselves inside it.
-run_resample <- function(b, data, estimator, estimator_name, params, subsample_ratio,
-                         n_resamples, classifier, n_trees, sweep_param, mode,
+run_resample <- function(task, data, estimator, estimator_name, params, subsample_ratio,
+                         n_resamples, classifier, n_trees, sweep_param, noise_policy, mode,
                          random_state, classifier_threads) {
-  seeded(random_state + b, collect_warnings(validation_iter(
+  seeded(random_state + task$b, collect_warnings(validation_iter(
     data, estimator, estimator_name, params,
     subsample_ratio = subsample_ratio,
     n_resamples = n_resamples,
-    seed = b,
+    seed = task$b,
     classifier = classifier,
     n_trees = n_trees,
     sweep_param = sweep_param,
+    noise_policy = noise_policy,
     mode = mode,
     random_state = random_state,
-    classifier_threads = classifier_threads
+    classifier_threads = classifier_threads,
+    embeddings = task$embeddings
   )))
+}
+
+# Workers over resamples (outer) and classifier threads per worker (inner).
+# A BPPARAM brings its own worker count; as with n_jobs, at most
+# n_resamples of them have a resample, so the threads are shared among
+# those.
+run_core_budget <- function(n_jobs, n_resamples, BPPARAM = NULL) {
+  if (is.null(BPPARAM)) {
+    return(resolve_core_budget(n_jobs, n_resamples))
+  }
+  workers <- as.integer(BiocParallel::bpnworkers(BPPARAM))
+  busy <- max(1L, min(workers, as.integer(n_resamples)))
+  c(outer = workers, inner = max(1L, n_cores() %/% busy))
 }
 
 # The BiocParallel backend for the resamples, or NULL to run them in this
@@ -267,16 +284,11 @@ bind_records <- function(records) {
 
 run_validation <- function(X, estimator_grids, n_resamples, subsample_ratio, classifier = NULL,
                            n_trees = 100L, n_jobs = 1L, BPPARAM = NULL, random_state = 0L,
-                           sweep, mode = "default", show_progress = FALSE, verbose = 0L) {
+                           sweep, noise_policy = "drop", mode = "default", anchors = NULL,
+                           show_progress = FALSE, verbose = 0L) {
   policy <- resolve_mode(mode)
   n <- nrow(X)
-  # Workers over resamples (outer), and threads for each worker's forest
-  # (inner). A BPPARAM brings its own worker count.
-  budget <- resolve_core_budget(n_jobs, n_resamples)
-  if (!is.null(BPPARAM)) {
-    workers <- as.integer(BiocParallel::bpnworkers(BPPARAM))
-    budget <- c(outer = workers, inner = max(1L, n_cores() %/% workers))
-  }
+  budget <- run_core_budget(n_jobs, n_resamples, BPPARAM)
   # The backend starts once for the whole run. Left to bplapply, a backend
   # that is not running starts and stops for every configuration, and a
   # SnowParam launches new R processes each time. A backend the caller
@@ -287,6 +299,9 @@ run_validation <- function(X, estimator_grids, n_resamples, subsample_ratio, cla
     on.exit(BiocParallel::bpstop(BPPARAM), add = TRUE)
   }
   apply_resamples <- resample_backend(BPPARAM)
+
+  # One task per resample; a worker receives its own tasks only.
+  tasks <- lapply(seq_len(n_resamples) - 1L, function(b) list(b = b, embeddings = NULL))
 
   configs <- unlist(lapply(estimator_grids, function(g) {
     lapply(expand_param_grid(g$grid), function(params) list(grid = g, params = params))
@@ -311,7 +326,7 @@ run_validation <- function(X, estimator_grids, n_resamples, subsample_ratio, cla
     g <- configs[[i]]$grid
     params <- configs[[i]]$params
     outputs <- apply_resamples(
-      seq_len(n_resamples) - 1L, run_resample,
+      tasks, run_resample,
       data = X,
       estimator = g$estimator,
       estimator_name = g$name,
@@ -321,6 +336,7 @@ run_validation <- function(X, estimator_grids, n_resamples, subsample_ratio, cla
       classifier = classifier,
       n_trees = n_trees,
       sweep_param = sweep@param,
+      noise_policy = noise_policy,
       mode = mode,
       random_state = random_state,
       classifier_threads = budget[["inner"]]
@@ -330,23 +346,38 @@ run_validation <- function(X, estimator_grids, n_resamples, subsample_ratio, cla
     }
     results <- lapply(outputs, function(o) o$value)
 
+    # A resample whose subsample was all noise under "drop" has nothing to
+    # aggregate; it already warned.
     stability_runs <- Filter(function(r) length(r$labels_train) > 0L, results)
     held_out_runs <- Filter(
       function(r) length(r$labels_predicted) > 0L && length(r$labels_test) > 0L,
       results
     )
+    stability_pairs <- lapply(stability_runs, function(r) {
+      list(indices = r$train_indices, labels = r$labels_train)
+    })
+    held_out_pairs <- lapply(held_out_runs, function(r) {
+      list(indices = r$test_indices, labels = r$labels_predicted)
+    })
     if (policy$run_stability) {
-      M <- compute_consensus_matrix(n, lapply(stability_runs, function(r) {
-        list(indices = r$train_indices, labels = r$labels_train)
-      }))
-      scores <- stability_from_consensus(M)
+      # Anchored, the stored matrix is the anchor block, and PAC comes from
+      # it; the per-sample scores still cover every sample.
+      if (is.null(anchors)) {
+        M <- compute_consensus_matrix(n, stability_pairs)
+        scores <- stability_from_consensus(M)
+      } else {
+        M <- consensus_anchor_block(n, stability_pairs, anchors)
+        scores <- stability_from_runs_anchored(n, stability_pairs, anchors)
+      }
       consensus[i] <- list(M)
       summaries[i] <- list(list(gini = scores$gini, ce = scores$ce, pac = compute_consensus_pac(M)))
     }
     if (policy$run_generalizability) {
-      consensus_generalizability[i] <- list(compute_consensus_matrix(n, lapply(held_out_runs, function(r) {
-        list(indices = r$test_indices, labels = r$labels_predicted)
-      })))
+      consensus_generalizability[i] <- list(if (is.null(anchors)) {
+        compute_consensus_matrix(n, held_out_pairs)
+      } else {
+        consensus_anchor_block(n, held_out_pairs, anchors)
+      })
       generalizability_scores[i] <- list(compute_generalizability_scores(n, lapply(held_out_runs, function(r) {
         list(indices = r$test_indices, true = r$labels_test, predicted = r$labels_predicted)
       })))
