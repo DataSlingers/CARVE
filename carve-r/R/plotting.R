@@ -205,3 +205,209 @@ legend_position <- function(legend_loc) {
   }
   ggplot2::theme(legend.position = legend_loc)
 }
+
+# The drawing behind the three line plots over the sweep axis, so they
+# cannot drift apart. results is non-empty and has sweep_value, group_col
+# and y_col; error bars come from <y_col>_se when the table has it.
+# select_row() returns the row whose sweep_value the dashed line marks, and
+# selection_label() builds its legend text from that row. If either fails,
+# for example because not_two leaves no rows, the line is left off, as in
+# Python.
+draw_metric_lines <- function(results, y_col, group_col, label_of, legend_title, select_row,
+                              selection_label, integer_y = FALSE, title = NULL, xlabel = NULL,
+                              ylabel, legend = TRUE, legend_loc = "right", palette = "Accent") {
+  keys <- as.character(results[[group_col]])
+  # pandas' groupby sorts the group keys in byte order, which radix sorting
+  # reproduces whatever the locale.
+  groups <- sort(unique(keys), method = "radix")
+  colours <- stats::setNames(palette_colors(palette, length(groups)), groups)
+  labels <- stats::setNames(
+    vapply(match(groups, keys), function(i) label_of(results[i, , drop = FALSE]), character(1)),
+    groups
+  )
+  se_col <- paste0(y_col, "_se")
+  data <- data.frame(
+    group = factor(keys, levels = groups),
+    x = as.numeric(results$sweep_value),
+    y = as.numeric(results[[y_col]]),
+    se = if (se_col %in% names(results)) as.numeric(results[[se_col]]) else NA_real_
+  )
+  data <- data[order(data$group, data$x), , drop = FALSE]
+  x_values <- sort(unique(data$x))
+  selected <- tryCatch(
+    {
+      row <- select_row()
+      list(x = as.numeric(row$sweep_value[[1L]]), label = selection_label(row))
+    },
+    error = function(e) NULL
+  )
+
+  plot <- ggplot2::ggplot(
+    data,
+    ggplot2::aes(x = .data$x, y = .data$y, colour = .data$group, group = .data$group)
+  )
+  if (!is.null(selected)) {
+    plot <- plot +
+      ggplot2::geom_vline(
+        data = data.frame(x = selected$x, label = selected$label),
+        ggplot2::aes(xintercept = .data$x, linetype = .data$label),
+        colour = "gray50", linewidth = line_width(2), alpha = 0.6
+      ) +
+      ggplot2::scale_linetype_manual(values = "dashed", name = NULL)
+  }
+  if (any(!is.na(data$se))) {
+    span <- if (length(x_values) > 1L) diff(range(x_values)) else 1
+    plot <- plot + ggplot2::geom_errorbar(
+      ggplot2::aes(ymin = .data$y - .data$se, ymax = .data$y + .data$se),
+      width = 0.02 * span, linewidth = line_width(1.5), alpha = 0.8, na.rm = TRUE
+    )
+  }
+  plot <- plot +
+    ggplot2::geom_line(linewidth = line_width(2), alpha = 0.8, na.rm = TRUE) +
+    ggplot2::geom_point(size = point_size(36), alpha = 0.8, na.rm = TRUE) +
+    ggplot2::scale_colour_manual(values = colours, breaks = groups, labels = labels, name = legend_title)
+  if (length(x_values) <= 20L) {
+    plot <- plot + ggplot2::scale_x_continuous(
+      breaks = x_values,
+      labels = vapply(x_values, format_g, character(1))
+    )
+  }
+  if (integer_y) {
+    plot <- plot + ggplot2::scale_y_continuous(breaks = integer_breaks)
+  }
+  plot <- plot +
+    ggplot2::labs(
+      x = if (is.null(xlabel)) sweep_axis_label(results) else xlabel,
+      y = ylabel,
+      title = title
+    ) +
+    carve_theme() +
+    legend_position(legend_loc)
+  if (!isTRUE(legend)) {
+    plot <- plot + ggplot2::guides(colour = "none", linetype = "none")
+  }
+  plot
+}
+
+metric_over_sweep_plot <- function(results, measure = "stability", rule = "1se", not_two = FALSE,
+                                   title = NULL, xlabel = NULL, ylabel = NULL, legend = TRUE,
+                                   legend_loc = "right", palette = "Accent") {
+  if (nrow(results) == 0L) {
+    stop("Results DataFrame is empty.", call. = FALSE)
+  }
+  column <- plot_measure_column(results, measure)
+  param <- sweep_param_name(results)
+  draw_metric_lines(
+    results,
+    y_col = column,
+    group_col = "method_id",
+    label_of = build_estimator_label,
+    legend_title = "Estimators",
+    select_row = function() select_best_row_by_rule(results, measure, rule, not_two = not_two),
+    selection_label = function(row) selected_value_label(row, param, rule),
+    title = title,
+    xlabel = xlabel,
+    ylabel = if (is.null(ylabel)) measure_ylabel(column) else ylabel,
+    legend = legend,
+    legend_loc = legend_loc,
+    palette = palette
+  )
+}
+
+# The estimator_results() row whose sweep value marks method_id's
+# selection: CARVE's selection over the pooled table when it lands on
+# method_id, otherwise the rule's choice among method_id's rows. Restricting
+# to method_id first would not do for the selected configuration: under
+# "1se" and "quantile" the tolerance comes from the best row of the whole
+# table, which can belong to another configuration.
+selected_row_for <- function(estimator_results, method_id, measure, rule, not_two) {
+  row <- select_best_row_by_rule(estimator_results, measure, rule, not_two = not_two)
+  if (identical(as.character(row$method_id[[1L]]), as.character(method_id))) {
+    return(row)
+  }
+  own <- estimator_results[as.character(estimator_results$method_id) == as.character(method_id), , drop = FALSE]
+  select_best_row_by_rule(own, measure, rule, not_two = not_two)
+}
+
+metric_by_pipeline_plot <- function(preprocessing, estimator_results, method_id,
+                                    measure = "stability", rule = "1se", not_two = FALSE,
+                                    title = NULL, xlabel = NULL, ylabel = NULL, legend = TRUE,
+                                    legend_loc = "right", palette = "Accent") {
+  if (is.null(preprocessing)) {
+    stop(
+      "There is no preprocessing table to plot: the fit was not randomized. Fit with randomize_preprocessing=TRUE.",
+      call. = FALSE
+    )
+  }
+  if (nrow(preprocessing) == 0L) {
+    stop("Preprocessing DataFrame is empty.", call. = FALSE)
+  }
+  ids <- as.character(preprocessing$method_id)
+  rows <- preprocessing[ids == as.character(method_id), , drop = FALSE]
+  if (nrow(rows) == 0L) {
+    stop(sprintf(
+      "method_id %s not found in the preprocessing table. Available: %s.",
+      format_repr(as.character(method_id)),
+      python_list(sort(unique(ids), method = "radix"))
+    ), call. = FALSE)
+  }
+  carried <- is.character(measure) && length(measure) == 1L && measure %in% names(MEASURE_MAP) &&
+    MEASURE_MAP[[measure]] %in% names(rows)
+  if (!carried) {
+    stop(sprintf(
+      "The per-pipeline table carries only the ARI criteria, so measure must be 'stability' or 'generalizability' (or an alias of either); got %s.",
+      format_repr(measure)
+    ), call. = FALSE)
+  }
+  column <- MEASURE_MAP[[measure]]
+  param <- sweep_param_name(rows)
+  draw_metric_lines(
+    rows,
+    y_col = column,
+    group_col = "pipeline",
+    label_of = function(row) as.character(row$pipeline[[1L]]),
+    legend_title = "Pipelines",
+    select_row = function() selected_row_for(estimator_results, method_id, measure, rule, not_two),
+    selection_label = function(row) selected_value_label(row, param, rule),
+    title = title,
+    xlabel = xlabel,
+    ylabel = if (is.null(ylabel)) measure_ylabel(column) else ylabel,
+    legend = legend,
+    legend_loc = legend_loc,
+    palette = palette
+  )
+}
+
+n_clusters_over_sweep_plot <- function(results, measure = "stability", rule = "1se",
+                                       not_two = FALSE, title = NULL, xlabel = NULL, ylabel = NULL,
+                                       legend = TRUE, legend_loc = "right", palette = "Accent") {
+  if (nrow(results) == 0L) {
+    stop("Results DataFrame is empty.", call. = FALSE)
+  }
+  param <- sweep_param_name(results)
+  if (param == "n_clusters") {
+    stop(
+      "plot_n_clusters_over_sweep needs a sweep over a parameter other than n_clusters. This table sweeps n_clusters, where the realized count is the swept value itself; use plot_metric_over_n_clusters.",
+      call. = FALSE
+    )
+  }
+  plot_measure_column(results, measure)
+  draw_metric_lines(
+    results,
+    y_col = "n_clusters_observed",
+    group_col = "method_id",
+    label_of = build_estimator_label,
+    legend_title = "Estimators",
+    select_row = function() select_best_row_by_rule(results, measure, rule, not_two = not_two),
+    selection_label = function(row) {
+      sprintf("%s, %d clusters", selected_value_label(row, param, rule), observed_k(row))
+    },
+    integer_y = TRUE,
+    title = title,
+    xlabel = xlabel,
+    ylabel = if (is.null(ylabel)) "Mean Observed Number of Clusters" else ylabel,
+    legend = legend,
+    legend_loc = legend_loc,
+    palette = palette
+  )
+}

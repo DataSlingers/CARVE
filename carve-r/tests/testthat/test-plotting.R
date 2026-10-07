@@ -104,3 +104,198 @@ test_that("legend_position takes ggplot2 positions", {
     fixed = TRUE
   )
 })
+
+test_that("each method is one line, labeled by its method label", {
+  plot <- metric_over_sweep_plot(two_method_results())
+  lines <- layer_with(plot, "GeomLine")
+  expect_identical(length(unique(lines$group)), 2L)
+  expect_identical(guide_labels(plot, "colour"), c("KMeans", "SpectralClustering, affinity=self_tuning"))
+  expect_identical(sort(unique(lines$colour)), sort(palette_colors("Accent", 2L)))
+  expect_identical(plot$scales$get_scales("colour")$name, "Estimators")
+})
+
+test_that("the lines carry the metric and its standard error", {
+  plot <- metric_over_sweep_plot(metric_results(), measure = "generalizability")
+  lines <- layer_with(plot, "GeomLine")
+  expect_equal(lines$x, c(2, 3, 4))
+  expect_equal(lines$y, c(0.85, 0.80, 0.65))
+  bars <- layer_with(plot, "GeomErrorbar")
+  expect_equal(bars$ymin, c(0.85, 0.80, 0.65) - c(0.03, 0.04, 0.06))
+  expect_equal(bars$ymax, c(0.85, 0.80, 0.65) + c(0.03, 0.04, 0.06))
+})
+
+test_that("a table without standard errors draws no error bars", {
+  results <- metric_results()
+  results$ari_stability_se <- NULL
+  plot <- suppressWarnings(metric_over_sweep_plot(results))
+  expect_false(has_layer(plot, "GeomErrorbar"))
+  expect_true(has_layer(plot, "GeomLine"))
+})
+
+test_that("the dashed line marks the selected sweep value", {
+  plot <- metric_over_sweep_plot(metric_results(), rule = "1se")
+  dashed <- layer_with(plot, "GeomVline")
+  # 0.9 - 0.02 admits only k = 2.
+  expect_equal(dashed$xintercept, 2)
+  expect_identical(dashed$linetype, "dashed")
+  expect_identical(guide_labels(plot, "linetype"), "Selected k (1-SE rule): 2")
+  resolution <- metric_over_sweep_plot(resolution_results(), rule = "max")
+  expect_identical(guide_labels(resolution, "linetype"), "Selected resolution (Max rule): 0.25")
+  expect_identical(resolution$labels$y, "ARI Stability")
+})
+
+test_that("the dashed line is left off when the selection fails", {
+  plot <- metric_over_sweep_plot(metric_results()[1L, ], not_two = TRUE)
+  expect_false(has_layer(plot, "GeomVline"))
+  expect_true(has_layer(plot, "GeomLine"))
+})
+
+test_that("axis labels follow the sweep and can be replaced", {
+  plot <- metric_over_sweep_plot(metric_results())
+  expect_identical(plot$labels$x, "Number of Clusters (k)")
+  expect_identical(plot$labels$y, "ARI Stability")
+  expect_null(plot$labels$title)
+  expect_equal(x_breaks(plot), c(2, 3, 4))
+  resolution <- metric_over_sweep_plot(resolution_results())
+  expect_identical(resolution$labels$x, "Resolution")
+  expect_equal(x_breaks(resolution), c(0.25, 0.5, 1, 2))
+  custom <- metric_over_sweep_plot(metric_results(), title = "T", xlabel = "X", ylabel = "Y")
+  expect_identical(c(custom$labels$title, custom$labels$x, custom$labels$y), c("T", "X", "Y"))
+})
+
+test_that("legend = FALSE drops both legends", {
+  plot <- metric_over_sweep_plot(metric_results(), legend = FALSE)
+  expect_null(ggplot2::get_guide_data(plot, "colour"))
+  expect_null(ggplot2::get_guide_data(plot, "linetype"))
+  expect_identical(plot$theme$legend.position, "right")
+})
+
+test_that("metric_over_sweep_plot reports a bad measure and an empty table", {
+  expect_error(metric_over_sweep_plot(metric_results(), measure = "nonexistent"), "Measure 'nonexistent' not found", fixed = TRUE)
+  expect_error(metric_over_sweep_plot(metric_results()[0L, ]), "Results DataFrame is empty.", fixed = TRUE)
+})
+
+test_that("plot_metric_by_pipeline draws one line per pipeline of the configuration", {
+  plot <- metric_by_pipeline_plot(pipeline_results(), pooled_results(), "m0", measure = "generalizability")
+  expect_identical(guide_labels(plot, "colour"), c("identity | PCA(n_components=2)", "identity | identity"))
+  lines <- layer_with(plot, "GeomLine")
+  first <- lines[lines$colour == palette_colors("Accent", 2L)[[2L]], ]
+  expect_equal(first$y, c(0.60, 0.80, 0.50))
+  second <- lines[lines$colour == palette_colors("Accent", 2L)[[1L]], ]
+  expect_equal(second$y, c(0.55, 0.70, 0.40))
+  expect_equal(first$x, c(2, 3, 4))
+  expect_identical(plot$scales$get_scales("colour")$name, "Pipelines")
+  expect_identical(plot$labels$x, "Number of Clusters (k)")
+  expect_identical(plot$labels$y, "ARI Generalizability")
+})
+
+test_that("plot_metric_by_pipeline marks the value CARVE selects from the pooled table", {
+  selected <- metric_by_pipeline_plot(pipeline_results(), pooled_results(), "m0", rule = "1se")
+  expect_equal(layer_with(selected, "GeomVline")$xintercept, 4)
+  expect_identical(guide_labels(selected, "linetype"), "Selected k (1-SE rule): 4")
+  other <- metric_by_pipeline_plot(pipeline_results(), pooled_results(), "m1", rule = "1se")
+  expect_equal(layer_with(other, "GeomVline")$xintercept, 2)
+})
+
+test_that("plot_metric_by_pipeline follows a resolution axis and the palette", {
+  as_resolution <- function(table) {
+    names(table)[names(table) == "n_clusters"] <- "resolution"
+    table$sweep_param <- "resolution"
+    table$sweep_value <- table$sweep_value / 4
+    table
+  }
+  plot <- metric_by_pipeline_plot(as_resolution(pipeline_results()), as_resolution(pooled_results()), "m0")
+  expect_identical(plot$labels$x, "Resolution")
+  expect_equal(x_breaks(plot), c(0.5, 0.75, 1))
+  expect_equal(layer_with(plot, "GeomVline")$xintercept, 1)
+  viridis <- metric_by_pipeline_plot(pipeline_results(), pooled_results(), "m0", palette = "viridis")
+  expect_identical(sort(unique(layer_with(viridis, "GeomLine")$colour)), sort(palette_colors("viridis", 2L)))
+})
+
+test_that("plot_metric_by_pipeline names what is missing", {
+  expect_error(
+    metric_by_pipeline_plot(NULL, pooled_results(), "m0"),
+    "There is no preprocessing table to plot: the fit was not randomized. Fit with randomize_preprocessing=TRUE.",
+    fixed = TRUE
+  )
+  expect_error(metric_by_pipeline_plot(pipeline_results()[0L, ], pooled_results(), "m0"), "Preprocessing DataFrame is empty.", fixed = TRUE)
+  expect_error(
+    metric_by_pipeline_plot(pipeline_results(), pooled_results(), "m9"),
+    "method_id 'm9' not found in the preprocessing table. Available: ['m0', 'm1'].",
+    fixed = TRUE
+  )
+  expect_error(
+    metric_by_pipeline_plot(pipeline_results(), pooled_results(), "m0", measure = "pac"),
+    "The per-pipeline table carries only the ARI criteria, so measure must be 'stability' or 'generalizability' (or an alias of either); got 'pac'.",
+    fixed = TRUE
+  )
+  expect_error(
+    metric_by_pipeline_plot(pipeline_results(), pooled_results(), "m0", measure = "average"),
+    "got 'average'.",
+    fixed = TRUE
+  )
+})
+
+test_that("plot_n_clusters_over_sweep draws the observed counts and their standard errors", {
+  plot <- n_clusters_over_sweep_plot(realized_count_results())
+  expect_identical(guide_labels(plot, "colour"), c("LeidenClustering", "LouvainClustering"))
+  lines <- layer_with(plot, "GeomLine")
+  bars <- layer_with(plot, "GeomErrorbar")
+  leiden <- palette_colors("Accent", 2L)[[1L]]
+  expect_equal(lines$x[lines$colour == leiden], c(0.5, 1, 2))
+  expect_equal(lines$y[lines$colour == leiden], c(3.2, 6.6, 11.0))
+  expect_equal(lines$y[lines$colour != leiden], c(2.2, 5.0, 9.4))
+  expect_equal((bars$ymax - bars$ymin)[bars$colour == leiden] / 2, c(0.2, 0.4, 0.0))
+  expect_equal((bars$ymax - bars$ymin)[bars$colour != leiden] / 2, c(0.1, 0.3, 0.6))
+})
+
+test_that("plot_n_clusters_over_sweep marks the selected value and its count", {
+  cases <- list(
+    list("stability", "max", FALSE, 1, "Selected resolution (Max rule): 1, 7 clusters"),
+    list("stability", "1se", FALSE, 2, "Selected resolution (1-SE rule): 2, 11 clusters"),
+    list("generalizability", "max", FALSE, 0.5, "Selected resolution (Max rule): 0.5, 2 clusters"),
+    list("generalizability", "max", TRUE, 1, "Selected resolution (Max rule): 1, 7 clusters")
+  )
+  for (case in cases) {
+    plot <- n_clusters_over_sweep_plot(realized_count_results(), measure = case[[1L]], rule = case[[2L]], not_two = case[[3L]])
+    expect_equal(layer_with(plot, "GeomVline")$xintercept, case[[4L]])
+    expect_identical(guide_labels(plot, "linetype"), case[[5L]])
+  }
+})
+
+test_that("plot_n_clusters_over_sweep labels its axes and ticks whole numbers", {
+  plot <- n_clusters_over_sweep_plot(realized_count_results())
+  expect_identical(plot$labels$x, "Resolution")
+  expect_identical(plot$labels$y, "Mean Observed Number of Clusters")
+  expect_identical(n_clusters_over_sweep_plot(realized_count_results(), ylabel = "Clusters")$labels$y, "Clusters")
+  # Between 2 and 3 clusters the default breaks are 2, 2.25, 2.5, ...
+  narrow <- resolution_results()[1:3, ]
+  narrow$n_clusters_observed <- c(2, 2.5, 3)
+  narrow$n_clusters_observed_se <- 0
+  breaks <- y_breaks(n_clusters_over_sweep_plot(narrow))
+  expect_true(length(breaks) >= 2L)
+  expect_identical(breaks, round(breaks))
+})
+
+test_that("plot_n_clusters_over_sweep rejects a k sweep, a bad measure and an empty table", {
+  expect_error(n_clusters_over_sweep_plot(metric_results()), "other than n_clusters", fixed = TRUE)
+  expect_error(n_clusters_over_sweep_plot(realized_count_results(), measure = "nonexistent"), "not found", fixed = TRUE)
+  expect_error(n_clusters_over_sweep_plot(data.frame()), "Results DataFrame is empty.", fixed = TRUE)
+})
+
+test_that("the three line plots draw through one helper", {
+  calls <- list()
+  local_mocked_bindings(draw_metric_lines = function(results, ...) {
+    args <- list(...)
+    calls[[length(calls) + 1L]] <<- list(args$group_col, args$legend_title, args$y_col, nrow(results))
+    "drawn"
+  })
+  expect_identical(metric_over_sweep_plot(metric_results()), "drawn")
+  expect_identical(metric_by_pipeline_plot(pipeline_results(), pooled_results(), "m0"), "drawn")
+  expect_identical(n_clusters_over_sweep_plot(realized_count_results()), "drawn")
+  expect_identical(calls, list(
+    list("method_id", "Estimators", "ari_stability", 3L),
+    list("pipeline", "Pipelines", "ari_stability", 6L),
+    list("method_id", "Estimators", "n_clusters_observed", 6L)
+  ))
+})
