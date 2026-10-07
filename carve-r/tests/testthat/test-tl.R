@@ -118,6 +118,16 @@ test_that("a mode skips its columns, and an earlier column stays", {
   )
 })
 
+test_that("run_carve under mode = 'generalizability' needs a generalizability measure", {
+  # As in Python, the fit runs and the selection on the default measure,
+  # stability, then finds no stability scores.
+  expect_error(
+    muffle(run(sce, mode = "generalizability"), "Non-default mode is experimental"),
+    "No configuration has a value for ari_stability.",
+    fixed = TRUE
+  )
+})
+
 test_that("reference_key names a column whose labels the stored ones match", {
   with_truth <- sce
   SummarizedExperiment::colData(with_truth)$truth <- c(3, 1, 2)[blobs$y]

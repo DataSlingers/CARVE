@@ -161,6 +161,17 @@ test_that("the single-cell line plots default to the recorded selection", {
   )
 })
 
+test_that("the single-cell heatmap passes the stored matrix, the labels and the style through", {
+  local_mocked_bindings(consensus_plot = function(...) list(...))
+  stored <- attach_results(sce, fit, key = "other", k = 4)
+  heatmap_style <- list(cmap = "magma", palette = "Set 1", colorbar = FALSE, colorbar_label = "Share", title = "T")
+  args <- do.call(plot_consensus_matrix, c(list(stored, key = "other"), heatmap_style))
+  id <- select_row(fit, "stability", "1se", k = 4)$config_id
+  expect_identical(args[[1L]], fit@consensus_matrices[[as.character(id)]])
+  expect_identical(args[[2L]], get_labels(fit, k = 4))
+  expect_args(args, heatmap_style)
+})
+
 test_that("a single-cell plot_metric_by_pipeline plots stability when the recorded measure is not in the table", {
   pac <- attach_results(sce, randomized_fit, measure = "pac", rule = "max")
   method_id <- S4Vectors::metadata(pac)$carve$params$selected_method_id
@@ -427,15 +438,17 @@ test_that("the single-cell sample plots pass every argument and read the stored 
 })
 
 test_that("the single-cell annotation reads the recorded configuration by its config_id", {
-  stored <- attach_results(sce, resolution_fit, sweep_value = 1)
+  # Configuration 0, at resolution 0.5. In the reversed table it is the
+  # second row, so neither row config_id nor row config_id + 1 holds it.
+  stored <- attach_results(sce, resolution_fit, sweep_value = 0.5)
   params <- S4Vectors::metadata(stored)$carve$params
+  expect_identical(params$selected_config_id, 0L)
   results <- estimator_results(resolution_fit)
-  # Reversed, a row's position no longer equals its config_id.
   S4Vectors::metadata(stored)$carve$results <- results[rev(seq_len(nrow(results))), ]
   row <- results[results$config_id == params$selected_config_id, , drop = FALSE]
   text <- cells_annotation(stored, "carve", TRUE)
   expect_identical(text, annotation_text("stability", "1se", results, row, params$selected_k, pinned = TRUE))
-  expect_match(text, "resolution = 1, k ~ ", fixed = TRUE)
+  expect_match(text, "resolution = 0.5, k ~ ", fixed = TRUE)
   expect_match(text, ", fixed)", fixed = TRUE)
   expect_identical(cells_annotation(stored, "carve", "note"), "note")
   expect_null(cells_annotation(stored, "carve", FALSE))
@@ -522,7 +535,7 @@ test_that("the per-sample plots name a missing score, an unknown source or mode,
   )
 })
 
-test_that("a Seurat object reaches the ANY method of every plot generic, and a matrix is refused", {
+test_that("a Seurat object reaches the ANY method of every plot generic with its key, and a matrix is refused", {
   skip_if_not_installed("SeuratObject")
   generics <- list(
     plot_metric_over_n_clusters = fit,
@@ -536,11 +549,16 @@ test_that("a Seurat object reaches the ANY method of every plot generic, and a m
   )
   for (name in names(generics)) {
     plot_function <- get(name)
-    object <- attach_results(make_seurat(blobs$X), generics[[name]])
-    expect_s3_class(plot_function(object), "ggplot")
+    # Stored under a key other than the default, so a plot that ignores key
+    # finds no record.
+    object <- attach_results(make_seurat(blobs$X), generics[[name]], key = "other")
+    expect_s3_class(plot_function(object, key = "other"), "ggplot")
     # The same plot as the SingleCellExperiment method draws, so an ANY
     # method that calls another generic's function is caught.
-    expect_same_plot(plot_function(object), plot_function(attach_results(sce, generics[[name]])))
+    expect_same_plot(
+      plot_function(object, key = "other"),
+      plot_function(attach_results(sce, generics[[name]], key = "other"), key = "other")
+    )
     expect_error(
       plot_function(blobs$X),
       "object must be a CARVE fit, a SingleCellExperiment or a Seurat object, not an object of class 'matrix'.",

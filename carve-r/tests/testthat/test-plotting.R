@@ -122,6 +122,9 @@ test_that("the lines carry the metric and its standard error", {
   bars <- layer_with(plot, "GeomErrorbar")
   expect_equal(bars$ymin, c(0.85, 0.80, 0.65) - c(0.03, 0.04, 0.06))
   expect_equal(bars$ymax, c(0.85, 0.80, 0.65) + c(0.03, 0.04, 0.06))
+  stability <- layer_with(metric_over_sweep_plot(metric_results(), measure = "stability"), "GeomErrorbar")
+  expect_equal(stability$ymin, c(0.9, 0.85, 0.7) - c(0.02, 0.03, 0.05))
+  expect_equal(stability$ymax, c(0.9, 0.85, 0.7) + c(0.02, 0.03, 0.05))
 })
 
 test_that("a table without standard errors draws no error bars", {
