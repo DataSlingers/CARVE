@@ -53,3 +53,29 @@ make_sce <- function(X, reductions = list(PCA = X), assays = list(logcounts = t(
   }
   do.call(SingleCellExperiment::SingleCellExperiment, args)
 }
+
+# A Seurat object over the rows of X, which become its cells: Poisson
+# counts, data as the "data" layer of assay "RNA" (none when data is NULL),
+# and X as the "pca" reduction by default.
+make_seurat <- function(X, reductions = list(pca = X), data = t(X)) {
+  testthat::skip_if_not_installed("SeuratObject")
+  cells <- cell_names(nrow(X))
+  n_genes <- if (is.null(data)) ncol(X) else nrow(data)
+  genes <- sprintf("gene%d", seq_len(n_genes))
+  counts <- withr::with_seed(1L, matrix(
+    stats::rpois(n_genes * nrow(X), 10), n_genes, nrow(X),
+    dimnames = list(genes, cells)
+  ))
+  object <- SeuratObject::CreateSeuratObject(counts = Matrix::Matrix(counts, sparse = TRUE))
+  if (!is.null(data)) {
+    dimnames(data) <- list(genes, cells)
+    SeuratObject::LayerData(object, layer = "data") <- Matrix::Matrix(data, sparse = TRUE)
+  }
+  for (name in names(reductions)) {
+    embeddings <- reductions[[name]]
+    key <- paste0(gsub("[^A-Za-z0-9]", "", name), "_")
+    dimnames(embeddings) <- list(cells, paste0(key, seq_len(ncol(embeddings))))
+    object[[name]] <- SeuratObject::CreateDimReducObject(embeddings = embeddings, key = key, assay = "RNA")
+  }
+  object
+}

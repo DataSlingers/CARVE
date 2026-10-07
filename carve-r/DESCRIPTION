@@ -36,6 +36,7 @@ Imports:
 Suggests:
     dbscan,
     jsonlite,
+    SeuratObject,
     testthat (>= 3.1.8),
     uwot
 biocViews: Clustering, SingleCell, Software
@@ -60,6 +61,7 @@ Collate:
     'runner.R'
     'sce.R'
     'selection.R'
+    'seurat.R'
     'sweep.R'
     'transforms.R'
     'types.R'

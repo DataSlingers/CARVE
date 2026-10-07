@@ -41,11 +41,12 @@ carve(x, ...)
 \arguments{
 \item{x}{The data: a numeric matrix with one row per sample, a numeric
 data frame, a sparse matrix from the Matrix package, a numeric vector,
-or a SingleCellExperiment, whose cells are its columns.}
+or a SingleCellExperiment or Seurat object, whose cells are its columns.}
 
 \item{...}{For a SingleCellExperiment, the arguments of the matrix
-method, from \code{n_clusters} on. For other input, not used: an argument
-name \code{carve()} does not know is an error.}
+method, from \code{n_clusters} on. For a Seurat object, \code{assay}, \code{reduction}
+and \code{n_dims}. For other input, not used: an argument name \code{carve()}
+does not know is an error.}
 
 \item{n_clusters}{Numbers of clusters to evaluate. A single number \code{K}
 means \code{2:K}. Custom grids set their own values.}
@@ -139,11 +140,14 @@ under randomized preprocessing, one before it over the embedding pass.}
 \item{verbose}{0 prints nothing, 1 prints a line per configuration, and 2
 also prints a header and a footer.}
 
-\item{assay, reduction, n_dims}{For a SingleCellExperiment, which data to
-cluster: the assay named \code{assay} or the reduced dimensions named
-\code{reduction}, not both. By default CARVE clusters the \code{"PCA"} reduced
-dimensions, or the \code{"logcounts"} assay when there are none. \code{n_dims}
-keeps the first \code{n_dims} columns.}
+\item{assay, reduction, n_dims}{For a SingleCellExperiment or a Seurat
+object, which data to cluster: the assay named \code{assay} or the reduced
+dimensions named \code{reduction}, not both. For a Seurat object, \code{assay}
+names a Seurat assay such as \code{"RNA"}, and CARVE clusters its \code{"data"}
+layer. By default CARVE clusters the \code{"PCA"} reduced dimensions of a
+SingleCellExperiment, or its \code{"logcounts"} assay when there are none,
+and the \code{"pca"} reduction of a Seurat object, or the \code{"data"} layer of
+its default assay. \code{n_dims} keeps the first \code{n_dims} columns.}
 }
 \value{
 A \link[=CARVE-class]{CARVE} object.

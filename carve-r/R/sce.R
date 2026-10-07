@@ -103,11 +103,14 @@ sce_basis <- function(object, basis = NULL, fallback = NULL) {
 }
 
 #' @rdname carve
-#' @param assay,reduction,n_dims For a SingleCellExperiment, which data to
-#'   cluster: the assay named `assay` or the reduced dimensions named
-#'   `reduction`, not both. By default CARVE clusters the `"PCA"` reduced
-#'   dimensions, or the `"logcounts"` assay when there are none. `n_dims`
-#'   keeps the first `n_dims` columns.
+#' @param assay,reduction,n_dims For a SingleCellExperiment or a Seurat
+#'   object, which data to cluster: the assay named `assay` or the reduced
+#'   dimensions named `reduction`, not both. For a Seurat object, `assay`
+#'   names a Seurat assay such as `"RNA"`, and CARVE clusters its `"data"`
+#'   layer. By default CARVE clusters the `"PCA"` reduced dimensions of a
+#'   SingleCellExperiment, or its `"logcounts"` assay when there are none,
+#'   and the `"pca"` reduction of a Seurat object, or the `"data"` layer of
+#'   its default assay. `n_dims` keeps the first `n_dims` columns.
 #' @export
 setMethod("carve", "SingleCellExperiment", function(x, assay = NULL, reduction = NULL,
                                                     n_dims = NULL, ...) {

@@ -70,10 +70,11 @@ NULL
 #'
 #' @param x The data: a numeric matrix with one row per sample, a numeric
 #'   data frame, a sparse matrix from the Matrix package, a numeric vector,
-#'   or a SingleCellExperiment, whose cells are its columns.
+#'   or a SingleCellExperiment or Seurat object, whose cells are its columns.
 #' @param ... For a SingleCellExperiment, the arguments of the matrix
-#'   method, from `n_clusters` on. For other input, not used: an argument
-#'   name `carve()` does not know is an error.
+#'   method, from `n_clusters` on. For a Seurat object, `assay`, `reduction`
+#'   and `n_dims`. For other input, not used: an argument name `carve()`
+#'   does not know is an error.
 #' @param n_clusters Numbers of clusters to evaluate. A single number `K`
 #'   means `2:K`. Custom grids set their own values.
 #' @param resolution Resolutions to evaluate with the graph estimators.
@@ -171,9 +172,22 @@ setMethod("carve", "ANY", function(x, n_clusters = 2:10, resolution = NULL, swee
                                    n_trees = 100, reference_labels = NULL, mode = "default",
                                    n_jobs = 1, BPPARAM = NULL, random_state = NULL,
                                    show_progress = FALSE, verbose = 0, ...) {
-  check_dots(...)
+  # A Seurat object is an S4 class of a suggested package, so no method can
+  # name it; it arrives here, with assay, reduction and n_dims in ... .
+  if (is_seurat(x)) {
+    selection <- seurat_selection(...)
+    data <- seurat_matrix(
+      x,
+      assay = selection$assay,
+      reduction = selection$reduction,
+      n_dims = selection$n_dims
+    )
+  } else {
+    check_dots(...)
+    data <- as_data_matrix(x)
+  }
   fit_carve(
-    as_data_matrix(x),
+    data,
     n_clusters = n_clusters,
     resolution = resolution,
     sweep = sweep,
