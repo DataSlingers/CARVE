@@ -169,3 +169,109 @@ test_that("the spectral helpers reject impossible settings", {
   expect_error(spectral_affinity(X, n_neighbors = 1L), "n_neighbors must be at least 2.", fixed = TRUE)
   expect_error(spectral_affinity(X, n_neighbors = 11L), "n_neighbors=11 is larger than the 10 samples.", fixed = TRUE)
 })
+
+blobs3d <- make_blobs(n_per = 30L, centers = diag(5, 3), sd = 1, seed = 42L)
+
+edge_table <- function(from, to, weight) {
+  out <- data.frame(i = as.integer(pmin(from, to)), j = as.integer(pmax(from, to)), weight = as.numeric(weight))
+  out <- out[order(out$i, out$j), ]
+  rownames(out) <- NULL
+  out
+}
+
+test_that("the kNN graph matches Python's for both weightings", {
+  f <- read_fixture("knn_graph")
+  X <- fixture_matrix(f$X)
+  for (case in f$cases) {
+    info <- paste(case$weighting, case$n_neighbors)
+    graph <- knn_graph(X, n_neighbors = case$n_neighbors, weighting = case$weighting)
+    edges <- igraph::as_edgelist(graph, names = FALSE)
+    ours <- edge_table(edges[, 1], edges[, 2], igraph::E(graph)$weight)
+    theirs <- edge_table(case$edges[, 1] + 1L, case$edges[, 2] + 1L, case$weights)
+    expect_identical(ours[, c("i", "j")], theirs[, c("i", "j")], info = info)
+    expect_equal(ours$weight, theirs$weight, tolerance = 1e-12, info = info)
+  }
+})
+
+test_that("the graph has a vertex per sample and clips n_neighbors to n - 1", {
+  X <- withr::with_seed(0, matrix(stats::rnorm(12), 6))
+  graph <- knn_graph(X, n_neighbors = 100L)
+  expect_equal(igraph::vcount(graph), 6)
+  expect_equal(igraph::ecount(graph), 15)
+  expect_false(igraph::is_directed(graph))
+})
+
+test_that("connectivity weights are 1 and Jaccard weights are fractions", {
+  expect_true(all(igraph::E(knn_graph(blobs3d$X, 10L))$weight == 1))
+  jaccard <- igraph::E(knn_graph(blobs3d$X, 10L, "jaccard"))$weight
+  expect_true(all(jaccard > 0 & jaccard <= 1))
+  expect_true(any(jaccard < 1))
+})
+
+test_that("an unknown weighting is an error", {
+  expect_error(
+    knn_graph(blobs3d$X, 10L, "bogus"),
+    "Unknown weighting: 'bogus'. Expected 'connectivity' or 'jaccard'.",
+    fixed = TRUE
+  )
+})
+
+test_that("LeidenClustering recovers three blobs with labels counting from 1", {
+  labels <- LeidenClustering(blobs3d$X, random_state = 0L)
+  expect_gt(adjusted_rand_index(labels, blobs3d$y), 0.9)
+  expect_identical(sort(unique(labels)), seq_len(max(labels)))
+})
+
+test_that("a higher resolution gives at least as many Leiden communities", {
+  counts <- vapply(c(0.1, 0.5, 1, 3), function(r) {
+    count_clusters(LeidenClustering(blobs3d$X, resolution = r, random_state = 0L))
+  }, integer(1))
+  expect_false(is.unsorted(counts))
+  expect_gt(counts[4], counts[1])
+})
+
+test_that("LeidenClustering is reproducible and leaves the session's stream alone", {
+  set.seed(5)
+  before <- .Random.seed
+  a <- LeidenClustering(blobs3d$X, resolution = 1.5, random_state = 7L)
+  expect_identical(.Random.seed, before)
+  expect_identical(a, LeidenClustering(blobs3d$X, resolution = 1.5, random_state = 7L))
+})
+
+test_that("LeidenClustering passes the objective, the weighting and the scaling on", {
+  cpm <- LeidenClustering(blobs3d$X, objective_function = "cpm", resolution = 0.5, random_state = 0L)
+  modularity <- LeidenClustering(blobs3d$X, resolution = 0.5, random_state = 0L)
+  expect_length(cpm, 90L)
+  expect_false(identical(cpm, modularity))
+  expect_gt(adjusted_rand_index(LeidenClustering(blobs3d$X, weighting = "jaccard", random_state = 0L), blobs3d$y), 0.9)
+  expect_gt(adjusted_rand_index(LeidenClustering(blobs3d$X, scale = TRUE, random_state = 0L), blobs3d$y), 0.9)
+})
+
+test_that("an unknown Leiden objective is an error", {
+  expect_error(
+    LeidenClustering(blobs3d$X, objective_function = "surprise"),
+    "Unknown objective_function: 'surprise'. Expected 'modularity' or 'cpm'.",
+    fixed = TRUE
+  )
+})
+
+test_that("LouvainClustering recovers three blobs and follows the resolution", {
+  labels <- LouvainClustering(blobs3d$X, random_state = 0L)
+  expect_gt(adjusted_rand_index(labels, blobs3d$y), 0.9)
+  expect_identical(sort(unique(labels)), seq_len(max(labels)))
+  counts <- vapply(c(0.1, 0.5, 1, 3), function(r) {
+    count_clusters(LouvainClustering(blobs3d$X, resolution = r, random_state = 0L))
+  }, integer(1))
+  expect_false(is.unsorted(counts))
+  expect_gt(counts[4], counts[1])
+})
+
+test_that("LouvainClustering is reproducible and runs with Jaccard weights and scaling", {
+  set.seed(5)
+  before <- .Random.seed
+  a <- LouvainClustering(blobs3d$X, resolution = 1.5, random_state = 7L)
+  expect_identical(.Random.seed, before)
+  expect_identical(a, LouvainClustering(blobs3d$X, resolution = 1.5, random_state = 7L))
+  expect_gt(adjusted_rand_index(LouvainClustering(blobs3d$X, weighting = "jaccard", random_state = 0L), blobs3d$y), 0.9)
+  expect_gt(adjusted_rand_index(LouvainClustering(blobs3d$X, scale = TRUE, random_state = 0L), blobs3d$y), 0.9)
+})

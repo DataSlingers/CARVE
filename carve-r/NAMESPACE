@@ -3,6 +3,8 @@
 S3method(print,carve_estimator_grid)
 export(AgglomerativeClustering)
 export(KMeans)
+export(LeidenClustering)
+export(LouvainClustering)
 export(SpectralClustering)
 export(carve)
 export(consensus_matrix)

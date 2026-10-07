@@ -1,7 +1,7 @@
 # Clustering estimators. KMeans and AgglomerativeClustering stand in for the
-# scikit-learn classes of the same names; SpectralClustering ports
-# cluster.py. Each takes the data matrix first and returns integer labels
-# from 1 to n_clusters.
+# scikit-learn classes of the same names; SpectralClustering,
+# LeidenClustering and LouvainClustering port cluster.py. Each takes the data
+# matrix first and returns integer labels counting from 1.
 
 sq_dists <- function(X, Y) {
   D2 <- outer(rowSums(X^2), rowSums(Y^2), "+") - 2 * tcrossprod(X, Y)
@@ -361,4 +361,148 @@ SpectralClustering <- function(X, n_clusters = 2L, affinity = "self_tuning", gam
   affinity_matrix <- spectral_affinity(Xp, affinity = affinity, gamma = gamma, n_neighbors = n_neighbors)
   embedding <- spectral_embedding(affinity_matrix$W, as.integer(n_clusters))
   KMeans(embedding$vectors, n_clusters = n_clusters, n_init = n_init, random_state = random_state)
+}
+
+# The symmetric kNN weight matrix the graph estimators cluster. Each sample
+# links to its k = min(n_neighbors, n - 1) nearest other samples, as
+# scikit-learn's kneighbors_graph(include_self = False) does, and an edge is
+# kept when either endpoint chose the other. "jaccard" weights an edge by
+# the Jaccard index of the endpoints' neighbor sets, |shared| / (2k - |shared|),
+# as in a shared-nearest-neighbor graph.
+knn_graph_weights <- function(X, n_neighbors = 15L, weighting = "connectivity") {
+  if (!is.character(weighting) || length(weighting) != 1L ||
+      !weighting %in% c("connectivity", "jaccard")) {
+    stop(sprintf(
+      "Unknown weighting: %s. Expected 'connectivity' or 'jaccard'.",
+      format_repr(weighting)
+    ), call. = FALSE)
+  }
+  n <- nrow(X)
+  k <- as.integer(min(n_neighbors, max(n - 1L, 1L)))
+  nn <- FNN::get.knn(X, k = k)
+  A <- Matrix::sparseMatrix(
+    i = rep(seq_len(n), times = k),
+    j = as.vector(nn$nn.index),
+    x = 1,
+    dims = c(n, n)
+  )
+  W <- pmax_sparse(A, Matrix::t(A))
+  if (weighting == "jaccard") {
+    shared <- methods::as(Matrix::tcrossprod(A), "generalMatrix")
+    Matrix::diag(shared) <- 0
+    shared <- Matrix::drop0(shared)
+    shared@x <- shared@x / (2 * k - shared@x)
+    W <- shared * W
+  }
+  Matrix::drop0(W)
+}
+
+knn_graph <- function(X, n_neighbors = 15L, weighting = "connectivity") {
+  W <- knn_graph_weights(X, n_neighbors = n_neighbors, weighting = weighting)
+  igraph::graph_from_adjacency_matrix(W, mode = "undirected", weighted = TRUE, diag = FALSE)
+}
+
+#' Leiden clustering on a nearest-neighbor graph
+#'
+#' Links every sample to its nearest neighbors and splits the resulting graph
+#' into communities with the Leiden algorithm, through
+#' [igraph::cluster_leiden()]. There is no number of clusters to set:
+#' `resolution` controls the granularity, and larger values give more,
+#' smaller communities. Use `carve(resolution = )` to compare resolutions.
+#'
+#' Each sample is linked to its `n_neighbors` nearest other samples, and an
+#' edge is kept when either sample chose the other.
+#' `weighting = "connectivity"` gives every edge weight 1. `"jaccard"` weights
+#' an edge by the Jaccard index of the two samples' neighbor sets, as a
+#' shared-nearest-neighbor graph does, which weakens edges between clusters.
+#'
+#' `objective_function = "modularity"` optimizes modularity at the given
+#' resolution, the objective the Python package optimizes with leidenalg.
+#' `"cpm"` uses the constant Potts model, whose resolution is on a different
+#' scale, so the two should not share a resolution grid. igraph's Leiden
+#' implementation differs from leidenalg's in its random choices, so the
+#' partitions agree with the Python package's in quality, not label by label.
+#'
+#' @param X Numeric matrix or data frame, one row per sample.
+#' @param resolution Resolution of the quality function. Larger values give
+#'   more clusters.
+#' @param n_neighbors Neighbors per sample in the graph, at most
+#'   `nrow(X) - 1`. In a [carve()] run it is scaled to each subsample's size.
+#' @param weighting `"connectivity"` or `"jaccard"`.
+#' @param objective_function `"modularity"` or `"cpm"`.
+#' @param n_iterations Number of Leiden iterations. A negative value iterates
+#'   until the partition stops improving.
+#' @param random_state Seed, or `NULL` to draw from the session's random
+#'   number stream.
+#' @param scale Standardize each column before building the graph.
+#' @return Integer labels from 1 to the number of communities, one per row of
+#'   `X`.
+#' @references Traag, V. A., Waltman, L. and van Eck, N. J. (2019). From
+#'   Louvain to Leiden: guaranteeing well-connected communities. Scientific
+#'   Reports 9, 5233.
+#' @seealso [LouvainClustering()], and [estimator_grid()] to use it in
+#'   [carve()].
+#' @examples
+#' X <- rbind(matrix(rnorm(80, 0, 0.3), ncol = 2), matrix(rnorm(80, 3, 0.3), ncol = 2))
+#' table(LeidenClustering(X, resolution = 0.5, random_state = 1))
+#' @export
+LeidenClustering <- function(X, resolution = 1, n_neighbors = 15L, weighting = "connectivity",
+                             objective_function = "modularity", n_iterations = -1L,
+                             random_state = NULL, scale = FALSE) {
+  if (identical(objective_function, "modularity")) {
+    objective <- "modularity"
+  } else if (identical(objective_function, "cpm")) {
+    objective <- "CPM"
+  } else {
+    stop(sprintf(
+      "Unknown objective_function: %s. Expected 'modularity' or 'cpm'.",
+      format_repr(objective_function)
+    ), call. = FALSE)
+  }
+  X <- as_data_matrix(X)
+  Xp <- if (isTRUE(scale)) standard_scale(X) else X
+  graph <- knn_graph(Xp, n_neighbors = n_neighbors, weighting = weighting)
+  # igraph draws from R's generator, so seeded() fixes the result.
+  partition <- seeded(random_state, igraph::cluster_leiden(
+    graph,
+    objective_function = objective,
+    weights = igraph::E(graph)$weight,
+    resolution = resolution,
+    n_iterations = n_iterations
+  ))
+  as.integer(igraph::membership(partition))
+}
+
+#' Louvain clustering on a nearest-neighbor graph
+#'
+#' Builds the same nearest-neighbor graph as [LeidenClustering()] and splits
+#' it into communities by multi-level modularity optimization, through
+#' [igraph::cluster_louvain()]. Louvain can return communities that are not
+#' connected inside, which Leiden prevents; it is offered for comparison.
+#'
+#' @inheritParams LeidenClustering
+#' @param resolution Resolution of the modularity. Larger values give more
+#'   clusters.
+#' @return Integer labels from 1 to the number of communities, one per row of
+#'   `X`.
+#' @references Blondel, V. D., Guillaume, J.-L., Lambiotte, R. and Lefebvre,
+#'   E. (2008). Fast unfolding of communities in large networks. Journal of
+#'   Statistical Mechanics, P10008.
+#' @seealso [LeidenClustering()], and [estimator_grid()] to use it in
+#'   [carve()].
+#' @examples
+#' X <- rbind(matrix(rnorm(80, 0, 0.3), ncol = 2), matrix(rnorm(80, 3, 0.3), ncol = 2))
+#' table(LouvainClustering(X, resolution = 0.5, random_state = 1))
+#' @export
+LouvainClustering <- function(X, resolution = 1, n_neighbors = 15L, weighting = "connectivity",
+                              scale = FALSE, random_state = NULL) {
+  X <- as_data_matrix(X)
+  Xp <- if (isTRUE(scale)) standard_scale(X) else X
+  graph <- knn_graph(Xp, n_neighbors = n_neighbors, weighting = weighting)
+  partition <- seeded(random_state, igraph::cluster_louvain(
+    graph,
+    weights = igraph::E(graph)$weight,
+    resolution = resolution
+  ))
+  as.integer(igraph::membership(partition))
 }

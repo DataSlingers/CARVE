@@ -17,6 +17,7 @@ Imports:
     BiocParallel,
     clue,
     FNN,
+    igraph,
     Matrix,
     methods,
     parallel,
