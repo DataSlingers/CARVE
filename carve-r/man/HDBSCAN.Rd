@@ -19,10 +19,14 @@ Integer labels from 1 to the number of clusters, and -1 for noise,
 one per row of \code{X}.
 }
 \description{
-Density-based clustering through \code{\link[dbscan:hdbscan]{dbscan::hdbscan()}}. Samples in regions
-too sparse to belong to a cluster are labeled -1, and \code{\link[=carve]{carve()}} handles
-them according to its \code{noise_policy}. It needs the dbscan package, which
-CARVE suggests but does not install.
+Density-based clustering. \code{\link[dbscan:hdbscan]{dbscan::hdbscan()}} builds the cluster tree, and
+CARVE selects the clusters from it as scikit-learn's \code{HDBSCAN} does. The
+labels can differ from those of \code{dbscan::hdbscan()} itself: when a cluster
+splits into two parts both smaller than \code{min_cluster_size}, scikit-learn
+ends the cluster and dbscan keeps it, which changes the stabilities that
+\code{"eom"} compares. Samples in regions too sparse to belong to a cluster are
+labeled -1, and \code{\link[=carve]{carve()}} handles them according to its \code{noise_policy}. It
+needs the dbscan package, which CARVE suggests but does not install.
 }
 \details{
 \code{cluster_selection_method = "eom"} keeps the clusters with the largest
@@ -31,7 +35,7 @@ more and smaller clusters and more noise. \code{min_cluster_size} also sets the
 number of neighbors of the core distances, as in scikit-learn's \code{HDBSCAN}
 with \code{min_samples} left at its default.
 
-The labels can differ from scikit-learn's on the same data. Mutual
+The labels can still differ from scikit-learn's on the same data. Mutual
 reachability distances are often tied, and the two packages merge tied
 samples in a different order, which can change the clusters selected. On
 25 simulated data sets of three overlapping groups, at minimum cluster

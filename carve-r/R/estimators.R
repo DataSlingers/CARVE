@@ -509,10 +509,14 @@ LouvainClustering <- function(X, resolution = 1, n_neighbors = 15L, weighting = 
 
 #' HDBSCAN clustering
 #'
-#' Density-based clustering through [dbscan::hdbscan()]. Samples in regions
-#' too sparse to belong to a cluster are labeled -1, and [carve()] handles
-#' them according to its `noise_policy`. It needs the dbscan package, which
-#' CARVE suggests but does not install.
+#' Density-based clustering. [dbscan::hdbscan()] builds the cluster tree, and
+#' CARVE selects the clusters from it as scikit-learn's `HDBSCAN` does. The
+#' labels can differ from those of `dbscan::hdbscan()` itself: when a cluster
+#' splits into two parts both smaller than `min_cluster_size`, scikit-learn
+#' ends the cluster and dbscan keeps it, which changes the stabilities that
+#' `"eom"` compares. Samples in regions too sparse to belong to a cluster are
+#' labeled -1, and [carve()] handles them according to its `noise_policy`. It
+#' needs the dbscan package, which CARVE suggests but does not install.
 #'
 #' `cluster_selection_method = "eom"` keeps the clusters with the largest
 #' excess of mass. `"leaf"` keeps the leaves of the cluster tree, which gives
@@ -520,7 +524,7 @@ LouvainClustering <- function(X, resolution = 1, n_neighbors = 15L, weighting = 
 #' number of neighbors of the core distances, as in scikit-learn's `HDBSCAN`
 #' with `min_samples` left at its default.
 #'
-#' The labels can differ from scikit-learn's on the same data. Mutual
+#' The labels can still differ from scikit-learn's on the same data. Mutual
 #' reachability distances are often tied, and the two packages merge tied
 #' samples in a different order, which can change the clusters selected. On
 #' 25 simulated data sets of three overlapping groups, at minimum cluster
@@ -550,29 +554,145 @@ HDBSCAN <- function(X, min_cluster_size = 5L, cluster_selection_method = "eom") 
     ), call. = FALSE)
   }
   X <- as_data_matrix(X)
-  fit <- dbscan::hdbscan(X, minPts = as.integer(min_cluster_size))
-  if (cluster_selection_method == "leaf") {
-    return(hdbscan_leaf_labels(fit, nrow(X)))
-  }
-  labels <- as.integer(fit$cluster)
-  labels[labels == 0L] <- -1L
-  labels
+  min_cluster_size <- as.integer(min_cluster_size)
+  fit <- dbscan::hdbscan(X, minPts = min_cluster_size)
+  select_hdbscan_clusters(condense_tree(fit$hc, min_cluster_size), cluster_selection_method)
 }
 
-# Leaf selection from the cluster hierarchy dbscan::hdbscan() keeps in its
-# "hdbscan" attribute. Each entry is a cluster whose "contains" lists the
-# samples that leave it, and the "cl_hierarchy" attribute maps each parent
-# to its two children. A leaf has no children, so all its samples leave it
-# and "contains" is its membership. Cluster "0" is the root, which is never
-# selected. Samples outside every leaf are noise, as in scikit-learn.
-hdbscan_leaf_labels <- function(fit, n_samples) {
-  hierarchy <- attr(fit, "hdbscan")
-  parents <- names(attr(hierarchy, "cl_hierarchy"))
-  leaves <- setdiff(names(hierarchy), c("0", parents))
-  leaves <- leaves[order(as.integer(leaves))]
-  labels <- rep(-1L, n_samples)
-  for (i in seq_along(leaves)) {
-    labels[hierarchy[[leaves[i]]]$contains] <- i
+# The condensed tree of scikit-learn's HDBSCAN, built from the single-linkage
+# tree dbscan::hdbscan() returns; a port of _condense_tree() in
+# sklearn/cluster/_hdbscan/_tree.pyx. dbscan condenses the same tree
+# differently: when a cluster splits into two parts both smaller than
+# min_cluster_size, scikit-learn ends the cluster there and all its samples
+# leave at that split, while dbscan keeps the cluster and its samples leave
+# later. Leaf stabilities then differ, and so can eom selections.
+#
+# Tree nodes are numbered as in scipy's linkage format, from 1: samples are
+# 1..n and merge row r is node n + r. Clusters are numbered from n + 1, the
+# root, in breadth-first order, so a cluster's number is larger than its
+# parent's. Each row of the result is a cluster that splits off its parent
+# (size > 1) or a sample that leaves its cluster (size 1), at lambda =
+# 1 / height.
+condense_tree <- function(hc, min_cluster_size) {
+  n <- length(hc$height) + 1L
+  merge <- hc$merge
+  left <- ifelse(merge[, 1L] < 0L, -merge[, 1L], n + merge[, 1L])
+  right <- ifelse(merge[, 2L] < 0L, -merge[, 2L], n + merge[, 2L])
+  size <- c(rep(1L, n), integer(n - 1L))
+  for (r in seq_len(n - 1L)) {
+    size[n + r] <- size[left[r]] + size[right[r]]
   }
+  # The nodes below a node in breadth-first order, left before right.
+  below <- function(from) {
+    levels <- list()
+    queue <- from
+    while (length(queue) > 0L) {
+      levels[[length(levels) + 1L]] <- queue
+      inner <- queue[queue > n] - n
+      queue <- as.vector(rbind(left[inner], right[inner]))
+    }
+    unlist(levels, use.names = FALSE)
+  }
+  root <- 2L * n - 1L
+  cluster <- integer(root)
+  cluster[root] <- n + 1L
+  next_cluster <- n + 2L
+  done <- logical(root)
+  parent <- child <- lambda <- child_size <- vector("list", root)
+  for (v in below(root)) {
+    if (v <= n || done[v]) {
+      next
+    }
+    l <- left[v - n]
+    r <- right[v - n]
+    height <- hc$height[v - n]
+    big <- c(size[l], size[r]) >= min_cluster_size
+    if (all(big)) {
+      cluster[l] <- next_cluster
+      cluster[r] <- next_cluster + 1L
+      next_cluster <- next_cluster + 2L
+      kids <- c(cluster[l], cluster[r])
+      sizes <- c(size[l], size[r])
+    } else {
+      # A part below min_cluster_size leaves as single samples. A part at or
+      # above it continues as the same cluster.
+      kids <- integer(0)
+      for (side in c(l, r)[!big]) {
+        nodes <- below(side)
+        kids <- c(kids, nodes[nodes <= n])
+        done[nodes] <- TRUE
+      }
+      sizes <- rep(1L, length(kids))
+      cluster[c(l, r)[big]] <- cluster[v]
+    }
+    parent[[v]] <- rep(cluster[v], length(kids))
+    child[[v]] <- kids
+    lambda[[v]] <- rep(if (height > 0) 1 / height else Inf, length(kids))
+    child_size[[v]] <- sizes
+  }
+  list(
+    n_samples = n,
+    parent = unlist(parent, use.names = FALSE),
+    child = unlist(child, use.names = FALSE),
+    lambda = unlist(lambda, use.names = FALSE),
+    size = unlist(child_size, use.names = FALSE)
+  )
+}
+
+# Labels from a condensed tree, as scikit-learn's _compute_stability(),
+# _get_clusters() and _do_labelling() give them with allow_single_cluster =
+# FALSE and no cluster_selection_epsilon. A cluster's stability sums
+# (lambda - its birth lambda) * size over its rows. "eom" works up from the
+# largest cluster number and keeps a cluster unless its child clusters
+# together are more stable; "leaf" keeps the clusters without child
+# clusters. The root is never kept. Selected clusters are numbered in order
+# of their cluster numbers; a sample is labeled with the selected cluster
+# above it, or -1 when there is none.
+select_hdbscan_clusters <- function(tree, method) {
+  n <- tree$n_samples
+  last <- max(tree$parent)
+  clusters <- seq.int(n + 1L, last)
+  birth <- numeric(last)
+  birth[tree$child] <- tree$lambda
+  birth[n + 1L] <- 0
+  stability <- numeric(last)
+  sums <- rowsum((tree$lambda - birth[tree$parent]) * tree$size, tree$parent)
+  stability[as.integer(rownames(sums))] <- sums[, 1L]
+  is_split <- tree$size > 1L
+  split_parent <- tree$parent[is_split]
+  split_child <- tree$child[is_split]
+
+  selected <- logical(last)
+  if (identical(method, "eom")) {
+    candidates <- clusters[-1L]
+    selected[candidates] <- TRUE
+    for (cl in rev(candidates)) {
+      kids <- split_child[split_parent == cl]
+      kids_stability <- sum(stability[kids])
+      if (kids_stability > stability[cl]) {
+        selected[cl] <- FALSE
+        stability[cl] <- kids_stability
+      } else {
+        queue <- kids
+        while (length(queue) > 0L) {
+          selected[queue] <- FALSE
+          queue <- split_child[split_parent %in% queue]
+        }
+      }
+    }
+  } else if (length(split_child) > 0L) {
+    selected[setdiff(clusters, split_parent)] <- TRUE
+  }
+
+  chosen <- which(selected)
+  above <- integer(last)
+  above[split_child] <- split_parent
+  cluster_label <- integer(last)
+  cluster_label[n + 1L] <- -1L
+  for (cl in clusters[-1L]) {
+    cluster_label[cl] <- if (selected[cl]) match(cl, chosen) else cluster_label[above[cl]]
+  }
+  labels <- integer(n)
+  labels[tree$child[!is_split]] <- cluster_label[tree$parent[!is_split]]
   labels
 }

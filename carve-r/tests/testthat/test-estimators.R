@@ -296,6 +296,21 @@ test_that("HDBSCAN matches scikit-learn's eom and leaf selections", {
   expect_true(any(unlist(f$labels) == -1L))
 })
 
+test_that("HDBSCAN ends a cluster that splits into two small parts, as scikit-learn does", {
+  skip_if_not_installed("dbscan")
+  f <- read_fixture("hdbscan_split")
+  X <- fixture_matrix(f$X)
+  for (method in c("eom", "leaf")) {
+    labels <- HDBSCAN(X, min_cluster_size = 15L, cluster_selection_method = method)
+    expect_true(same_partition(labels, as.integer(f$labels[[method]])), info = method)
+  }
+  # The fixture tests the selection only while dbscan's own eom selection
+  # differs from scikit-learn's on it.
+  own <- dbscan::hdbscan(X, minPts = 15L)$cluster
+  own[own == 0L] <- -1L
+  expect_false(same_partition(own, as.integer(f$labels$eom)))
+})
+
 test_that("HDBSCAN numbers clusters from 1 and marks noise -1", {
   skip_if_not_installed("dbscan")
   X <- fixture_matrix(read_fixture("hdbscan")$X)

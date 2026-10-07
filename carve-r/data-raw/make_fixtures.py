@@ -490,6 +490,23 @@ def hdbscan():
     write("hdbscan", {"X": X, "labels": labels})
 
 
+def hdbscan_split():
+    # Four groups of 20. At min_cluster_size 15 a cluster of the tree splits
+    # into two parts both smaller than 15. scikit-learn ends the cluster
+    # there and selects two clusters by eom; dbscan::hdbscan()'s own
+    # selection keeps the cluster alive and selects three (dbscan 1.2.7).
+    X, _ = make_blobs(
+        n_samples=80, n_features=2, centers=4, cluster_std=1.0, random_state=13
+    )
+    labels = {
+        method: HDBSCAN(
+            min_cluster_size=15, cluster_selection_method=method, copy=True
+        ).fit_predict(X)
+        for method in ("eom", "leaf")
+    }
+    write("hdbscan_split", {"X": X, "labels": labels})
+
+
 def pipeline_labels():
     # A user-supplied name renders like a class name, so each step is built
     # with a name and a stand-in class; the label depends only on the name
@@ -539,6 +556,7 @@ if __name__ == "__main__":
         noise_masks,
         knn_graph,
         hdbscan,
+        hdbscan_split,
         pipeline_labels,
     ):
         make()
