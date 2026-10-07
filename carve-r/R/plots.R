@@ -50,8 +50,12 @@ cells_entry <- function(object, key) {
   record
 }
 
-# The stored labels as integers. A factor gives its codes, 1, 2, ..., as
-# Python reads the codes of a categorical column.
+# The stored labels as integers. A factor whose levels are all whole
+# numbers, such as the column attach_results() writes, gives its level
+# values, so the plots name the clusters as the column and the fit's plots
+# do, also when the labels are not 1 to k. Any other factor gives its codes,
+# 1, 2, ..., and a numeric column is read as it is. Python reads the codes
+# of every categorical column.
 cells_labels <- function(object, key) {
   column <- cells_get_column(object, key)
   if (is.null(column)) {
@@ -59,6 +63,9 @@ cells_labels <- function(object, key) {
       "%s not found. Run `run_carve(object, key = %s)` first.",
       cells_column_where(object, key), format_repr(key)
     ), call. = FALSE)
+  }
+  if (is.factor(column) && all(grepl("^-?[0-9]+$", levels(column)))) {
+    return(as.integer(levels(column))[column])
   }
   as.integer(column)
 }

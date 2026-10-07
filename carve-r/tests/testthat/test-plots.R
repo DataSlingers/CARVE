@@ -207,6 +207,18 @@ test_that("stored labels are read as their factor codes", {
   expect_identical(cells_labels(relabeled, "carve"), rep(c(3L, 1L, 2L), each = 30L))
 })
 
+test_that("stored labels that are whole numbers keep their values, so 0-based labels plot as the fit's", {
+  zero_based <- fit_blobs(reference_labels = blobs$y - 1)
+  stored <- attach_results(sce, zero_based)
+  expect_identical(levels(SummarizedExperiment::colData(stored)$carve), c("0", "1", "2"))
+  expect_identical(cells_labels(stored, "carve"), get_labels(zero_based))
+  expect_identical(cells_labels(stored, "carve"), as.integer(blobs$y - 1))
+  expect_same_plot(plot_cluster_boxplot(stored), plot_cluster_boxplot(zero_based))
+  x_labels <- function(plot) ggplot2::ggplot_build(plot)$layout$panel_params[[1L]]$x$get_labels()
+  expect_identical(x_labels(plot_cluster_boxplot(stored)), c("0", "1", "2"))
+  expect_identical(guide_labels(plot_cluster_scatter(stored), "fill"), guide_labels(plot_cluster_scatter(zero_based), "fill"))
+})
+
 test_that("the single-cell plots name what is missing from the object", {
   expect_error(
     plot_metric_over_n_clusters(sce),
