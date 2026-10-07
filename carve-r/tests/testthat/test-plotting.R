@@ -523,6 +523,15 @@ test_that("the scatter plot orders, bounds and drops points by score", {
   scores <- case$scores
   scores[4] <- NaN
   expect_identical(nrow(layer_with(cluster_scatter_plot(case$X, case$labels, scores), "GeomPoint")), 29L)
+  # A cluster without a finite score has no points but keeps its legend entry.
+  scores <- case$scores
+  scores[case$labels == 2] <- NaN
+  empty <- cluster_scatter_plot(case$X, case$labels, scores)
+  expect_identical(nrow(layer_with(empty, "GeomPoint")), 20L)
+  expect_identical(
+    guide_labels(empty, "fill"),
+    c(sprintf("1 (Mean = %.2f)", mean(scores[case$labels == 1])), "2 (Mean = nan)", sprintf("3 (Mean = %.2f)", mean(scores[case$labels == 3])))
+  )
 })
 
 test_that("the scatter annotation goes into the legend title or the caption", {

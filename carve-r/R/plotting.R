@@ -781,7 +781,8 @@ cluster_scatter_plot <- function(X, labels, scores, embedding = NULL, palette = 
     ggplot2::scale_fill_manual(
       values = stats::setNames(palette_colors(palette, length(clusters)), keys),
       breaks = keys,
-      labels = sprintf("%s (Mean = %.2f)", keys, means),
+      limits = keys,
+      labels = sub("NaN", "nan", sprintf("%s (Mean = %.2f)", keys, means), fixed = TRUE),
       name = legend_title
     ) +
     ggplot2::scale_size_identity() +
