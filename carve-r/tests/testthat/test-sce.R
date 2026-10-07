@@ -63,6 +63,12 @@ test_that("carve() fits a SingleCellExperiment as it fits the matrix", {
   expect_error(carve(sce, nope = 1, estimator_param_grids = k_grid), "Unknown argument: nope.", fixed = TRUE)
 })
 
+test_that("carve() takes n_clusters as the second argument for a SingleCellExperiment, as for a matrix", {
+  fit <- carve(sce, 2:3, n_resamples = 3, random_state = 0)
+  reference <- carve(blobs$X, n_clusters = 2:3, n_resamples = 3, random_state = 0)
+  expect_identical(estimator_results(fit), estimator_results(reference))
+})
+
 test_that("sce columns and records round-trip", {
   labels <- factor(rep(c("1", "2"), 45))
   updated <- sce_set_columns(sce, list(carve = labels, carve_stability = seq_len(90) / 90))

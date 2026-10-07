@@ -112,7 +112,7 @@ sce_basis <- function(object, basis = NULL, fallback = NULL) {
 #'   and the `"pca"` reduction of a Seurat object, or the `"data"` layer of
 #'   its default assay. `n_dims` keeps the first `n_dims` columns.
 #' @export
-setMethod("carve", "SingleCellExperiment", function(x, assay = NULL, reduction = NULL,
-                                                    n_dims = NULL, ...) {
+setMethod("carve", "SingleCellExperiment", function(x, ..., assay = NULL, reduction = NULL,
+                                                    n_dims = NULL) {
   carve(sce_matrix(x, assay = assay, reduction = reduction, n_dims = n_dims), ...)
 })

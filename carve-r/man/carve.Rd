@@ -36,7 +36,7 @@ carve(x, ...)
   ...
 )
 
-\S4method{carve}{SingleCellExperiment}(x, assay = NULL, reduction = NULL, n_dims = NULL, ...)
+\S4method{carve}{SingleCellExperiment}(x, ..., assay = NULL, reduction = NULL, n_dims = NULL)
 }
 \arguments{
 \item{x}{The data: a numeric matrix with one row per sample, a numeric
