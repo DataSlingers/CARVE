@@ -108,7 +108,7 @@ fit <- carve(X, n_clusters = 2:4, n_resamples = 10, random_state = 0,
 labels <- get_labels(fit)
 table(labels)
 table(get_labels(fit, k = 3, reference_labels = labels))
-table(get_labels(fit, noise_labels = TRUE, noise_quantile = 0.1))
+table(get_labels(fit, k = 3, noise_labels = TRUE, noise_quantile = 0.1))
 }
 \seealso{
 \code{\link[=get_k]{get_k()}}, \code{\link[=consensus_matrix]{consensus_matrix()}}, \code{\link[=sample_scores]{sample_scores()}}

@@ -209,7 +209,7 @@ setMethod("get_estimator", "CARVE", function(fit, measure = "stability", rule = 
 #' labels <- get_labels(fit)
 #' table(labels)
 #' table(get_labels(fit, k = 3, reference_labels = labels))
-#' table(get_labels(fit, noise_labels = TRUE, noise_quantile = 0.1))
+#' table(get_labels(fit, k = 3, noise_labels = TRUE, noise_quantile = 0.1))
 #' @rdname get_labels
 #' @export
 setMethod("get_labels", "CARVE", function(fit, measure = "stability", rule = "1se", k = NULL,

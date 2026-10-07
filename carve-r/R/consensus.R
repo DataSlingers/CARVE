@@ -69,8 +69,9 @@ run_indicators <- function(n_samples, runs) {
   codes <- lapply(runs, function(r) match(r$labels, unique(r$labels)))
   n_clusters <- vapply(codes, function(code) length(unique(code)), integer(1))
   offsets <- cumsum(c(0L, n_clusters))[seq_along(runs)]
-  # as.integer() keeps an empty set of runs, possible when every resample
-  # was all noise, from turning into NULL.
+  # With no runs, possible when every resample was all noise, unlist()
+  # returns NULL. Matrix 1.7.5 accepts i = NULL; as.integer() passes
+  # integer(0) instead, so the call does not rely on that.
   rows <- as.integer(unlist(indices))
   S <- Matrix::sparseMatrix(
     i = rows,

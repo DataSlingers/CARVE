@@ -32,8 +32,12 @@
 #' one thread, so that a seed reproduces the embedding, and it needs the uwot
 #' package, which CARVE suggests but does not install.
 #'
-#' R and Python draw different random numbers, so `PCA()` signs aside, the
-#' embeddings are not the ones the Python package computes.
+#' `PCA()` gives scikit-learn's scores up to the sign of each component, and
+#' up to the approximation error when a truncated solver computes them
+#' (irlba in R, the randomized solver in scikit-learn). `TSNE()` and `UMAP()`
+#' embeddings differ from Python's at the same seed: R and Python have
+#' different random number generators, and Rtsne and uwot implement the
+#' methods separately from scikit-learn and umap-learn.
 #'
 #' @param X Numeric matrix or data frame, one row per sample.
 #' @param n_components Number of dimensions to keep. For `PCA()`, `NULL`

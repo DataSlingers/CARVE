@@ -76,8 +76,12 @@ which include \code{min_dist = 0.1} (uwot's own default is 0.01). It runs on
 one thread, so that a seed reproduces the embedding, and it needs the uwot
 package, which CARVE suggests but does not install.
 
-R and Python draw different random numbers, so \code{PCA()} signs aside, the
-embeddings are not the ones the Python package computes.
+\code{PCA()} gives scikit-learn's scores up to the sign of each component, and
+up to the approximation error when a truncated solver computes them
+(irlba in R, the randomized solver in scikit-learn). \code{TSNE()} and \code{UMAP()}
+embeddings differ from Python's at the same seed: R and Python have
+different random number generators, and Rtsne and uwot implement the
+methods separately from scikit-learn and umap-learn.
 }
 \examples{
 X <- rbind(matrix(rnorm(120, 0, 0.3), ncol = 3), matrix(rnorm(120, 3, 0.3), ncol = 3))

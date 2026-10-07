@@ -74,8 +74,11 @@ into each subsample. Must lie strictly between 0 and 1.}
 consensus matrices; larger runs are anchored. See Details.}
 
 \item{consensus_anchors}{Number of anchors, or a share of the samples in
-(0, 1]. \code{NULL} means \code{min(nrow(x), anchor_threshold)}. Setting it anchors
-a run of any size; lowering it shrinks the blocks, \code{8 * m^2} bytes each.}
+(0, 1]. \code{NULL} means \code{min(nrow(x), anchor_threshold)}. A setting that
+gives fewer anchors than samples anchors the run whatever its size; one
+that gives every sample, such as 1 or a count of at least \code{nrow(x)},
+leaves the run exact. Lowering it shrinks the blocks, \code{8 * m^2} bytes
+each.}
 
 \item{estimator_param_grids}{\code{"light"}, \code{"full"}, or a list of
 \code{\link[=estimator_grid]{estimator_grid()}} specifications. On the \code{n_clusters} axis \code{"light"}

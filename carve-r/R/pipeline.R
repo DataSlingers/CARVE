@@ -131,8 +131,7 @@ allocate_pipelines <- function(normalization_options, dim_reduction_options, n_r
   n_pairs <- length(normalization_options) * n_reductions
   specs <- seeded(random_state, kind = "L'Ecuyer-CMRG", code = {
     # Pair p (0-based) is normalization p %/% n_reductions with reduction
-    # p %% n_reductions, the order of Python's itertools.product. sample()
-    # on a single number would permute 1:n, so the vector is indexed.
+    # p %% n_reductions, the order of Python's itertools.product.
     cycle <- (seq_len(n_resamples) - 1L) %% n_pairs
     assigned <- cycle[sample.int(length(cycle))]
     lapply(assigned, function(pair) {

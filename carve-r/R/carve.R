@@ -95,8 +95,11 @@ NULL
 #' @param anchor_threshold Runs with at most this many samples build full
 #'   consensus matrices; larger runs are anchored. See Details.
 #' @param consensus_anchors Number of anchors, or a share of the samples in
-#'   (0, 1]. `NULL` means `min(nrow(x), anchor_threshold)`. Setting it anchors
-#'   a run of any size; lowering it shrinks the blocks, `8 * m^2` bytes each.
+#'   (0, 1]. `NULL` means `min(nrow(x), anchor_threshold)`. A setting that
+#'   gives fewer anchors than samples anchors the run whatever its size; one
+#'   that gives every sample, such as 1 or a count of at least `nrow(x)`,
+#'   leaves the run exact. Lowering it shrinks the blocks, `8 * m^2` bytes
+#'   each.
 #' @param estimator_param_grids `"light"`, `"full"`, or a list of
 #'   [estimator_grid()] specifications. On the `n_clusters` axis `"light"`
 #'   runs KMeans, Ward-linkage agglomerative and self-tuning spectral
