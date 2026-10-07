@@ -12,6 +12,7 @@ Description: Chooses the number of clusters and the clustering method by
     of the held-out samples.
 License: MIT + file LICENSE
 Encoding: UTF-8
+LazyData: true
 Depends: R (>= 4.1.0)
 Imports:
     BiocParallel,
@@ -53,6 +54,7 @@ Collate:
     'accuracy.R'
     'carve.R'
     'consensus.R'
+    'data.R'
     'estimators.R'
     'grids.R'
     'output.R'
