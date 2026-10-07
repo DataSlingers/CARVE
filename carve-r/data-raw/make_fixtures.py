@@ -538,6 +538,153 @@ def pipeline_labels():
     write("pipeline_labels", {"steps": cases, "spec": {"label": spec.label}})
 
 
+def plotting():
+    # The plotting functions draw with matplotlib, which needs a backend
+    # that opens no window.
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import to_hex
+
+    from carve._plotting import (
+        _get_annotation,
+        _measure_ylabel,
+        _prepare_cluster_score_groups,
+        _selection_label,
+        plot_cluster_scatter,
+        plot_diagnostic_scatter,
+    )
+    from carve._selection import MEASURE_MAP
+
+    accent = plt.get_cmap("Accent")
+    palette = [[to_hex(c) for c in accent(np.linspace(0, 1, n))] for n in range(1, 13)]
+    ylabels = {col: _measure_ylabel(col) for col in sorted(set(MEASURE_MAP.values()))}
+
+    selections = []
+    for param, rule, value in [
+        ("n_clusters", "1se", 4),
+        ("n_clusters", "max", 10),
+        ("resolution", "max", 0.25),
+        ("resolution", "quantile", 1.0),
+        ("min_cluster_size", "1se", 40),
+        ("resolution", "max", 1e-05),
+        ("resolution", "max", 100000.0),
+        ("resolution", "max", 1234567.0),
+    ]:
+        row = pd.Series({"sweep_value": value})
+        label = _selection_label(row, param=param, rule=rule)
+        selections.append({"param": param, "rule": rule, "value": value, "label": label})
+
+    annotations = []
+    for param, value, method_label, cases in [
+        (
+            "n_clusters",
+            3,
+            "AgglomerativeClustering, linkage=ward",
+            [
+                ("stability", "1se", 3, False, False),
+                ("ari_generalizability", "max", 3, True, False),
+                ("average", "quantile", 3, False, True),
+            ],
+        ),
+        (
+            "resolution",
+            0.5,
+            "LeidenClustering, n_neighbors=15, weighting=connectivity",
+            [
+                ("stability", "1se", 7, False, False),
+                ("generalizability", "max", 7, True, True),
+                ("gini", "max", None, False, False),
+            ],
+        ),
+    ]:
+        results = pd.DataFrame(
+            {"sweep_param": [param], "sweep_value": [value], "method_label": [method_label]}
+        )
+        for measure, rule, selected_k, pinned, tight in cases:
+            text = _get_annotation(
+                measure=measure,
+                rule=rule,
+                estimator_results=results,
+                row=results.iloc[0],
+                selected_k=selected_k,
+                pinned=pinned,
+                tight_layout=tight,
+            )
+            annotations.append(
+                {
+                    "param": param,
+                    "value": value,
+                    "method_label": method_label,
+                    "measure": measure,
+                    "rule": rule,
+                    "selected_k": selected_k,
+                    "pinned": pinned,
+                    "tight_layout": tight,
+                    "text": text,
+                }
+            )
+
+    group_scores = np.array([0.9, np.nan, 0.7, 0.6, 0.95, 0.3])
+    group_labels = np.array([2, 0, 0, 2, 1, 1])
+    group_cases = []
+    for order in (None, [2, 0]):
+        groups, kept = _prepare_cluster_score_groups(group_scores, group_labels, order=order)
+        group_cases.append({"order": order, "groups": [list(g) for g in groups], "kept_order": kept})
+
+    X = np.random.RandomState(0).randn(12, 2)
+    labels = np.repeat([0, 1, 2], 4)
+    scores = np.random.RandomState(1).rand(12)
+    ax = plot_cluster_scatter(X, labels, scores, sort_order=False)
+    points = ax.collections[0]
+    scatter = {
+        "X": X,
+        "labels": labels,
+        "scores": scores,
+        "sizes": points.get_sizes(),
+        "alphas": points.get_facecolors()[:, 3],
+        "legend": [t.get_text() for t in ax.get_legend().get_texts()],
+    }
+    ax = plot_cluster_scatter(X, labels, np.full(12, 0.8), sort_order=False)
+    scatter["flat_sizes"] = ax.collections[0].get_sizes()
+    scatter["flat_alphas"] = ax.collections[0].get_facecolors()[:, 3]
+
+    diagnostic_scores = scores.copy()
+    diagnostic_scores[5] = np.nan
+    diagnostic = {"scores": diagnostic_scores}
+    for sort_order, name in ((False, "unsorted"), (True, "sorted")):
+        ax = plot_diagnostic_scatter(X, labels, diagnostic_scores, sort_order=sort_order)
+        order, alpha = [], []
+        # One collection per cluster, in drawing order. Each marker is found
+        # in X by its coordinates, which plot_diagnostic_scatter passes
+        # through unchanged for two-column data.
+        for collection in ax.collections:
+            for offset, face in zip(collection.get_offsets(), collection.get_facecolors()):
+                order.append(int(np.flatnonzero((X == offset).all(axis=1))[0]))
+                alpha.append(face[3])
+        diagnostic[f"order_{name}"] = order
+        diagnostic[f"alpha_{name}"] = alpha
+    plt.close("all")
+
+    write(
+        "plotting",
+        {
+            "palette": palette,
+            "ylabels": ylabels,
+            "selections": selections,
+            "annotations": annotations,
+            "score_groups": {
+                "scores": group_scores,
+                "labels": group_labels,
+                "cases": group_cases,
+            },
+            "scatter": scatter,
+            "diagnostic": diagnostic,
+        },
+    )
+
+
 if __name__ == "__main__":
     for make in (
         consensus,
@@ -559,6 +706,7 @@ if __name__ == "__main__":
         hdbscan,
         hdbscan_split,
         pipeline_labels,
+        plotting,
     ):
         make()
         print(f"wrote {make.__name__}.json")
