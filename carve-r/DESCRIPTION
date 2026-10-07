@@ -57,6 +57,7 @@ Collate:
     'grids.R'
     'output.R'
     'pipeline.R'
+    'plots.R'
     'plotting.R'
     'runner.R'
     'sce.R'

@@ -184,3 +184,23 @@ raster_layers <- function(plot) {
 raster_colours <- function(layer) {
   as.matrix(layer$geom_params$raster)
 }
+
+# The arguments a mocked drawing function received, by name. The unnamed
+# ones, the data, are checked by position in the test.
+expect_args <- function(args, expected) {
+  named <- args[names(args) != ""]
+  expect_setequal(names(named), names(expected))
+  expect_identical(named[names(expected)], expected)
+}
+
+# Two plots that draw the same marks with the same text: the data of every
+# layer, the colors of the annotation_raster() layers, and the labels. Scale
+# names, such as legend titles, are not compared.
+expect_same_plot <- function(object, expected) {
+  expect_equal(ggplot2::ggplot_build(object)$data, ggplot2::ggplot_build(expected)$data)
+  expect_identical(
+    lapply(raster_layers(object), raster_colours),
+    lapply(raster_layers(expected), raster_colours)
+  )
+  expect_identical(object$labels, expected$labels)
+}

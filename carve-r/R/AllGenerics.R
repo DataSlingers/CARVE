@@ -56,3 +56,23 @@ setGeneric("preprocessing_results", function(fit, ...) standardGeneric("preproce
 #' @rdname preprocessing_results
 #' @export
 setGeneric("preprocessing_pipelines", function(fit, ...) standardGeneric("preprocessing_pipelines"))
+
+#' @rdname plot_metric_over_n_clusters
+#' @export
+setGeneric("plot_metric_over_n_clusters", function(object, ...) {
+  standardGeneric("plot_metric_over_n_clusters")
+})
+
+#' @rdname plot_metric_by_pipeline
+#' @export
+setGeneric("plot_metric_by_pipeline", function(object, ...) standardGeneric("plot_metric_by_pipeline"))
+
+#' @rdname plot_n_clusters_over_sweep
+#' @export
+setGeneric("plot_n_clusters_over_sweep", function(object, ...) {
+  standardGeneric("plot_n_clusters_over_sweep")
+})
+
+#' @rdname plot_consensus_matrix
+#' @export
+setGeneric("plot_consensus_matrix", function(object, ...) standardGeneric("plot_consensus_matrix"))
