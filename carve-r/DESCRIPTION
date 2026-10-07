@@ -50,6 +50,7 @@ Collate:
     'estimators.R'
     'grids.R'
     'output.R'
+    'pipeline.R'
     'runner.R'
     'selection.R'
     'sweep.R'
