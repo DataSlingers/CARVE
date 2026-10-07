@@ -417,3 +417,102 @@ test_that("a depth-limited forest predicts the largest mean probability, not the
   tree_vote <- as.integer(as.character(predict(hard, data = X[test_rows, ], seed = 1L, num.threads = 1L)$predictions))
   expect_gt(sum(soft != tree_vote), 0L)
 })
+
+test_that("seeded can use a second generator and restores the session's kind", {
+  kind <- RNGkind()
+  mersenne <- seeded(1L, stats::runif(3))
+  lecuyer <- seeded(1L, stats::runif(3), kind = "L'Ecuyer-CMRG")
+  expect_false(isTRUE(all.equal(mersenne, lecuyer)))
+  expect_identical(lecuyer, seeded(1L, stats::runif(3), kind = "L'Ecuyer-CMRG"))
+  expect_identical(RNGkind(), kind)
+})
+
+test_that("require_package names the missing package and how to install it", {
+  expect_error(
+    require_package("notAnInstalledPackage", "testing"),
+    'notAnInstalledPackage is required for testing. Install it with: install.packages("notAnInstalledPackage")',
+    fixed = TRUE
+  )
+  expect_true(require_package("stats", "testing"))
+})
+
+test_that("drop removes noise from the indices and the labels", {
+  out <- apply_noise_policy(c(10L, 11L, 12L, 13L), c(1L, -1L, 2L, -1L), "drop")
+  expect_identical(out$indices, c(10L, 12L))
+  expect_identical(out$labels, c(1L, 2L))
+  expect_identical(out$noise_fraction, 0.5)
+})
+
+test_that("drop is the default policy", {
+  out <- apply_noise_policy(1:3, c(1L, -1L, 1L))
+  expect_identical(out$indices, c(1L, 3L))
+})
+
+test_that("as_cluster keeps -1 as an ordinary label", {
+  out <- apply_noise_policy(1:4, c(1L, -1L, 2L, 2L), "as_cluster")
+  expect_identical(out$indices, 1:4)
+  expect_identical(out$labels, c(1L, -1L, 2L, 2L))
+  expect_identical(out$noise_fraction, 0.25)
+})
+
+test_that("singleton gives each noise sample a new cluster past the largest label", {
+  out <- apply_noise_policy(1:5, c(2L, -1L, 1L, -1L, -1L), "singleton")
+  expect_identical(out$indices, 1:5)
+  expect_identical(out$labels, c(2L, 3L, 1L, 4L, 5L))
+  expect_identical(out$noise_fraction, 0.6)
+})
+
+test_that("singleton numbering starts at 0 when every sample is noise", {
+  out <- apply_noise_policy(1:3, c(-1L, -1L, -1L), "singleton")
+  expect_identical(out$labels, 0:2)
+})
+
+test_that("labels without noise pass through every policy", {
+  for (policy in NOISE_POLICIES) {
+    out <- apply_noise_policy(4:6, c(1L, 2L, 1L), policy)
+    expect_identical(out$indices, 4:6, info = policy)
+    expect_identical(out$labels, c(1L, 2L, 1L), info = policy)
+    expect_identical(out$noise_fraction, 0, info = policy)
+  }
+})
+
+test_that("dropping a subsample that is all noise leaves empty vectors", {
+  out <- apply_noise_policy(1:3, c(-1L, -1L, -1L), "drop")
+  expect_identical(out$indices, integer(0))
+  expect_identical(out$labels, integer(0))
+  expect_identical(out$noise_fraction, 1)
+})
+
+test_that("an empty subsample has a noise fraction of 0", {
+  out <- apply_noise_policy(integer(0), integer(0), "drop")
+  expect_identical(out$noise_fraction, 0)
+})
+
+test_that("an unknown noise policy is an error", {
+  expect_error(
+    apply_noise_policy(1:2, c(1L, 1L), "ignore"),
+    "Unknown noise_policy 'ignore'. Expected 'drop', 'as_cluster', or 'singleton'.",
+    fixed = TRUE
+  )
+})
+
+test_that("noise_mask matches Python", {
+  for (case in read_fixture("noise_mask")$cases) {
+    cut <- noise_mask(fixture_vector(case$scores), case$quantile)
+    expect_identical(cut$mask, as.logical(case$mask), info = case$name)
+    expect_identical(cut$n_target, as.integer(case$n_target), info = case$name)
+    expect_equal(cut$cutoff, case$cutoff, tolerance = 1e-12, info = case$name)
+    expect_equal(cut$median, case$median, tolerance = 1e-12, info = case$name)
+  }
+})
+
+test_that("noise_mask needs a finite score", {
+  expect_error(noise_mask(c(NaN, NA), 0.05), "scores contains no finite value.", fixed = TRUE)
+})
+
+test_that("a keep that selects nothing leaves the labels as they are", {
+  expect_identical(
+    align_cluster_labels(c(-1L, -1L, -1L), c(2L, 1L, 2L), keep = c(FALSE, FALSE, FALSE)),
+    c(2L, 1L, 2L)
+  )
+})

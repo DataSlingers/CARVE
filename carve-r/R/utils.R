@@ -4,14 +4,18 @@
 # Evaluates code under a fixed seed and restores the caller's RNG state
 # afterwards. The RNG kind is pinned, so a user's RNGkind() setting cannot
 # change the draws. With seed = NULL the code draws from the caller's stream.
-seeded <- function(seed, code) {
+# The anchor draw and the pipeline allocation pass kind = "L'Ecuyer-CMRG":
+# Python takes them from a numpy Generator, apart from the subsample draws,
+# and a Mersenne-Twister draw from the same seed would repeat the start of
+# resample 0's first subsample.
+seeded <- function(seed, code, kind = "Mersenne-Twister") {
   if (is.null(seed)) {
     return(code)
   }
   withr::with_seed(
     seed,
     code,
-    .rng_kind = "Mersenne-Twister",
+    .rng_kind = kind,
     .rng_normal_kind = "Inversion",
     .rng_sample_kind = "Rejection"
   )
@@ -30,6 +34,82 @@ count_clusters <- function(labels) {
     return(0L)
   }
   length(unique(labels[labels >= 0]))
+}
+
+# A suggested package is loaded only when a function needs it. has_package()
+# is its own function so that tests can pretend a package is missing.
+has_package <- function(package) {
+  requireNamespace(package, quietly = TRUE)
+}
+
+require_package <- function(package, needed_for) {
+  if (!has_package(package)) {
+    stop(sprintf(
+      "%s is required for %s. Install it with: install.packages(\"%s\")",
+      package, needed_for, package
+    ), call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
+NOISE_POLICIES <- c("drop", "as_cluster", "singleton")
+
+check_noise_policy <- function(policy) {
+  if (!is.character(policy) || length(policy) != 1L || !policy %in% NOISE_POLICIES) {
+    stop(sprintf(
+      "Unknown noise_policy %s. Expected 'drop', 'as_cluster', or 'singleton'.",
+      format_repr(policy)
+    ), call. = FALSE)
+  }
+  invisible(policy)
+}
+
+# Resolves the negative labels that density-based methods give unassigned
+# samples. "drop" removes them from the resample, so they count as not
+# drawn; "as_cluster" keeps -1 as an ordinary label; "singleton" gives each
+# its own cluster. noise_fraction is the share of noise before the policy.
+apply_noise_policy <- function(indices, labels, policy = "drop") {
+  check_noise_policy(policy)
+  if (length(labels) == 0L) {
+    return(list(indices = indices, labels = labels, noise_fraction = 0))
+  }
+  noise <- labels < 0
+  fraction <- mean(noise)
+  if (!any(noise) || policy == "as_cluster") {
+    return(list(indices = indices, labels = labels, noise_fraction = fraction))
+  }
+  if (policy == "drop") {
+    return(list(indices = indices[!noise], labels = labels[!noise], noise_fraction = fraction))
+  }
+  assigned <- labels[!noise]
+  start <- if (length(assigned) > 0L) max(assigned) + 1L else 0L
+  labels[noise] <- seq.int(start, length.out = sum(noise))
+  list(indices = indices, labels = labels, noise_fraction = fraction)
+}
+
+# How far below the median sample's score, on the [0, 1] score scale, a
+# sample must lie before noise_mask() may flag it.
+NOISE_MARGIN <- 0.05
+
+# Flags the samples whose score marks them as ambiguous: a NaN score, or a
+# score strictly below the quantile of the finite scores and more than
+# margin below their median, so that tied scores flag nothing. n_target is
+# how many finite samples the quantile would flag if every score were
+# distinct, counted through the quantile itself so that it agrees with the
+# cutoff. Quantile type 7 is numpy's default.
+noise_mask <- function(scores, quantile, margin = NOISE_MARGIN) {
+  finite <- is.finite(scores)
+  if (!any(finite)) {
+    stop("scores contains no finite value.", call. = FALSE)
+  }
+  values <- scores[finite]
+  cutoff <- stats::quantile(values, quantile, type = 7, names = FALSE)
+  median <- stats::median(values)
+  mask <- !finite
+  mask[finite] <- values < cutoff & values < median - margin
+  ranks <- seq_along(values) - 1
+  n_target <- sum(ranks < stats::quantile(ranks, quantile, type = 7, names = FALSE))
+  list(mask = mask, n_target = as.integer(n_target), cutoff = cutoff, median = median)
 }
 
 # A single number K means 2:K, as in Python. expand_scalar = FALSE keeps a
@@ -217,10 +297,14 @@ adjusted_rand_index <- function(a, b) {
 # matching. Labels with no partner, when there are more clusters than
 # reference values, take fresh ids past the largest matched reference
 # value, so they never merge with a matched cluster. Only positions where
-# keep is TRUE take part in the matching.
+# keep is TRUE take part in the matching. With no position kept there is
+# nothing to match, and the labels come back unchanged.
 align_cluster_labels <- function(reference_labels, labels, keep = NULL) {
   if (is.null(keep)) {
     keep <- rep(TRUE, length(labels))
+  }
+  if (!any(keep)) {
+    return(labels)
   }
   ref <- reference_labels[keep]
   lab <- labels[keep]
