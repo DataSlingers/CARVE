@@ -318,3 +318,141 @@ test_that("show_progress draws a bar over the configurations", {
   )
   expect_match(paste(out, collapse = ""), "100%", fixed = TRUE)
 })
+
+# Labels the first five rows of every subsample noise and clusters the rest.
+noisy_kmeans <- function(X, n_clusters = 3L, random_state = NULL) {
+  labels <- KMeans(X, n_clusters, random_state = random_state)
+  labels[1:5] <- -1L
+  labels
+}
+
+identity_spec <- function() {
+  allocate_pipelines(list(preprocessing_option(Identity)), list(preprocessing_option(Identity)), 1L, 0L)[[1L]]
+}
+
+test_that("drop removes noise from the indices the scores use", {
+  r <- validation_iter(blobs$X, noisy_kmeans, "noisy", list(n_clusters = 3L), 0.618, 5L, 0L, random_state = 0L)
+  expect_length(r$train_indices, 50L)
+  expect_length(r$labels_train, 50L)
+  expect_length(r$stability_indices, 50L)
+  expect_length(r$test_indices, 30L)
+  expect_length(r$labels_predicted, 30L)
+  expect_false(any(r$labels_train < 0L))
+  expect_equal(r$noise_fraction, 5 / 55)
+})
+
+test_that("the samples drop removes are the ones labeled noise", {
+  kept <- validation_iter(blobs$X, noisy_kmeans, "noisy", list(n_clusters = 3L), 0.618, 5L, 0L,
+                          noise_policy = "as_cluster", random_state = 0L)
+  dropped <- validation_iter(blobs$X, noisy_kmeans, "noisy", list(n_clusters = 3L), 0.618, 5L, 0L,
+                             random_state = 0L)
+  expect_identical(dropped$train_indices, kept$train_indices[kept$labels_train >= 0L])
+  expect_identical(sum(kept$labels_train == -1L), 5L)
+  expect_identical(kept$n_clusters_train, 3L)
+})
+
+test_that("the noise fraction is the same under every policy", {
+  # Under "singleton" each noise sample is a cluster of its own, so the
+  # k-axis count check warns; those warnings are not what this test is about.
+  fractions <- vapply(NOISE_POLICIES, function(policy) {
+    suppressWarnings(validation_iter(blobs$X, noisy_kmeans, "noisy", list(n_clusters = 3L), 0.618, 5L, 0L,
+                                     noise_policy = policy, random_state = 0L))$noise_fraction
+  }, numeric(1))
+  expect_equal(unname(fractions), rep(5 / 55, 3))
+})
+
+test_that("a subsample that is all noise warns and scores NaN", {
+  all_noise <- function(X, min_cluster_size = 5L) rep(-1L, nrow(X))
+  out <- collect_warnings(validation_iter(
+    blobs$X, all_noise, "all_noise", list(min_cluster_size = 5L), 0.618, 5L, 0L,
+    sweep_param = "min_cluster_size", random_state = 0L
+  ))
+  expect_identical(out$warnings, c(
+    "all_noise with {'min_cluster_size': 5} produced 0 cluster(s) on a subsample; stability and generalizability are degenerate at this point on the sweep axis.",
+    "All points in a subsample were labelled as noise and dropped (noise_policy='drop'); stability ARI is undefined for this resample. Consider relaxing the clustering parameters or switching to noise_policy='as_cluster'.",
+    "All points in a subsample were labelled as noise and dropped (noise_policy='drop'); generalizability ARI is undefined for this resample. Consider relaxing the clustering parameters or switching to noise_policy='as_cluster'."
+  ))
+  r <- out$value
+  expect_true(is.nan(r$ari_stability))
+  expect_true(is.nan(r$ari_generalizability))
+  expect_null(r$labels_predicted)
+  expect_length(r$labels_train, 0L)
+  expect_identical(r$noise_fraction, 1)
+})
+
+test_that("an unknown noise policy is an error", {
+  expect_error(
+    validation_iter(blobs$X, KMeans, "KMeans", list(n_clusters = 3L), 0.618, 5L, 0L,
+                    noise_policy = "keep", random_state = 0L),
+    "Unknown noise_policy 'keep'.",
+    fixed = TRUE
+  )
+})
+
+test_that("identity embeddings reproduce the raw resample", {
+  emb <- embed_resample(blobs$X, identity_spec(), seed = 2L, n_resamples = 5L,
+                        subsample_ratio = 0.618, random_state = 10L)
+  raw <- validation_iter(blobs$X, KMeans, "KMeans", list(n_clusters = 3L), 0.618, 5L,
+                         seed = 2L, random_state = 10L)
+  embedded <- validation_iter(blobs$X, KMeans, "KMeans", list(n_clusters = 3L), 0.618, 5L,
+                              seed = 2L, random_state = 10L, embeddings = emb)
+  expect_null(raw$pipeline)
+  expect_identical(embedded$pipeline, "identity | identity")
+  raw$pipeline <- NULL
+  embedded$pipeline <- NULL
+  expect_identical(embedded, raw)
+})
+
+test_that("each subsample is embedded with its own seed", {
+  seen <- new.env()
+  seen$calls <- list()
+  record <- function(X, random_state = NULL) {
+    seen$calls[[length(seen$calls) + 1L]] <- c(nrow(X), random_state)
+    X
+  }
+  spec <- allocate_pipelines(list(preprocessing_option(Identity)), list(preprocessing_option(record)), 1L, 0L)[[1L]]
+  embed_resample(blobs$X, spec, seed = 2L, n_resamples = 5L, subsample_ratio = 0.618, random_state = 10L)
+  calls <- do.call(rbind, seen$calls)
+  # The first subsample, the second and the held-out set, in that order.
+  expect_identical(calls[, 1], c(55L, 55L, 35L))
+  expect_identical(calls[, 2], c(12L, 17L, 22L))
+})
+
+test_that("a mode embeds only the subsamples it uses", {
+  emb <- embed_resample(blobs$X, identity_spec(), 0L, 5L, 0.618, 0L, mode = "stability")
+  expect_null(emb$X_test)
+  expect_identical(nrow(emb$X_2), 55L)
+  emb <- embed_resample(blobs$X, identity_spec(), 0L, 5L, 0.618, 0L, mode = "generalizability")
+  expect_null(emb$X_2)
+  expect_identical(nrow(emb$X_test), 35L)
+})
+
+test_that("the estimator clusters the embedding and the classifier reads raw features", {
+  seen <- new.env()
+  first_column <- function(X) X[, 1L, drop = FALSE]
+  spec <- allocate_pipelines(list(preprocessing_option(Identity)), list(preprocessing_option(first_column)), 1L, 0L)[[1L]]
+  emb <- embed_resample(blobs$X, spec, 0L, 5L, 0.618, 0L)
+  width <- function(X, n_clusters = 3L) {
+    seen$width <- c(seen$width, ncol(X))
+    rep_len(seq_len(n_clusters), nrow(X))
+  }
+  clf <- function(x_train, y_train, x_test) {
+    seen$classifier <- ncol(x_train)
+    rep(y_train[1], nrow(x_test))
+  }
+  validation_iter(blobs$X, width, "width", list(n_clusters = 3L), 0.618, 5L, 0L,
+                  classifier = clf, random_state = 0L, embeddings = emb)
+  expect_identical(seen$width, c(1L, 1L, 1L))
+  expect_identical(seen$classifier, 2L)
+})
+
+test_that("embeddings that do not fit the resample are an error", {
+  emb <- embed_resample(blobs$X, identity_spec(), 0L, 5L, 0.618, 0L)
+  emb$X_test <- emb$X_test[-1L, , drop = FALSE]
+  expect_error(
+    validation_iter(blobs$X, KMeans, "KMeans", list(n_clusters = 3L), 0.618, 5L, 0L,
+                    random_state = 0L, embeddings = emb),
+    "Precomputed embedding X_test has 34 rows but this resample's subsample has 35. This is an internal CARVE error.",
+    fixed = TRUE
+  )
+})

@@ -3,7 +3,8 @@
 # through BiocParallel. Every resample derives its own seeds from
 # random_state, so the results do not depend on the backend.
 
-# The only place the subsample seeds are derived.
+# The only place the subsample seeds are derived, so the embedding pass and
+# the configuration loop draw the same subsamples.
 resample_indices <- function(n_samples, seed, n_resamples, subsample_ratio,
                              random_state, run_stability) {
   first <- split_subsample_indices(n_samples, subsample_ratio, random_state + seed)
@@ -14,23 +15,60 @@ resample_indices <- function(n_samples, seed, n_resamples, subsample_ratio,
   list(train = first$train, test = first$test, stability = second)
 }
 
+# Python's warning when the noise policy leaves a subsample empty.
+ALL_NOISE_WARNING <- "All points in a subsample were labelled as noise and dropped (noise_policy='drop'); %s ARI is undefined for this resample. Consider relaxing the clustering parameters or switching to noise_policy='as_cluster'."
+
 validation_iter <- function(X, estimator, estimator_name, params, subsample_ratio,
                             n_resamples, seed, classifier = NULL, n_trees = 100L,
-                            sweep_param = "n_clusters", mode = "default",
-                            random_state = 0L, classifier_threads = 1L) {
+                            sweep_param = "n_clusters", noise_policy = "drop",
+                            mode = "default", random_state = 0L, classifier_threads = 1L,
+                            embeddings = NULL) {
   policy <- resolve_mode(mode)
   n <- nrow(X)
   idx <- resample_indices(n, seed, n_resamples, subsample_ratio, random_state, policy$run_stability)
 
-  # Each subsample is clustered on its own, with the neighbor count scaled
-  # to its own rows.
-  fit_labels <- function(rows) {
-    scaled <- scale_neighbor_count(estimator, params, n_fit = length(rows), n_full = n)
-    call_estimator(estimator, X[rows, , drop = FALSE], scaled, random_state = random_state + seed)
+  # What the estimator clusters: the raw subsamples, or under randomized
+  # preprocessing this resample's embeddings, one independent fit per
+  # subsample.
+  pipeline <- NULL
+  if (is.null(embeddings)) {
+    X_1 <- X[idx$train, , drop = FALSE]
+    X_test <- if (policy$run_generalizability) X[idx$test, , drop = FALSE] else NULL
+    X_2 <- if (policy$run_stability) X[idx$stability, , drop = FALSE] else NULL
+  } else {
+    check_embeddings(policy, embeddings, idx)
+    pipeline <- embeddings$spec$label
+    X_1 <- embeddings$X_1
+    X_test <- embeddings$X_test
+    X_2 <- embeddings$X_2
   }
-  labels_train <- fit_labels(idx$train)
-  labels_test <- if (policy$run_generalizability) fit_labels(idx$test) else NULL
-  labels_stability <- if (policy$run_stability) fit_labels(idx$stability) else NULL
+
+  # Each set is clustered on its own, with the neighbor count scaled to its
+  # own rows.
+  fit_labels <- function(X_fit) {
+    scaled <- scale_neighbor_count(estimator, params, n_fit = nrow(X_fit), n_full = n)
+    call_estimator(estimator, X_fit, scaled, random_state = random_state + seed)
+  }
+  labels_train <- fit_labels(X_1)
+  labels_test <- if (policy$run_generalizability) fit_labels(X_test) else NULL
+  labels_stability <- if (policy$run_stability) fit_labels(X_2) else NULL
+
+  # Noise labels. Under "drop" the index vectors shrink with the labels. The
+  # classifier reads raw features through these indices and the embeddings
+  # are not used again, so nothing else needs re-slicing.
+  train <- apply_noise_policy(idx$train, labels_train, noise_policy)
+  idx$train <- train$indices
+  labels_train <- train$labels
+  if (policy$run_generalizability) {
+    test <- apply_noise_policy(idx$test, labels_test, noise_policy)
+    idx$test <- test$indices
+    labels_test <- test$labels
+  }
+  if (policy$run_stability) {
+    second <- apply_noise_policy(idx$stability, labels_stability, noise_policy)
+    idx$stability <- second$indices
+    labels_stability <- second$labels
+  }
 
   k_train <- count_clusters(labels_train)
   k_test <- if (policy$run_generalizability) count_clusters(labels_test) else 0L
@@ -57,31 +95,42 @@ validation_iter <- function(X, estimator, estimator_name, params, subsample_rati
   # Stability: ARI on the samples the two subsamples share.
   ari_stability <- NaN
   if (policy$run_stability) {
-    shared <- intersect(idx$train, idx$stability)
-    ari_stability <- adjusted_rand_index(
-      labels_train[match(shared, idx$train)],
-      labels_stability[match(shared, idx$stability)]
-    )
+    if (length(idx$train) == 0L || length(idx$stability) == 0L) {
+      warning(sprintf(ALL_NOISE_WARNING, "stability"), call. = FALSE)
+    } else {
+      shared <- intersect(idx$train, idx$stability)
+      ari_stability <- adjusted_rand_index(
+        labels_train[match(shared, idx$train)],
+        labels_stability[match(shared, idx$stability)]
+      )
+    }
   }
 
   # Generalizability: the classifier learns the first subsample's clusters
-  # from its raw features and predicts the held-out samples.
+  # from its raw features and predicts the held-out samples. It reads raw
+  # features also under randomized preprocessing: a cluster generalizes only
+  # if it can be learned from the data, and a transform such as t-SNE cannot
+  # embed new samples anyway.
   labels_predicted <- NULL
   ari_generalizability <- NaN
   if (policy$run_generalizability) {
-    predict_labels <- default_generalizability_classifier(
-      classifier,
-      n_features = ncol(X),
-      n_trees = n_trees,
-      random_state = random_state + seed,
-      n_threads = classifier_threads
-    )
-    labels_predicted <- predict_labels(
-      X[idx$train, , drop = FALSE],
-      labels_train,
-      X[idx$test, , drop = FALSE]
-    )
-    ari_generalizability <- adjusted_rand_index(labels_test, labels_predicted)
+    if (length(idx$train) == 0L || length(idx$test) == 0L) {
+      warning(sprintf(ALL_NOISE_WARNING, "generalizability"), call. = FALSE)
+    } else {
+      predict_labels <- default_generalizability_classifier(
+        classifier,
+        n_features = ncol(X),
+        n_trees = n_trees,
+        random_state = random_state + seed,
+        n_threads = classifier_threads
+      )
+      labels_predicted <- predict_labels(
+        X[idx$train, , drop = FALSE],
+        labels_train,
+        X[idx$test, , drop = FALSE]
+      )
+      ari_generalizability <- adjusted_rand_index(labels_test, labels_predicted)
+    }
   }
 
   list(
@@ -94,10 +143,53 @@ validation_iter <- function(X, estimator, estimator_name, params, subsample_rati
     train_indices = idx$train,
     test_indices = idx$test,
     stability_indices = idx$stability,
+    pipeline = pipeline,
     n_clusters_train = k_train,
     n_clusters_test = k_test,
     n_clusters_stability = k_stability,
-    noise_fraction = mean(labels_train < 0)
+    noise_fraction = train$noise_fraction
+  )
+}
+
+# The embedding pass and validation_iter() derive the same indices from
+# resample_indices(); a row count that differs means that has broken.
+check_embeddings <- function(policy, embeddings, idx) {
+  expected <- list(X_1 = idx$train)
+  if (policy$run_stability) {
+    expected$X_2 <- idx$stability
+  }
+  if (policy$run_generalizability) {
+    expected$X_test <- idx$test
+  }
+  for (name in names(expected)) {
+    rows <- if (is.null(embeddings[[name]])) "None" else nrow(embeddings[[name]])
+    if (!identical(rows, length(expected[[name]]))) {
+      stop(sprintf(
+        "Precomputed embedding %s has %s rows but this resample's subsample has %d. This is an internal CARVE error.",
+        name, rows, length(expected[[name]])
+      ), call. = FALSE)
+    }
+  }
+  invisible(TRUE)
+}
+
+# Fits resample `seed`'s pipeline on each subsample its mode uses: the first
+# with random_state + seed, the second with random_state + seed +
+# n_resamples and the held-out set with random_state + seed + 2 *
+# n_resamples, so no two fits share a seed.
+embed_resample <- function(X, spec, seed, n_resamples, subsample_ratio, random_state,
+                           mode = "default") {
+  policy <- resolve_mode(mode)
+  idx <- resample_indices(nrow(X), seed, n_resamples, subsample_ratio, random_state, policy$run_stability)
+  base <- random_state + seed
+  embed <- function(rows, offset) {
+    pipeline_from_spec(spec, base + offset)(X[rows, , drop = FALSE])
+  }
+  list(
+    spec = spec,
+    X_1 = embed(idx$train, 0L),
+    X_2 = if (policy$run_stability) embed(idx$stability, n_resamples) else NULL,
+    X_test = if (policy$run_generalizability) embed(idx$test, 2L * n_resamples) else NULL
   )
 }
 
