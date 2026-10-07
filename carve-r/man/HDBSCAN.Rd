@@ -35,12 +35,12 @@ more and smaller clusters and more noise. \code{min_cluster_size} also sets the
 number of neighbors of the core distances, as in scikit-learn's \code{HDBSCAN}
 with \code{min_samples} left at its default.
 
-The labels can still differ from scikit-learn's on the same data. Mutual
-reachability distances are often tied, and the two packages merge tied
-samples in a different order, which can change the clusters selected. On
-25 simulated data sets of three overlapping groups, at minimum cluster
-sizes 5 and 10, the eom selections were identical in 46 of 50 cases and
-the leaf selections in 25 of 50. dbscan also computes all pairwise
+The selection follows scikit-learn's. The labels can still differ from
+scikit-learn's where mutual reachability distances tie, because the two
+packages merge tied samples in a different order and that changes the
+tree the selection works on. How often this happens depends on the data:
+agreement is common when few distances tie and can be rare when many do,
+as with small integer counts. dbscan also computes all pairwise
 distances, so memory grows with the square of the number of samples.
 }
 \examples{

@@ -94,8 +94,10 @@ must sweep the same parameter over the same values.}
 \code{\link[=preprocessing_option]{preprocessing_option()}} objects for randomized preprocessing. \code{NULL}
 uses the defaults: identity, standardization and, for data without
 negative values, log1p; identity, PCA, t-SNE and, when uwot is
-installed, UMAP, over the values the smallest subsample supports. Not
-used unless \code{randomize_preprocessing = TRUE}.}
+installed, UMAP, over the values the smallest subsample supports. An
+empty \code{normalization_options} list also means the defaults, but an empty
+\code{dim_reduction_options} list is an error. Not used unless
+\code{randomize_preprocessing = TRUE}.}
 
 \item{randomize_preprocessing}{Draw a preprocessing pipeline for each
 resample. See Details.}
@@ -177,8 +179,8 @@ The fit keeps two \code{n} by \code{n} consensus matrices per configuration, sto
 as doubles: \code{8 * n^2} bytes each, twice what the Python package needs for
 the same run. With \code{verbose = 2} the header reports the total.
 
-Above \code{anchor_threshold} samples those matrices would not fit in memory,
-and the run is anchored: it draws \code{m} anchor samples once and keeps only
+Above \code{anchor_threshold} samples the run is anchored, because that memory
+grows with the square of \code{n}: it draws \code{m} anchor samples once and keeps only
 the \code{m} by \code{m} blocks over them. Per-sample stability is computed against
 the anchors, so every sample still gets a score, and \code{\link[=get_labels]{get_labels()}} cuts
 the anchor block and labels the other samples with the classifier,

@@ -471,10 +471,11 @@ def knn_graph():
 
 def hdbscan():
     # Two close groups and a far one. On these data scikit-learn's eom and
-    # leaf selections differ, and dbscan::hdbscan() orders its tied merges so
-    # that both of its selections match scikit-learn's exactly (checked with
-    # dbscan 1.2.7 when this fixture was written). Other data need not match
-    # exactly; the HDBSCAN help page explains why.
+    # leaf selections differ. On these data dbscan::hdbscan() orders its tied
+    # merges as scikit-learn does, so the package's labels match both
+    # selections (checked with dbscan 1.2.7 when this fixture was written).
+    # Other data can differ where distances tie; the HDBSCAN help page
+    # explains why.
     X, _ = make_blobs(
         n_samples=[40, 40, 40],
         centers=[[0, 0], [2.0, 0], [8, 0]],

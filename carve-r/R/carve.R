@@ -44,8 +44,8 @@ NULL
 #' as doubles: `8 * n^2` bytes each, twice what the Python package needs for
 #' the same run. With `verbose = 2` the header reports the total.
 #'
-#' Above `anchor_threshold` samples those matrices would not fit in memory,
-#' and the run is anchored: it draws `m` anchor samples once and keeps only
+#' Above `anchor_threshold` samples the run is anchored, because that memory
+#' grows with the square of `n`: it draws `m` anchor samples once and keeps only
 #' the `m` by `m` blocks over them. Per-sample stability is computed against
 #' the anchors, so every sample still gets a score, and [get_labels()] cuts
 #' the anchor block and labels the other samples with the classifier,
@@ -113,8 +113,10 @@ NULL
 #'   [preprocessing_option()] objects for randomized preprocessing. `NULL`
 #'   uses the defaults: identity, standardization and, for data without
 #'   negative values, log1p; identity, PCA, t-SNE and, when uwot is
-#'   installed, UMAP, over the values the smallest subsample supports. Not
-#'   used unless `randomize_preprocessing = TRUE`.
+#'   installed, UMAP, over the values the smallest subsample supports. An
+#'   empty `normalization_options` list also means the defaults, but an empty
+#'   `dim_reduction_options` list is an error. Not used unless
+#'   `randomize_preprocessing = TRUE`.
 #' @param randomize_preprocessing Draw a preprocessing pipeline for each
 #'   resample. See Details.
 #' @param classifier `NULL` for the default random forest, or a function
