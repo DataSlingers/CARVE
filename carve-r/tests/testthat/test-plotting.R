@@ -360,3 +360,112 @@ test_that("the color bar, labels and frame of the heatmap", {
   expect_identical(consensus_plot(diag(4), c(1, 1, 2, 2), colorbar_label = "Share")$scales$get_scales("fill")$name, "Share")
   expect_null(ggplot2::get_guide_data(consensus_plot(diag(4), c(1, 1, 2, 2), colorbar = FALSE), "fill"))
 })
+
+test_that("cluster_score_groups matches Python's grouping", {
+  f <- read_fixture("plotting")$score_groups
+  scores <- fixture_vector(f$scores)
+  # R labels count from 1 and are shown as they are; Python's count from 0
+  # and are shown plus one.
+  labels <- fixture_vector(f$labels) + 1
+  for (case in f$cases) {
+    order <- if (is.null(case$order)) NULL else fixture_vector(case$order) + 1
+    prepared <- cluster_score_groups(scores, labels, order)
+    expect_identical(prepared$order, fixture_vector(case$kept_order))
+    expect_identical(length(prepared$groups), length(case$groups))
+    for (i in seq_along(case$groups)) {
+      expect_equal(prepared$groups[[i]], fixture_vector(case$groups[[i]]))
+    }
+  }
+})
+
+test_that("cluster_score_groups drops non-finite scores and checks its input", {
+  prepared <- cluster_score_groups(c(0.9, NaN, 0.7, 0.6), c(1, 1, 2, 2))
+  expect_identical(lengths(prepared$groups), c(1L, 2L))
+  expect_identical(cluster_score_groups(c(0.9, 0.8, 0.7, 0.6), c(1, 1, 2, 2), order = c(2, 1))$order, c(2, 1))
+  expect_error(cluster_score_groups(c(NaN, NaN), c(1, 2)), "No finite scores available for plotting.", fixed = TRUE)
+  expect_error(cluster_score_groups(0.5, c(1, 2)), "scores and labels must have matching length.", fixed = TRUE)
+  expect_error(cluster_score_groups(matrix(0.5), 1), "scores must be a 1D array.", fixed = TRUE)
+  expect_error(cluster_score_groups(0.5, matrix(1)), "labels must be a 1D array.", fixed = TRUE)
+  expect_error(cluster_score_groups(c(0.5, 0.6), c(1, 2), order = 7), "No cluster values found for the provided order.", fixed = TRUE)
+})
+
+test_that("score_ylim fits the scores with a margin or keeps ylim", {
+  # A range of 0.1 gives a margin of 0.005, below the 0.02 floor.
+  expect_equal(score_ylim(list(c(0.5, 0.6), 0.55), c(-0.02, 1.02), TRUE), c(0.48, 0.62))
+  expect_equal(score_ylim(list(c(0, 1)), NULL, TRUE), c(-0.05, 1.05))
+  expect_identical(score_ylim(list(0.5), c(0, 1), FALSE), c(0, 1))
+  expect_null(score_ylim(list(0.5), NULL, FALSE))
+})
+
+test_that("the box plot draws one box per cluster in the requested order", {
+  scores <- c(0.9, 0.85, 0.7, 0.65, 0.5, 0.45)
+  labels <- c(1, 1, 1, 2, 2, 2)
+  plot <- cluster_boxplot_plot(scores, labels, order = c(2, 1), annotation = "note", title = "T")
+  boxes <- layer_with(plot, "GeomBoxplot")
+  expect_identical(nrow(boxes), 2L)
+  expect_equal(boxes$middle, c(0.5, 0.85))
+  expect_identical(boxes$fill, palette_colors("Accent", 2L))
+  expect_identical(plot$scales$get_scales("x")$labels, c("2", "1"))
+  expect_identical(plot$labels$caption, "note")
+  expect_identical(plot$labels$title, "T")
+  expect_identical(plot$labels$x, "Cluster")
+  expect_identical(plot$labels$y, "Uncertainty")
+  expect_equal(ggplot2::ggplot_build(plot)$layout$panel_params[[1L]]$y.range, c(0.45 - 0.0225, 0.9 + 0.0225))
+  expect_null(cluster_boxplot_plot(scores, labels)$labels$caption)
+})
+
+test_that("showfliers and rotation reach the box plot", {
+  scores <- c(0.5, 0.52, 0.51, 0.53, 0.5, 0.95, 0.1, 0.2)
+  labels <- c(1, 1, 1, 1, 1, 1, 2, 2)
+  hidden <- cluster_boxplot_plot(scores, labels)
+  shown <- cluster_boxplot_plot(scores, labels, showfliers = TRUE)
+  expect_true(is.na(hidden$layers[[layer_index(hidden, "GeomBoxplot")]]$geom_params$outlier_gp$shape))
+  expect_identical(shown$layers[[layer_index(shown, "GeomBoxplot")]]$geom_params$outlier_gp$shape, 19)
+  rotated <- cluster_boxplot_plot(scores, labels, rotation = 45)
+  expect_identical(rotated$theme$axis.text.x$angle, 45)
+})
+
+test_that("the violin plot draws bodies, inner marks and seeded points", {
+  scores <- c(0.9, 0.85, 0.7, 0.65, 0.5, 0.45)
+  labels <- c(1, 1, 1, 2, 2, 2)
+  plot <- cluster_violin_plot(scores, labels)
+  bodies <- layer_with(plot, "GeomViolin")
+  expect_identical(sort(unique(bodies$fill)), sort(palette_colors("Accent", 2L)))
+  marks <- layer_with(plot, "GeomSegment")
+  # "box": a median line, a quartile line and two quartile caps per cluster.
+  expect_identical(nrow(marks), 8L)
+  expect_equal(sort(marks$y[marks$x == marks$xend]), sort(c(0.775, 0.475)))
+  points <- layer_with(plot, "GeomPoint")
+  expect_equal(points$y, scores)
+  expect_true(all(abs(points$x - rep(1:2, each = 3)) <= 0.11))
+  expect_identical(points$x, layer_with(cluster_violin_plot(scores, labels), "GeomPoint")$x)
+  quartile <- layer_with(cluster_violin_plot(scores, labels, inner = "quartile"), "GeomSegment")
+  expect_identical(nrow(quartile), 6L)
+  expect_false(has_layer(cluster_violin_plot(scores, labels, inner = "none"), "GeomSegment"))
+  expect_false(has_layer(cluster_violin_plot(scores, labels, stripplot = FALSE), "GeomPoint"))
+  still <- layer_with(cluster_violin_plot(scores, labels, jitter = FALSE), "GeomPoint")
+  expect_equal(still$x, rep(c(1, 2), each = 3))
+})
+
+test_that("the violin plot scales the bodies and limits the axis", {
+  scores <- c(0.95, 0.96, 0.97, 0.98, 0.99, 0.60, 0.61, 0.62)
+  labels <- c(1, 1, 1, 1, 1, 2, 2, 2)
+  plot <- cluster_violin_plot(scores, labels, density_norm = "count", ylim = c(0, 0.9), fit_ylim = FALSE)
+  violin <- plot$layers[[layer_index(plot, "GeomViolin")]]
+  expect_identical(violin$stat_params$scale, "count")
+  expect_equal(ggplot2::ggplot_build(plot)$layout$panel_params[[1L]]$y.range, c(0, 0.9))
+  expect_warning(
+    unknown <- cluster_violin_plot(scores, labels, density_norm = "nope"),
+    "Unknown density_norm='nope'; using 'width'.",
+    fixed = TRUE
+  )
+  expect_identical(unknown$layers[[layer_index(unknown, "GeomViolin")]]$stat_params$scale, "width")
+  expect_error(cluster_violin_plot(scores, labels, inner = "nope"), "inner must be one of: 'box', 'quartile', 'none'.", fixed = TRUE)
+})
+
+test_that("a cluster with one score gets points but no violin body", {
+  plot <- cluster_violin_plot(c(0.9, 0.8, 0.7, 0.4), c(1, 1, 1, 2))
+  bodies <- layer_with(plot, "GeomViolin")
+  expect_identical(unique(bodies$fill), palette_colors("Accent", 2L)[[1L]])
+  expect_identical(nrow(layer_with(plot, "GeomPoint")), 4L)
+})

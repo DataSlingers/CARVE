@@ -481,3 +481,166 @@ consensus_plot <- function(consensus_matrix, labels, cmap = "viridis", palette =
   }
   plot
 }
+
+# The finite scores of each cluster in plotting order, and the clusters
+# kept: those with at least one finite score.
+cluster_score_groups <- function(scores, labels, order = NULL) {
+  if (!is.null(dim(scores)) && length(dim(scores)) > 1L) {
+    stop("scores must be a 1D array.", call. = FALSE)
+  }
+  if (!is.null(dim(labels)) && length(dim(labels)) > 1L) {
+    stop("labels must be a 1D array.", call. = FALSE)
+  }
+  scores <- as.numeric(scores)
+  labels <- as.vector(labels)
+  if (length(scores) != length(labels)) {
+    stop("scores and labels must have matching length.", call. = FALSE)
+  }
+  finite <- is.finite(scores)
+  scores <- scores[finite]
+  labels <- labels[finite]
+  if (length(scores) == 0L) {
+    stop("No finite scores available for plotting.", call. = FALSE)
+  }
+  wanted <- if (is.null(order)) sort(unique(labels)) else order
+  groups <- lapply(wanted, function(label) scores[labels == label])
+  kept <- lengths(groups) > 0L
+  if (!any(kept)) {
+    stop("No cluster values found for the provided order.", call. = FALSE)
+  }
+  list(groups = groups[kept], order = wanted[kept])
+}
+
+score_frame <- function(prepared) {
+  data.frame(
+    position = rep(seq_along(prepared$groups), lengths(prepared$groups)),
+    score = unlist(prepared$groups, use.names = FALSE)
+  )
+}
+
+# With fit_ylim the axis runs over the scores with a margin of 5% of their
+# range, at least 0.02; otherwise it is ylim, which may be NULL.
+score_ylim <- function(groups, ylim, fit_ylim) {
+  if (!isTRUE(fit_ylim)) {
+    return(ylim)
+  }
+  values <- unlist(groups, use.names = FALSE)
+  margin <- max(0.02, 0.05 * (max(values) - min(values)))
+  c(min(values) - margin, max(values) + margin)
+}
+
+# The axis, limits, labels and theme the box and violin plots share. The
+# clusters sit at x = 1, 2, ... and the axis shows their labels.
+score_plot_frame <- function(plot, prepared, ylim, fit_ylim, title, xlabel, ylabel, annotation,
+                             rotation) {
+  plot <- plot +
+    ggplot2::scale_x_continuous(
+      breaks = seq_along(prepared$order),
+      labels = as.character(prepared$order),
+      minor_breaks = NULL
+    ) +
+    ggplot2::labs(x = xlabel, y = ylabel, title = title, caption = annotation) +
+    carve_theme() +
+    ggplot2::theme(panel.grid.major.x = ggplot2::element_blank())
+  limits <- score_ylim(prepared$groups, ylim, fit_ylim)
+  if (!is.null(limits)) {
+    plot <- plot +
+      ggplot2::scale_y_continuous(expand = ggplot2::expansion(0)) +
+      ggplot2::coord_cartesian(ylim = limits)
+  }
+  if (!is.null(rotation)) {
+    plot <- plot + ggplot2::theme(axis.text.x = ggplot2::element_text(angle = rotation))
+  }
+  plot
+}
+
+cluster_fills <- function(prepared, palette) {
+  stats::setNames(palette_colors(palette, length(prepared$groups)), seq_along(prepared$groups))
+}
+
+cluster_boxplot_plot <- function(scores, labels, order = NULL, palette = "Accent",
+                                 showfliers = FALSE, width = 0.75, title = NULL,
+                                 xlabel = "Cluster", ylabel = "Uncertainty", annotation = NULL,
+                                 rotation = NULL, ylim = c(-0.02, 1.02), fit_ylim = TRUE) {
+  prepared <- cluster_score_groups(scores, labels, order)
+  data <- score_frame(prepared)
+  plot <- ggplot2::ggplot(data, ggplot2::aes(x = .data$position, y = .data$score, group = .data$position)) +
+    ggplot2::geom_boxplot(
+      ggplot2::aes(fill = factor(.data$position)),
+      width = width, alpha = 0.8, linewidth = line_width(1.2),
+      outlier.shape = if (isTRUE(showfliers)) 19 else NA
+    ) +
+    ggplot2::scale_fill_manual(values = cluster_fills(prepared, palette), guide = "none")
+  score_plot_frame(plot, prepared, ylim, fit_ylim, title, xlabel, ylabel, annotation, rotation)
+}
+
+cluster_violin_plot <- function(scores, labels, order = NULL, palette = "Accent",
+                                density_norm = "width", stripplot = TRUE, jitter = TRUE,
+                                size = 8, alpha = 0.22, inner = "box", title = NULL,
+                                xlabel = "Cluster", ylabel = "Uncertainty", annotation = NULL,
+                                rotation = NULL, ylim = c(-0.02, 1.02), fit_ylim = TRUE) {
+  if (!is.character(inner) || length(inner) != 1L || !inner %in% c("box", "quartile", "none")) {
+    stop("inner must be one of: 'box', 'quartile', 'none'.", call. = FALSE)
+  }
+  if (!is.character(density_norm) || length(density_norm) != 1L ||
+      !density_norm %in% c("width", "area", "count")) {
+    warning(sprintf("Unknown density_norm=%s; using 'width'.", format_repr(density_norm)), call. = FALSE)
+    density_norm <- "width"
+  }
+  prepared <- cluster_score_groups(scores, labels, order)
+  data <- score_frame(prepared)
+  # ggplot2 drops a group with fewer than two values from the violins, with
+  # a warning. Such a cluster keeps its points and inner marks.
+  dense <- data[data$position %in% which(lengths(prepared$groups) >= 2L), , drop = FALSE]
+  plot <- ggplot2::ggplot(data, ggplot2::aes(x = .data$position, y = .data$score)) +
+    ggplot2::geom_violin(
+      data = dense,
+      ggplot2::aes(group = .data$position, fill = factor(.data$position)),
+      scale = density_norm, width = 0.8, colour = "black", linewidth = line_width(0.8),
+      alpha = 0.8
+    ) +
+    ggplot2::scale_fill_manual(values = cluster_fills(prepared, palette), guide = "none")
+
+  if (inner != "none") {
+    quartiles <- t(vapply(
+      prepared$groups, stats::quantile, numeric(3),
+      probs = c(0.25, 0.5, 0.75), names = FALSE
+    ))
+    at <- seq_along(prepared$groups)
+    segment <- function(half, from, to, width) {
+      data.frame(x = at - half, xend = at + half, y = from, yend = to, width = line_width(width))
+    }
+    marks <- if (inner == "box") {
+      rbind(
+        segment(0.13, quartiles[, 2], quartiles[, 2], 1.5),
+        data.frame(x = at, xend = at, y = quartiles[, 1], yend = quartiles[, 3], width = line_width(1.2)),
+        segment(0.08, quartiles[, 1], quartiles[, 1], 1.0),
+        segment(0.08, quartiles[, 3], quartiles[, 3], 1.0)
+      )
+    } else {
+      rbind(
+        segment(0.13, quartiles[, 1], quartiles[, 1], 1.0),
+        segment(0.13, quartiles[, 2], quartiles[, 2], 1.5),
+        segment(0.13, quartiles[, 3], quartiles[, 3], 1.0)
+      )
+    }
+    plot <- plot +
+      ggplot2::geom_segment(
+        data = marks,
+        ggplot2::aes(x = .data$x, xend = .data$xend, y = .data$y, yend = .data$yend, linewidth = .data$width),
+        colour = "black", inherit.aes = FALSE
+      ) +
+      ggplot2::scale_linewidth_identity()
+  }
+
+  if (isTRUE(stripplot)) {
+    jitter_width <- if (isTRUE(jitter)) 0.11 else if (isFALSE(jitter)) 0 else as.numeric(jitter)
+    # A fixed seed makes the plot the same each time and leaves the
+    # session's random number stream alone; Python's jitter is unseeded.
+    plot <- plot + ggplot2::geom_point(
+      position = ggplot2::position_jitter(width = jitter_width, height = 0, seed = 0L),
+      shape = 16, size = point_size(size), alpha = alpha, colour = "black", stroke = 0
+    )
+  }
+  score_plot_frame(plot, prepared, ylim, fit_ylim, title, xlabel, ylabel, annotation, rotation)
+}
