@@ -87,3 +87,63 @@ test_that("a sweep without default grids is an error", {
     fixed = TRUE
   )
 })
+
+option_names <- function(options) vapply(options, function(o) o$name, character(1))
+
+test_that("data without negative values get log1p among the normalizations", {
+  expect_identical(option_names(default_normalization_options(matrix(c(0, 1, 2, 3), 2))), c("identity", "StandardScaler", "log1p"))
+})
+
+test_that("negative data leave log1p out with a warning", {
+  options <- NULL
+  expect_warning(
+    options <- default_normalization_options(matrix(c(-1.5, 1, 2, 3), 2)),
+    "X has negative values (minimum -1.5), so log1p is omitted from the default normalization options.",
+    fixed = TRUE
+  )
+  expect_identical(option_names(options), c("identity", "StandardScaler"))
+})
+
+test_that("the reduction grids are filtered to the smallest subsample", {
+  skip_if_not_installed("uwot")
+  # 1,000 samples at ratio 0.618: subsamples of 618 and 382, so every
+  # candidate fits.
+  options <- default_dim_reduction_options(matrix(0, 1000, 100), 0.618)
+  expect_identical(option_names(options), c("identity", "PCA", "TSNE", "UMAP"))
+  expect_identical(options[[2L]]$grid$n_components, c(2L, 5L, 10L, 20L, 50L))
+  expect_identical(options[[3L]]$grid, list(n_components = 2L, perplexity = c(15, 30, 50)))
+  expect_identical(options[[4L]]$grid, list(n_components = 2L, n_neighbors = c(15L, 30L), min_dist = 0.1))
+})
+
+test_that("the limits come from the smaller subsample at low ratios", {
+  skip_if_not_installed("uwot")
+  # 200 samples at ratio 0.75: subsamples of 150 and 50. The held-out set
+  # sets every limit: PCA below 50, perplexities up to (50 - 1) / 3.
+  options <- default_dim_reduction_options(matrix(0, 200, 100), 0.75)
+  expect_identical(options[[2L]]$grid$n_components, c(2L, 5L, 10L, 20L))
+  expect_identical(options[[3L]]$grid$perplexity, 15)
+  expect_identical(options[[4L]]$grid$n_neighbors, c(15L, 30L))
+})
+
+test_that("an option whose grid filters to nothing is left out with a warning", {
+  skip_if_not_installed("uwot")
+  out <- collect_warnings(default_dim_reduction_options(matrix(0, 30, 2), 0.618))
+  # 30 samples: subsamples of 18 and 12.
+  expect_identical(option_names(out$value), "identity")
+  expect_identical(out$warnings, c(
+    "PCA is omitted from the default dimensionality reduction options: no candidate n_components is below 2, the limit the smallest subsample sets.",
+    "TSNE is omitted from the default dimensionality reduction options: no candidate perplexity is below 4, the limit the smallest subsample sets.",
+    "UMAP is omitted from the default dimensionality reduction options: no candidate n_neighbors is below 12, the limit the smallest subsample sets."
+  ))
+})
+
+test_that("without uwot, UMAP is left out with a warning", {
+  local_mocked_bindings(has_package = function(package) package != "uwot")
+  options <- NULL
+  expect_warning(
+    options <- default_dim_reduction_options(matrix(0, 1000, 100), 0.618),
+    'uwot is not installed; UMAP is omitted from the default dimensionality reduction options. Install it with install.packages("uwot").',
+    fixed = TRUE
+  )
+  expect_identical(option_names(options), c("identity", "PCA", "TSNE"))
+})
