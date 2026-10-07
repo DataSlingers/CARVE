@@ -275,3 +275,52 @@ test_that("LouvainClustering is reproducible and runs with Jaccard weights and s
   expect_gt(adjusted_rand_index(LouvainClustering(blobs3d$X, weighting = "jaccard", random_state = 0L), blobs3d$y), 0.9)
   expect_gt(adjusted_rand_index(LouvainClustering(blobs3d$X, scale = TRUE, random_state = 0L), blobs3d$y), 0.9)
 })
+
+test_that("HDBSCAN matches scikit-learn's eom and leaf selections", {
+  skip_if_not_installed("dbscan")
+  f <- read_fixture("hdbscan")
+  X <- fixture_matrix(f$X)
+  for (m in c(5L, 10L)) {
+    for (method in c("eom", "leaf")) {
+      expected <- as.integer(f$labels[[paste0(method, "_", m)]])
+      labels <- HDBSCAN(X, min_cluster_size = m, cluster_selection_method = method)
+      expect_true(same_partition(labels, expected), info = paste(method, m))
+    }
+  }
+  # The fixture tests leaf selection only if the two selections differ on it,
+  # and tests the noise label only if some sample is noise.
+  differ <- vapply(c(5L, 10L), function(m) {
+    !same_partition(as.integer(f$labels[[paste0("eom_", m)]]), as.integer(f$labels[[paste0("leaf_", m)]]))
+  }, logical(1))
+  expect_true(any(differ))
+  expect_true(any(unlist(f$labels) == -1L))
+})
+
+test_that("HDBSCAN numbers clusters from 1 and marks noise -1", {
+  skip_if_not_installed("dbscan")
+  X <- fixture_matrix(read_fixture("hdbscan")$X)
+  for (method in c("eom", "leaf")) {
+    labels <- HDBSCAN(X, min_cluster_size = 10L, cluster_selection_method = method)
+    clusters <- sort(unique(labels[labels >= 0L]))
+    expect_identical(clusters, seq_along(clusters), info = method)
+    expect_true(all(labels == -1L | labels >= 1L), info = method)
+  }
+})
+
+test_that("an unknown cluster selection method is an error", {
+  skip_if_not_installed("dbscan")
+  expect_error(
+    HDBSCAN(blobs3d$X, cluster_selection_method = "tree"),
+    "Unknown cluster_selection_method: 'tree'. Expected 'eom' or 'leaf'.",
+    fixed = TRUE
+  )
+})
+
+test_that("HDBSCAN needs the dbscan package", {
+  local_mocked_bindings(has_package = function(package) FALSE)
+  expect_error(
+    HDBSCAN(blobs3d$X),
+    'dbscan is required for HDBSCAN. Install it with: install.packages("dbscan")',
+    fixed = TRUE
+  )
+})

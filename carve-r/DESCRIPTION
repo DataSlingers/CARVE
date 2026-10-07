@@ -27,6 +27,7 @@ Imports:
     utils,
     withr (>= 2.4.2)
 Suggests:
+    dbscan,
     jsonlite,
     testthat (>= 3.1.8)
 biocViews: Clustering, SingleCell, Software
