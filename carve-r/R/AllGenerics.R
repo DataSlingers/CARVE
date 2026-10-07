@@ -44,3 +44,15 @@ setGeneric("consensus_matrix", function(fit, ...) standardGeneric("consensus_mat
 #' @rdname consensus_matrix
 #' @export
 setGeneric("sample_scores", function(fit, ...) standardGeneric("sample_scores"))
+
+#' @rdname consensus_matrix
+#' @export
+setGeneric("consensus_anchors", function(fit, ...) standardGeneric("consensus_anchors"))
+
+#' @rdname preprocessing_results
+#' @export
+setGeneric("preprocessing_results", function(fit, ...) standardGeneric("preprocessing_results"))
+
+#' @rdname preprocessing_results
+#' @export
+setGeneric("preprocessing_pipelines", function(fit, ...) standardGeneric("preprocessing_pipelines"))

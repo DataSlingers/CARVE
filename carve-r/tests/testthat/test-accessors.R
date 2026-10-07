@@ -200,3 +200,201 @@ test_that("show summarizes the fit", {
   expect_output(show(fit), "Sweep: n_clusters over 2, 3, 4", fixed = TRUE)
   expect_output(show(fit), "Estimators: KMeans (3 configurations)", fixed = TRUE)
 })
+
+# Distinct scores on [0.5, 1] whose lowest length(low) values sit at low. At
+# quantile 0.05 exactly those samples are flagged when length(low) is
+# ceiling(0.05 * (n - 1)): 5 for 90 samples, 3 for 60.
+known_scores <- function(n, low) {
+  values <- seq(0.5, 1, length.out = n)
+  scores <- numeric(n)
+  scores[low] <- values[seq_along(low)]
+  scores[-low] <- values[-seq_along(low)]
+  scores
+}
+
+# A copy of the fit with scores at config_id and the reversed scores at
+# every other configuration, so reading the wrong one moves the noise.
+with_scores <- function(fit, source, config_id, scores) {
+  name <- switch(source,
+    gini = "stability_gini_scores",
+    ce = "stability_ce_scores",
+    accuracy = "generalizability_scores"
+  )
+  values <- methods::slot(fit, name)
+  for (key in names(values)) {
+    values[[key]] <- if (key == as.character(config_id)) scores else rev(scores)
+  }
+  methods::slot(fit, name) <- values
+  fit
+}
+
+config_at <- function(fit, k) {
+  results <- estimator_results(fit)
+  results$config_id[results$sweep_value == k]
+}
+
+# The Python suite's noise positions, plus one: spread over the three blobs.
+noise_low <- c(4L, 18L, 42L, 59L, 85L)
+
+test_that("noise labels are off by default", {
+  plain <- get_labels(fit, k = 3)
+  expect_identical(get_labels(fit, k = 3, noise_labels = FALSE), plain)
+  expect_false(any(plain == -1L))
+})
+
+test_that("noise lands on the samples with the lowest scores", {
+  for (source in c("gini", "ce", "accuracy")) {
+    noisy_fit <- with_scores(fit, source, config_at(fit, 3), known_scores(90L, noise_low))
+    plain <- get_labels(noisy_fit, k = 3)
+    noisy <- get_labels(noisy_fit, k = 3, noise_labels = TRUE, noise_score = source)
+    expect_identical(which(noisy == -1L), noise_low, info = source)
+    expect_identical(noisy[noisy != -1L], plain[noisy != -1L], info = source)
+  }
+})
+
+test_that("noise scores are joined on config_id", {
+  noisy_fit <- with_scores(fit, "gini", config_at(fit, 3), known_scores(90L, noise_low))
+  noisy_fit@estimator_results <- noisy_fit@estimator_results[c(3L, 1L, 2L), ]
+  # The k = 3 row no longer sits at position config_id + 1.
+  expect_false(which(noisy_fit@estimator_results$n_clusters == 3) == config_at(fit, 3) + 1L)
+  expect_identical(which(get_labels(noisy_fit, k = 3, noise_labels = TRUE) == -1L), noise_low)
+})
+
+test_that("ties at the cutoff warn with the counts", {
+  scores <- rep(1, 90)
+  scores[c(4L, 42L, 85L)] <- 0.5
+  scores[c(11L, 26L, 36L, 51L, 66L, 81L)] <- 0.9
+  noisy_fit <- with_scores(fit, "gini", config_at(fit, 3), scores)
+  noisy <- NULL
+  expect_warning(
+    noisy <- get_labels(noisy_fit, k = 3, noise_labels = TRUE),
+    "noise_quantile=0.05 asks for about 5 of 90 samples by gini; 3 were flagged. Samples tied at the cutoff (0.900) or within 0.05 of the median (1.000) stay labeled.",
+    fixed = TRUE
+  )
+  expect_identical(which(noisy == -1L), c(4L, 42L, 85L))
+})
+
+test_that("NaN scores are noise and stay out of the count", {
+  scores <- rep(1, 90)
+  scores[c(4L, 42L, 85L)] <- 0.5
+  scores[c(11L, 26L, 36L, 51L, 66L, 81L)] <- 0.9
+  scores[c(21L, 61L)] <- NaN
+  noisy_fit <- with_scores(fit, "gini", config_at(fit, 3), scores)
+  noisy <- NULL
+  expect_warning(
+    noisy <- get_labels(noisy_fit, k = 3, noise_labels = TRUE),
+    "noise_quantile=0.05 asks for about 5 of 88 samples by gini; 3 were flagged.",
+    fixed = TRUE
+  )
+  expect_identical(which(noisy == -1L), c(4L, 21L, 42L, 61L, 85L))
+})
+
+test_that("the noise settings are checked on every call", {
+  for (flag in c(FALSE, TRUE)) {
+    expect_error(
+      get_labels(fit, noise_labels = flag, noise_score = "nope"),
+      "noise_score must be one of: 'gini', 'ce', 'accuracy'.",
+      fixed = TRUE
+    )
+    for (quantile in c(0, 1, 1.5)) {
+      expect_error(
+        get_labels(fit, noise_labels = flag, noise_quantile = quantile),
+        "noise_quantile must be strictly between 0 and 1, got",
+        fixed = TRUE
+      )
+    }
+  }
+})
+
+test_that("noise needs the score it ranks by", {
+  gen <- single_mode_fit("generalizability")
+  expect_error(
+    get_labels(gen, measure = "generalizability", rule = "max", mode = "generalizability",
+               noise_labels = TRUE, noise_score = "gini"),
+    "Gini stability scores are not available for this run.",
+    fixed = TRUE
+  )
+  stab <- single_mode_fit("stability")
+  expect_error(
+    get_labels(stab, noise_labels = TRUE, noise_score = "accuracy"),
+    "Generalizability scores are not available for this run.",
+    fixed = TRUE
+  )
+})
+
+two <- make_blobs(n_per = 30L, centers = rbind(c(0, 0), c(6, 0)), seed = 4L)
+# The anchored warning is tested in test-carve.R.
+anchored <- suppressWarnings(carve(
+  two$X, n_resamples = 6, random_state = 0, anchor_threshold = 30,
+  estimator_param_grids = list(estimator_grid(KMeans, n_clusters = 2:3))
+))
+
+test_that("anchored labels cover every sample and recover the groups", {
+  labels <- get_labels(anchored, k = 2)
+  expect_length(labels, 60L)
+  expect_gt(adjusted_rand_index(labels, two$y), 0.9)
+  expect_identical(length(unique(get_labels(anchored, k = 3))), 3L)
+  expect_length(get_labels(anchored, k = 2, mode = "generalizability"), 60L)
+})
+
+test_that("anchors keep the labels of the cut", {
+  # A constant classifier cannot reproduce an alternating cut, so labels
+  # that the classifier overwrote would show.
+  constant <- anchored
+  constant@run_params$classifier <- function(x_train, y_train, x_test) rep(1L, nrow(x_test))
+  anchors <- consensus_anchors(constant)
+  planted <- rep_len(1:2, length(anchors))
+  extended <- extend_anchor_labels(constant, planted)
+  expect_identical(extended[anchors], planted)
+  expect_true(all(extended[-anchors] == 1L))
+})
+
+test_that("a one-cluster cut labels every sample with that cluster", {
+  expect_identical(extend_anchor_labels(anchored, rep(2L, 30L)), rep(2L, 60L))
+})
+
+test_that("anchored labels are reproducible and use the fit's seed and budget", {
+  set.seed(2)
+  before <- .Random.seed
+  first <- get_labels(anchored, k = 2)
+  expect_identical(.Random.seed, before)
+  expect_identical(first, get_labels(anchored, k = 2))
+  seen <- new.env()
+  spy <- anchored
+  spy@run_params$classifier <- function(x_train, y_train, x_test, random_state, n_threads) {
+    seen$seed <- random_state
+    seen$threads <- n_threads
+    rep(y_train[1], nrow(x_test))
+  }
+  spy@run_params$random_state <- 7L
+  spy@run_params$n_threads <- 5L
+  extend_anchor_labels(spy, rep_len(1:2, 30L))
+  expect_identical(seen$seed, 7L)
+  expect_identical(seen$threads, 5L)
+})
+
+test_that("an anchored run flags samples outside the anchors as noise", {
+  low <- setdiff(seq_len(60L), consensus_anchors(anchored))[1:3]
+  noisy_fit <- with_scores(anchored, "gini", config_at(anchored, 2), known_scores(60L, low))
+  expect_identical(which(get_labels(noisy_fit, k = 2, noise_labels = TRUE) == -1L), low)
+})
+
+test_that("an exact fit has no anchors and no preprocessing results", {
+  expect_null(consensus_anchors(fit))
+  expect_null(preprocessing_results(fit))
+  expect_null(preprocessing_pipelines(fit))
+  expect_identical(consensus_anchors(anchored), anchored@consensus_anchors)
+})
+
+test_that("a randomized fit returns its table and pipelines", {
+  randomized <- carve(
+    blobs$X, n_resamples = 4, random_state = 0, estimator_param_grids = k_grid,
+    randomize_preprocessing = TRUE,
+    normalization_options = list(preprocessing_option(Identity)),
+    dim_reduction_options = list(preprocessing_option(Identity), preprocessing_option(PCA, n_components = 1L))
+  )
+  expect_identical(preprocessing_results(randomized), randomized@preprocessing_results)
+  expect_setequal(names(preprocessing_pipelines(randomized)), c("identity | identity", "identity | PCA(n_components=1)"))
+  spec <- preprocessing_pipelines(randomized)[["identity | PCA(n_components=1)"]]
+  expect_identical(dim(pipeline_from_spec(spec, 0L)(blobs$X)), c(90L, 1L))
+})

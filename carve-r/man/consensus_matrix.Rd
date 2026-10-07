@@ -3,13 +3,17 @@
 \name{consensus_matrix}
 \alias{consensus_matrix}
 \alias{sample_scores}
+\alias{consensus_anchors}
 \alias{consensus_matrix,CARVE-method}
 \alias{sample_scores,CARVE-method}
+\alias{consensus_anchors,CARVE-method}
 \title{Consensus matrices and per-sample scores}
 \usage{
 consensus_matrix(fit, ...)
 
 sample_scores(fit, ...)
+
+consensus_anchors(fit, ...)
 
 \S4method{consensus_matrix}{CARVE}(
   fit,
@@ -19,6 +23,8 @@ sample_scores(fit, ...)
 )
 
 \S4method{sample_scores}{CARVE}(fit, config_id, source = c("gini", "ce", "accuracy"), ...)
+
+\S4method{consensus_anchors}{CARVE}(fit, ...)
 }
 \arguments{
 \item{fit}{A \link[=CARVE-class]{CARVE} object from \code{\link[=carve]{carve()}}.}
@@ -40,16 +46,22 @@ draws holding the sample out in which the classifier predicted its
 cluster.}
 }
 \value{
-\code{consensus_matrix()} returns an \code{n} by \code{n} matrix and
-\code{sample_scores()} a vector of length \code{n}. Stability scores are \code{NaN} for
-a sample never drawn with a partner; accuracy is 0 for a sample never
-held out.
+\code{consensus_matrix()} returns an \code{n} by \code{n} matrix, or \code{m} by \code{m} on
+an anchored run, and \code{sample_scores()} a vector of length \code{n}. Stability
+scores are \code{NaN} for a sample never drawn with a partner; accuracy is 0
+for a sample never held out. \code{consensus_anchors()} returns an integer
+vector or \code{NULL}.
 }
 \description{
 \code{consensus_matrix()} returns a configuration's consensus matrix. Entry
 \verb{(i, j)} is the share of the subsamples drawing both samples in which the
 two fell in the same cluster, and \code{NaN} when no subsample drew both.
 \code{sample_scores()} returns a configuration's per-sample scores.
+}
+\details{
+On an anchored run (see \code{\link[=carve]{carve()}}) \code{consensus_matrix()} returns the block
+over the anchors, and \code{consensus_anchors()} their row indices in the data,
+sorted. For an exact run \code{consensus_anchors()} returns \code{NULL}.
 }
 \examples{
 set.seed(1)

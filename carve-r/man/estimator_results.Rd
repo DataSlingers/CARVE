@@ -62,7 +62,8 @@ resamples, with standard error \code{n_clusters_observed_se}, and
 over the resamples. Each comes with \verb{_se} (its standard error), \verb{_upper}
 (the 95th percentile) and \verb{_lower} (the 5th percentile).
 \item \code{consensus_pac_stability} is one minus the share of consensus values
-strictly between 0.05 and 0.95. \code{consensus_gini_stability} and
+strictly between 0.05 and 0.95. On an anchored run it covers anchor pairs
+only. \code{consensus_gini_stability} and
 \code{consensus_ce_stability} are the means of the per-sample stability
 scores, and \code{accuracy_generalizability} the mean held-out accuracy.
 }

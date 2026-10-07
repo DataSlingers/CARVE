@@ -17,6 +17,9 @@ get_labels(fit, ...)
   not_two = FALSE,
   mode = "default",
   estimator = NULL,
+  noise_labels = FALSE,
+  noise_quantile = 0.05,
+  noise_score = "gini",
   reference_labels = NULL,
   ...
 )
@@ -53,11 +56,22 @@ held-out predictions.}
 distance matrix \code{1 - consensus} that returns one label per sample. If it
 has an \code{n_clusters} argument, it gets the number of clusters.}
 
+\item{noise_labels}{Label ambiguous samples -1; see Details.}
+
+\item{noise_quantile}{Share of the samples considered for noise, strictly
+between 0 and 1. Checked on every call.}
+
+\item{noise_score}{The per-sample score that ranks the samples: \code{"gini"},
+\code{"ce"} or \code{"accuracy"}, as \code{\link[=sample_scores]{sample_scores()}} returns them. Checked on
+every call.}
+
 \item{reference_labels}{Labels to match, one per sample, coded as in
 \code{\link[=carve]{carve()}}. \code{NULL} uses the labels given to \code{\link[=carve]{carve()}}, if any.}
 }
 \value{
-An integer vector of cluster labels, one per sample.
+An integer vector of cluster labels, one per sample, with -1 for
+the samples \code{noise_labels} flags. An \code{estimator} that labels samples -1
+itself also gives -1.
 }
 \description{
 \code{get_labels()} selects a configuration, as \code{\link[=get_k]{get_k()}} does, and cuts its
@@ -66,11 +80,25 @@ of \code{1 - consensus}, at the configuration's number of clusters. Pairs of
 samples never drawn together count as 0.5.
 }
 \details{
+On an anchored run the cut covers the anchors. The classifier the run used
+for generalizability, trained on the anchors and their labels, then labels
+the other samples; the anchors keep the labels of the cut.
+
 When the reference labels have as many clusters as the cut, the clusters
 are renamed to match them by maximum overlap; samples whose reference
 label is -1 take no part in the matching. \code{get_labels()} keeps no state
 between calls, so to keep cluster names stable across calls, pass earlier
 labels as \code{reference_labels}.
+
+With \code{noise_labels = TRUE}, ambiguous samples are labeled -1 after the
+matching. A sample is ambiguous when its \code{noise_score} at the selected
+configuration is \code{NaN}, or lies strictly below the \code{noise_quantile} of the
+scores and more than 0.05 below their median. Samples tied with the
+quantile keep their labels, so identical scores flag nothing, and the
+margin keeps samples that score about as well as the median one. A warning
+gives the counts when fewer samples are flagged than the quantile asks
+for. The scores belong to the selected configuration and do not depend on
+\code{consensus_k} or \code{estimator}.
 }
 \examples{
 set.seed(1)
@@ -80,7 +108,8 @@ fit <- carve(X, n_clusters = 2:4, n_resamples = 10, random_state = 0,
 labels <- get_labels(fit)
 table(labels)
 table(get_labels(fit, k = 3, reference_labels = labels))
+table(get_labels(fit, noise_labels = TRUE, noise_quantile = 0.1))
 }
 \seealso{
-\code{\link[=get_k]{get_k()}}, \code{\link[=consensus_matrix]{consensus_matrix()}}
+\code{\link[=get_k]{get_k()}}, \code{\link[=consensus_matrix]{consensus_matrix()}}, \code{\link[=sample_scores]{sample_scores()}}
 }

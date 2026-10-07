@@ -156,11 +156,25 @@ setMethod("get_estimator", "CARVE", function(fit, measure = "stability", rule = 
 #' of `1 - consensus`, at the configuration's number of clusters. Pairs of
 #' samples never drawn together count as 0.5.
 #'
+#' On an anchored run the cut covers the anchors. The classifier the run used
+#' for generalizability, trained on the anchors and their labels, then labels
+#' the other samples; the anchors keep the labels of the cut.
+#'
 #' When the reference labels have as many clusters as the cut, the clusters
 #' are renamed to match them by maximum overlap; samples whose reference
 #' label is -1 take no part in the matching. `get_labels()` keeps no state
 #' between calls, so to keep cluster names stable across calls, pass earlier
 #' labels as `reference_labels`.
+#'
+#' With `noise_labels = TRUE`, ambiguous samples are labeled -1 after the
+#' matching. A sample is ambiguous when its `noise_score` at the selected
+#' configuration is `NaN`, or lies strictly below the `noise_quantile` of the
+#' scores and more than 0.05 below their median. Samples tied with the
+#' quantile keep their labels, so identical scores flag nothing, and the
+#' margin keeps samples that score about as well as the median one. A warning
+#' gives the counts when fewer samples are flagged than the quantile asks
+#' for. The scores belong to the selected configuration and do not depend on
+#' `consensus_k` or `estimator`.
 #'
 #' @inheritParams get_k
 #' @param k Use a configuration with this number of clusters, the one `rule`
@@ -175,10 +189,18 @@ setMethod("get_estimator", "CARVE", function(fit, measure = "stability", rule = 
 #' @param estimator `NULL` for the average-linkage cut, or a function of the
 #'   distance matrix `1 - consensus` that returns one label per sample. If it
 #'   has an `n_clusters` argument, it gets the number of clusters.
+#' @param noise_labels Label ambiguous samples -1; see Details.
+#' @param noise_quantile Share of the samples considered for noise, strictly
+#'   between 0 and 1. Checked on every call.
+#' @param noise_score The per-sample score that ranks the samples: `"gini"`,
+#'   `"ce"` or `"accuracy"`, as [sample_scores()] returns them. Checked on
+#'   every call.
 #' @param reference_labels Labels to match, one per sample, coded as in
 #'   [carve()]. `NULL` uses the labels given to [carve()], if any.
-#' @return An integer vector of cluster labels, one per sample.
-#' @seealso [get_k()], [consensus_matrix()]
+#' @return An integer vector of cluster labels, one per sample, with -1 for
+#'   the samples `noise_labels` flags. An `estimator` that labels samples -1
+#'   itself also gives -1.
+#' @seealso [get_k()], [consensus_matrix()], [sample_scores()]
 #' @examples
 #' set.seed(1)
 #' X <- rbind(matrix(rnorm(60, 0, 0.3), ncol = 2), matrix(rnorm(60, 3, 0.3), ncol = 2))
@@ -187,15 +209,34 @@ setMethod("get_estimator", "CARVE", function(fit, measure = "stability", rule = 
 #' labels <- get_labels(fit)
 #' table(labels)
 #' table(get_labels(fit, k = 3, reference_labels = labels))
+#' table(get_labels(fit, noise_labels = TRUE, noise_quantile = 0.1))
 #' @rdname get_labels
 #' @export
 setMethod("get_labels", "CARVE", function(fit, measure = "stability", rule = "1se", k = NULL,
                                           sweep_value = NULL, consensus_k = NULL,
                                           not_two = FALSE, mode = "default", estimator = NULL,
-                                          reference_labels = NULL, ...) {
+                                          noise_labels = FALSE, noise_quantile = 0.05,
+                                          noise_score = "gini", reference_labels = NULL, ...) {
   check_dots(...)
+  if (!is.character(noise_score) || length(noise_score) != 1L ||
+      !noise_score %in% c("gini", "ce", "accuracy")) {
+    stop("noise_score must be one of: 'gini', 'ce', 'accuracy'.", call. = FALSE)
+  }
+  if (!is.numeric(noise_quantile) || length(noise_quantile) != 1L || is.na(noise_quantile) ||
+      noise_quantile <= 0 || noise_quantile >= 1) {
+    stop(sprintf(
+      "noise_quantile must be strictly between 0 and 1, got %s.",
+      format_repr(noise_quantile)
+    ), call. = FALSE)
+  }
   policy <- resolve_mode(mode)
   selected <- select_row(fit, measure, rule, not_two = not_two, k = k, sweep_value = sweep_value)
+  # The noise scores are read before the cut, so a missing score fails first.
+  noise <- NULL
+  if (isTRUE(noise_labels)) {
+    scores <- sample_scores(fit, selected$config_id, source = noise_score)
+    noise <- noise_mask(scores, noise_quantile)
+  }
   # Off the k axis the cluster count is an outcome, so the consensus is cut
   # at the count observed.
   cut_k <- if (is.null(consensus_k)) selected$n_clusters else as.integer(consensus_k)
@@ -218,6 +259,9 @@ setMethod("get_labels", "CARVE", function(fit, measure = "stability", rule = "1s
     ), call. = FALSE)
   }
   labels <- cut_consensus(consensus, cut_k, estimator)
+  if (!is.null(fit@consensus_anchors)) {
+    labels <- extend_anchor_labels(fit, labels)
+  }
   reference <- if (is.null(reference_labels)) {
     fit@reference_labels
   } else {
@@ -226,8 +270,57 @@ setMethod("get_labels", "CARVE", function(fit, measure = "stability", rule = "1s
   if (!is.null(reference) && count_clusters(reference) == length(unique(labels))) {
     labels <- align_cluster_labels(reference, labels, keep = reference >= 0)
   }
-  as.integer(labels)
+  labels <- as.integer(labels)
+  if (is.null(noise)) {
+    return(labels)
+  }
+  labels[noise$mask] <- -1L
+  scored <- is.finite(scores)
+  n_flagged <- sum(noise$mask & scored)
+  if (n_flagged < noise$n_target) {
+    warning(sprintf(
+      "noise_quantile=%s asks for about %d of %d samples by %s; %d were flagged. Samples tied at the cutoff (%.3f) or within %s of the median (%.3f) stay labeled.",
+      format(noise_quantile), noise$n_target, sum(scored), noise_score, n_flagged,
+      noise$cutoff, format(NOISE_MARGIN), noise$median
+    ), call. = FALSE)
+  }
+  labels
 })
+
+# Labels every sample from a cut over the anchors. The anchors keep their
+# cut labels, and the classifier the run used for generalizability, trained
+# on the anchors, labels the rest. It is one fit outside the resample loop,
+# so it gets the run's whole core budget, and it runs under the run's seed,
+# as each resample does.
+extend_anchor_labels <- function(fit, anchor_labels) {
+  anchors <- fit@consensus_anchors
+  X <- fit@input_data
+  labels <- integer(nrow(X))
+  labels[anchors] <- anchor_labels
+  rest <- setdiff(seq_len(nrow(X)), anchors)
+  if (length(rest) == 0L) {
+    return(labels)
+  }
+  if (length(unique(anchor_labels)) < 2L) {
+    # A one-cluster cut gives the classifier a single class.
+    labels[rest] <- anchor_labels[[1L]]
+    return(labels)
+  }
+  settings <- fit@run_params
+  predict_labels <- default_generalizability_classifier(
+    settings$classifier,
+    n_features = ncol(X),
+    n_trees = settings$n_trees,
+    random_state = settings$random_state,
+    n_threads = settings$n_threads
+  )
+  labels[rest] <- seeded(settings$random_state, predict_labels(
+    X[anchors, , drop = FALSE],
+    anchor_labels,
+    X[rest, , drop = FALSE]
+  ))
+  labels
+}
 
 #' Contents of a CARVE fit
 #'
@@ -253,7 +346,8 @@ setMethod("get_labels", "CARVE", function(fit, measure = "stability", rule = "1s
 #'   over the resamples. Each comes with `_se` (its standard error), `_upper`
 #'   (the 95th percentile) and `_lower` (the 5th percentile).
 #' - `consensus_pac_stability` is one minus the share of consensus values
-#'   strictly between 0.05 and 0.95. `consensus_gini_stability` and
+#'   strictly between 0.05 and 0.95. On an anchored run it covers anchor pairs
+#'   only. `consensus_gini_stability` and
 #'   `consensus_ce_stability` are the means of the per-sample stability
 #'   scores, and `accuracy_generalizability` the mean held-out accuracy.
 #'
@@ -304,6 +398,10 @@ setMethod("input_data", "CARVE", function(fit, ...) {
 #' two fell in the same cluster, and `NaN` when no subsample drew both.
 #' `sample_scores()` returns a configuration's per-sample scores.
 #'
+#' On an anchored run (see [carve()]) `consensus_matrix()` returns the block
+#' over the anchors, and `consensus_anchors()` their row indices in the data,
+#' sorted. For an exact run `consensus_anchors()` returns `NULL`.
+#'
 #' @inheritParams get_k
 #' @param config_id The configuration, a value of the `config_id` column of
 #'   [estimator_results()].
@@ -315,10 +413,11 @@ setMethod("input_data", "CARVE", function(fit, ...) {
 #'   sample was drawn with always agreed. `"accuracy"` is the share of the
 #'   draws holding the sample out in which the classifier predicted its
 #'   cluster.
-#' @return `consensus_matrix()` returns an `n` by `n` matrix and
-#'   `sample_scores()` a vector of length `n`. Stability scores are `NaN` for
-#'   a sample never drawn with a partner; accuracy is 0 for a sample never
-#'   held out.
+#' @return `consensus_matrix()` returns an `n` by `n` matrix, or `m` by `m` on
+#'   an anchored run, and `sample_scores()` a vector of length `n`. Stability
+#'   scores are `NaN` for a sample never drawn with a partner; accuracy is 0
+#'   for a sample never held out. `consensus_anchors()` returns an integer
+#'   vector or `NULL`.
 #' @seealso [estimator_results()], [get_labels()]
 #' @examples
 #' set.seed(1)
@@ -378,6 +477,69 @@ setMethod("sample_scores", "CARVE", function(fit, config_id, source = c("gini", 
     stop("Generalizability scores are not available for this run.", call. = FALSE)
   }
   scores
+})
+
+#' @rdname consensus_matrix
+#' @export
+setMethod("consensus_anchors", "CARVE", function(fit, ...) {
+  check_dots(...)
+  fit@consensus_anchors
+})
+
+#' Results of randomized preprocessing
+#'
+#' After `carve(randomize_preprocessing = TRUE)`, `preprocessing_results()`
+#' splits each configuration's scores by the pipeline its resamples used, and
+#' `preprocessing_pipelines()` returns those pipelines. Both return `NULL` for
+#' a run without randomized preprocessing.
+#'
+#' The table has one row per configuration, pipeline and sweep value, and
+#' joins [estimator_results()] on `method_id` and the sweep column. Its
+#' columns:
+#'
+#' - `method_id` and `method_label`, as in [estimator_results()].
+#' - `pipeline`, the pipeline's label and its name in
+#'   `preprocessing_pipelines()`, and `normalization` and `dim_reduction`, the
+#'   labels of its two steps with the values drawn for them.
+#' - The sweep column, such as `n_clusters` or `resolution`.
+#' - `n_resamples`, the resamples of this configuration that used the
+#'   pipeline.
+#' - `ari_stability` and `ari_generalizability`, with standard errors
+#'   `ari_stability_se` and `ari_generalizability_se`, over those resamples
+#'   only. A criterion the run's `mode` skipped is `NaN`.
+#' - `n_clusters_observed`, the mean number of clusters over those
+#'   resamples.
+#' - `sweep_param`, `sweep_value` and `sweep_rank`, as in
+#'   [estimator_results()].
+#'
+#' @inheritParams get_k
+#' @return `preprocessing_results()` returns a data frame and
+#'   `preprocessing_pipelines()` a list of pipelines named by label, which
+#'   [pipeline_from_spec()] applies to new data; `NULL` for a run without
+#'   randomized preprocessing.
+#' @seealso [carve()], [preprocessing_option()], [pipeline_from_spec()]
+#' @examples
+#' set.seed(1)
+#' X <- rbind(matrix(rnorm(60, 0, 0.3), ncol = 2), matrix(rnorm(60, 3, 0.3), ncol = 2))
+#' fit <- carve(X, n_resamples = 8, random_state = 0, randomize_preprocessing = TRUE,
+#'              estimator_param_grids = list(estimator_grid(KMeans, n_clusters = 2:3)),
+#'              normalization_options = list(preprocessing_option(Identity),
+#'                                           preprocessing_option(StandardScaler)),
+#'              dim_reduction_options = list(preprocessing_option(Identity)))
+#' preprocessing_results(fit)[, c("pipeline", "n_clusters", "n_resamples", "ari_stability")]
+#' names(preprocessing_pipelines(fit))
+#' @rdname preprocessing_results
+#' @export
+setMethod("preprocessing_results", "CARVE", function(fit, ...) {
+  check_dots(...)
+  fit@preprocessing_results
+})
+
+#' @rdname preprocessing_results
+#' @export
+setMethod("preprocessing_pipelines", "CARVE", function(fit, ...) {
+  check_dots(...)
+  fit@preprocessing_pipelines
 })
 
 #' @rdname CARVE-class
