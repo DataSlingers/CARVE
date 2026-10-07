@@ -473,6 +473,10 @@ test_that("an anchored block is the exact matrix over the anchors", {
   exact <- run_validation(blobs$X, k_grid, 4L, 0.618, random_state = 0L, sweep = k_sweep)
   anchored <- run_validation(blobs$X, k_grid, 4L, 0.618, random_state = 0L, sweep = k_sweep, anchors = anchors)
   expect_equal(anchored$consensus_matrices[["2"]], exact$consensus_matrices[["2"]][anchors, anchors])
+  expect_equal(
+    anchored$consensus_generalizability_matrices[["2"]],
+    exact$consensus_generalizability_matrices[["2"]][anchors, anchors]
+  )
   expect_identical(anchored$records, exact$records)
 })
 
@@ -481,6 +485,7 @@ test_that("with every sample an anchor the run equals the exact run", {
   everything <- run_validation(blobs$X, k_grid, 4L, 0.618, random_state = 0L, sweep = k_sweep, anchors = 1:90)
   expect_equal(everything$summaries, exact$summaries)
   expect_equal(everything$consensus_matrices, exact$consensus_matrices)
+  expect_equal(everything$consensus_generalizability_matrices, exact$consensus_generalizability_matrices)
 })
 
 test_that("the noise policy reaches every resample", {
@@ -493,10 +498,11 @@ test_that("the noise policy reaches every resample", {
   expect_false(identical(dropped$consensus_matrices, kept$consensus_matrices))
 })
 
-test_that("resamples that are all noise are left out of the aggregates", {
-  # Resample 1 labels every sample noise; resamples 0 and 2 cluster.
+test_that("a resample whose training subsample is all noise but whose held-out set is not is left out of the aggregates", {
+  # Resample 1 labels its 55-row training subsample all noise; its 35-row
+  # held-out set still clusters. Resamples 0 and 2 cluster throughout.
   sometimes_noise <- function(X, min_cluster_size = 5L, random_state = NULL) {
-    if (identical(random_state, 1L)) {
+    if (identical(random_state, 1L) && nrow(X) == 55L) {
       return(rep(-1L, nrow(X)))
     }
     KMeans(X, 3L, random_state = random_state)
@@ -548,6 +554,9 @@ test_that("a randomized run records each resample's pipeline", {
   expect_identical(record$sweep_rank, 1L)
   expect_identical(names(record$runs), c("pipeline", "ari_stability", "ari_generalizability", "n_clusters"))
   expect_identical(nrow(record$runs), 8L)
+  expect_equal(mean(record$runs$ari_stability, na.rm = TRUE), run$records$ari_stability[2L])
+  expect_equal(mean(record$runs$ari_generalizability, na.rm = TRUE), run$records$ari_generalizability[2L])
+  expect_equal(mean(record$runs$n_clusters), run$records$n_clusters_observed[2L])
   expect_identical(
     sort(names(run$pipelines), method = "radix"),
     c("StandardScaler | PCA(n_components=1)", "StandardScaler | identity",

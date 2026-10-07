@@ -373,6 +373,18 @@ test_that("anchored labels are reproducible and use the fit's seed and budget", 
   expect_identical(seen$threads, 5L)
 })
 
+test_that("the anchored extension seeds a classifier that draws random numbers", {
+  random_fit <- anchored
+  random_fit@run_params$classifier <- function(x_train, y_train, x_test) {
+    sample(unique(y_train), nrow(x_test), replace = TRUE)
+  }
+  set.seed(3)
+  before <- .Random.seed
+  first <- get_labels(random_fit, k = 2)
+  expect_identical(.Random.seed, before)
+  expect_identical(first, get_labels(random_fit, k = 2))
+})
+
 test_that("an anchored run flags samples outside the anchors as noise", {
   low <- setdiff(seq_len(60L), consensus_anchors(anchored))[1:3]
   noisy_fit <- with_scores(anchored, "gini", config_at(anchored, 2), known_scores(60L, low))
