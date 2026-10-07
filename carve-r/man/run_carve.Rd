@@ -85,7 +85,7 @@ and stores the results of the selected configuration in it.
 one you keep to look at other configurations.
 }
 \details{
-With the default \code{key = "carve"}, these cell columns are written, to
+With the default \code{key = "carve"}, the call writes these cell columns to
 \code{colData()} of a SingleCellExperiment or to the cell metadata of a Seurat
 object:
 \itemize{
@@ -96,8 +96,9 @@ Gini and cross-entropy forms, as \code{\link[=sample_scores]{sample_scores()}} r
 \item \code{carve_generalizability}: per-cell held-out accuracy.
 }
 
-A column is missing when \code{mode} skipped its criterion. A call leaves the
-columns of an earlier call with the same key that it does not write.
+A column is missing when \code{mode} skipped its criterion. Columns that a
+call does not write keep the values an earlier call with the same key
+gave them.
 
 The call also stores a record: \code{metadata(object)$carve} for a
 SingleCellExperiment, and the \code{carve} entry of the \code{misc} slot of a Seurat

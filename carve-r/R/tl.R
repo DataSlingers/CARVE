@@ -1,9 +1,9 @@
 #' @include AllGenerics.R
 NULL
 
-# run_carve() and attach_results(). Mirrors tl/_carve.py. The functions
-# below read and write a SingleCellExperiment through sce.R and a Seurat
-# object through seurat.R, so the plot methods share them too.
+# run_carve() and attach_results(). Mirrors tl/_carve.py. The cells_*
+# functions below pass a SingleCellExperiment to sce.R and a Seurat object
+# to seurat.R; the plot methods call them too.
 
 cells_kind <- function(object) {
   if (methods::is(object, "SingleCellExperiment")) {
@@ -136,7 +136,7 @@ record_params <- function(fit, selected, measure, rule, not_two, consensus_k, as
 #' `attach_results()` stores them from a fit you already have, for example
 #' one you keep to look at other configurations.
 #'
-#' With the default `key = "carve"`, these cell columns are written, to
+#' With the default `key = "carve"`, the call writes these cell columns to
 #' `colData()` of a SingleCellExperiment or to the cell metadata of a Seurat
 #' object:
 #'
@@ -146,8 +146,9 @@ record_params <- function(fit, selected, measure, rule, not_two, consensus_k, as
 #'   Gini and cross-entropy forms, as [sample_scores()] returns them.
 #' - `carve_generalizability`: per-cell held-out accuracy.
 #'
-#' A column is missing when `mode` skipped its criterion. A call leaves the
-#' columns of an earlier call with the same key that it does not write.
+#' A column is missing when `mode` skipped its criterion. Columns that a
+#' call does not write keep the values an earlier call with the same key
+#' gave them.
 #'
 #' The call also stores a record: `metadata(object)$carve` for a
 #' SingleCellExperiment, and the `carve` entry of the `misc` slot of a Seurat

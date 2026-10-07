@@ -100,8 +100,8 @@ top.}
 panel.}
 
 \item{annotation}{\code{TRUE} names the selected configuration and how it was
-selected, a string is shown as it is, and \code{FALSE} shows nothing. The
-text goes in the caption, below the panel.}
+selected, a string is shown as it is, and \code{FALSE} shows nothing.
+\code{annotation_style} sets where the text goes.}
 
 \item{annotation_style}{Where the annotation goes: \code{"legend"} above the
 legend title, \code{"box"} in the caption below the panel.}

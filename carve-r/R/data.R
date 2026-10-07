@@ -9,12 +9,14 @@
 #' and less than 5 percent of their counts from mitochondrial genes were
 #' kept. The counts were log-normalized, the 2,000 most variable genes were
 #' scaled, and 30 principal components were computed. The clusters come from
-#' Seurat's Louvain clustering at resolution 0.5, and the UMAP from the
-#' first 10 components. Then 1,000 cells were drawn at random, and the scores
-#' were rounded to four decimals. The script is `data-raw/pbmc3k_subset.R`
-#' in the package's source repository.
+#' Seurat's Louvain clustering at resolution 0.5 on a neighbor graph of the
+#' first 10 components, and the UMAP from the same 10 components. Then 1,000
+#' cells were drawn at random, and the scores were rounded to four decimals.
+#' The script is `data-raw/pbmc3k_subset.R` in the package's source
+#' repository.
 #'
-#' @format A list with one entry per cell in each element:
+#' @format A list of three elements, with the cells in the same order in
+#'   each:
 #' \describe{
 #'   \item{pca}{A 1,000 by 30 matrix of principal component scores, with the
 #'     cell barcodes as row names.}

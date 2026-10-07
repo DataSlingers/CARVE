@@ -200,10 +200,10 @@ setMethod("plot_metric_over_n_clusters", "ANY", function(object, ...) {
 #' [preprocessing_results()] for one configuration, one line per pipeline,
 #' with error bars of one standard error over the resamples each pipeline
 #' received. The dashed line marks the value CARVE selects from
-#' [estimator_results()], pooled over the pipelines, so the lines that cross
-#' it compare the pipelines at the selected configuration. For a `method_id`
-#' that CARVE did not select, it marks the value `rule` picks among that
-#' configuration's rows.
+#' [estimator_results()], which pools the pipelines, and each line crosses it
+#' at that pipeline's score for the selected configuration. For a
+#' `method_id` that CARVE did not select, the dashed line marks the value
+#' `rule` picks among that configuration's rows.
 #'
 #' For a SingleCellExperiment or a Seurat object, the plot reads the two
 #' tables [run_carve()] or [attach_results()] stored under `key`; they are
@@ -841,6 +841,9 @@ setMethod("plot_cluster_violin", "ANY", function(object, ...) {
 #'   two columns are drawn instead of `X`.
 #' @param basis For a single-cell object, the name of the reduced dimensions
 #'   to draw.
+#' @param annotation `TRUE` names the selected configuration and how it was
+#'   selected, a string is shown as it is, and `FALSE` shows nothing.
+#'   `annotation_style` sets where the text goes.
 #' @param alpha_range Opacity of the markers: the value for the highest score
 #'   first, then the one for the lowest.
 #' @param size_range Area of the markers in square points: the value for the

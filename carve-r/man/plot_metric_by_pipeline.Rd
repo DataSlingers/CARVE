@@ -90,10 +90,10 @@ For a run with \code{randomize_preprocessing = TRUE}: draws the rows of
 \code{\link[=preprocessing_results]{preprocessing_results()}} for one configuration, one line per pipeline,
 with error bars of one standard error over the resamples each pipeline
 received. The dashed line marks the value CARVE selects from
-\code{\link[=estimator_results]{estimator_results()}}, pooled over the pipelines, so the lines that cross
-it compare the pipelines at the selected configuration. For a \code{method_id}
-that CARVE did not select, it marks the value \code{rule} picks among that
-configuration's rows.
+\code{\link[=estimator_results]{estimator_results()}}, which pools the pipelines, and each line crosses it
+at that pipeline's score for the selected configuration. For a
+\code{method_id} that CARVE did not select, the dashed line marks the value
+\code{rule} picks among that configuration's rows.
 }
 \details{
 For a SingleCellExperiment or a Seurat object, the plot reads the two

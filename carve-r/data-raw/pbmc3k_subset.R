@@ -37,7 +37,7 @@ object <- Seurat::FindClusters(object, resolution = 0.5, verbose = FALSE)
 object <- Seurat::RunUMAP(object, dims = 1:10, verbose = FALSE)
 
 # 1,000 of the cells, in their original order. Four decimals keep the file
-# small and change no clustering.
+# small; the clusters and the UMAP were computed before the rounding.
 cells <- colnames(object)[sort(withr::with_seed(0L, sample.int(ncol(object), 1000L)))]
 pca <- round(SeuratObject::Embeddings(object, reduction = "pca")[cells, ], 4)
 umap <- round(SeuratObject::Embeddings(object, reduction = "umap")[cells, ], 4)
