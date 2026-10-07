@@ -70,8 +70,8 @@ every call.}
 }
 \value{
 An integer vector of cluster labels, one per sample, with -1 for
-the samples \code{noise_labels} flags. An \code{estimator} that labels samples -1
-itself also gives -1.
+the samples \code{noise_labels} flags. Samples that an \code{estimator} labels -1
+keep that label, unless matching to reference labels renames the group.
 }
 \description{
 \code{get_labels()} selects a configuration, as \code{\link[=get_k]{get_k()}} does, and cuts its

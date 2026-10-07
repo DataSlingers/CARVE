@@ -198,8 +198,8 @@ setMethod("get_estimator", "CARVE", function(fit, measure = "stability", rule = 
 #' @param reference_labels Labels to match, one per sample, coded as in
 #'   [carve()]. `NULL` uses the labels given to [carve()], if any.
 #' @return An integer vector of cluster labels, one per sample, with -1 for
-#'   the samples `noise_labels` flags. An `estimator` that labels samples -1
-#'   itself also gives -1.
+#'   the samples `noise_labels` flags. Samples that an `estimator` labels -1
+#'   keep that label, unless matching to reference labels renames the group.
 #' @seealso [get_k()], [consensus_matrix()], [sample_scores()]
 #' @examples
 #' set.seed(1)
