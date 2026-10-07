@@ -258,6 +258,11 @@ test_that("the single-cell plots name what is missing from the object", {
     "metadata(object)$carve$consensus not found. It is omitted when run_carve runs with store_consensus=FALSE, or when anchored consensus was active: an anchor block is m-by-m rather than n_obs-by-n_obs and metadata(object)$carve holds only the latter.",
     fixed = TRUE
   )
+  expect_error(
+    plot_consensus_matrix(attach_results(sce, fit, key = "other", store_consensus = FALSE), key = "other"),
+    "metadata(object)$other$consensus not found. It is omitted when run_carve runs with store_consensus=FALSE, or when anchored consensus was active: an anchor block is m-by-m rather than n_obs-by-n_obs and metadata(object)$other holds only the latter.",
+    fixed = TRUE
+  )
   unlabeled <- written
   SummarizedExperiment::colData(unlabeled)$carve <- NULL
   expect_error(
@@ -552,13 +557,15 @@ test_that("a Seurat object reaches the ANY method of every plot generic with its
     # Stored under a key other than the default, so a plot that ignores key
     # finds no record.
     object <- attach_results(make_seurat(blobs$X), generics[[name]], key = "other")
-    expect_s3_class(plot_function(object, key = "other"), "ggplot")
+    plot <- plot_function(object, key = "other")
+    expect_s3_class(plot, "ggplot")
     # The same plot as the SingleCellExperiment method draws, so an ANY
     # method that calls another generic's function is caught.
-    expect_same_plot(
-      plot_function(object, key = "other"),
-      plot_function(attach_results(sce, generics[[name]], key = "other"), key = "other")
-    )
+    expect_same_plot(plot, plot_function(attach_results(sce, generics[[name]], key = "other"), key = "other"))
+    # The same plot as the fit draws. A line plot that reads the results
+    # table under the wrong key loses only its dashed line, the same way for
+    # both single-cell classes, so the comparison above cannot see it.
+    expect_same_plot(plot, plot_function(generics[[name]]))
     expect_error(
       plot_function(blobs$X),
       "object must be a CARVE fit, a SingleCellExperiment or a Seurat object, not an object of class 'matrix'.",
