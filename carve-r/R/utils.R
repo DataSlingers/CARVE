@@ -529,3 +529,51 @@ resolve_anchors <- function(n_samples, consensus_anchors, anchor_threshold, rand
   }
   sort(seeded(random_state, sample.int(n_samples, m), kind = "L'Ecuyer-CMRG"))
 }
+
+# One row per configuration, pipeline and sweep value of a randomized run.
+# The scores are over the resamples that used the row's pipeline at the
+# row's configuration only, and n_resamples counts them. Rows are sorted by
+# the number in method_id (m10 after m9), then pipeline, then sweep value.
+summarize_preprocessing_records <- function(pipeline_records, pipelines, sweep_param = "n_clusters") {
+  rows <- list()
+  for (record in pipeline_records) {
+    runs <- record$runs
+    for (label in unique(runs$pipeline)) {
+      own <- runs[runs$pipeline == label, , drop = FALSE]
+      spec <- pipelines[[label]]
+      stability <- summarize_ari_scores(own$ari_stability)
+      generalizability <- summarize_ari_scores(own$ari_generalizability)
+      row <- list(
+        method_id = record$method_id,
+        method_label = record$method_label,
+        pipeline = label,
+        normalization = spec$normalization$label,
+        dim_reduction = spec$dim_reduction$label
+      )
+      row[[sweep_param]] <- record$sweep_value
+      rows[[length(rows) + 1L]] <- c(row, list(
+        n_resamples = nrow(own),
+        ari_stability = stability[["mean"]],
+        ari_stability_se = stability[["se"]],
+        ari_generalizability = generalizability[["mean"]],
+        ari_generalizability_se = generalizability[["se"]],
+        n_clusters_observed = mean(own$n_clusters),
+        sweep_param = sweep_param,
+        sweep_value = record$sweep_value,
+        sweep_rank = record$sweep_rank
+      ))
+    }
+  }
+  summary <- do.call(rbind, lapply(rows, function(row) {
+    data.frame(row, check.names = FALSE, stringsAsFactors = FALSE)
+  }))
+  order_by <- order(
+    as.integer(substring(summary$method_id, 2L)),
+    summary$pipeline,
+    summary$sweep_value,
+    method = "radix"
+  )
+  summary <- summary[order_by, , drop = FALSE]
+  rownames(summary) <- NULL
+  summary
+}

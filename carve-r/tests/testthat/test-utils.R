@@ -572,3 +572,39 @@ test_that("too few anchors name the setting they came from", {
     fixed = TRUE
   )
 })
+
+test_that("the preprocessing summary splits each configuration by pipeline", {
+  step <- function(label) list(transform = Identity, name = label, params = list(), label = label)
+  pipelines <- list(
+    "a | x" = new_pipeline_spec(step("a"), step("x")),
+    "b | x" = new_pipeline_spec(step("b"), step("x"))
+  )
+  records <- list(
+    list(method_id = "m10", method_label = "KMeans", sweep_value = 3L, sweep_rank = 1L,
+         runs = data.frame(pipeline = c("b | x", "a | x", "b | x"), ari_stability = c(0.5, 1, 0.7),
+                           ari_generalizability = c(0.2, 0.4, NaN), n_clusters = c(3, 3, 2),
+                           stringsAsFactors = FALSE)),
+    list(method_id = "m2", method_label = "Ward", sweep_value = 2L, sweep_rank = 0L,
+         runs = data.frame(pipeline = "a | x", ari_stability = 0.9, ari_generalizability = 0.8,
+                           n_clusters = 2, stringsAsFactors = FALSE))
+  )
+  out <- summarize_preprocessing_records(records, pipelines, "n_clusters")
+  expect_identical(names(out), c(
+    "method_id", "method_label", "pipeline", "normalization", "dim_reduction", "n_clusters",
+    "n_resamples", "ari_stability", "ari_stability_se", "ari_generalizability",
+    "ari_generalizability_se", "n_clusters_observed", "sweep_param", "sweep_value", "sweep_rank"
+  ))
+  # m2 sorts before m10 by its number.
+  expect_identical(out$method_id, c("m2", "m10", "m10"))
+  expect_identical(out$pipeline, c("a | x", "a | x", "b | x"))
+  expect_identical(out$normalization, c("a", "a", "b"))
+  expect_identical(out$n_clusters, c(2L, 3L, 3L))
+  expect_identical(out$n_resamples, c(1L, 1L, 2L))
+  expect_equal(out$ari_stability, c(0.9, 1, 0.6))
+  expect_equal(out$ari_stability_se[3], stats::sd(c(0.5, 0.7)) / sqrt(2))
+  expect_true(is.nan(out$ari_stability_se[1]))
+  expect_equal(out$ari_generalizability[3], 0.2)
+  expect_equal(out$n_clusters_observed, c(2, 3, 2.5))
+  expect_identical(out$sweep_param, rep("n_clusters", 3))
+  expect_identical(rownames(out), c("1", "2", "3"))
+})

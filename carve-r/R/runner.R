@@ -193,6 +193,41 @@ embed_resample <- function(X, spec, seed, n_resamples, subsample_ratio, random_s
   )
 }
 
+# Embeds every resample's subsamples once, before any configuration runs,
+# with the backend the configurations use. A worker receives one resample's
+# pipeline and returns its embeddings, which are kept for the whole run.
+precompute_embeddings <- function(X, pipelines, subsample_ratio, random_state, mode,
+                                  apply_resamples, show_progress = FALSE) {
+  n_resamples <- length(pipelines)
+  tasks <- lapply(seq_len(n_resamples), function(i) list(b = i - 1L, spec = pipelines[[i]]))
+  bar <- NULL
+  if (show_progress) {
+    bar <- utils::txtProgressBar(min = 0, max = n_resamples, style = 3, file = stderr())
+    on.exit(close(bar), add = TRUE)
+  }
+  outputs <- apply_resamples(
+    tasks, run_embedding,
+    data = X,
+    n_resamples = n_resamples,
+    subsample_ratio = subsample_ratio,
+    random_state = random_state,
+    mode = mode
+  )
+  if (!is.null(bar)) {
+    utils::setTxtProgressBar(bar, n_resamples)
+  }
+  for (text in unique(unlist(lapply(outputs, function(o) o$warnings)))) {
+    warning(text, call. = FALSE)
+  }
+  lapply(outputs, function(o) o$value)
+}
+
+run_embedding <- function(task, data, n_resamples, subsample_ratio, random_state, mode) {
+  collect_warnings(embed_resample(
+    data, task$spec, task$b, n_resamples, subsample_ratio, random_state, mode = mode
+  ))
+}
+
 # One resample of one configuration, described by its task: the resample
 # index b and, under randomized preprocessing, that resample's embeddings.
 # It is a namespace function, so a worker receives these arguments and
@@ -285,7 +320,8 @@ bind_records <- function(records) {
 run_validation <- function(X, estimator_grids, n_resamples, subsample_ratio, classifier = NULL,
                            n_trees = 100L, n_jobs = 1L, BPPARAM = NULL, random_state = 0L,
                            sweep, noise_policy = "drop", mode = "default", anchors = NULL,
-                           show_progress = FALSE, verbose = 0L) {
+                           randomize_preprocessing = FALSE, normalization_options = list(),
+                           dim_reduction_options = list(), show_progress = FALSE, verbose = 0L) {
   policy <- resolve_mode(mode)
   n <- nrow(X)
   budget <- run_core_budget(n_jobs, n_resamples, BPPARAM)
@@ -300,8 +336,26 @@ run_validation <- function(X, estimator_grids, n_resamples, subsample_ratio, cla
   }
   apply_resamples <- resample_backend(BPPARAM)
 
-  # One task per resample; a worker receives its own tasks only.
-  tasks <- lapply(seq_len(n_resamples) - 1L, function(b) list(b = b, embeddings = NULL))
+  # Under randomized preprocessing one pipeline is allocated per resample
+  # and embedded once, before the configurations. Nothing here is per
+  # configuration, so config_id is unaffected.
+  embeddings <- NULL
+  registry <- NULL
+  if (randomize_preprocessing) {
+    pipelines <- allocate_pipelines(normalization_options, dim_reduction_options, n_resamples, random_state)
+    labels <- vapply(pipelines, function(s) s$label, character(1))
+    first_use <- !duplicated(labels)
+    registry <- stats::setNames(pipelines[first_use], labels[first_use])
+    embeddings <- precompute_embeddings(
+      X, pipelines, subsample_ratio, random_state, mode, apply_resamples,
+      show_progress = show_progress
+    )
+  }
+  # One task per resample; a worker receives its own tasks only, with that
+  # resample's embeddings.
+  tasks <- lapply(seq_len(n_resamples), function(i) {
+    list(b = i - 1L, embeddings = embeddings[[i]])
+  })
 
   configs <- unlist(lapply(estimator_grids, function(g) {
     lapply(expand_param_grid(g$grid), function(params) list(grid = g, params = params))
@@ -315,6 +369,7 @@ run_validation <- function(X, estimator_grids, n_resamples, subsample_ratio, cla
   consensus_generalizability <- stats::setNames(vector("list", total), ids)
   generalizability_scores <- stats::setNames(vector("list", total), ids)
   summaries <- stats::setNames(vector("list", total), ids)
+  pipeline_records <- vector("list", total)
 
   bar <- NULL
   if (show_progress) {
@@ -415,6 +470,21 @@ run_validation <- function(X, estimator_grids, n_resamples, subsample_ratio, cla
       summary_columns("ari_average", aris_average)
     )
     records[[i]] <- record
+    if (randomize_preprocessing) {
+      pipeline_records[[i]] <- list(
+        method_id = method[[1L]],
+        method_label = method[[2L]],
+        sweep_value = sweep_value,
+        sweep_rank = record$sweep_rank,
+        runs = data.frame(
+          pipeline = vapply(results, function(r) r$pipeline, character(1)),
+          ari_stability = aris_stability,
+          ari_generalizability = aris_generalizability,
+          n_clusters = k_observed,
+          stringsAsFactors = FALSE
+        )
+      )
+    }
     log_config_progress(i, total, g$name, params, record, sweep@param, verbose)
     if (!is.null(bar)) {
       utils::setTxtProgressBar(bar, i)
@@ -426,6 +496,8 @@ run_validation <- function(X, estimator_grids, n_resamples, subsample_ratio, cla
     consensus_matrices = consensus,
     consensus_generalizability_matrices = consensus_generalizability,
     generalizability_scores = generalizability_scores,
-    summaries = if (policy$run_stability) summaries else NULL
+    summaries = if (policy$run_stability) summaries else NULL,
+    pipeline_records = if (randomize_preprocessing) pipeline_records else NULL,
+    pipelines = registry
   )
 }

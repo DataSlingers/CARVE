@@ -529,3 +529,80 @@ test_that("an anchored run with noise does not depend on the backend", {
                            BPPARAM = BiocParallel::MulticoreParam(2L))
   expect_identical(serial, forked)
 })
+
+norm_opts <- list(preprocessing_option(Identity), preprocessing_option(StandardScaler))
+dr_opts <- list(preprocessing_option(Identity), preprocessing_option(PCA, n_components = 1L))
+
+randomized_run <- function(...) {
+  run_validation(blobs$X, k_grid, 8L, 0.618, random_state = 0L, sweep = k_sweep,
+                 randomize_preprocessing = TRUE, normalization_options = norm_opts,
+                 dim_reduction_options = dr_opts, ...)
+}
+
+test_that("a randomized run records each resample's pipeline", {
+  run <- randomized_run()
+  expect_length(run$pipeline_records, 3L)
+  record <- run$pipeline_records[[2L]]
+  expect_identical(record$method_id, "m0")
+  expect_identical(record$sweep_value, 3L)
+  expect_identical(record$sweep_rank, 1L)
+  expect_identical(names(record$runs), c("pipeline", "ari_stability", "ari_generalizability", "n_clusters"))
+  expect_identical(nrow(record$runs), 8L)
+  expect_identical(
+    sort(names(run$pipelines), method = "radix"),
+    c("StandardScaler | PCA(n_components=1)", "StandardScaler | identity",
+      "identity | PCA(n_components=1)", "identity | identity")
+  )
+  # Eight resamples over four pairs: two each, in every configuration alike.
+  expect_identical(as.vector(table(record$runs$pipeline)), rep(2L, 4L))
+  expect_identical(run$pipeline_records[[1L]]$runs$pipeline, run$pipeline_records[[3L]]$runs$pipeline)
+})
+
+test_that("each resample's task carries that resample's embeddings", {
+  seen <- list()
+  local_mocked_bindings(resample_backend = function(...) {
+    function(X, FUN, ...) {
+      seen[[length(seen) + 1L]] <<- X
+      lapply(X, FUN, ...)
+    }
+  })
+  run <- randomized_run()
+  # The first call is the embedding pass; the configuration calls follow.
+  tasks <- seen[[2L]]
+  expect_identical(vapply(tasks, function(t) t$b, integer(1)), 0:7)
+  expect_identical(
+    vapply(tasks, function(t) t$embeddings$spec$label, character(1)),
+    run$pipeline_records[[1L]]$runs$pipeline
+  )
+})
+
+test_that("an identity pipeline gives the records of a run without preprocessing", {
+  identity <- list(preprocessing_option(Identity))
+  raw <- run_validation(blobs$X, k_grid, 4L, 0.618, random_state = 0L, sweep = k_sweep)
+  randomized <- run_validation(blobs$X, k_grid, 4L, 0.618, random_state = 0L, sweep = k_sweep,
+                               randomize_preprocessing = TRUE, normalization_options = identity,
+                               dim_reduction_options = identity)
+  expect_identical(randomized$records, raw$records)
+  expect_identical(randomized$consensus_matrices, raw$consensus_matrices)
+})
+
+test_that("a run without randomization has no pipeline records", {
+  run <- run_validation(blobs$X, k_grid, 2L, 0.618, random_state = 0L, sweep = k_sweep)
+  expect_null(run$pipeline_records)
+  expect_null(run$pipelines)
+})
+
+test_that("a randomized run does not depend on the backend", {
+  skip_on_os("windows")
+  expect_identical(randomized_run(), randomized_run(BPPARAM = BiocParallel::MulticoreParam(2L)))
+})
+
+test_that("show_progress draws a bar for the embedding pass too", {
+  count_full <- function(run) {
+    text <- paste(capture.output(invisible(run), type = "message"), collapse = "")
+    lengths(regmatches(text, gregexpr("100%", text, fixed = TRUE)))
+  }
+  expect_identical(count_full(run_validation(blobs$X, k_grid, 2L, 0.618, random_state = 0L,
+                                             sweep = k_sweep, show_progress = TRUE)), 1L)
+  expect_identical(count_full(randomized_run(show_progress = TRUE)), 2L)
+})
