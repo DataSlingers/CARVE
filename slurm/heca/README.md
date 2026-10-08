@@ -115,8 +115,11 @@ Read `$RUN_DIR/calibration.json`:
   ```
 - `projection.wall_clock_hours` at the fit node's physical core count, and
   `worker_peak_bytes`. The peak includes the forest fit on the scan's fine
-  end (`forest_fine`, the most clusters within the upper target), the largest
-  forest a fit worker trains, so it bounds one worker's memory. If the
+  end (`forest_fine`, the most clusters any setting gives at or below the
+  grid's top), the largest forest a fit worker trains, so it bounds one
+  worker's memory. Calibrations written before 2026-10-08 measured a
+  coarser fine end; for those, measure the top configuration separately
+  before choosing `--n-jobs`. If the
   projection exceeds 8 days (192 h), decide before fitting: fewer resamples
   (100 to 50) first, then fewer resolutions.
 

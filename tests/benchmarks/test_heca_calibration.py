@@ -176,9 +176,20 @@ class TestForestCosts:
 
 
 class TestFineEndRow:
-    def test_the_most_clusters_within_the_upper_target_across_settings(self):
-        # b at 3.0 sits exactly on the target and beats a's 80; the counts
-        # past it, a's 300 and b's 109, are out.
+    def test_the_most_clusters_at_or_below_the_grids_top_across_settings(self):
+        # b stays within 108 up to 3.0, so the grid's top is 3.0, and the fit
+        # runs a there too: a's 140 at 3.0 is the most a forest trains on,
+        # though it passes the target. Past the top, a's 300 and b's 109 are
+        # out. hECA's calibration had this shape: 146 and 103 at the top.
+        scan = _scan(
+            [
+                ("a", 0.1, 5), ("a", 1.0, 80), ("a", 3.0, 140), ("a", 10.0, 300),
+                ("b", 0.1, 4), ("b", 1.0, 100), ("b", 3.0, 108), ("b", 10.0, 109),
+            ]
+        )
+        assert fine_end_row(scan, upper_target=108) == ("a", 3.0)
+
+    def test_when_every_setting_stays_within_the_target_the_most_clusters(self):
         scan = _scan(
             [
                 ("a", 0.1, 5), ("a", 1.0, 80), ("a", 10.0, 300),
@@ -233,7 +244,11 @@ class TestRunCalibrate:
         assert record["forest_predict_fine_s"] > 0
         fine = record["forest_fine"]
         assert set(fine) == {"setting", "resolution", "n_clusters"}
-        assert fine["n_clusters"] <= record["upper_target"]
+        # At or below the grid's top, no setting gives more clusters.
+        top = scan.loc[scan["n_clusters"] <= record["upper_target"], "resolution"]
+        assert fine["n_clusters"] == scan.loc[
+            scan["resolution"] <= top.max(), "n_clusters"
+        ].max()
         assert (fine["setting"], fine["resolution"]) == fine_end_row(
             scan, upper_target=record["upper_target"]
         )

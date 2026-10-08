@@ -11,7 +11,8 @@ even when the rule fails, so a failed rule never discards hours of scanning.
 
 The forest is timed at both ends of the grid: once on labels near the
 provisional grid's geometric middle, and once on the scan's fine end, the
-most clusters within the upper target. A fitted forest's size and fit time
+most clusters any setting gives at or below the grid's top. A fitted
+forest's size and fit time
 grow steeply with its class count, so a middle-only forest would understate
 both the per-worker memory peak the fit's worker count is chosen from and
 the forest's share of the projection.
@@ -117,16 +118,22 @@ def propose_grid(
 def fine_end_row(scan: pd.DataFrame, *, upper_target: int) -> tuple[str, float]:
     """The (setting, resolution) of the scan's fine end.
 
-    The row with the most clusters not exceeding upper_target, across every
-    setting: the most classes a fit worker's forest trains on inside the
-    grid. When no row is within the target, the row with the fewest
-    clusters. Ties go to the earlier row.
+    The grid's top is the largest scanned resolution at which some setting
+    stays within upper_target clusters, as in propose_grid. The fit runs
+    every setting at that top, and another setting may pass the target
+    there: on hECA's calibration the 50-neighbor setting gave 103 clusters
+    at the top and the 15-neighbor setting 146. The fine end is therefore
+    the row with the most clusters at or below the top, across every
+    setting: the most classes a fit worker's forest trains on. When no row
+    is within the target, the row with the fewest clusters. Ties go to the
+    earlier row.
     """
     within = scan[scan["n_clusters"] <= upper_target]
     if within.empty:
         row = scan.loc[scan["n_clusters"].idxmin()]
     else:
-        row = within.loc[within["n_clusters"].idxmax()]
+        inside = scan[scan["resolution"] <= within["resolution"].max()]
+        row = inside.loc[inside["n_clusters"].idxmax()]
     return str(row["setting"]), float(row["resolution"])
 
 
@@ -311,9 +318,10 @@ def run_calibrate(
     rows: list[dict[str, Any]] = []
     graph_costs: dict[str, dict[str, float]] = {}
     forest_labels: np.ndarray | None = None
-    # The labels of the fine end over the settings scanned so far: only this
-    # one candidate's partition is kept, not every scanned one.
-    fine_labels: np.ndarray | None = None
+    # Every scanned partition is kept until the scan ends, about 70 MB per
+    # setting: the fine end depends on the whole scan, because a later
+    # setting can raise the grid's top past an earlier setting's rows.
+    partitions: dict[tuple[str, float], np.ndarray] = {}
     for setting in sweep_settings(study):
         k_train = scaled_neighbors(setting, n_fit=len(train_idx), n_full=n_cells)
         k_test = scaled_neighbors(setting, n_fit=len(test_idx), n_full=n_cells)
@@ -340,6 +348,7 @@ def run_calibrate(
                     "ari_cell_type": float(adjusted_rand_score(cell_type, labels)),
                 }
             )
+            partitions[(setting.label, resolution)] = labels
         if forest_labels is None:
             # Any realistic partition times the forest: take the first
             # setting's at the scan value nearest the provisional grid's
@@ -347,17 +356,16 @@ def run_calibrate(
             _, forest_labels, _ = min(
                 scanned, key=lambda item: abs(math.log(item[0] / middle))
             )
-        fine_setting, fine_resolution = fine_end_row(
-            pd.DataFrame(rows), upper_target=upper_target
-        )
-        if fine_setting == setting.label:
-            fine_labels = next(
-                labels for value, labels, _ in scanned if value == fine_resolution
-            )
         del scanned
 
-    # After the last setting, fine_setting and fine_resolution are the whole
-    # scan's fine end. The middle forest is gone before the fine one is fit.
+    fine_setting, fine_resolution = fine_end_row(
+        pd.DataFrame(rows), upper_target=upper_target
+    )
+    fine_labels = partitions[(fine_setting, fine_resolution)]
+    # The partitions go before the forests, so the peak below is the
+    # forests' and not the scan's. The middle forest is gone before the fine
+    # one is fit.
+    del partitions
     forest_fit_s, forest_predict_s = _time_forest(X_train, forest_labels, X_test)
     forest_fit_fine_s, forest_predict_fine_s = _time_forest(
         X_train, fine_labels, X_test
