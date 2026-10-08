@@ -574,13 +574,30 @@ STUDIES: dict[str, Study] = {
         candidate_k=(),
         scales={"publication": None},
         default_scale="publication",
-        # Provisional: 15 log-spaced values from 0.005 to 3.0. The single
-        # studies the cells come from reported 1.0 and 1.5 on 8,500 to 91,500
-        # cells; each resample here clusters about 430,000, where modularity
-        # splits further at the same value, so organ level needs far smaller
-        # ones. python -m benchmarks.heca calibrate proposes the grid that
-        # replaces this one before the fit runs.
-        resolutions=tuple(float(f"{0.005 * 600 ** (i / 14):.2g}") for i in range(15)),
+        # From the Longleaf calibration run 20261005-5ed30fc (2026-10-06).
+        # The rule proposed 15 log-spaced values from 0.001 to 3.9, but both
+        # settings give the same 6 clusters from 0.001 to 0.011, so the first
+        # five values would repeat one partition. The grid starts at 0.01
+        # instead, keeping one value on that floor, and ends at 3.9, where
+        # the 50-neighbor setting gives 103 clusters and the 15-neighbor
+        # setting 146. 15 log-spaced values, two significant figures.
+        resolutions=(
+            0.01,
+            0.015,
+            0.023,
+            0.036,
+            0.055,
+            0.084,
+            0.13,
+            0.2,
+            0.3,
+            0.46,
+            0.71,
+            1.1,
+            1.7,
+            2.5,
+            3.9,
+        ),
         # 30 configurations each retain a stability and a generalizability
         # consensus block of 2000 x 2000 anchors, about 1 GB in all.
         consensus_anchors=2000,
