@@ -28,10 +28,12 @@ already had /work/users space, it serves in place of /hickory/users.
   your account carries. Do not pass `--partition` for general, general_big,
   hov or spill: Slurm routes a job to one of them by what it requests, and
   the submit filter rejects a named one, as it does `--exclusive` (Research
-  Computing, 2026-10-08). The general partition caps a job at 232,448 MB
-  (MaxMemPerNode), so the fit, which asks for 1400G and all 384 CPUs of an
-  AMD node, goes to general_big. A per-user core or memory cap below that
-  request would keep the fit pending; if so, ask research@unc.edu.
+  Computing, 2026-10-08). The filter also drops `--constraint`. The
+  general partition caps a job at 232,448 MB (MaxMemPerNode), so the fit,
+  which asks for 700G, goes to general_big, and its 130 CPUs, more than
+  general_big's Intel nodes have, put it on an AMD node. A per-user core or
+  memory cap below that request would keep the fit pending; if so, ask
+  research@unc.edu.
 
   ```bash
   sinfo -p general,general_big -o "%12P %10D %6c %8m %20f"   # nodes, CPUs, memory (MB), features
@@ -134,31 +136,31 @@ literal tuple, with a comment naming the calibration run, run
 ## 5. Fit
 
 ```bash
-sbatch --test-only --export=ALL,RUN_DIR="$RUN_DIR" slurm/heca/fit.sbatch --n-jobs 100
-sbatch --export=ALL,RUN_DIR="$RUN_DIR" slurm/heca/fit.sbatch --n-jobs 100
+sbatch --test-only --export=ALL,RUN_DIR="$RUN_DIR" slurm/heca/fit.sbatch --n-jobs 50
+sbatch --export=ALL,RUN_DIR="$RUN_DIR" slurm/heca/fit.sbatch --n-jobs 50
 squeue -u "$USER" -o "%.10i %.12P %.8T %.10M %R"
 srun -p interact -t 0:15:00 --mem=4g .venv/bin/python -m benchmarks.heca status --run-dir "$RUN_DIR"
 ```
 
 `--test-only` submits nothing; it prints the partition, node and estimated
-start the request would get, and the partition should be general_big.
-`--n-jobs 100` runs all of a configuration's resamples at once. One worker
+start the request would get. The partition should be general_big and the
+node an AMD one, for which
+`scontrol show node <node> | grep -o "AvailableFeatures=\S*"` lists amd. One worker
 peaked at about 12 GB on the grid's top configuration (measured on an AMD
-node, 2026-10-08), so 100 workers need about 1.2 TB of the 1400G the script
-requests. Without `--n-jobs`, the stage picks one worker per physical core
+node, 2026-10-08), so `--n-jobs 50` needs about 600 GB of the 700G the
+script requests, and runs each configuration's 100 resamples in two
+rounds. Without `--n-jobs`, the stage picks one worker per physical core
 the job holds, capped by the job's memory over calibration's
 `worker_peak_bytes`.
 
-A whole node can wait days in the queue. Half a node starts sooner and runs
-each configuration's resamples in two rounds, about twice as long:
+A whole AMD node runs all 100 resamples at once, in about half the time,
+but waits longer in the queue: on 2026-10-08 it was estimated 11 days
+out, half a node the next morning. Options before the
+script's name override its `#SBATCH` lines:
 
 ```bash
-sbatch --test-only -c 100 --mem=700G --time=8-00:00:00 --export=ALL,RUN_DIR="$RUN_DIR" slurm/heca/fit.sbatch --n-jobs 50
-sbatch -c 100 --mem=700G --time=8-00:00:00 --export=ALL,RUN_DIR="$RUN_DIR" slurm/heca/fit.sbatch --n-jobs 50
+sbatch --test-only -c 384 --mem=1400G --export=ALL,RUN_DIR="$RUN_DIR" slurm/heca/fit.sbatch --n-jobs 100
 ```
-
-Options before the script's name override its `#SBATCH` lines. On 2026-10-08
-the estimates were 2026-10-19 for the whole node and the same day for half.
 
 `status` reads the fit's timing rows and can run at any time, as a short
 job on the interact partition. The first configuration completes within hours. If
