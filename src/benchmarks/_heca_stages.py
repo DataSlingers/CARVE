@@ -439,6 +439,9 @@ def run_fit(
                 classifier=timed_forest(
                     n_features=int(X.shape[1]), n_trees=CARVE_N_TREES
                 ),
+                # Settings at the start, then each configuration's stability
+                # and generalizability in the job log as it completes.
+                verbose=2,
             )
             wall_clock_s = time.perf_counter() - started
         # timing_directory has shut the pool down on exit, so the workers

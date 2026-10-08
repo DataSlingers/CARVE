@@ -344,6 +344,24 @@ class TestConsensusAnchorsForwarding:
         )
 
         assert "classifier" not in spy.captured_kwargs
+        assert "verbose" not in spy.captured_kwargs
+
+    def test_fit_or_load_carve_forwards_verbose(self, blobs, tmp_path, monkeypatch):
+        X, y = blobs
+        grids = param_grids(EstimatorSpec(name="kmeans"), (2, 3))
+        spy = make_carve_spy()
+        monkeypatch.setattr("benchmarks._studies.CARVE", spy)
+
+        fit_or_load_carve(
+            X,
+            y,
+            cache_path=tmp_path / "demo.carve",
+            model_grids=grids,
+            n_resamples=3,
+            verbose=2,
+        )
+
+        assert spy.captured_kwargs["verbose"] == 2
 
 
 _TSNE_SPEC = PreprocessingSpec(

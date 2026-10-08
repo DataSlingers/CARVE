@@ -152,13 +152,25 @@ class TestMemorySampler:
 
 
 class TestRunFit:
-    def test_fits_every_configuration_and_times_it(self, study, tmp_path, monkeypatch):
+    def test_fits_every_configuration_and_times_it(
+        self, study, tmp_path, monkeypatch, capsys
+    ):
         monkeypatch.delenv("LOKY_MAX_CPU_COUNT", raising=False)
         monkeypatch.setenv("OMP_NUM_THREADS", "3")
         monkeypatch.delenv("OPENBLAS_NUM_THREADS", raising=False)
         monkeypatch.delenv("MKL_NUM_THREADS", raising=False)
         run = tmp_path / "run"
         record = run_fit(run, study=study, n_jobs=1, sample_interval=0.05)
+
+        # CARVE reports each configuration's scores as it completes, so the
+        # job log shows the fit's progress: one line per configuration.
+        progress = [
+            line
+            for line in capsys.readouterr().out.splitlines()
+            if line.startswith("[CARVE] [")
+        ]
+        assert len(progress) == 4
+        assert all("ARI_stab=" in line and "ARI_gen=" in line for line in progress)
 
         fit_dir = run / "fit"
         cache = carve_cache_path(

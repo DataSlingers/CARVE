@@ -139,6 +139,16 @@ only when it finishes, so a killed fit leaves none of the outputs the stage
 refuses to overwrite: resubmit it with the same `sbatch` command, without
 `--force`, and it reruns from the start.
 
+CARVE's own output goes to the job's log, heca-fit-<jobid>.out in the
+repository root: the run's settings at the start, then one line per
+configuration as it completes, with its stability and generalizability
+(mean ARI and standard error). Configurations 1 to 15 are the 15-neighbor
+setting, 16 to 30 the 50-neighbor setting, each coarsest first.
+
+```bash
+grep '\[CARVE\]' heca-fit-<jobid>.out
+```
+
 SLURM's accounting can lag the step's end: if `fit/sacct.txt` is empty or
 lacks MaxRSS, rerun fit.sbatch's `sacct` line from a login node once the job
 has finished, with the job id in place of `${SLURM_JOB_ID}`, writing to the

@@ -92,6 +92,8 @@ def test_the_fit_script_takes_a_whole_node_and_saves_its_accounting():
     unset = lines.index("unset OMP_NUM_THREADS OPENBLAS_NUM_THREADS MKL_NUM_THREADS")
     (srun,) = [i for i, line in enumerate(lines) if line.startswith("srun ")]
     assert unset < srun
+    # CARVE's per-configuration lines reach the log as they are printed.
+    assert lines.index("export PYTHONUNBUFFERED=1") < srun
 
 
 def test_calibration_runs_single_threaded():

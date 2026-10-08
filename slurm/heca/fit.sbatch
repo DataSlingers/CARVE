@@ -23,6 +23,9 @@ source .venv/bin/activate
 # and joblib passes a parent's value on to every worker, oversubscribing
 # them. Once they are unset, CARVE's core budget sets them per worker.
 unset OMP_NUM_THREADS OPENBLAS_NUM_THREADS MKL_NUM_THREADS
+# Write CARVE's per-configuration lines to the log as they happen rather
+# than when Python's output buffer fills.
+export PYTHONUNBUFFERED=1
 
 status=0
 srun --ntasks=1 --cpus-per-task="${SLURM_CPUS_ON_NODE}" \

@@ -237,6 +237,7 @@ def fit_or_load_carve(
     normalization_options: list[Any] | None = None,
     dim_reduction_options: list[Any] | None = None,
     classifier: ClassifierMixin | None = None,
+    verbose: int | None = None,
 ) -> CARVE:
     """Fit CARVE on a case study, caching the fitted state to disk.
 
@@ -263,6 +264,10 @@ def fit_or_load_carve(
     classifier : sklearn classifier or None, default=None
         Forwarded to CARVE only when not None. hECA's fit passes a forest
         with the default's settings that times itself (see _timing).
+    verbose : int or None, default=None
+        Forwarded to CARVE only when not None. hECA's fit passes 2, so its
+        job log shows the run's settings and each configuration's
+        stability and generalizability as the configuration completes.
     """
     cache_path = Path(cache_path)
     _check_dense_fit(np.asarray(X).shape[0], model_grids)
@@ -287,6 +292,7 @@ def fit_or_load_carve(
             ("normalization_options", normalization_options),
             ("dim_reduction_options", dim_reduction_options),
             ("classifier", classifier),
+            ("verbose", verbose),
         )
         if value is not None
     }
