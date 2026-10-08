@@ -17,7 +17,8 @@
 # top configuration. Asking for all 384 CPUs keeps other jobs, and their
 # memory traffic, off the node. Override --mem or --cpus-per-task on the
 # command line for another node. The stage picks its worker count from the
-# node's physical cores and calibration.json unless --n-jobs is given.
+# job's physical cores and memory and calibration.json unless --n-jobs is
+# given.
 # srun makes the fit a job step, so SLURM's accounting for it is final when
 # the step ends and is saved beside the run. srun does not inherit
 # --cpus-per-task from sbatch, so the step asks for every CPU the job holds

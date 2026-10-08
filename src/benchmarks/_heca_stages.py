@@ -146,16 +146,40 @@ def guard_output(path: Path, *, force: bool) -> None:
         raise StageOutputExists(f"{path} exists. Pass --force to overwrite it.")
 
 
+#: Linux's CPU topology, read to count the physical cores a job runs on.
+CPU_TOPOLOGY = Path("/sys/devices/system/cpu")
+
+
 def physical_cores() -> int:
-    """Physical cores, or logical ones where psutil cannot tell."""
+    """Physical cores this process may run on.
+
+    A SLURM job that does not hold a whole node runs on part of it, so on
+    Linux the cores are counted from the process's CPU affinity: hardware
+    threads that list the same siblings share one core. Elsewhere, or where
+    the topology cannot be read, the machine's physical cores, or logical
+    ones where psutil cannot tell.
+    """
     import psutil
 
-    return int(psutil.cpu_count(logical=False) or os.cpu_count() or 1)
+    try:
+        cores = {
+            (CPU_TOPOLOGY / f"cpu{cpu}" / "topology" / "thread_siblings_list")
+            .read_text()
+            .strip()
+            for cpu in os.sched_getaffinity(0)
+        }
+    except (AttributeError, OSError):
+        cores = set()
+    return len(cores) or int(psutil.cpu_count(logical=False) or os.cpu_count() or 1)
 
 
 def node_memory_bytes() -> int:
+    """Memory the job may use: SLURM's --mem, in megabytes, else the machine's."""
     import psutil
 
+    allocated = os.environ.get("SLURM_MEM_PER_NODE", "")
+    if allocated.isdigit() and int(allocated) > 0:
+        return int(allocated) * 1024**2
     return int(psutil.virtual_memory().total)
 
 
@@ -357,12 +381,12 @@ def run_fit(
 ) -> dict[str, Any]:
     """Fit CARVE on every cell with the timing classes in place.
 
-    n_jobs defaults to one worker per physical core, capped by node memory
-    over the per-worker peak calibration measured. LOKY_MAX_CPU_COUNT is set
-    to the physical core count for the fit, so CARVE's core budget sees
-    physical cores rather than hyperthreads: with one worker per core, each
-    worker's forest and BLAS run single-threaded, and the spare cores of a
-    memory-capped run go to forest threads.
+    n_jobs defaults to one worker per physical core the job holds, capped
+    by the job's memory over the per-worker peak calibration measured.
+    LOKY_MAX_CPU_COUNT is set to the physical core count for the fit, so
+    CARVE's core budget sees physical cores rather than hyperthreads: with
+    one worker per core, each worker's forest and BLAS run single-threaded,
+    and the spare cores of a memory-capped run go to forest threads.
 
     The cache path comes from the study's plain grids, not the instrumented
     ones: the cache key hashes the grids' repr, which names the estimator

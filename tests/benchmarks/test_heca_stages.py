@@ -14,6 +14,8 @@ from benchmarks._heca_stages import (
     choose_n_jobs,
     fit_status,
     format_status,
+    node_memory_bytes,
+    physical_cores,
     run_embed,
     run_fit,
     scaled_neighbors,
@@ -82,6 +84,52 @@ class TestEmbed:
         assert record["cached"] is True
         env = json.loads((run / "env.json").read_text())
         assert len(env["stages"]) == 2
+
+
+def write_topology(root, siblings):
+    for cpu, listed in siblings.items():
+        directory = root / f"cpu{cpu}" / "topology"
+        directory.mkdir(parents=True)
+        (directory / "thread_siblings_list").write_text(listed + "\n")
+
+
+class TestPhysicalCores:
+    def test_counts_the_cores_behind_the_jobs_cpus(self, tmp_path, monkeypatch):
+        # Eight hardware threads on four cores (cpu n and n + 4 are siblings);
+        # the job holds threads 0, 1, 4 and 5, so two whole cores.
+        write_topology(tmp_path, {n: f"{n % 4},{n % 4 + 4}" for n in range(8)})
+        monkeypatch.setattr("benchmarks._heca_stages.CPU_TOPOLOGY", tmp_path)
+        monkeypatch.setattr(os, "sched_getaffinity", lambda pid: {0, 1, 4, 5}, raising=False)
+        assert physical_cores() == 2
+
+    def test_one_thread_per_core_counts_each_core(self, tmp_path, monkeypatch):
+        write_topology(tmp_path, {n: f"{n % 4},{n % 4 + 4}" for n in range(8)})
+        monkeypatch.setattr("benchmarks._heca_stages.CPU_TOPOLOGY", tmp_path)
+        monkeypatch.setattr(os, "sched_getaffinity", lambda pid: {0, 1, 2}, raising=False)
+        assert physical_cores() == 3
+
+    def test_without_the_topology_the_machines_cores(self, tmp_path, monkeypatch):
+        import psutil
+
+        monkeypatch.setattr("benchmarks._heca_stages.CPU_TOPOLOGY", tmp_path / "absent")
+        monkeypatch.setattr(os, "sched_getaffinity", lambda pid: {0, 1}, raising=False)
+        assert physical_cores() == psutil.cpu_count(logical=False)
+
+
+class TestNodeMemoryBytes:
+    def test_slurms_allocation_in_megabytes(self, monkeypatch):
+        monkeypatch.setenv("SLURM_MEM_PER_NODE", "716800")
+        assert node_memory_bytes() == 700 * 1024**3
+
+    @pytest.mark.parametrize("value", [None, "", "0"])
+    def test_otherwise_the_machines_memory(self, monkeypatch, value):
+        import psutil
+
+        if value is None:
+            monkeypatch.delenv("SLURM_MEM_PER_NODE", raising=False)
+        else:
+            monkeypatch.setenv("SLURM_MEM_PER_NODE", value)
+        assert node_memory_bytes() == psutil.virtual_memory().total
 
 
 class TestChooseNJobs:

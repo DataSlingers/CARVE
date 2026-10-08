@@ -145,8 +145,20 @@ start the request would get, and the partition should be general_big.
 `--n-jobs 100` runs all of a configuration's resamples at once. One worker
 peaked at about 12 GB on the grid's top configuration (measured on an AMD
 node, 2026-10-08), so 100 workers need about 1.2 TB of the 1400G the script
-requests. Without `--n-jobs`, the stage picks one worker per physical core,
-capped by node memory over calibration's `worker_peak_bytes`.
+requests. Without `--n-jobs`, the stage picks one worker per physical core
+the job holds, capped by the job's memory over calibration's
+`worker_peak_bytes`.
+
+A whole node can wait days in the queue. Half a node starts sooner and runs
+each configuration's resamples in two rounds, about twice as long:
+
+```bash
+sbatch --test-only -c 100 --mem=700G --time=8-00:00:00 --export=ALL,RUN_DIR="$RUN_DIR" slurm/heca/fit.sbatch --n-jobs 50
+sbatch -c 100 --mem=700G --time=8-00:00:00 --export=ALL,RUN_DIR="$RUN_DIR" slurm/heca/fit.sbatch --n-jobs 50
+```
+
+Options before the script's name override its `#SBATCH` lines. On 2026-10-08
+the estimates were 2026-10-19 for the whole node and the same day for half.
 
 `status` reads the fit's timing rows and can run at any time, as a short
 job on the interact partition. The first configuration completes within hours. If
