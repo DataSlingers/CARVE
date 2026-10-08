@@ -80,9 +80,26 @@ def test_each_sbatch_script_passes_its_arguments_to_the_stage(stage):
     assert command.endswith('"$@"')
 
 
+GENERAL_MAX_MEM_PER_NODE_MB = 232448
+
+
 def test_the_fit_script_takes_a_whole_node_and_saves_its_accounting():
     text = (SLURM_DIR / "fit.sbatch").read_text()
-    assert "#SBATCH --exclusive" in text
+    directives = dict(
+        line.removeprefix("#SBATCH --").partition("=")[::2]
+        for line in text.splitlines()
+        if line.startswith("#SBATCH --")
+    )
+    # Longleaf's submit filter rejects --exclusive and a named partition.
+    # The job asks for every CPU of a general_big AMD node instead, and for
+    # more memory than the general partition allows, so Slurm routes it to
+    # general_big.
+    assert "exclusive" not in directives
+    assert "partition" not in directives
+    assert directives["constraint"] == "amd"
+    assert int(directives["cpus-per-task"]) == 2 * 96 * 2
+    assert directives["mem"].endswith("G")
+    assert int(directives["mem"][:-1]) * 1024 > GENERAL_MAX_MEM_PER_NODE_MB
     assert '--cpus-per-task="${SLURM_CPUS_ON_NODE}"' in text
     assert "sacct -j" in text
     assert "fit/sacct.txt" in text

@@ -24,14 +24,18 @@ already had /work/users space, it serves in place of /hickory/users.
 
 - Request a Longleaf account from UNC Research Computing (see the page above).
 - On the laptop, push main, which the run uses: `git push origin main`.
-- On the first login, look at what the general partition offers and what
-  limits your account carries. The fit asks for one whole node
-  (`--exclusive`), so a per-user core or memory cap below a node's size would
-  keep it pending; if so, ask research@unc.edu or request cores and memory
-  explicitly in fit.sbatch instead.
+- On the first login, look at what the partitions offer and what limits
+  your account carries. Do not pass `--partition` for general, general_big,
+  hov or spill: Slurm routes a job to one of them by what it requests, and
+  the submit filter rejects a named one, as it does `--exclusive` (Research
+  Computing, 2026-10-08). The general partition caps a job at 232,448 MB
+  (MaxMemPerNode), so the fit, which asks for 1400G and all 384 CPUs of an
+  AMD node, goes to general_big. A per-user core or memory cap below that
+  request would keep the fit pending; if so, ask research@unc.edu.
 
   ```bash
-  sinfo -p general -o "%10D %6c %8m %20f"      # nodes, cores, memory (MB), features
+  sinfo -p general,general_big -o "%12P %10D %6c %8m %20f"   # nodes, CPUs, memory (MB), features
+  scontrol show partition general | grep MaxMemPerNode
   sacctmgr show association where user=$USER format=Account%40,GrpTRES%40,MaxTRES%40
   ```
 
@@ -130,9 +134,19 @@ literal tuple, with a comment naming the calibration run, run
 ## 5. Fit
 
 ```bash
-sbatch --export=ALL,RUN_DIR="$RUN_DIR" slurm/heca/fit.sbatch
+sbatch --test-only --export=ALL,RUN_DIR="$RUN_DIR" slurm/heca/fit.sbatch --n-jobs 100
+sbatch --export=ALL,RUN_DIR="$RUN_DIR" slurm/heca/fit.sbatch --n-jobs 100
+squeue -u "$USER" -o "%.10i %.12P %.8T %.10M %R"
 srun -p interact -t 0:15:00 --mem=4g .venv/bin/python -m benchmarks.heca status --run-dir "$RUN_DIR"
 ```
+
+`--test-only` submits nothing; it prints the partition, node and estimated
+start the request would get, and the partition should be general_big.
+`--n-jobs 100` runs all of a configuration's resamples at once. One worker
+peaked at about 12 GB on the grid's top configuration (measured on an AMD
+node, 2026-10-08), so 100 workers need about 1.2 TB of the 1400G the script
+requests. Without `--n-jobs`, the stage picks one worker per physical core,
+capped by node memory over calibration's `worker_peak_bytes`.
 
 `status` reads the fit's timing rows and can run at any time, as a short
 job on the interact partition. The first configuration completes within hours. If
