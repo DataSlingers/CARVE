@@ -324,7 +324,7 @@ spectral_embedding <- function(W, k) {
 #' clusters the embedding with [KMeans()]. It ports the Python package's
 #' `SpectralClustering`.
 #'
-#' `affinity = "self_tuning"` weighs each pair by the two samples' local
+#' `affinity = "self_tuning"` weights each pair by the two samples' local
 #' scales, the distance to their `(n_neighbors - 1)`-th nearest other sample
 #' (Zelnik-Manor and Perona, 2004). Above 5,000 samples it keeps only the
 #' nearest-neighbor edges. `"rbf"` uses one global `gamma`, and `"knn"`

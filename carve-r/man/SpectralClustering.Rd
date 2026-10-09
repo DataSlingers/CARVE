@@ -45,7 +45,7 @@ clusters the embedding with \code{\link[=KMeans]{KMeans()}}. It ports the Python
 \code{SpectralClustering}.
 }
 \details{
-\code{affinity = "self_tuning"} weighs each pair by the two samples' local
+\code{affinity = "self_tuning"} weights each pair by the two samples' local
 scales, the distance to their \code{(n_neighbors - 1)}-th nearest other sample
 (Zelnik-Manor and Perona, 2004). Above 5,000 samples it keeps only the
 nearest-neighbor edges. \code{"rbf"} uses one global \code{gamma}, and \code{"knn"}

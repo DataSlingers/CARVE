@@ -410,7 +410,8 @@ setMethod("input_data", "CARVE", function(fit, ...) {
 #'   samples.
 #' @param source `"gini"` or `"ce"` for per-sample stability, in its Gini or
 #'   cross-entropy form; both run from 0 to 1, and a sample scores 1 when
-#'   each sample drawn with it was always in its cluster or never.
+#'   every other sample drawn with it fell in its cluster either every time
+#'   or never.
 #'   `"accuracy"` is the share of the draws holding the sample out in which
 #'   the classifier predicted its cluster.
 #' @return `consensus_matrix()` returns an `n` by `n` matrix, or `m` by `m` on
