@@ -99,14 +99,17 @@ Python records the model's `random_state`, which is `None` for a
 - R checks some input before Python does or where Python does not: missing
   or infinite values in the data, which Python's estimators report later;
   `noise_policy` at fit time, where Python checks it inside the first
-  resample; and the plot arguments `inner`, `annotation_style`,
-  `legend_loc` and `markers`, where Python ignores an unknown value.
+  resample; and the plot arguments `inner` and `annotation_style`, where
+  Python ignores an unknown value. `legend_loc` and `markers` are checked
+  because R accepts fewer values than matplotlib; see Plots.
 
 ## Plots
 
 - `legend_loc` takes ggplot2 positions: `"right"` (the default), `"left"`,
-  `"top"`, `"bottom"`, or two numbers inside the panel. matplotlib's
-  `"best"` and `"right margin"` have no equivalent.
+  `"top"`, `"bottom"`, or two numbers inside the panel. `"right"` places
+  the legend outside the panel as Python's `"right margin"` does.
+  matplotlib's `"best"` and its corner names, such as `"upper left"`, have
+  no equivalent.
 - `palette` and `cmap` take R palette names, such as `"Accent"`,
   `"viridis"` and `"Greens_r"`, or a vector of colors.
 - Sizes and widths keep matplotlib's units, marker areas in square points
