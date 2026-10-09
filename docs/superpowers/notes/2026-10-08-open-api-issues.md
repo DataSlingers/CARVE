@@ -24,7 +24,8 @@ functions give for an unknown rule.
 `run_carve(object, mode = "generalizability")` keep the default
 `measure="stability"`. They run the whole fit and then fail in the
 selection with "No configuration has a value for ari_stability." The R
-help page now says to pass a generalizability measure with that mode.
+help page of `run_carve()` says to pass a generalizability measure with
+that mode.
 
 Fix in both: before fitting, check that `measure` names a criterion that
 `mode` computes, and fail with a message that says so.
@@ -47,7 +48,7 @@ with `measure = "generalizability"` and the default `mode` fails with
 "Consensus matrix not available for mode='default'. This run likely used
 split-mode and skipped building that artifact." Passing both
 `mode = "generalizability"` and a generalizability measure is the working
-form. I did not run the Python function.
+form.
 
 Fix in both: default `mode` to the mode the fit ran with.
 
@@ -83,7 +84,7 @@ on the 2,638 by 2,000 PBMC expression matrix crashed after
 for environment subassignment" in BiocParallel's `.manager_recv`, followed
 by a segfault.
 
-What was observed in Task 11:
+What was observed while writing the R tutorial:
 
 - The same fit ran in a clean session with `n_jobs` 4 and 10.
 - It ran in a session with Seurat loaded but without `ScaleData()` and

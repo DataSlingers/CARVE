@@ -148,8 +148,9 @@ tests reach them from the package namespace.
 
 ### Fitting
 
-`carve(x, ...)` is an S4 generic with methods for `matrix`, `data.frame`, `SingleCellExperiment`
-and `Seurat`. Its arguments, in Python's order and with Python's defaults:
+`carve(x, ...)` is an S4 generic with methods for `matrix`, `data.frame` and
+`SingleCellExperiment`, and an `ANY` method that handles Seurat objects. Its arguments, in
+Python's order and with Python's defaults:
 
 ```r
 carve(x, n_clusters = 2:10, resolution = NULL, sweep = NULL, sweep_values = NULL,
@@ -164,8 +165,8 @@ carve(x, n_clusters = 2:10, resolution = NULL, sweep = NULL, sweep_values = NULL
 The `SingleCellExperiment` method adds `assay`, `reduction` and `n_dims`, which correspond to
 Python's `layer`, `use_rep` and `n_pcs`. By default it uses the reduced dimension `"PCA"` when
 present and the `"logcounts"` assay otherwise. Seurat objects go through the `ANY` method, which
-takes the same three arguments and defaults to the `"pca"` reduction, then to the data layer of the default assay. Cells are
-columns in both classes, so the matrix is transposed before fitting.
+takes the same three arguments and defaults to the `"pca"` reduction, then to the data layer of the
+default assay. Cells are columns in both classes, so the matrix is transposed before fitting.
 
 ### Querying
 
@@ -282,9 +283,10 @@ There are eight plots: `plot_metric_over_n_clusters`, `plot_metric_by_pipeline`,
 
 Each is an S4 generic. The method for `CARVE` corresponds to the Python method of the same name.
 The `SingleCellExperiment` methods, and the `ANY` methods, which handle Seurat objects, correspond
-to the `carve.pl` functions and read the stored record; the scatter plots take `basis`, a reduced-dimension name. Every plot returns a
-ggplot object. Python's `ax`, `figsize`, `show`, `save` and `dpi` arguments are
-dropped, because plots are saved with `ggsave` and styled with `+`. Selection and content arguments
+to the `carve.pl` functions and read the stored record; the scatter plots take `basis`, a
+reduced-dimension name. Every plot returns a ggplot object. Python's `ax`, `figsize`, `show`,
+`save` and `dpi` arguments are dropped, because plots are saved with `ggsave` and styled with `+`.
+Selection and content arguments
 keep Python's names and defaults. The palette uses the color values of `_plotting.py`, defined once
 in `plotting.R`.
 
@@ -369,9 +371,8 @@ The engine ports `_runner.py`, `_sweep.py`, `_consensus.py`, `_selection.py`, `_
   and Python labels. It runs at the end of each stage and is not part of CI. It replaces the public
   `cross-validation` vignette.
 - Gates: CI runs `R CMD check --no-manual` with warnings as errors (`r-ci.yml`); stage 4 added a
-  pandoc step so that the vignettes build. The final
-  stage installs BiocCheck and runs it once as a report; it gates nothing until the author decides
-  to submit.
+  pandoc step so that the vignettes build. The final stage installs BiocCheck and runs it once as
+  a report; it gates nothing until the author decides to submit.
 
 ## Documentation
 
@@ -390,8 +391,8 @@ Each builds inside `R CMD check` in under a minute.
    plots.
 2. `single-cell.Rmd`: SingleCellExperiment and Seurat, resolution sweeps with Leiden and Louvain,
    `run_carve` and `attach_results`, per-cell scores, plots on objects, anchors at large n, noise
-   labels. It uses `pbmc3k_subset`, and `SeuratObject::pbmc_small` for Seurat objects; those chunks run only
-   when SeuratObject is installed.
+   labels. It uses `pbmc3k_subset`, and `SeuratObject::pbmc_small` for Seurat objects; those chunks
+   run only when SeuratObject is installed.
 3. `customizing.Rmd`: custom grids and estimator functions, the HDBSCAN sweep with a noise policy,
    a custom classifier, randomized preprocessing with `plot_metric_by_pipeline`, `n_jobs`,
    `BPPARAM` and memory, reference labels.
@@ -405,8 +406,8 @@ with their outputs. It is not built by `R CMD check`, so it can run full-size fi
 
 - Part 1 follows `Tutorial.ipynb` on simulated data: easy and hard blobs, every `get_*` function,
   seven of the eight plots (`plot_n_clusters_over_sweep()` stops with an error on an `n_clusters`
-  sweep, so part 2 shows it on the resolution sweep), the selection rules and `not_two`, the fixed-k override, custom grids,
-  `saveRDS`, reference labels, parallelism.
+  sweep, so part 2 shows it on the resolution sweep), the selection rules and `not_two`, the
+  fixed-k override, custom grids, `saveRDS`, reference labels, parallelism.
 - Part 2 follows `Resolution_Tutorial.ipynb` on PBMC 3k. The 10x download is cached in
   `notebooks/data/` and processed with the standard Seurat workflow. It covers the Leiden and
   Louvain sweep, `sweep_value`, `consensus_k`, HDBSCAN, `run_carve` and `attach_results` on Seurat
@@ -433,18 +434,18 @@ vignettes, the tutorial and code comments.
 
 ## Staging
 
-All work happens on `r-package-rework`. There are four plans, each written in its own conversation,
-each ending with `R CMD check` green and the parity script run:
+All work happened on `r-package-rework`. There were four plans, each written in its own
+conversation, and each ended with `R CMD check` green and the parity script run:
 
 1. Core on the k axis: the S4 class and validity, `carve()` for `matrix` and `data.frame`, the
    runner with seeds and the core budget, exact consensus, selection, `get_*` and the accessors,
    KMeans, AgglomerativeClustering and SpectralClustering, the classifier, the fixture script. The
-   old R code and tests are removed at the start.
+   old R code and tests were removed at the start.
 2. Other axes and scale: the `resolution` and `min_cluster_size` sweeps, LeidenClustering,
    LouvainClustering and HDBSCAN, the noise policy and noise labels, anchored consensus,
    randomized preprocessing.
-3. Plots and single-cell: the eight plots, the `SingleCellExperiment` and `Seurat` methods,
-   `run_carve`, `attach_results`, `pbmc3k_subset`.
+3. Plots and single-cell: the eight plots, the `SingleCellExperiment` methods and the `ANY` methods
+   for Seurat objects, `run_carve`, `attach_results`, `pbmc3k_subset`.
 4. Documentation and tutorial: roxygen text, README, NEWS, the four vignettes, the tutorial and its
    rendered HTML, the writing pass, the BiocCheck report, the final parity report.
 
