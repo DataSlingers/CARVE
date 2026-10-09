@@ -1,0 +1,249 @@
+---
+title: "Customizing a CARVE run"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Customizing a CARVE run}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 6, fig.height = 4)
+```
+
+This vignette goes through the arguments of `carve()` that change what a
+run compares and how it runs: the methods and their parameters, a
+clustering function of your own, density-based clustering with noise, the
+classifier, randomized preprocessing, reference labels, and parallel runs.
+`vignette("CARVE", package = "CARVE")` introduces the scores and the
+selection rules.
+
+The data are four groups of 60 points in ten dimensions:
+
+```{r data}
+library(CARVE)
+
+set.seed(1)
+truth <- rep(1:4, each = 60)
+centers <- matrix(rnorm(40, sd = 2), nrow = 4)
+X <- centers[truth, ] + matrix(rnorm(240 * 10), ncol = 10)
+```
+
+## Methods and parameters
+
+The clustering methods are plain R functions that take the data and their
+parameters and return one label per row:
+
+```{r kmeans}
+table(KMeans(X, n_clusters = 4, random_state = 0), truth)
+```
+
+`estimator_grid()` pairs a function with the values to try for each of its
+arguments, and `carve()` runs every combination:
+
+```{r grids}
+grids <- list(
+  estimator_grid(KMeans, n_clusters = 2:6, n_init = c(1, 10)),
+  estimator_grid(AgglomerativeClustering, n_clusters = 2:6, linkage = c("ward", "average")),
+  estimator_grid(SpectralClustering, n_clusters = 2:6)
+)
+fit <- carve(X, estimator_param_grids = grids, n_resamples = 20, random_state = 0)
+unique(estimator_results(fit)$method_label)
+get_k(fit)
+```
+
+The grids set the numbers of clusters, so `n_clusters` is not needed.
+Every argument with several values multiplies the configurations: this run
+has `r nrow(estimator_results(fit))`. Without custom grids,
+`estimator_param_grids = "light"` (the default) or `"full"` chooses a
+preset; `carve()`'s help page lists what each holds.
+
+## A clustering function of your own
+
+Any function with the same shape works: the data matrix first, one row per
+sample, then its parameters, returning one integer label per row and -1
+for noise. If it has a `random_state` argument, CARVE passes it each
+resample's seed. This one clusters on correlation distance:
+
+```{r custom-estimator}
+average_correlation <- function(X, n_clusters = 2L) {
+  distances <- stats::as.dist(1 - stats::cor(t(X)))
+  stats::cutree(stats::hclust(distances, method = "average"), k = n_clusters)
+}
+fit_custom <- carve(
+  X, n_resamples = 20, random_state = 0,
+  estimator_param_grids = list(estimator_grid(average_correlation, n_clusters = 2:6))
+)
+estimator_results(fit_custom)[, c("method_label", "n_clusters", "ari_stability")]
+```
+
+The method takes the name the function was passed under. An anonymous
+function needs `estimator_grid(..., name = )`.
+
+## Density-based clustering and noise
+
+HDBSCAN takes a minimum cluster size instead of a number of clusters, and
+labels the samples in sparse regions -1, for noise. It needs the dbscan
+package, which CARVE suggests but does not install.
+
+```{r hdbscan, eval = requireNamespace("dbscan", quietly = TRUE)}
+fit_hdbscan <- carve(X, sweep = "min_cluster_size", sweep_values = c(5, 10),
+                     n_resamples = 20, random_state = 0)
+estimator_results(fit_hdbscan)[, c("min_cluster_size", "ari_stability", "noise_fraction",
+                                   "n_clusters_observed")]
+get_sweep_value(fit_hdbscan)
+```
+
+A larger minimum size gives fewer clusters, so this sweep runs from fine
+to coarse, and among sizes that score about the same, `"1se"` prefers the
+smaller one. `HDBSCAN()`
+can also be used in a grid, with `estimator_grid(HDBSCAN, min_cluster_size
+= ...)`. `noise_policy` sets what happens to the -1 labels in each
+resample. `"drop"`, the default, leaves those samples out, so the
+consensus matrix, the ARIs and the classifier treat them as not drawn.
+`"as_cluster"` keeps -1 as an ordinary label, and `"singleton"` puts each
+noise sample in a cluster of its own. `noise_fraction` is the share of the
+samples labeled -1, averaged over the resamples.
+
+```{r hdbscan-policy, eval = requireNamespace("dbscan", quietly = TRUE)}
+fit_kept <- carve(X, sweep = "min_cluster_size", sweep_values = c(5, 10),
+                  noise_policy = "as_cluster", n_resamples = 20, random_state = 0)
+get_sweep_value(fit_kept)
+```
+
+## The classifier
+
+Generalizability uses a random forest of `n_trees` trees by default.
+`classifier` takes another one: a function of `x_train`, `y_train` and
+`x_test` that returns one predicted label per row of `x_test`. If it has
+`n_threads` or `random_state` arguments, CARVE fills them in. A
+five-nearest-neighbor classifier, with the FNN package that CARVE already
+uses:
+
+```{r classifier}
+nearest_neighbors <- function(x_train, y_train, x_test) {
+  FNN::knn(x_train, x_test, y_train, k = 5)
+}
+fit_knn <- carve(
+  X, classifier = nearest_neighbors, n_resamples = 20, random_state = 0,
+  estimator_param_grids = list(estimator_grid(KMeans, n_clusters = 2:6))
+)
+get_k(fit_knn, measure = "generalizability")
+```
+
+## Randomized preprocessing
+
+Clustering often runs on transformed data: scaled, reduced with PCA, or
+embedded with t-SNE or UMAP. With `randomize_preprocessing = TRUE`, each
+resample draws a pipeline of one normalization option and one
+dimensionality reduction option, fits it on its subsamples and clusters
+the result, so a configuration that only works after one transform scores
+lower. The classifier trains on the raw features. The transforms are
+plain functions too:
+
+```{r transforms}
+dim(PCA(X, n_components = 2, random_state = 0))
+round(colMeans(StandardScaler(X))[1:3], 10)
+counts <- matrix(rpois(20, lambda = 5), nrow = 4)
+Log1p(counts)
+dim(TSNE(X, perplexity = 10, random_state = 0))
+```
+
+```{r umap, eval = requireNamespace("uwot", quietly = TRUE)}
+dim(UMAP(X, n_neighbors = 10, random_state = 0))
+```
+
+`preprocessing_option()` pairs a transform with the values to draw from.
+Without options, CARVE uses identity, standardization and, for data
+without negative values, log1p, then identity, PCA, t-SNE and, with uwot
+installed, UMAP. Here the options are smaller, to keep the run short:
+
+```{r randomized}
+fit_random <- carve(
+  X, randomize_preprocessing = TRUE, n_resamples = 24, random_state = 0,
+  estimator_param_grids = list(estimator_grid(KMeans, n_clusters = 2:6)),
+  normalization_options = list(preprocessing_option(Identity), preprocessing_option(StandardScaler)),
+  dim_reduction_options = list(preprocessing_option(Identity), preprocessing_option(PCA, n_components = c(2, 5)))
+)
+head(preprocessing_results(fit_random)[, c("pipeline", "n_clusters", "n_resamples", "ari_stability")])
+```
+
+```{r pipeline-plot, fig.width = 7}
+plot_metric_by_pipeline(fit_random)
+```
+
+`preprocessing_results()` splits each configuration's scores by the
+pipeline its resamples used, and `plot_metric_by_pipeline()` draws one
+line per pipeline for the selected method. `preprocessing_pipelines()`
+returns the pipelines by label, and `pipeline_from_spec()` turns one into
+a function that applies it to data, for example to embed all the samples:
+
+```{r pipelines}
+pipelines <- preprocessing_pipelines(fit_random)
+names(pipelines)
+embed <- pipeline_from_spec(pipelines[[1]], random_state = 0)
+dim(embed(X))
+```
+
+## Reference labels
+
+The cluster numbers `get_labels()` returns are arbitrary. `reference_labels`
+renames the clusters to match another labeling with the same number of
+clusters, by maximum overlap. Given to `carve()`, it applies to every
+`get_labels()` call on the fit:
+
+```{r reference}
+fit_reference <- carve(
+  X, reference_labels = truth, n_resamples = 20, random_state = 0,
+  estimator_param_grids = list(estimator_grid(KMeans, n_clusters = 2:6))
+)
+table(get_labels(fit_reference), truth)
+```
+
+`get_labels()` keeps nothing between calls. To keep the names of one
+call's clusters in a later call, pass its labels. The reference needs as many
+clusters as the new cut, so this call fixes `k`:
+
+```{r reference-call}
+first <- get_labels(fit)
+table(get_labels(fit, measure = "generalizability", k = 4, reference_labels = first), first)
+```
+
+## Parallel runs and memory
+
+`n_jobs` is a core budget. The resamples of each configuration are spread
+over up to `n_jobs` worker processes, and each worker's random forest gets
+the cores divided by the number of workers. `n_jobs = -1` uses every core.
+The results do not depend on it:
+
+```{r parallel}
+grid <- list(estimator_grid(KMeans, n_clusters = 2:6))
+fit_two <- carve(X, estimator_param_grids = grid, n_jobs = 2, n_resamples = 20, random_state = 0)
+fit_one <- carve(X, estimator_param_grids = grid, n_resamples = 20, random_state = 0,
+                 BPPARAM = BiocParallel::SerialParam())
+all.equal(estimator_results(fit_two), estimator_results(fit_one))
+```
+
+`BPPARAM` chooses the BiocParallel backend; its worker count then replaces
+the one `n_jobs` would set. `show_progress = TRUE` shows a progress bar
+over the configurations.
+
+Each worker holds its own copy of the data. The fit keeps two consensus
+matrices of `n` by `n` doubles per configuration, `8 * n^2` bytes each, so
+memory grows with the square of the number of samples. `verbose = 2`
+prints the projected total in its header, as the `consensus memory` line.
+It reads 0.00 GB here because the data have only 240 samples:
+
+```{r verbose}
+fit_verbose <- carve(X, estimator_param_grids = list(estimator_grid(KMeans, n_clusters = 2:3)),
+                     n_resamples = 5, random_state = 0, verbose = 2)
+```
+
+`vignette("single-cell", package = "CARVE")` shows how anchors keep that
+memory bounded on large data.
+
+## Session information
+
+```{r session}
+sessionInfo()
+```
