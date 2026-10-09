@@ -128,7 +128,8 @@ consensus heatmap is a single ggplot.
 ### Conventions
 
 - Seeds. Resample `i` of a configuration uses `random_state + i` for its subsample and
-  `random_state + i + n_resamples` for its held-out split, as `validation_iter` does. Each resample
+  `random_state + i + n_resamples` for the second subsample that the stability scores use, as
+  `validation_iter` does. The held-out split is the complement of the first subsample. Each resample
   runs under a local seed, and the caller's RNG state is restored afterwards. Results are identical
   for every `n_jobs`.
 - Messages. Diagnostics go through `warning()`. Verbose output goes through `message()`, gated on
@@ -292,8 +293,8 @@ values of `_plotting.py`, defined once in `plotting.R`.
 ### Bundled data
 
 `pbmc3k_subset`: a list with the 30 principal components, a two-dimensional UMAP and the Seurat
-cluster labels of 1,000 PBMC 3k cells, about 150 KB. `data-raw/pbmc3k_subset.R` builds it and
-records the download URL.
+cluster labels of 1,000 PBMC 3k cells. The file is 90 KB and the object takes 430 KB in memory.
+`data-raw/pbmc3k_subset.R` builds it and records the download URL.
 
 ## Engine behavior
 

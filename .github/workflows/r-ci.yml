@@ -19,8 +19,8 @@ jobs:
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       R_KEEP_PKG_SOURCE: yes
-      # The testthat suite skip_if_not_installed()s the heavy Bioconductor /
-      # Seurat Suggests, so a missing Suggest should not fail the check.
+      # The tests skip_if_not_installed() the optional Suggests (dbscan, uwot,
+      # SeuratObject), so a missing one should not fail the check.
       _R_CHECK_FORCE_SUGGESTS_: false
 
     defaults:
