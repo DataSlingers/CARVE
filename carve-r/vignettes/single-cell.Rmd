@@ -15,8 +15,8 @@ Single-cell data are usually clustered with a community detection method,
 Leiden or Louvain, on a nearest-neighbor graph of the cells' principal
 components. These methods take a resolution instead of a number of
 clusters. CARVE compares resolutions the way it compares numbers of
-clusters, and records the number of clusters each resolution gives as a
-result, averaged over the resamples. This vignette fits CARVE to a
+clusters, and records, for each resolution, the mean number of clusters it gives over
+the resamples. This vignette fits CARVE to a
 SingleCellExperiment and a Seurat object.
 `vignette("CARVE", package = "CARVE")` explains the scores and the
 selection rules.

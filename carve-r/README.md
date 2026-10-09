@@ -26,9 +26,13 @@ differ.
 remotes::install_github("DataSlingers/CARVE", subdir = "carve-r")
 ```
 
-Add `build_vignettes = TRUE` to build the vignettes. HDBSCAN needs the
-dbscan package, UMAP the uwot package and Seurat objects the
-SeuratObject package; CARVE suggests them but does not install them.
+To build the vignettes as well, call
+`remotes::install_github("DataSlingers/CARVE", subdir = "carve-r", dependencies = TRUE, build_vignettes = TRUE)`.
+`dependencies = TRUE` installs the packages the vignettes use, knitr and
+rmarkdown among them, and building them needs pandoc, which RStudio
+includes. Without `dependencies = TRUE`, HDBSCAN needs the dbscan
+package, UMAP the uwot package and Seurat objects the SeuratObject
+package; CARVE suggests them but does not install them.
 
 ## Example
 

@@ -142,27 +142,29 @@ R and numpy draw different random numbers, so at the same seed the two
 packages draw different subsamples and their scores differ. The source
 repository's `carve-r/data-raw/parity_check.R` fits both packages on the
 same data, and `carve-r/data-raw/parity-report.md` gives the differences
-with their tolerances. Beyond the random numbers, the methods differ in
-these ways.
+with their tolerances. The report covers one seed per case. The figures
+below that cite several seeds come from refits over five or ten seeds made
+while porting; they are not in the report. Beyond the random numbers, the
+methods differ in these ways.
 
 - KMeans uses an R implementation of k-means++ seeding and Lloyd's
   iterations, which follows scikit-learn's algorithm with different random
   numbers.
 - Leiden runs igraph's implementation, and Python runs leidenalg. On the
-  same graphs from `pbmc3k_subset`, igraph's partitions reached a slightly
-  higher modularity on average, by less than 0.002, and over five seeds
-  CARVE's Leiden scores at resolutions 0.75 and 1 were 0.008 to 0.029
+  same graphs from `pbmc3k_subset`, igraph's partitions reach a slightly
+  higher modularity on average, by less than 0.002. Over five seeds,
+  CARVE's Leiden scores at resolutions 0.75 and 1 are 0.008 to 0.029
   higher in R. In the parity check on the 1,000 cells of `pbmc3k_subset`,
-  Leiden's `consensus_pac_stability` at resolution 0.75 is 0.038 higher in
-  R, over the check's tolerance of 0.03, and the labels at the default
-  selection agree with an adjusted Rand index of 0.918. Louvain runs
-  igraph's code in both packages, and its scores agreed within the
-  seed-to-seed spread.
+  which uses one seed, Leiden's `consensus_pac_stability` at resolution
+  0.75 is 0.038 higher in R, over the check's tolerance of 0.03, and the
+  labels at the default selection agree with an adjusted Rand index of
+  0.918. Louvain runs igraph's code in both packages, and its scores agree
+  within the seed-to-seed spread.
 - HDBSCAN builds its tree with the dbscan package and selects clusters
   with a port of scikit-learn's selection. Where mutual reachability
   distances tie, dbscan can merge samples in a different order, which
   changes the tree and so the clusters. In the parity check's HDBSCAN case
-  the scores agreed within 0.007, although the stability measure selected a
+  the scores agree within 0.007, although the stability measure selects a
   minimum cluster size of 5 in R and 10 in Python. dbscan computes all
   pairwise distances, so its memory grows with the square of the number of
   samples.
@@ -174,13 +176,13 @@ these ways.
   Rtsne and `UMAP()` runs uwot, which implement the methods separately from
   scikit-learn and umap-learn, so the embeddings differ.
 
-Two differences in the parity report have no explanation yet. With
-randomized preprocessing, spectral clustering's consensus scores at 3 and
-4 clusters are lower in R by about 0.015 to 0.033 over ten seeds; each gap
-is about as large as the seed-to-seed spread of a single fit, but all have
-the same sign. On an anchored run, spectral clustering's accuracy at 5
-clusters is 0.759 in R and 0.781 in Python over five seeds, a gap outside
-both seed-to-seed spreads.
+Two differences have no explanation yet. With randomized preprocessing,
+spectral clustering's consensus scores at 3 and 4 clusters are lower in R
+by about 0.015 to 0.033 over ten seeds; each gap is about as large as the
+seed-to-seed spread of a single fit, but all have the same sign. On an
+anchored run, spectral clustering's accuracy at 5 clusters is 0.759 in R
+and 0.781 in Python over five seeds, a gap outside both seed-to-seed
+spreads.
 
 ## Session information
 
