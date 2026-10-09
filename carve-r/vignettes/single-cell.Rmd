@@ -1,0 +1,183 @@
+---
+title: "CARVE for single-cell data"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{CARVE for single-cell data}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 6, fig.height = 4)
+```
+
+Single-cell data are usually clustered with a community detection method,
+Leiden or Louvain, on a nearest-neighbor graph of the cells' principal
+components. These methods take a resolution instead of a number of
+clusters. CARVE compares resolutions the way it compares numbers of
+clusters, and records, for each resolution, the mean number of clusters it gives over
+the resamples. This vignette fits CARVE to a
+SingleCellExperiment and a Seurat object.
+`vignette("CARVE", package = "CARVE")` explains the scores and the
+selection rules.
+
+The data are `pbmc3k_subset`: 1,000 cells of 10x Genomics' PBMC 3k data
+set, with 30 principal components, a UMAP and the clusters of Seurat's
+tutorial, all computed on the full data.
+
+```{r sce}
+library(CARVE)
+
+cells <- rownames(pbmc3k_subset$pca)
+sce <- SingleCellExperiment::SingleCellExperiment(
+  reducedDims = list(PCA = pbmc3k_subset$pca, UMAP = pbmc3k_subset$umap),
+  colData = S4Vectors::DataFrame(seurat_clusters = pbmc3k_subset$seurat_clusters, row.names = cells)
+)
+sce
+```
+
+## Comparing resolutions
+
+```{r run}
+sce <- run_carve(sce, resolution = c(0.25, 0.5, 1, 1.5), n_resamples = 20)
+```
+
+`run_carve()` reads the cells from the `"PCA"` reduced dimensions, fits
+CARVE and writes the result into the object. `reduction`, `assay` and
+`n_dims` choose other input; without a `"PCA"` entry it reads the
+`"logcounts"` assay. With `resolution` given, CARVE compares Leiden and
+Louvain clustering, each on a graph of the 15 nearest neighbors, at every
+resolution. Each subsample is clustered on a graph with the neighbor count
+scaled to its size, so that the graph covers the same neighborhood. This
+run uses 20 resamples to keep the vignette fast; use the default, 100, for
+an analysis.
+
+The selected configuration's results go into the object:
+
+```{r stored}
+head(SummarizedExperiment::colData(sce))
+names(S4Vectors::metadata(sce)$carve)
+S4Vectors::metadata(sce)$carve$params$selected_resolution
+table(CARVE = sce$carve, Seurat = sce$seurat_clusters)
+```
+
+The column `carve` holds the labels, as a factor. `carve_stability` and
+`carve_stability_ce` hold each cell's stability in its Gini and
+cross-entropy forms, and `carve_generalizability` the share of the draws
+holding the cell out in which the classifier predicted its cluster.
+`metadata(sce)$carve` holds the run's parameters, the results table and
+the selected configuration's consensus matrix. The `key` argument changes
+the name `carve` in all of them, so the results of several runs can sit in
+one object.
+
+CARVE's `r nlevels(sce$carve)` clusters are coarser than the
+`r nlevels(sce$seurat_clusters)` of Seurat's tutorial. In the table, its
+cluster 1 holds most cells of Seurat's clusters 0 and 2, and its cluster 2
+most cells of clusters 4 and 6.
+
+## Plots of the object
+
+Every plot function also takes the object and reads what `run_carve()`
+stored:
+
+```{r sce-metric, fig.width = 7}
+plot_metric_over_n_clusters(sce)
+plot_n_clusters_over_sweep(sce)
+```
+
+The first plot has the resolution on the x axis. The second shows how
+many clusters each method found at each resolution, averaged over the
+resamples, with standard error bars.
+
+```{r sce-cells, fig.width = 6, fig.height = 4.5}
+plot_cluster_scatter(sce, basis = "UMAP")
+plot_cluster_violin(sce)
+```
+
+`basis` names the reduced dimensions to draw. Cells with low stability are
+drawn larger and more opaque.
+
+## Keeping the fit
+
+`run_carve()` stores only the selected configuration, because a fit holds
+the consensus matrices of all of them. To look at the others, fit with
+`carve()` and keep the fit. With the same arguments and seed it gives the
+same result, and `attach_results()` writes it into the object as
+`run_carve()` does:
+
+```{r fit}
+fit <- carve(sce, resolution = c(0.25, 0.5, 1, 1.5), n_resamples = 20, random_state = 0)
+get_sweep_value(fit)
+get_k(fit)
+identical(attach_results(sce, fit)$carve, sce$carve)
+```
+
+On a resolution sweep, `get_sweep_value()` returns the selected
+resolution, and `get_k()` the number of clusters at it, rounded from the
+mean over the resamples. `sweep_value` asks for another resolution, and
+`consensus_k` cuts the selected consensus matrix into another number of
+clusters:
+
+```{r other-resolution}
+table(get_labels(fit, sweep_value = 1))
+table(get_labels(fit, consensus_k = 4))
+sce <- attach_results(sce, fit, sweep_value = 1, key = "carve_res1")
+table(sce$carve_res1)
+```
+
+## Ambiguous cells
+
+`noise_labels = TRUE` labels -1 the cells whose stability is low compared
+with the rest: those strictly below the `noise_quantile` of the selected
+configuration's per-cell scores and more than 0.05 below their median.
+`noise_score` picks the score.
+
+```{r noise}
+table(get_labels(fit, noise_labels = TRUE, noise_quantile = 0.05))
+```
+
+If fewer cells pass both tests than the quantile asks for, a warning gives
+the counts.
+
+## Larger data sets
+
+A consensus matrix has one entry per pair of cells, and the fit keeps two
+per configuration, `8 * n^2` bytes each. Above `anchor_threshold` cells,
+5,000 by default, CARVE draws `consensus_anchors` anchor cells once and
+keeps the consensus over them only. Every cell still gets its scores, and
+`get_labels()` labels the cells that are not anchors with the classifier.
+Setting `consensus_anchors` anchors a smaller run too, with a warning,
+which is how it is shown here:
+
+```{r anchored}
+anchored <- carve(sce, resolution = c(0.5, 1), n_resamples = 20,
+                  consensus_anchors = 300, random_state = 0)
+length(consensus_anchors(anchored))
+dim(consensus_matrix(anchored, estimator_results(anchored)$config_id[1]))
+table(get_labels(anchored))
+```
+
+## Seurat objects
+
+The same functions take a Seurat object. Its default input is the `"pca"`
+reduction, then the `"data"` layer of the default assay; `assay` names a
+Seurat assay, whose `"data"` layer is clustered. The labels and scores go
+into the cell metadata, and the record into the `misc` slot.
+`SeuratObject::pbmc_small` has 80 cells:
+
+```{r seurat, eval = requireNamespace("SeuratObject", quietly = TRUE)}
+pbmc <- SeuratObject::pbmc_small
+pbmc <- run_carve(pbmc, resolution = c(0.5, 1, 2), n_resamples = 20)
+head(pbmc@meta.data[, c("carve", "carve_stability", "carve_generalizability")])
+names(pbmc@misc$carve)
+```
+
+```{r seurat-plot, eval = requireNamespace("SeuratObject", quietly = TRUE), fig.width = 6, fig.height = 4.5}
+plot_cluster_scatter(pbmc, basis = "tsne")
+```
+
+## Session information
+
+```{r session}
+sessionInfo()
+```

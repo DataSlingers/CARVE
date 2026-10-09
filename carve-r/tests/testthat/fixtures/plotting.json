@@ -1,0 +1,506 @@
+{
+ "palette": [
+  [
+   "#7fc97f"
+  ],
+  [
+   "#7fc97f",
+   "#666666"
+  ],
+  [
+   "#7fc97f",
+   "#386cb0",
+   "#666666"
+  ],
+  [
+   "#7fc97f",
+   "#fdc086",
+   "#f0027f",
+   "#666666"
+  ],
+  [
+   "#7fc97f",
+   "#fdc086",
+   "#386cb0",
+   "#bf5b17",
+   "#666666"
+  ],
+  [
+   "#7fc97f",
+   "#beaed4",
+   "#ffff99",
+   "#386cb0",
+   "#bf5b17",
+   "#666666"
+  ],
+  [
+   "#7fc97f",
+   "#beaed4",
+   "#fdc086",
+   "#386cb0",
+   "#f0027f",
+   "#bf5b17",
+   "#666666"
+  ],
+  [
+   "#7fc97f",
+   "#beaed4",
+   "#fdc086",
+   "#ffff99",
+   "#386cb0",
+   "#f0027f",
+   "#bf5b17",
+   "#666666"
+  ],
+  [
+   "#7fc97f",
+   "#beaed4",
+   "#fdc086",
+   "#ffff99",
+   "#386cb0",
+   "#f0027f",
+   "#bf5b17",
+   "#666666",
+   "#666666"
+  ],
+  [
+   "#7fc97f",
+   "#7fc97f",
+   "#beaed4",
+   "#fdc086",
+   "#ffff99",
+   "#386cb0",
+   "#f0027f",
+   "#bf5b17",
+   "#666666",
+   "#666666"
+  ],
+  [
+   "#7fc97f",
+   "#7fc97f",
+   "#beaed4",
+   "#fdc086",
+   "#ffff99",
+   "#386cb0",
+   "#386cb0",
+   "#f0027f",
+   "#bf5b17",
+   "#666666",
+   "#666666"
+  ],
+  [
+   "#7fc97f",
+   "#7fc97f",
+   "#beaed4",
+   "#fdc086",
+   "#fdc086",
+   "#ffff99",
+   "#386cb0",
+   "#f0027f",
+   "#f0027f",
+   "#bf5b17",
+   "#666666",
+   "#666666"
+  ]
+ ],
+ "ylabels": {
+  "accuracy_generalizability": "Accuracy Generalizability",
+  "ari_average": "ARI Average",
+  "ari_generalizability": "ARI Generalizability",
+  "ari_stability": "ARI Stability",
+  "consensus_ce_stability": "Consensus Ce Stability",
+  "consensus_gini_stability": "Consensus Gini Stability",
+  "consensus_pac_stability": "Consensus Pac Stability"
+ },
+ "selections": [
+  {
+   "param": "n_clusters",
+   "rule": "1se",
+   "value": 4,
+   "label": "Selected k (1-SE rule): 4"
+  },
+  {
+   "param": "n_clusters",
+   "rule": "max",
+   "value": 10,
+   "label": "Selected k (Max rule): 10"
+  },
+  {
+   "param": "resolution",
+   "rule": "max",
+   "value": 0.25,
+   "label": "Selected resolution (Max rule): 0.25"
+  },
+  {
+   "param": "resolution",
+   "rule": "quantile",
+   "value": 1.0,
+   "label": "Selected resolution (Quantile rule): 1"
+  },
+  {
+   "param": "min_cluster_size",
+   "rule": "1se",
+   "value": 40,
+   "label": "Selected min_cluster_size (1-SE rule): 40"
+  },
+  {
+   "param": "resolution",
+   "rule": "max",
+   "value": 1e-05,
+   "label": "Selected resolution (Max rule): 1e-05"
+  },
+  {
+   "param": "resolution",
+   "rule": "max",
+   "value": 100000.0,
+   "label": "Selected resolution (Max rule): 100000"
+  },
+  {
+   "param": "resolution",
+   "rule": "max",
+   "value": 1234567.0,
+   "label": "Selected resolution (Max rule): 1.23457e+06"
+  }
+ ],
+ "annotations": [
+  {
+   "param": "n_clusters",
+   "value": 3,
+   "method_label": "AgglomerativeClustering, linkage=ward",
+   "measure": "stability",
+   "rule": "1se",
+   "selected_k": 3,
+   "pinned": false,
+   "tight_layout": false,
+   "text": "AgglomerativeClustering, linkage=ward (k = 3)\nStability, 1-SE rule"
+  },
+  {
+   "param": "n_clusters",
+   "value": 3,
+   "method_label": "AgglomerativeClustering, linkage=ward",
+   "measure": "ari_generalizability",
+   "rule": "max",
+   "selected_k": 3,
+   "pinned": true,
+   "tight_layout": false,
+   "text": "AgglomerativeClustering, linkage=ward (k = 3, fixed)\nAri Generalizability, Max rule"
+  },
+  {
+   "param": "n_clusters",
+   "value": 3,
+   "method_label": "AgglomerativeClustering, linkage=ward",
+   "measure": "average",
+   "rule": "quantile",
+   "selected_k": 3,
+   "pinned": false,
+   "tight_layout": true,
+   "text": "AgglomerativeClustering\nlinkage=ward (k = 3)\nAverage, Quantile rule\n"
+  },
+  {
+   "param": "resolution",
+   "value": 0.5,
+   "method_label": "LeidenClustering, n_neighbors=15, weighting=connectivity",
+   "measure": "stability",
+   "rule": "1se",
+   "selected_k": 7,
+   "pinned": false,
+   "tight_layout": false,
+   "text": "LeidenClustering, n_neighbors=15, weighting=connectivity (resolution = 0.5, k \u2248 7)\nStability, 1-SE rule"
+  },
+  {
+   "param": "resolution",
+   "value": 0.5,
+   "method_label": "LeidenClustering, n_neighbors=15, weighting=connectivity",
+   "measure": "generalizability",
+   "rule": "max",
+   "selected_k": 7,
+   "pinned": true,
+   "tight_layout": true,
+   "text": "LeidenClustering\nn_neighbors=15\nweighting=connectivity (resolution = 0.5, k \u2248 7, fixed)\nGeneralizability, Max rule\n"
+  },
+  {
+   "param": "resolution",
+   "value": 0.5,
+   "method_label": "LeidenClustering, n_neighbors=15, weighting=connectivity",
+   "measure": "gini",
+   "rule": "max",
+   "selected_k": null,
+   "pinned": false,
+   "tight_layout": false,
+   "text": "LeidenClustering, n_neighbors=15, weighting=connectivity (resolution = 0.5, k \u2248 None)\nGini, Max rule"
+  }
+ ],
+ "score_groups": {
+  "scores": [
+   0.9,
+   null,
+   0.7,
+   0.6,
+   0.95,
+   0.3
+  ],
+  "labels": [
+   2,
+   0,
+   0,
+   2,
+   1,
+   1
+  ],
+  "cases": [
+   {
+    "order": null,
+    "groups": [
+     [
+      0.7
+     ],
+     [
+      0.95,
+      0.3
+     ],
+     [
+      0.9,
+      0.6
+     ]
+    ],
+    "kept_order": [
+     1,
+     2,
+     3
+    ]
+   },
+   {
+    "order": [
+     2,
+     0
+    ],
+    "groups": [
+     [
+      0.9,
+      0.6
+     ],
+     [
+      0.7
+     ]
+    ],
+    "kept_order": [
+     3,
+     1
+    ]
+   }
+  ]
+ },
+ "scatter": {
+  "X": [
+   [
+    1.764052345967664,
+    0.4001572083672233
+   ],
+   [
+    0.9787379841057392,
+    2.240893199201458
+   ],
+   [
+    1.8675579901499675,
+    -0.977277879876411
+   ],
+   [
+    0.9500884175255894,
+    -0.1513572082976979
+   ],
+   [
+    -0.10321885179355784,
+    0.41059850193837233
+   ],
+   [
+    0.144043571160878,
+    1.454273506962975
+   ],
+   [
+    0.7610377251469934,
+    0.12167501649282841
+   ],
+   [
+    0.44386323274542566,
+    0.33367432737426683
+   ],
+   [
+    1.4940790731576061,
+    -0.20515826376580087
+   ],
+   [
+    0.31306770165090136,
+    -0.8540957393017248
+   ],
+   [
+    -2.5529898158340787,
+    0.6536185954403606
+   ],
+   [
+    0.8644361988595055,
+    -0.7421650204064417
+   ]
+  ],
+  "labels": [
+   0,
+   0,
+   0,
+   0,
+   1,
+   1,
+   1,
+   1,
+   2,
+   2,
+   2,
+   2
+  ],
+  "scores": [
+   0.417022004702574,
+   0.7203244934421581,
+   0.00011437481734488664,
+   0.30233257263183977,
+   0.14675589081711304,
+   0.0923385947687978,
+   0.1862602113776709,
+   0.34556072704304774,
+   0.39676747423066994,
+   0.538816734003357,
+   0.4191945144032948,
+   0.6852195003967595
+  ],
+  "sizes": [
+   33.95087508537408,
+   15.0,
+   60.0,
+   41.11687332632857,
+   50.837579132337645,
+   54.237667882617835,
+   48.369279424719714,
+   38.4159019039627,
+   35.21641391586988,
+   26.340925326544905,
+   33.81513284293085,
+   17.193421955886016
+  ],
+  "alphas": [
+   0.6395087508537409,
+   0.45,
+   0.9,
+   0.7111687332632858,
+   0.8083757913233764,
+   0.8423766788261784,
+   0.7836927942471972,
+   0.6841590190396271,
+   0.6521641391586988,
+   0.5634092532654491,
+   0.6381513284293086,
+   0.47193421955886017
+  ],
+  "legend": [
+   "1 (Mean = 0.36)",
+   "2 (Mean = 0.19)",
+   "3 (Mean = 0.51)"
+  ],
+  "flat_sizes": [
+   37.5,
+   37.5,
+   37.5,
+   37.5,
+   37.5,
+   37.5,
+   37.5,
+   37.5,
+   37.5,
+   37.5,
+   37.5,
+   37.5
+  ],
+  "flat_alphas": [
+   0.675,
+   0.675,
+   0.675,
+   0.675,
+   0.675,
+   0.675,
+   0.675,
+   0.675,
+   0.675,
+   0.675,
+   0.675,
+   0.675
+  ]
+ },
+ "diagnostic": {
+  "scores": [
+   0.417022004702574,
+   0.7203244934421581,
+   0.00011437481734488664,
+   0.30233257263183977,
+   0.14675589081711304,
+   null,
+   0.1862602113776709,
+   0.34556072704304774,
+   0.39676747423066994,
+   0.538816734003357,
+   0.4191945144032948,
+   0.6852195003967595
+  ],
+  "order_unsorted": [
+   8,
+   9,
+   10,
+   11,
+   0,
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7
+  ],
+  "alpha_unsorted": [
+   0.6144775498024203,
+   0.4764143939684763,
+   0.5926798442233687,
+   0.3341198970915603,
+   0.5947913902169302,
+   0.30000000000000004,
+   1.0,
+   0.7062624739651112,
+   0.8574734531696967,
+   0.2,
+   0.8190776799400845,
+   0.6642473629505309
+  ],
+  "order_sorted": [
+   11,
+   9,
+   10,
+   8,
+   1,
+   0,
+   3,
+   2,
+   5,
+   7,
+   6,
+   4
+  ],
+  "alpha_sorted": [
+   0.3341198970915603,
+   0.4764143939684763,
+   0.5926798442233687,
+   0.6144775498024203,
+   0.30000000000000004,
+   0.5947913902169302,
+   0.7062624739651112,
+   1.0,
+   0.2,
+   0.6642473629505309,
+   0.8190776799400845,
+   0.8574734531696967
+  ]
+ }
+}

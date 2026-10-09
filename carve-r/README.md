@@ -4,16 +4,20 @@
 
 # CARVE
 
-<!-- badges: start -->
-<!-- badges: end -->
+CARVE (cluster analysis with resampling for validation and exploration)
+chooses the number of clusters, and the clustering method, by
+resampling. Each candidate configuration clusters many subsamples of the
+data and is scored for stability, the agreement between the clusterings
+of two overlapping subsamples, and for generalizability, how well a
+classifier trained on one subsample predicts the clusters of the
+held-out samples. CARVE compares numbers of clusters, Leiden and Louvain
+resolutions, or HDBSCAN's minimum cluster size, on a matrix or on a
+SingleCellExperiment or Seurat object.
 
-**Cluster Analysis with Resampling for Validation and Exploration** —
-the R companion to the Python
-[`carve`](https://github.com/DataSlingers/CARVE) package.
-
-Choosing the number of clusters is hard, especially for high-dimensional biological data where standard internal clustering validation indices (CVIs) are often unreliable. CARVE measures clustering robustness through two resampling-based notions: **stability** (reproducibility of cluster assignments under data subsampling) and **generalizability** (agreement between held-out cluster labels and predictions from a classifier trained on a subsample of the data). CARVE reports global, cluster-level, and sample-level diagnostics with visualizations to help find insightful clustering solutions.
-
-Both metrics are produced at global, per-cluster, and per-sample resolutions with insightful visualizations and `Seurat` / `SingleCellExperiment` integration.
+This is the R package. The Python package, carve-validate, is in the
+same repository and has the same scores, selection rules and defaults;
+`vignette("python-users", package = "CARVE")` lists where the two
+differ.
 
 ## Installation
 
@@ -22,93 +26,57 @@ Both metrics are produced at global, per-cluster, and per-sample resolutions wit
 remotes::install_github("DataSlingers/CARVE", subdir = "carve-r")
 ```
 
-CARVE depends only on CRAN packages (`R6`, `clue`, `ranger`, `RSpectra`,
-`FNN`, `Matrix`, `ggplot2`, `patchwork`, `furrr`, `progressr`).
-`Seurat`, `SingleCellExperiment`, and `reticulate` are optional and only
-loaded when used.
+To build the vignettes as well, call
+`remotes::install_github("DataSlingers/CARVE", subdir = "carve-r", dependencies = TRUE, build_vignettes = TRUE)`.
+`dependencies = TRUE` installs the packages the vignettes use, knitr and
+rmarkdown among them, and building them needs pandoc, which RStudio
+includes. Without `dependencies = TRUE`, HDBSCAN needs the dbscan
+package, UMAP the uwot package and Seurat objects the SeuratObject
+package; CARVE suggests them but does not install them.
 
-## Quick start
+## Example
 
 ``` r
 library(CARVE)
 
 set.seed(1)
-centers <- rbind(c(0, 0), c(6, 0), c(3, 5))
-X <- do.call(rbind, lapply(seq_len(nrow(centers)), function(i) {
-  matrix(stats::rnorm(60, 0, 0.4), ncol = 2) +
-    matrix(centers[i, ], 30, 2, byrow = TRUE)
-}))
+centers <- rbind(c(0, 0), c(4, 0), c(2, 3.5), c(6, 3.5))
+X <- centers[rep(1:4, each = 50), ] + matrix(rnorm(400, sd = 0.8), ncol = 2)
 
-fit <- CARVE$new(
-  n_clusters = 2:6,
-  n_resamples = 50,
-  subsample_ratio = 0.8,
-  random_state = 1L
-)
-fit$fit(X)
-
-fit$get_k(measure = "stability", rule = "max")
-#> [1] 3
-labels <- fit$get_labels(measure = "stability", rule = "max")
+fit <- carve(X, n_clusters = 2:8, n_resamples = 30, random_state = 1)
+get_k(fit)
+#> [1] 4
+table(get_labels(fit))
+#> 
+#>  1  2  3  4 
+#> 51 49 50 50
 ```
 
-The S3 entry point `carve()` accepts a matrix, a numeric data frame, or
-(when the optional packages are installed) a `Seurat` or
-`SingleCellExperiment` object:
+`plot_metric_over_n_clusters(fit)` draws the scores against the number
+of clusters, and `estimator_results(fit)` holds them as a table.
 
-``` r
-fit <- carve(X, n_clusters = 2:6, n_resamples = 50, random_state = 1L)
-```
+## Documentation
 
-## Visualisation
-
-All plot methods return `ggplot` objects (the consensus heatmap is a
-`patchwork`):
-
-``` r
-fit$plot_metric_over_n_clusters(measure = "stability", rule = "max")
-fit$plot_consensus_matrix(measure = "stability", rule = "max")
-fit$plot_cluster_violin(source = "gini", measure = "stability", rule = "max")
-fit$plot_cluster_scatter(source = "gini", measure = "stability", rule = "max")
-```
-
-## Seurat workflow
-
-``` r
-library(Seurat)
-data("pbmc_small")
-
-pbmc_small <- RunCARVE(pbmc_small, reduction = "pca", n_dims = 10,
-                       n_clusters = 2:6, n_resamples = 30, random_state = 1L)
-pbmc_small <- AddCarveLabels(pbmc_small,
-                              measure = "stability", rule = "max")
-DimPlot(pbmc_small, group.by = "carve_labels")
-```
-
-## Parallel resampling
-
-``` r
-fit <- CARVE$new(n_clusters = 2:10, n_resamples = 100,
-                 n_jobs = 4L, random_state = 1L)
-progressr::with_progress(fit$fit(X, show_progress = TRUE))
-```
-
-## Vignettes
-
-- `vignette("getting-started", package = "CARVE")` — five-minute tour.
-- `vignette("seurat-workflow", package = "CARVE")` — end-to-end Seurat
-  pipeline on `pbmc_small`.
-- `vignette("cross-validation", package = "CARVE")` — Python ↔ R
-  numerical equivalence on a fixed set of toy datasets, driven via
-  `reticulate`.
+- `vignette("CARVE", package = "CARVE")`: the scores, the selection
+  rules, the results and the plots, on simulated data.
+- `vignette("single-cell", package = "CARVE")`: SingleCellExperiment and
+  Seurat objects, Leiden and Louvain resolutions, and large data sets.
+- `vignette("customizing", package = "CARVE")`: methods and parameters,
+  HDBSCAN, the classifier, randomized preprocessing, reference labels
+  and parallel runs.
+- `vignette("python-users", package = "CARVE")`: the Python names and
+  their R equivalents, and where the results differ.
+- `notebooks/R_Tutorial.Rmd` in the repository goes through every
+  function on full-size data, and `notebooks/R_Tutorial.html` is its
+  rendered output.
 
 ## Citation
 
-If you use CARVE in your research, please cite:
+If you use CARVE, please cite:
 
-> Wycik, K. R., Tang, T. M., Zikry, T. M., & Allen, G. I. (2026). *CARVE: Cluster
-> Analysis with Resampling for Validation and Exploration.* Zenodo.
-> https://doi.org/10.5281/zenodo.20448965
+> Wycik, K. R., Tang, T. M., Zikry, T. M., & Allen, G. I. (2026). CARVE:
+> Cluster Analysis with Resampling for Validation and Exploration.
+> Zenodo. <https://doi.org/10.5281/zenodo.20448965>
 
 ``` bibtex
 @software{wycik2026carve,
@@ -123,70 +91,5 @@ If you use CARVE in your research, please cite:
 
 ## License
 
-MIT (see `LICENSE`).
-
-abc def ghi jkl mno pqr stu
-
-
-set.seed(1)
-centers <- rbind(c(0, 0), c(6, 0), c(3, 5))
-X <- do.call(rbind, lapply(seq_len(nrow(centers)), function(i) {
-  matrix(stats::rnorm(60, 0, 0.4), ncol = 2) +
-    matrix(centers[i, ], 30, 2, byrow = TRUE)
-}))
-
-fit <- CARVE$new(
-  n_clusters = 2:6,
-  n_resamples = 50,
-  subsample_ratio = 0.8,
-  random_state = 1L
-)
-fit$fit(X)
-
-fit$get_k(measure = "stability", rule = "max")
-#> [1] 3
-
-fit$plot_consensus_matrix(measure = "stability", rule = "max")
-fit$plot_cluster_violin(source = "gini", measure = "stability", rule = "max")
-
-data("pbmc_small")
-
-pbmc_small <- RunCARVE(pbmc_small, reduction = "pca", n_dims = 10,
-                       n_clusters = 2:6, n_resamples = 30, random_state = 1L)
-pbmc_small <- AddCarveLabels(pbmc_small,
-                              measure = "stability", rule = "max")
-
-                 n_jobs = 4L, random_state = 1L)
-
-abc def ghi jkl mno pqr stu
-
-
-set.seed(1)
-centers <- rbind(c(0, 0), c(6, 0), c(3, 5))
-X <- do.call(rbind, lapply(seq_len(nrow(centers)), function(i) {
-  matrix(stats::rnorm(60, 0, 0.4), ncol = 2) +
-    matrix(centers[i, ], 30, 2, byrow = TRUE)
-}))
-
-fit <- CARVE$new(
-  n_clusters = 2:6,
-  n_resamples = 50,
-  subsample_ratio = 0.8,
-  random_state = 1L
-)
-fit$fit(X)
-
-fit$get_k(measure = "stability", rule = "max")
-#> [1] 3
-
-fit$plot_consensus_matrix(measure = "stability", rule = "max")
-fit$plot_cluster_violin(source = "gini", measure = "stability", rule = "max")
-
-data("pbmc_small")
-
-pbmc_small <- RunCARVE(pbmc_small, reduction = "pca", n_dims = 10,
-                       n_clusters = 2:6, n_resamples = 30, random_state = 1L)
-pbmc_small <- AddCarveLabels(pbmc_small,
-                              measure = "stability", rule = "max")
-
-                 n_jobs = 4L, random_state = 1L)
+MIT. The HDBSCAN cluster selection is ported from scikit-learn and keeps
+its BSD 3-Clause notice; see `inst/COPYRIGHTS`.

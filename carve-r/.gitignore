@@ -9,3 +9,8 @@
 /src/*.o
 /src/*.so
 /src/*.dll
+/data-raw/cache/
+!/data/
+/vignettes/*.html
+/vignettes/*.R
+/vignettes/*_files/

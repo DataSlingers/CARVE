@@ -2,15 +2,21 @@
 % Please edit documentation in R/CARVE-package.R
 \docType{package}
 \name{CARVE-package}
+\alias{CARVE}
 \alias{CARVE-package}
-\title{CARVE: Cluster Analysis with Resampling for Validation and Exploration}
+\title{CARVE: cluster analysis with resampling for validation and exploration}
 \description{
-Stability- and generalizability-based validation of clustering methods via
-repeated subsampling, consensus matrices, and rule-based selection.
+CARVE chooses the number of clusters, and the clustering method, by
+resampling. \code{\link[=carve]{carve()}} clusters many subsamples of the data with every
+candidate configuration and scores each one for stability and
+generalizability. \code{\link[=get_k]{get_k()}} and \code{\link[=get_labels]{get_labels()}} then pick a configuration
+with a selection rule.
 }
 \details{
-The entry point is [CARVE], an R6 estimator class, with S3 dispatch via
-[carve()] for matrix, Seurat, and SingleCellExperiment inputs.
+Start with \code{vignette("CARVE", package = "CARVE")}. The other vignettes
+cover single-cell data (\code{"single-cell"}), the options of a run
+(\code{"customizing"}) and the differences from the Python package
+(\code{"python-users"}).
 }
 \seealso{
 Useful links:
@@ -22,6 +28,16 @@ Useful links:
 }
 \author{
 \strong{Maintainer}: Kai Wycik \email{kai.wycik@columbia.edu}
+
+Authors:
+\itemize{
+  \item Kai Wycik \email{kai.wycik@columbia.edu}
+}
+
+Other contributors:
+\itemize{
+  \item The scikit-learn developers (HDBSCAN cluster selection in R/estimators.R, ported from scikit-learn) [copyright holder]
+}
 
 }
 \keyword{internal}

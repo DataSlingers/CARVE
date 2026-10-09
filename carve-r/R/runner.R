@@ -1,427 +1,503 @@
-# Core validation runner. Mirrors _runner.py.
-#
-# Parallelization: `n_jobs > 1` dispatches the inner resample loop via
-# `furrr::future_map` under a scoped `future::plan(multisession)`. Every
-# resample seeds its own RNG as `random_state + b` (where `b` is the
-# resample index), so results are reproducible *across* `n_jobs` values,
-# not just within a fixed `n_jobs`. Progress reporting piggybacks on
-# `progressr::progressor`, which works transparently over futures.
+# The resampling loop. Mirrors _runner.py: a serial loop over
+# configurations with the resamples inside it, run in this process or
+# through BiocParallel. Every resample derives its own seeds from
+# random_state, so the results do not depend on the backend.
 
+# The only place the subsample seeds are derived, so the embedding pass and
+# the configuration loop draw the same subsamples.
+resample_indices <- function(n_samples, seed, n_resamples, subsample_ratio,
+                             random_state, run_stability) {
+  first <- split_subsample_indices(n_samples, subsample_ratio, random_state + seed)
+  second <- NULL
+  if (run_stability) {
+    second <- split_subsample_indices(n_samples, subsample_ratio, random_state + seed + n_resamples)$train
+  }
+  list(train = first$train, test = first$test, stability = second)
+}
 
-#' Run the CARVE validation loop
-#'
-#' For each `(estimator, param-set)` configuration, draw `n_resamples`
-#' paired subsamples, cluster each, align labels across subsamples, and
-#' accumulate stability ARI, generalizability ARI (via random-forest
-#' prediction), consensus matrices, and per-sample generalizability
-#' scores.
-#'
-#' Mirrors `_runner.run_validation`.
-#'
-#' @param X Numeric matrix of shape `(n_samples, n_features)`.
-#' @param estimator_grids List of grid specs (see [default_estimator_grids()]).
-#' @param n_resamples Number of resamples per configuration.
-#' @param subsample_ratio Proportion of samples in each subsample.
-#' @param normalization_options,dim_reduction_options Preprocessor spec
-#'   lists; only used when `randomize_preprocessing = TRUE`.
-#' @param classifier Currently ignored; a random-forest via `ranger` is used.
-#' @param n_trees Integer; number of trees in the random forest.
-#' @param randomize_preprocessing Logical; sample preprocessing per resample.
-#' @param n_jobs Integer; when `> 1`, the resample loop runs over
-#'   `furrr::future_map` with a scoped `future::plan(multisession,
-#'   workers = min(n_jobs, n_resamples))`. Per-resample seeds make the
-#'   result reproducible across `n_jobs` values.
-#' @param random_state Integer seed, or `NULL`.
-#' @param show_progress Logical; when `TRUE`, a `progressr` progress bar
-#'   is emitted per resample. Register a handler (e.g.
-#'   `progressr::handlers("txtprogressbar")`) to see the bar.
-#' @param mode One of `"default"`, `"stability"`, `"generalizability"`.
-#' @param verbose Integer verbosity level (0–2).
-#'
-#' @return A list with elements
-#'   * `estimator_results` — data frame, one row per configuration.
-#'   * `pipeline_records` — list of per-config resample pipeline records
-#'     when `randomize_preprocessing = TRUE`; otherwise empty.
-#'   * `consensus_matrices`, `consensus_generalizability_matrices` — lists
-#'     of per-config consensus matrices (each a dense matrix).
-#'   * `generalizability_scores` — list of per-config numeric vectors.
-#'
-#' @export
-run_validation <- function(X,
-                           estimator_grids,
-                           n_resamples,
-                           subsample_ratio,
-                           normalization_options = default_normalization_options(),
-                           dim_reduction_options = default_dim_reduction_options(X, subsample_ratio),
-                           classifier = NULL,
-                           n_trees = 100L,
-                           randomize_preprocessing = FALSE,
-                           n_jobs = 1L,
-                           random_state = NULL,
-                           show_progress = FALSE,
-                           mode = "default",
-                           verbose = 0L) {
-  X <- ensure_2d_matrix(X)
-  storage.mode(X) <- "double"
+# Python's warning when the noise policy leaves a subsample empty.
+ALL_NOISE_WARNING <- "All points in a subsample were labelled as noise and dropped (noise_policy='drop'); %s ARI is undefined for this resample. Consider relaxing the clustering parameters or switching to noise_policy='as_cluster'."
+
+validation_iter <- function(X, estimator, estimator_name, params, subsample_ratio,
+                            n_resamples, seed, classifier = NULL, n_trees = 100L,
+                            sweep_param = "n_clusters", noise_policy = "drop",
+                            mode = "default", random_state = 0L, classifier_threads = 1L,
+                            embeddings = NULL) {
   policy <- resolve_mode(mode)
   n <- nrow(X)
-  n_jobs <- max(1L, as.integer(n_jobs))
+  idx <- resample_indices(n, seed, n_resamples, subsample_ratio, random_state, policy$run_stability)
 
-  print_run_header(
-    X, n_clusters = "<per grid>",
-    n_resamples = n_resamples, subsample_ratio = subsample_ratio,
-    estimator_grids = estimator_grids, n_jobs = n_jobs,
-    randomize_preprocessing = randomize_preprocessing,
-    random_state = random_state, verbose = verbose
+  # What the estimator clusters: the raw subsamples, or under randomized
+  # preprocessing this resample's embeddings, one independent fit per
+  # subsample.
+  pipeline <- NULL
+  if (is.null(embeddings)) {
+    X_1 <- X[idx$train, , drop = FALSE]
+    X_test <- if (policy$run_generalizability) X[idx$test, , drop = FALSE] else NULL
+    X_2 <- if (policy$run_stability) X[idx$stability, , drop = FALSE] else NULL
+  } else {
+    check_embeddings(policy, embeddings, idx)
+    pipeline <- embeddings$spec$label
+    X_1 <- embeddings$X_1
+    X_test <- embeddings$X_test
+    X_2 <- embeddings$X_2
+  }
+
+  # Each set is clustered on its own, with the neighbor count scaled to its
+  # own rows.
+  fit_labels <- function(X_fit) {
+    scaled <- scale_neighbor_count(estimator, params, n_fit = nrow(X_fit), n_full = n)
+    call_estimator(estimator, X_fit, scaled, random_state = random_state + seed)
+  }
+  labels_train <- fit_labels(X_1)
+  labels_test <- if (policy$run_generalizability) fit_labels(X_test) else NULL
+  labels_stability <- if (policy$run_stability) fit_labels(X_2) else NULL
+
+  # Noise labels. Under "drop" the index vectors shrink with the labels. The
+  # classifier reads raw features through these indices and the embeddings
+  # are not used again, so nothing else needs re-slicing.
+  train <- apply_noise_policy(idx$train, labels_train, noise_policy)
+  idx$train <- train$indices
+  labels_train <- train$labels
+  if (policy$run_generalizability) {
+    test <- apply_noise_policy(idx$test, labels_test, noise_policy)
+    idx$test <- test$indices
+    labels_test <- test$labels
+  }
+  if (policy$run_stability) {
+    second <- apply_noise_policy(idx$stability, labels_stability, noise_policy)
+    idx$stability <- second$indices
+    labels_stability <- second$labels
+  }
+
+  k_train <- count_clusters(labels_train)
+  k_test <- if (policy$run_generalizability) count_clusters(labels_test) else 0L
+  k_stability <- if (policy$run_stability) count_clusters(labels_stability) else 0L
+
+  if (sweep_param == "n_clusters") {
+    expected <- as.integer(params$n_clusters)
+    if (k_train != expected) {
+      warning(sprintf("labels_1 has %d clusters, expected %d", k_train, expected), call. = FALSE)
+    }
+    if (policy$run_generalizability && k_test != expected) {
+      warning(sprintf("labels_test has %d clusters, expected %d", k_test, expected), call. = FALSE)
+    }
+    if (policy$run_stability && k_stability != expected) {
+      warning(sprintf("labels_2 has %d clusters, expected %d", k_stability, expected), call. = FALSE)
+    }
+  } else if (k_train < 2L) {
+    warning(sprintf(
+      "%s with %s produced %d cluster(s) on a subsample; stability and generalizability are degenerate at this point on the sweep axis.",
+      estimator_name, format_params(params), k_train
+    ), call. = FALSE)
+  }
+
+  # Stability: ARI on the samples the two subsamples share.
+  ari_stability <- NaN
+  if (policy$run_stability) {
+    if (length(idx$train) == 0L || length(idx$stability) == 0L) {
+      warning(sprintf(ALL_NOISE_WARNING, "stability"), call. = FALSE)
+    } else {
+      shared <- intersect(idx$train, idx$stability)
+      ari_stability <- adjusted_rand_index(
+        labels_train[match(shared, idx$train)],
+        labels_stability[match(shared, idx$stability)]
+      )
+    }
+  }
+
+  # Generalizability: the classifier learns the first subsample's clusters
+  # from its raw features and predicts the held-out samples. It reads raw
+  # features also under randomized preprocessing: a cluster generalizes only
+  # if it can be learned from the data, and a transform such as t-SNE cannot
+  # embed new samples anyway.
+  labels_predicted <- NULL
+  ari_generalizability <- NaN
+  if (policy$run_generalizability) {
+    if (length(idx$train) == 0L || length(idx$test) == 0L) {
+      warning(sprintf(ALL_NOISE_WARNING, "generalizability"), call. = FALSE)
+    } else {
+      predict_labels <- default_generalizability_classifier(
+        classifier,
+        n_features = ncol(X),
+        n_trees = n_trees,
+        random_state = random_state + seed,
+        n_threads = classifier_threads
+      )
+      labels_predicted <- predict_labels(
+        X[idx$train, , drop = FALSE],
+        labels_train,
+        X[idx$test, , drop = FALSE]
+      )
+      ari_generalizability <- adjusted_rand_index(labels_test, labels_predicted)
+    }
+  }
+
+  list(
+    ari_stability = ari_stability,
+    ari_generalizability = ari_generalizability,
+    labels_train = labels_train,
+    labels_test = labels_test,
+    labels_predicted = labels_predicted,
+    labels_stability = labels_stability,
+    train_indices = idx$train,
+    test_indices = idx$test,
+    stability_indices = idx$stability,
+    pipeline = pipeline,
+    n_clusters_train = k_train,
+    n_clusters_test = k_test,
+    n_clusters_stability = k_stability,
+    noise_fraction = train$noise_fraction
   )
+}
 
-  # Flatten grids to a list of (type, params) configs, mirroring Python's
-  # ParameterGrid.
-  configs <- unlist(
-    lapply(estimator_grids, function(g) {
-      lapply(expand_grid_spec(g$grid), function(p) {
-        list(type = g$type, params = p)
+# The embedding pass and validation_iter() derive the same indices from
+# resample_indices(); a row count that differs means that has broken.
+check_embeddings <- function(policy, embeddings, idx) {
+  expected <- list(X_1 = idx$train)
+  if (policy$run_stability) {
+    expected$X_2 <- idx$stability
+  }
+  if (policy$run_generalizability) {
+    expected$X_test <- idx$test
+  }
+  for (name in names(expected)) {
+    rows <- if (is.null(embeddings[[name]])) "None" else nrow(embeddings[[name]])
+    if (!identical(rows, length(expected[[name]]))) {
+      stop(sprintf(
+        "Precomputed embedding %s has %s rows but this resample's subsample has %d. This is an internal CARVE error.",
+        name, rows, length(expected[[name]])
+      ), call. = FALSE)
+    }
+  }
+  invisible(TRUE)
+}
+
+# Fits resample `seed`'s pipeline on each subsample its mode uses: the first
+# with random_state + seed, the second with random_state + seed +
+# n_resamples and the held-out set with random_state + seed + 2 *
+# n_resamples, so no two fits share a seed.
+embed_resample <- function(X, spec, seed, n_resamples, subsample_ratio, random_state,
+                           mode = "default") {
+  policy <- resolve_mode(mode)
+  idx <- resample_indices(nrow(X), seed, n_resamples, subsample_ratio, random_state, policy$run_stability)
+  base <- random_state + seed
+  embed <- function(rows, offset) {
+    pipeline_from_spec(spec, base + offset)(X[rows, , drop = FALSE])
+  }
+  list(
+    spec = spec,
+    X_1 = embed(idx$train, 0L),
+    X_2 = if (policy$run_stability) embed(idx$stability, n_resamples) else NULL,
+    X_test = if (policy$run_generalizability) embed(idx$test, 2L * n_resamples) else NULL
+  )
+}
+
+# Embeds every resample's subsamples once, before any configuration runs,
+# with the backend the configurations use. A worker receives one resample's
+# pipeline and returns its embeddings, which are kept for the whole run.
+precompute_embeddings <- function(X, pipelines, subsample_ratio, random_state, mode,
+                                  apply_resamples, show_progress = FALSE) {
+  n_resamples <- length(pipelines)
+  tasks <- lapply(seq_len(n_resamples), function(i) list(b = i - 1L, spec = pipelines[[i]]))
+  bar <- NULL
+  if (show_progress) {
+    bar <- utils::txtProgressBar(min = 0, max = n_resamples, style = 3, file = stderr())
+    on.exit(close(bar), add = TRUE)
+  }
+  outputs <- apply_resamples(
+    tasks, run_embedding,
+    data = X,
+    n_resamples = n_resamples,
+    subsample_ratio = subsample_ratio,
+    random_state = random_state,
+    mode = mode
+  )
+  if (!is.null(bar)) {
+    utils::setTxtProgressBar(bar, n_resamples)
+  }
+  for (text in unique(unlist(lapply(outputs, function(o) o$warnings)))) {
+    warning(text, call. = FALSE)
+  }
+  lapply(outputs, function(o) o$value)
+}
+
+run_embedding <- function(task, data, n_resamples, subsample_ratio, random_state, mode) {
+  collect_warnings(embed_resample(
+    data, task$spec, task$b, n_resamples, subsample_ratio, random_state, mode = mode
+  ))
+}
+
+# One resample of one configuration, described by its task: the resample
+# index b and, under randomized preprocessing, that resample's embeddings.
+# It is a namespace function, so a worker receives these arguments and
+# nothing else; a closure made inside run_validation would carry that frame,
+# with every consensus matrix computed so far, to every worker. The data
+# argument is not called X, which would clash with the X of lapply and
+# bplapply.
+# The resample runs under the seed random_state + b, so an estimator or
+# classifier that draws without a random_state argument gives the same
+# results on every backend and leaves the caller's stream alone. The
+# built-in functions reseed themselves inside it.
+run_resample <- function(task, data, estimator, estimator_name, params, subsample_ratio,
+                         n_resamples, classifier, n_trees, sweep_param, noise_policy, mode,
+                         random_state, classifier_threads) {
+  seeded(random_state + task$b, collect_warnings(validation_iter(
+    data, estimator, estimator_name, params,
+    subsample_ratio = subsample_ratio,
+    n_resamples = n_resamples,
+    seed = task$b,
+    classifier = classifier,
+    n_trees = n_trees,
+    sweep_param = sweep_param,
+    noise_policy = noise_policy,
+    mode = mode,
+    random_state = random_state,
+    classifier_threads = classifier_threads,
+    embeddings = task$embeddings
+  )))
+}
+
+# Workers over resamples (outer) and classifier threads per worker (inner).
+# A BPPARAM brings its own worker count; as with n_jobs, at most
+# n_resamples of them have a resample, so the threads are shared among
+# those.
+run_core_budget <- function(n_jobs, n_resamples, BPPARAM = NULL) {
+  if (is.null(BPPARAM)) {
+    return(resolve_core_budget(n_jobs, n_resamples))
+  }
+  workers <- as.integer(BiocParallel::bpnworkers(BPPARAM))
+  busy <- max(1L, min(workers, as.integer(n_resamples)))
+  c(outer = workers, inner = max(1L, n_cores() %/% busy))
+}
+
+# The BiocParallel backend for the resamples, or NULL to run them in this
+# process.
+resample_bpparam <- function(outer, BPPARAM = NULL) {
+  if (!is.null(BPPARAM)) {
+    return(BPPARAM)
+  }
+  if (outer == 1L) {
+    return(NULL)
+  }
+  if (.Platform$OS.type == "windows") {
+    BiocParallel::SnowParam(workers = outer)
+  } else {
+    BiocParallel::MulticoreParam(workers = outer)
+  }
+}
+
+resample_backend <- function(BPPARAM = NULL) {
+  if (is.null(BPPARAM)) {
+    return(function(X, FUN, ...) lapply(X, FUN, ...))
+  }
+  function(X, FUN, ...) BiocParallel::bplapply(X, FUN, ..., BPPARAM = BPPARAM)
+}
+
+summary_columns <- function(prefix, scores) {
+  s <- summarize_ari_scores(scores)
+  stats::setNames(as.list(unname(s)), paste0(prefix, c("", "_se", "_upper", "_lower")))
+}
+
+# One row per record. Columns appear in first-seen order and are NA where a
+# record lacks them (another estimator's parameters), as in pandas'
+# DataFrame.from_records. A parameter whose values are not scalars becomes a
+# list column.
+bind_records <- function(records) {
+  columns <- unique(unlist(lapply(records, names)))
+  out <- lapply(columns, function(column) {
+    values <- lapply(records, function(record) {
+      value <- record[[column]]
+      if (is.null(value)) NA else value
+    })
+    scalar <- all(lengths(values) == 1L) && all(vapply(values, is.atomic, logical(1)))
+    if (scalar) unlist(values) else I(values)
+  })
+  names(out) <- columns
+  as.data.frame(out, stringsAsFactors = FALSE, check.names = FALSE)
+}
+
+run_validation <- function(X, estimator_grids, n_resamples, subsample_ratio, classifier = NULL,
+                           n_trees = 100L, n_jobs = 1L, BPPARAM = NULL, random_state = 0L,
+                           sweep, noise_policy = "drop", mode = "default", anchors = NULL,
+                           randomize_preprocessing = FALSE, normalization_options = list(),
+                           dim_reduction_options = list(), show_progress = FALSE, verbose = 0L) {
+  policy <- resolve_mode(mode)
+  n <- nrow(X)
+  budget <- run_core_budget(n_jobs, n_resamples, BPPARAM)
+  # The backend starts once for the whole run. Left to bplapply, a backend
+  # that is not running starts and stops for every configuration, and a
+  # SnowParam launches new R processes each time. A backend the caller
+  # already started stays up.
+  BPPARAM <- resample_bpparam(budget[["outer"]], BPPARAM)
+  if (!is.null(BPPARAM) && !BiocParallel::bpisup(BPPARAM)) {
+    BiocParallel::bpstart(BPPARAM)
+    on.exit(BiocParallel::bpstop(BPPARAM), add = TRUE)
+  }
+  apply_resamples <- resample_backend(BPPARAM)
+
+  # Under randomized preprocessing one pipeline is allocated per resample
+  # and embedded once, before the configurations. Nothing here is per
+  # configuration, so config_id is unaffected.
+  embeddings <- NULL
+  registry <- NULL
+  if (randomize_preprocessing) {
+    pipelines <- allocate_pipelines(normalization_options, dim_reduction_options, n_resamples, random_state)
+    labels <- vapply(pipelines, function(s) s$label, character(1))
+    first_use <- !duplicated(labels)
+    registry <- stats::setNames(pipelines[first_use], labels[first_use])
+    embeddings <- precompute_embeddings(
+      X, pipelines, subsample_ratio, random_state, mode, apply_resamples,
+      show_progress = show_progress
+    )
+  }
+  # One task per resample; a worker receives its own tasks only, with that
+  # resample's embeddings.
+  tasks <- lapply(seq_len(n_resamples), function(i) {
+    list(b = i - 1L, embeddings = embeddings[[i]])
+  })
+
+  configs <- unlist(lapply(estimator_grids, function(g) {
+    lapply(expand_param_grid(g$grid), function(params) list(grid = g, params = params))
+  }), recursive = FALSE)
+  total <- length(configs)
+  ids <- as.character(seq_len(total) - 1L)
+  assign_method <- method_id_assigner(sweep@param)
+
+  records <- vector("list", total)
+  consensus <- stats::setNames(vector("list", total), ids)
+  consensus_generalizability <- stats::setNames(vector("list", total), ids)
+  generalizability_scores <- stats::setNames(vector("list", total), ids)
+  summaries <- stats::setNames(vector("list", total), ids)
+  pipeline_records <- vector("list", total)
+
+  bar <- NULL
+  if (show_progress) {
+    bar <- utils::txtProgressBar(min = 0, max = total, style = 3, file = stderr())
+    on.exit(close(bar), add = TRUE)
+  }
+
+  for (i in seq_len(total)) {
+    g <- configs[[i]]$grid
+    params <- configs[[i]]$params
+    outputs <- apply_resamples(
+      tasks, run_resample,
+      data = X,
+      estimator = g$estimator,
+      estimator_name = g$name,
+      params = params,
+      subsample_ratio = subsample_ratio,
+      n_resamples = n_resamples,
+      classifier = classifier,
+      n_trees = n_trees,
+      sweep_param = sweep@param,
+      noise_policy = noise_policy,
+      mode = mode,
+      random_state = random_state,
+      classifier_threads = budget[["inner"]]
+    )
+    for (text in unique(unlist(lapply(outputs, function(o) o$warnings)))) {
+      warning(text, call. = FALSE)
+    }
+    results <- lapply(outputs, function(o) o$value)
+
+    # A resample whose subsample was all noise under "drop" has nothing to
+    # aggregate; it already warned.
+    stability_runs <- Filter(function(r) length(r$labels_train) > 0L, results)
+    held_out_runs <- Filter(
+      function(r) length(r$labels_predicted) > 0L && length(r$labels_test) > 0L,
+      results
+    )
+    stability_pairs <- lapply(stability_runs, function(r) {
+      list(indices = r$train_indices, labels = r$labels_train)
+    })
+    held_out_pairs <- lapply(held_out_runs, function(r) {
+      list(indices = r$test_indices, labels = r$labels_predicted)
+    })
+    if (policy$run_stability) {
+      # Anchored, the stored matrix is the anchor block, and PAC comes from
+      # it; the per-sample scores still cover every sample.
+      if (is.null(anchors)) {
+        M <- compute_consensus_matrix(n, stability_pairs)
+        scores <- stability_from_consensus(M)
+      } else {
+        M <- consensus_anchor_block(n, stability_pairs, anchors)
+        scores <- stability_from_runs_anchored(n, stability_pairs, anchors)
+      }
+      consensus[i] <- list(M)
+      summaries[i] <- list(list(gini = scores$gini, ce = scores$ce, pac = compute_consensus_pac(M)))
+    }
+    if (policy$run_generalizability) {
+      consensus_generalizability[i] <- list(if (is.null(anchors)) {
+        compute_consensus_matrix(n, held_out_pairs)
+      } else {
+        consensus_anchor_block(n, held_out_pairs, anchors)
       })
-    }),
-    recursive = FALSE
-  )
-  total_configs <- length(configs)
-
-  estimator_records <- vector("list", total_configs)
-  pipeline_records <- list()
-  consensus_matrices <- vector("list", total_configs)
-  consensus_gen_matrices <- vector("list", total_configs)
-  generalizability_scores <- vector("list", total_configs)
-
-  # Scope a parallel plan for the duration of this call, only if needed.
-  # `min(n_jobs, n_resamples)` avoids idle workers when n_resamples is small.
-  if (n_jobs > 1L) {
-    workers <- min(n_jobs, as.integer(n_resamples))
-    old_plan <- future::plan(future::multisession, workers = workers)
-    on.exit(future::plan(old_plan), add = TRUE)
-  }
-
-  # Local-bind the internal helper so `future` captures it as a global.
-  # Under `devtools::load_all`, the CARVE namespace is not installed in
-  # parallel workers, so relying on `packages = "CARVE"` alone would
-  # raise `could not find function "validation_iter"`. The explicit
-  # binding makes this work in dev, test, and installed contexts alike.
-  .validation_iter <- validation_iter
-
-  run_one_config <- function(cfg, progress_fn) {
-    iter_fn <- function(b) {
-      res <- .validation_iter(
-        X = X, type = cfg$type, params = cfg$params,
-        subsample_ratio = subsample_ratio, n_resamples = n_resamples,
-        seed = b, normalization_options = normalization_options,
-        dim_reduction_options = dim_reduction_options,
-        classifier = classifier, n_trees = n_trees,
-        randomize_preprocessing = randomize_preprocessing,
-        mode = mode, random_state = random_state
-      )
-      if (!is.null(progress_fn)) progress_fn()
-      res
+      generalizability_scores[i] <- list(compute_generalizability_scores(n, lapply(held_out_runs, function(r) {
+        list(indices = r$test_indices, true = r$labels_test, predicted = r$labels_predicted)
+      })))
     }
-    if (n_jobs > 1L) {
-      furrr::future_map(
-        seq_len(n_resamples), iter_fn,
-        .options = furrr::furrr_options(seed = TRUE, packages = "CARVE")
-      )
+
+    aris_stability <- vapply(results, function(r) r$ari_stability, numeric(1))
+    aris_generalizability <- vapply(results, function(r) r$ari_generalizability, numeric(1))
+    aris_average <- if (policy$compute_average_ari) {
+      (aris_stability + aris_generalizability) / 2
     } else {
-      lapply(seq_len(n_resamples), iter_fn)
+      rep(NaN, length(results))
     }
-  }
-
-  # progressr::with_progress activates registered handlers only when
-  # show_progress is TRUE. progressor() returns a no-op-ish function
-  # outside with_progress, so the inner code path is identical either way.
-  core_loop <- function(progress_fn) {
-    for (config_idx in seq_len(total_configs)) {
-      cfg <- configs[[config_idx]]
-      results <- run_one_config(cfg, progress_fn)
-
-    aris_stab <- vapply(results, function(r) r$ari_stability, numeric(1L))
-    aris_gen <- vapply(results, function(r) r$ari_generalizability, numeric(1L))
-    aris_avg <- if (policy$compute_average_ari) {
-      (aris_stab + aris_gen) / 2
-    } else {
-      rep(NaN, n_resamples)
-    }
-
-    M <- if (policy$run_stability) {
-      compute_consensus_matrix(
-        n_samples = n,
-        runs = lapply(results, function(r) {
-          list(sample_idx = r$train_indices, labels = r$labels_train)
-        })
-      )
-    } else NULL
-
-    M_g <- if (policy$run_generalizability) {
-      compute_consensus_matrix(
-        n_samples = n,
-        runs = lapply(results, function(r) {
-          list(sample_idx = r$test_indices, labels = r$labels_predicted)
-        })
-      )
-    } else NULL
-
-    E <- if (policy$run_generalizability) {
-      compute_generalizability_scores(
-        n_samples = n,
-        runs = lapply(results, function(r) {
-          list(sample_idx = r$test_indices,
-               labels = r$labels_test,
-               predicted = r$labels_predicted)
-        })
-      )
-    } else NULL
-
-    consensus_matrices[[config_idx]] <<- M
-    consensus_gen_matrices[[config_idx]] <<- M_g
-    generalizability_scores[[config_idx]] <<- E
-
-    stab <- summarize_ari_scores(aris_stab)
-    gen <- summarize_ari_scores(aris_gen)
-    avg <- summarize_ari_scores(aris_avg)
+    k_observed <- vapply(results, function(r) as.numeric(r$n_clusters_train), numeric(1))
+    noise <- vapply(results, function(r) r$noise_fraction, numeric(1))
+    sweep_value <- params[[sweep@param]]
+    method <- assign_method(g$name, params)
 
     record <- c(
-      list(estimator = .estimator_display_name(cfg$type)),
-      cfg$params,
+      list(config_id = i - 1L, method_id = method[[1L]], method_label = method[[2L]], estimator = g$name),
+      params,
       list(
-        ari_stability = unname(stab["mean"]),
-        ari_stability_se = unname(stab["se"]),
-        ari_stability_upper = unname(stab["q95"]),
-        ari_stability_lower = unname(stab["q05"]),
-        ari_generalizability = unname(gen["mean"]),
-        ari_generalizability_se = unname(gen["se"]),
-        ari_generalizability_upper = unname(gen["q95"]),
-        ari_generalizability_lower = unname(gen["q05"]),
-        ari_average = unname(avg["mean"]),
-        ari_average_se = unname(avg["se"]),
-        ari_average_upper = unname(avg["q95"]),
-        ari_average_lower = unname(avg["q05"])
-      )
+        sweep_param = sweep@param,
+        sweep_value = sweep_value,
+        sweep_rank = sweep_rank_of(sweep, sweep_value),
+        n_clusters_observed = mean(k_observed),
+        n_clusters_observed_se = if (length(k_observed) > 1L) {
+          stats::sd(k_observed) / sqrt(length(k_observed))
+        } else {
+          NaN
+        },
+        noise_fraction = mean(noise)
+      ),
+      summary_columns("ari_stability", aris_stability),
+      summary_columns("ari_generalizability", aris_generalizability),
+      summary_columns("ari_average", aris_average)
     )
-    estimator_records[[config_idx]] <<- record
-
+    records[[i]] <- record
     if (randomize_preprocessing) {
-      pipeline_records[[length(pipeline_records) + 1L]] <<- list(
-        estimator = .estimator_display_name(cfg$type),
-        params = cfg$params,
-        results = results
+      pipeline_records[[i]] <- list(
+        method_id = method[[1L]],
+        method_label = method[[2L]],
+        sweep_value = sweep_value,
+        sweep_rank = record$sweep_rank,
+        runs = data.frame(
+          pipeline = vapply(results, function(r) r$pipeline, character(1)),
+          ari_stability = aris_stability,
+          ari_generalizability = aris_generalizability,
+          n_clusters = k_observed,
+          stringsAsFactors = FALSE
+        )
       )
     }
-
-    log_config_progress(config_idx, total_configs, cfg$type, cfg$params,
-                        record, verbose)
+    log_config_progress(i, total, g$name, params, record, sweep@param, verbose)
+    if (!is.null(bar)) {
+      utils::setTxtProgressBar(bar, i)
     }
   }
-
-  if (isTRUE(show_progress)) {
-    progressr::with_progress({
-      prog <- progressr::progressor(steps = total_configs * n_resamples)
-      core_loop(prog)
-    })
-  } else {
-    core_loop(NULL)
-  }
-
-  estimator_df <- records_to_dataframe(estimator_records)
-  print_run_footer(estimator_df, verbose)
 
   list(
-    estimator_results = estimator_df,
-    pipeline_records = pipeline_records,
-    consensus_matrices = consensus_matrices,
-    consensus_generalizability_matrices = consensus_gen_matrices,
-    generalizability_scores = generalizability_scores
+    records = bind_records(records),
+    consensus_matrices = consensus,
+    consensus_generalizability_matrices = consensus_generalizability,
+    generalizability_scores = generalizability_scores,
+    summaries = if (policy$run_stability) summaries else NULL,
+    pipeline_records = if (randomize_preprocessing) pipeline_records else NULL,
+    pipelines = registry
   )
-}
-
-
-#' Run a single resampling iteration
-#'
-#' Mirrors `_runner.validation_iter`. Exposed for testing.
-#'
-#' @inheritParams run_validation
-#' @param type Estimator backend name (e.g. `"kmeans"`).
-#' @param params Named list of estimator parameters.
-#' @param seed Per-resample seed offset.
-#'
-#' @return A list with labels, indices, ARI metrics, and preprocessing
-#'   metadata for this resample.
-#'
-#' @export
-validation_iter <- function(X, type, params, subsample_ratio, n_resamples,
-                            seed, normalization_options,
-                            dim_reduction_options,
-                            classifier = NULL, n_trees = 100L,
-                            randomize_preprocessing = FALSE,
-                            mode = "default", random_state = NULL) {
-  policy <- resolve_mode(mode)
-  n_samples <- nrow(X)
-  rs0 <- if (is.null(random_state)) 0L else as.integer(random_state)
-
-  split1 <- split_subsample_indices(
-    n_samples, subsample_ratio = subsample_ratio, random_state = rs0 + seed
-  )
-  P_1_idx <- split1$train
-  P_test_idx <- split1$test
-
-  P_2_idx <- NULL
-  if (policy$run_stability) {
-    split2 <- split_subsample_indices(
-      n_samples, subsample_ratio = subsample_ratio,
-      random_state = rs0 + seed + n_resamples
-    )
-    P_2_idx <- split2$train
-  }
-
-  pp <- build_preprocessing_pipeline(
-    randomize = randomize_preprocessing,
-    normalization_options = normalization_options,
-    dim_reduction_options = dim_reduction_options,
-    seed = rs0 + seed
-  )
-  X_preprocessed <- pp$pipeline(X)
-
-  X_1 <- X_preprocessed[P_1_idx, , drop = FALSE]
-  X_test <- if (policy$run_generalizability) {
-    X_preprocessed[P_test_idx, , drop = FALSE]
-  } else NULL
-  X_2 <- if (policy$run_stability) {
-    X_preprocessed[P_2_idx, , drop = FALSE]
-  } else NULL
-
-  spec <- c(list(type = type), params)
-  labels_1 <- cluster_labels(X_1, spec, random_state = rs0 + seed)
-  labels_test <- if (policy$run_generalizability) {
-    cluster_labels(X_test, spec, random_state = rs0 + seed)
-  } else NULL
-  labels_2 <- if (policy$run_stability) {
-    cluster_labels(X_2, spec, random_state = rs0 + seed)
-  } else NULL
-
-  n_clusters <- params$n_clusters
-  if (!is.null(n_clusters)) {
-    if (length(unique(labels_1)) != n_clusters) {
-      warning(sprintf("labels_1 has %d clusters, expected %d",
-                      length(unique(labels_1)), n_clusters),
-              call. = FALSE)
-    }
-    if (policy$run_generalizability &&
-        length(unique(labels_test)) != n_clusters) {
-      warning(sprintf("labels_test has %d clusters, expected %d",
-                      length(unique(labels_test)), n_clusters),
-              call. = FALSE)
-    }
-    if (policy$run_stability &&
-        length(unique(labels_2)) != n_clusters) {
-      warning(sprintf("labels_2 has %d clusters, expected %d",
-                      length(unique(labels_2)), n_clusters),
-              call. = FALSE)
-    }
-  }
-
-  ari_stab <- compute_stability_ari(policy, P_1_idx, P_2_idx,
-                                    labels_1, labels_2)
-
-  gen <- compute_generalizability_ari(
-    policy = policy, X_1 = X_1, X_test = X_test,
-    labels_1 = labels_1, labels_test = labels_test,
-    n_trees = n_trees, seed = rs0 + seed
-  )
-
-  list(
-    ari_stability = ari_stab,
-    ari_generalizability = gen$ari,
-    labels_train = labels_1,
-    labels_test = labels_test,
-    labels_predicted = gen$labels_pred,
-    labels_stability = labels_2,
-    train_indices = P_1_idx,
-    test_indices = P_test_idx,
-    stability_indices = P_2_idx,
-    normalization_params = pp$normalization_params,
-    dim_reduction_params = pp$dim_reduction_params,
-    normalization_name = pp$normalization_name,
-    dim_reduction_name = pp$dim_reduction_name
-  )
-}
-
-
-# Stability ARI on the overlap of two subsamples.
-compute_stability_ari <- function(policy, P_1_idx, P_2_idx, labels_1, labels_2) {
-  if (!policy$run_stability) return(NaN)
-  # Intersect and retrieve per-subsample positional indices.
-  shared <- intersect(P_1_idx, P_2_idx)
-  if (length(shared) == 0L) return(NaN)
-  i_1 <- match(shared, P_1_idx)
-  i_2 <- match(shared, P_2_idx)
-  adjusted_rand_index(labels_1[i_1], labels_2[i_2])
-}
-
-
-# Generalizability ARI via random-forest prediction.
-compute_generalizability_ari <- function(policy, X_1, X_test, labels_1,
-                                         labels_test, n_trees, seed) {
-  if (!policy$run_generalizability) {
-    return(list(labels_pred = NULL, ari = NaN))
-  }
-  p <- ncol(X_1)
-  # ranger requires column names on x.
-  X_1_named <- X_1
-  X_test_named <- X_test
-  if (is.null(colnames(X_1_named))) {
-    cn <- paste0("V", seq_len(p))
-    colnames(X_1_named) <- cn
-    colnames(X_test_named) <- cn
-  }
-  rf <- .with_seed(seed, {
-    ranger::ranger(
-      x = X_1_named,
-      y = factor(labels_1),
-      num.trees = n_trees,
-      mtry = max(1L, as.integer(sqrt(p))),
-      max.depth = p,
-      probability = FALSE,
-      classification = TRUE,
-      num.threads = 1L,
-      seed = seed,
-      verbose = FALSE
-    )
-  })
-  pred <- stats::predict(rf, data = X_test_named)$predictions
-  labels_pred <- as.integer(as.character(pred))
-  ari <- adjusted_rand_index(labels_test, labels_pred)
-  list(labels_pred = labels_pred, ari = ari)
-}
-
-
-# Display name for a record's `estimator` column. Mirrors Python's
-# `est_class.__name__` (e.g. `"KMeans"`, `"AgglomerativeClustering"`,
-# `"SpectralClusteringCARVE"`).
-.estimator_display_name <- function(type) {
-  switch(type,
-    kmeans = "KMeans",
-    agglomerative = "AgglomerativeClustering",
-    spectral = "SpectralClusteringCARVE",
-    type
-  )
-}
-
-
-# Convert a list of heterogeneous record lists into a data frame. Columns
-# are the union of keys across records; missing fields become NA.
-records_to_dataframe <- function(records) {
-  if (length(records) == 0L) return(data.frame())
-  all_cols <- unique(unlist(lapply(records, names)))
-  mat <- lapply(all_cols, function(col) {
-    vals <- lapply(records, function(r) r[[col]] %||% NA)
-    # Unbox: if all values are length-1 scalars, use a simple atomic vector.
-    unlist(vals, use.names = FALSE)
-  })
-  names(mat) <- all_cols
-  as.data.frame(mat, stringsAsFactors = FALSE)
 }

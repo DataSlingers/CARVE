@@ -1,141 +1,141 @@
-# Exact pins for consensus-matrix math. The values below were hand-computed
-# from the definition and match the Python reference implementation.
+fixture_runs <- function(runs) {
+  lapply(runs, function(r) list(indices = as.integer(r$indices) + 1L, labels = as.integer(r$labels)))
+}
 
-test_that("compute_consensus_matrix matches the hand-computed 4-sample example", {
-  # Run 1: samples {1,2,3}, labels {1,1,2}  -> {1,2} co-cluster, 3 alone
-  # Run 2: samples {2,3,4}, labels {1,2,2}  -> {3,4} co-cluster, 2 alone
+test_that("compute_consensus_matrix matches Python", {
+  fx <- read_fixture("consensus")
+  M <- compute_consensus_matrix(fx$n_samples, fixture_runs(fx$runs))
+  expect_equal(nan_to_na(M), fixture_matrix(fx$consensus), tolerance = 1e-6)
+})
+
+test_that("stability scores and PAC match Python", {
+  fx <- read_fixture("consensus")
+  M <- compute_consensus_matrix(fx$n_samples, fixture_runs(fx$runs))
+  s <- stability_from_consensus(M)
+  expect_equal(nan_to_na(s$gini), fixture_vector(fx$gini), tolerance = 1e-6)
+  expect_equal(nan_to_na(s$ce), fixture_vector(fx$ce), tolerance = 1e-6)
+  expect_equal(compute_consensus_pac(M), fx$pac_005, tolerance = 1e-6)
+  expect_equal(compute_consensus_pac(M, tau = 0.1), fx$pac_010, tolerance = 1e-6)
+})
+
+test_that("pairs never drawn together are NaN and so is a sample never drawn", {
   runs <- list(
-    list(sample_idx = c(1L, 2L, 3L), labels = c(1L, 1L, 2L)),
-    list(sample_idx = c(2L, 3L, 4L), labels = c(1L, 2L, 2L))
+    list(indices = 1:2, labels = c(1L, 1L)),
+    list(indices = 2:3, labels = c(1L, 2L))
   )
+  M <- compute_consensus_matrix(4L, runs)
+  expect_true(is.nan(M[1, 3]))
+  expect_true(all(is.nan(M[4, ])))
+  expect_identical(M[1, 2], 1)
+  expect_identical(M[2, 3], 0)
+  expect_identical(diag(M)[1:3], c(1, 1, 1))
+  expect_true(is.na(stability_from_consensus(M)$gini[4]))
+})
 
-  m <- compute_consensus_matrix(n_samples = 4L, runs = runs)
+test_that("perfect consensus scores 1 everywhere", {
+  M <- matrix(c(1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1), 4)
+  s <- stability_from_consensus(M)
+  expect_equal(s$gini, rep(1, 4))
+  expect_equal(s$ce, rep(1, 4), tolerance = 1e-9)
+  expect_identical(compute_consensus_pac(M), 1)
+})
 
-  expected <- matrix(
-    c(
-      1, 1, 0, NaN,
-      1, 1, 0, 0,
-      0, 0, 1, 1,
-      NaN, 0, 1, 1
-    ),
-    nrow = 4L, byrow = TRUE
+test_that("PAC is NaN when no pair was drawn together", {
+  expect_true(is.nan(compute_consensus_pac(matrix(NaN, 3, 3))))
+})
+
+test_that("PAC uses tau and counts only values strictly between tau and 1 - tau", {
+  # Six off-diagonal pairs: 0.15, 0.85, 0.2, 0.8, 0.5 and 1.
+  # tau = 0.1: 0.15, 0.85, 0.2, 0.8 and 0.5 are ambiguous, 5 of 6, PAC = 1/6.
+  # tau = 0.2: only 0.5 is ambiguous; 0.2 and 0.8 sit on the bounds and are
+  # excluded by the strict inequalities, so PAC = 5/6.
+  M <- diag(4)
+  pairs <- list(c(1, 2, 0.15), c(1, 3, 0.85), c(1, 4, 0.2), c(2, 3, 0.8), c(2, 4, 0.5), c(3, 4, 1))
+  for (p in pairs) {
+    M[p[1], p[2]] <- p[3]
+    M[p[2], p[1]] <- p[3]
+  }
+  expect_equal(compute_consensus_pac(M, tau = 0.1), 1 / 6, tolerance = 1e-12)
+  expect_equal(compute_consensus_pac(M, tau = 0.2), 5 / 6, tolerance = 1e-12)
+})
+
+anchored_fixture <- function() {
+  f <- read_fixture("anchored")
+  list(
+    n = as.integer(f$n),
+    runs = lapply(f$runs, function(r) {
+      list(indices = as.integer(r$indices) + 1L, labels = as.integer(r$labels))
+    }),
+    anchors = as.integer(f$anchors) + 1L,
+    block = fixture_matrix(f$block),
+    gini = fixture_vector(f$gini),
+    ce = fixture_vector(f$ce)
   )
+}
 
-  expect_true(all(is.nan(m) == is.nan(expected)))
-  # Compare the non-NaN entries exactly.
-  mask <- !is.nan(expected)
-  expect_equal(m[mask], expected[mask])
+test_that("the anchor block matches Python", {
+  f <- anchored_fixture()
+  expect_equal(nan_to_na(consensus_anchor_block(f$n, f$runs, f$anchors)), f$block, tolerance = 1e-6)
 })
 
-test_that("compute_consensus_matrix can return raw counts", {
-  runs <- list(
-    list(sample_idx = c(1L, 2L, 3L), labels = c(1L, 1L, 2L)),
-    list(sample_idx = c(2L, 3L, 4L), labels = c(1L, 2L, 2L))
+test_that("the anchor block is the exact matrix restricted to the anchors", {
+  f <- anchored_fixture()
+  full <- compute_consensus_matrix(f$n, f$runs)
+  expect_equal(consensus_anchor_block(f$n, f$runs, f$anchors), full[f$anchors, f$anchors], tolerance = 1e-12)
+})
+
+test_that("anchored stability matches Python with and without chunks", {
+  f <- anchored_fixture()
+  for (chunk in list(NULL, 4L)) {
+    scores <- stability_from_runs_anchored(f$n, f$runs, f$anchors, chunk_size = chunk)
+    expect_equal(nan_to_na(scores$gini), f$gini, tolerance = 1e-6)
+    expect_equal(nan_to_na(scores$ce), f$ce, tolerance = 1e-6)
+  }
+})
+
+test_that("with every sample an anchor, anchored stability equals the exact scores", {
+  f <- anchored_fixture()
+  exact <- stability_from_consensus(compute_consensus_matrix(f$n, f$runs))
+  anchored <- stability_from_runs_anchored(f$n, f$runs, seq_len(f$n), chunk_size = 4L)
+  expect_equal(anchored, exact, tolerance = 1e-12)
+})
+
+test_that("the chunk size does not change the scores", {
+  f <- anchored_fixture()
+  one <- stability_from_runs_anchored(f$n, f$runs, f$anchors, chunk_size = 1L)
+  for (chunk in c(3L, 100L)) {
+    expect_equal(stability_from_runs_anchored(f$n, f$runs, f$anchors, chunk_size = chunk), one, tolerance = 1e-12)
+  }
+})
+
+test_that("unsorted run indices give the same scores as sorted ones", {
+  f <- anchored_fixture()
+  sorted <- lapply(f$runs, function(r) {
+    o <- order(r$indices)
+    list(indices = r$indices[o], labels = r$labels[o])
+  })
+  expect_equal(
+    stability_from_runs_anchored(f$n, sorted, f$anchors),
+    stability_from_runs_anchored(f$n, f$runs, f$anchors),
+    tolerance = 1e-12
   )
-  res <- compute_consensus_matrix(4L, runs, return_counts = TRUE)
-
-  expect_named(res, c("consensus_matrix", "co_cluster_counts", "co_sample_counts"))
-  expect_equal(res$co_sample_counts[1, ], c(1, 1, 1, 0))
-  expect_equal(res$co_sample_counts[4, ], c(0, 1, 1, 1))
-  expect_equal(res$co_cluster_counts[2, 2], 2)
-  expect_equal(res$co_cluster_counts[3, 4], 1)
 })
 
-test_that("stability_from_consensus is 1 on a perfect consensus", {
-  # All off-diagonal values are either 0 or 1 -> perfect stability.
-  cm <- matrix(c(
-    1, 1, 0, 0,
-    1, 1, 0, 0,
-    0, 0, 1, 1,
-    0, 0, 1, 1
-  ), 4L, 4L, byrow = TRUE)
-
-  s <- stability_from_consensus(cm)
-  expect_equal(unname(s$stability_gini), rep(1, 4L), tolerance = 1e-10)
-  # CE has a tiny floor due to epsilon-clipping at p=0 or p=1; still ~1.
-  expect_true(all(s$stability_ce > 1 - 1e-8))
+test_that("a sample never drawn with an anchor scores NaN without a warning", {
+  f <- anchored_fixture()
+  expect_no_warning(scores <- stability_from_runs_anchored(f$n, f$runs, f$anchors))
+  expect_true(is.nan(scores$gini[15]))
+  expect_true(is.nan(scores$ce[15]))
 })
 
-test_that("stability_from_consensus is 0 when all off-diagonal values are 0.5", {
-  cm <- matrix(0.5, 4L, 4L)
-  diag(cm) <- 1  # diag is ignored in the computation anyway
-
-  s <- stability_from_consensus(cm)
-  # p*(1-p) = 0.25, 2 * 0.25 = 0.5, stability = 1 - clip(2*0.5,0,1) = 0
-  expect_equal(unname(s$stability_gini), rep(0, 4L), tolerance = 1e-10)
-  # Binary entropy at 0.5 = log(2); stability = 1 - clip(log(2)/log(2)) = 0
-  expect_equal(unname(s$stability_ce), rep(0, 4L), tolerance = 1e-10)
+test_that("a run without stability runs gets an all-NaN block", {
+  block <- consensus_anchor_block(10L, list(), c(2L, 5L))
+  expect_true(all(is.nan(block)))
+  expect_identical(dim(block), c(2L, 2L))
 })
 
-test_that("compute_consensus_pac returns 1 on unambiguous consensus", {
-  cm <- matrix(c(
-    1, 1, 0, 0,
-    1, 1, 0, 0,
-    0, 0, 1, 1,
-    0, 0, 1, 1
-  ), 4L, 4L, byrow = TRUE)
-  expect_equal(compute_consensus_pac(cm), 1)
-})
-
-test_that("compute_consensus_pac returns 0 when all off-diagonal values are ambiguous", {
-  cm <- matrix(0.5, 4L, 4L)
-  diag(cm) <- 1
-  expect_equal(compute_consensus_pac(cm), 0)
-})
-
-test_that("compute_consensus_pac respects tau threshold", {
-  # 6 off-diagonal entries (3x3 symmetric minus diag = 6).
-  # Values: 0.02, 0.5, 0.98 -> with tau=0.05, only 0.5 is ambiguous (0.5 in (0.05,0.95)).
-  cm <- matrix(c(
-    1, 0.02, 0.5,
-    0.02, 1, 0.98,
-    0.5, 0.98, 1
-  ), 3L, 3L, byrow = TRUE)
-  # 6 off-diagonal entries; 2 are 0.5 (ambiguous pair i<->j, j<->i).
-  # 0.02 appears twice (0.02 < tau so not ambiguous at tau=0.05).
-  # 0.98 appears twice (0.98 > 1-tau so not ambiguous at tau=0.05).
-  expect_equal(compute_consensus_pac(cm, tau = 0.05), 1 - (2 / 6))
-
-  # At tau = 0.01, 0.02 and 0.98 also become ambiguous (2 more each side) -> 6/6
-  expect_equal(compute_consensus_pac(cm, tau = 0.01), 0)
-})
-
-test_that("compute_consensus_pac returns NaN when no valid off-diagonal pairs exist", {
-  cm <- matrix(NaN, 3L, 3L)
-  expect_true(is.nan(compute_consensus_pac(cm)))
-})
-
-test_that("compute_consensus_metrics aggregates across matrices", {
-  cm1 <- matrix(c(
-    1, 1, 0, 0,
-    1, 1, 0, 0,
-    0, 0, 1, 1,
-    0, 0, 1, 1
-  ), 4L, 4L, byrow = TRUE)
-  cm2 <- matrix(0.5, 4L, 4L); diag(cm2) <- 1
-
-  res <- compute_consensus_metrics(list(cm1, cm2))
-  expect_length(res$gini_list, 2L)
-  expect_length(res$ce_list, 2L)
-  expect_equal(res$pac_list, c(1, 0))
-})
-
-test_that("reorder_consensus_matrix groups co-clustered samples", {
-  cm <- matrix(c(
-    1, 1, 0, 0,
-    1, 1, 0, 0,
-    0, 0, 1, 1,
-    0, 0, 1, 1
-  ), 4L, 4L, byrow = TRUE)
-
-  out <- reorder_consensus_matrix(cm)
-  expect_named(out, c("reordered", "order"))
-  # The two clusters {1,2} and {3,4} should appear as contiguous blocks.
-  # After hclust on 1-cm, the order is either (1,2,3,4) or (3,4,1,2) etc.
-  ord <- out$order
-  # Adjacent pairs in the ordering must all have high consensus.
-  expect_true(all(cm[cbind(ord[-4], ord[-1])] %in% c(0, 1)))
-  # The reordered block structure: top-left 2x2 and bottom-right 2x2 are 1s.
-  expect_equal(out$reordered[1:2, 1:2], matrix(1, 2, 2))
-  expect_equal(out$reordered[3:4, 3:4], matrix(1, 2, 2))
+test_that("the default chunk size keeps a chunk near 2^23 entries", {
+  expect_identical(default_anchor_chunk_size(1000L), 8192L)
+  expect_identical(default_anchor_chunk_size(5000L), 1677L)
+  expect_identical(default_anchor_chunk_size(100000L), 256L)
 })

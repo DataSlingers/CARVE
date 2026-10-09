@@ -1,157 +1,152 @@
-# Default estimator and preprocessing grids. Mirrors _grids.py.
-#
-# Grid-spec form in R:
-#
-#   list(type = "<backend>", grid = list(param = values, ...))
-#
-# `type` is forwarded to `cluster_labels`. `grid` is a named list of
-# parameter *values*, each either a scalar or a vector; `expand.grid`
-# materializes one config per combination.
-#
-# Preprocessor-spec form (normalization / dimensionality reduction):
-#
-#   list(type = "<kind>", grid = list(param = values), name = "<display>")
-#
-# Currently supported types: "identity", "standardize", "log1p", "pca".
+# Default estimator grids. Mirrors _grids.py.
 
-
-#' Estimate RBF gamma values from a k-NN median heuristic
-#'
-#' Mirrors `_grids.estimate_knn_gamma`. Computes the median k-th neighbor
-#' distance and returns `gamma = 1 / (2 * (m * sigma)^2)` for each `m` in
-#' `multipliers`.
-#'
-#' @param X Numeric matrix of shape `(n_samples, n_features)`.
-#' @param n_neighbors Integer; number of neighbors (default `7`).
-#' @param multipliers Numeric vector of scale multipliers applied to sigma.
-#'
-#' @return Numeric vector of gamma values.
-#'
-#' @export
-estimate_knn_gamma <- function(X, n_neighbors = 7L,
-                               multipliers = c(0.5, 1.0, 2.0)) {
-  X <- ensure_2d_matrix(X)
-  k_excl <- max(1L, as.integer(n_neighbors) - 1L)
-  knn <- FNN::get.knn(X, k = k_excl, algorithm = "kd_tree")
-  kth <- knn$nn.dist[, k_excl]
-
+# RBF gammas around the local scale: sigma is the median distance to the
+# (n_neighbors - 1)-th nearest other sample, and gamma = 1 / (2 (m sigma)^2)
+# for each multiplier m.
+estimate_knn_gamma <- function(X, n_neighbors = 7L, multipliers = c(0.5, 1, 2)) {
+  kth <- kth_distance(X, n_neighbors)
   sigma <- stats::median(kth)
   if (sigma <= 0) {
-    pos <- kth[kth > 0]
-    sigma <- if (length(pos) > 0L) mean(pos) else 1
+    sigma <- if (any(kth > 0)) mean(kth[kth > 0]) else 1
   }
-  as.numeric(1 / (2 * (multipliers * sigma)^2))
+  1 / (2 * (multipliers * sigma)^2)
 }
 
-
-#' Default estimator grids
-#'
-#' Mirrors `_grids.default_estimator_grids`. Returns a list of grid specs
-#' suitable for iteration in [run_validation()].
-#'
-#' @param X Numeric matrix used to derive data-driven hyperparameters
-#'   (currently unused for `"light"`).
-#' @param n_clusters Integer vector or scalar; candidate cluster counts.
-#' @param preset `"light"` (KMeans + Ward agglomerative + self-tuning
-#'   spectral) or `"full"` (adds average/single/complete linkage and
-#'   RBF-kernel spectral with data-driven `gamma`).
-#'
-#' @return A list of grid specs.
-#'
-#' @export
-default_estimator_grids <- function(X, n_clusters = 10L,
-                                    preset = c("light", "full")) {
-  preset <- match.arg(preset)
-  ks <- coerce_n_clusters(n_clusters)
-
-  grids <- list(
-    list(type = "kmeans", grid = list(n_clusters = ks)),
-    list(type = "agglomerative",
-         grid = list(n_clusters = ks, linkage = "ward")),
-    list(type = "spectral",
-         grid = list(n_clusters = ks, affinity = "self_tuning"))
+default_estimator_grids <- function(X, preset, sweep) {
+  switch(sweep@param,
+    n_clusters = default_k_grids(X, sweep@values, preset),
+    resolution = default_resolution_grids(sweep@values, preset),
+    min_cluster_size = default_min_cluster_size_grids(sweep@values, preset),
+    stop(sprintf(
+      "No default estimator grids for sweep parameter %s. Pass estimator_param_grids=... explicitly.",
+      format_repr(sweep@param)
+    ), call. = FALSE)
   )
+}
 
+default_k_grids <- function(X, n_clusters, preset) {
+  grids <- list(
+    estimator_grid(KMeans, n_clusters = n_clusters),
+    estimator_grid(AgglomerativeClustering, n_clusters = n_clusters, linkage = "ward"),
+    estimator_grid(SpectralClustering, n_clusters = n_clusters, affinity = "self_tuning")
+  )
   if (identical(preset, "full")) {
-    grids <- c(
-      grids,
-      list(
-        list(type = "agglomerative",
-             grid = list(n_clusters = ks,
-                         linkage = c("average", "single", "complete"))),
-        list(type = "spectral",
-             grid = list(n_clusters = ks, affinity = "rbf",
-                         gamma = estimate_knn_gamma(X)))
+    grids <- c(grids, list(
+      estimator_grid(
+        AgglomerativeClustering,
+        n_clusters = n_clusters,
+        linkage = c("average", "single", "complete")
+      ),
+      estimator_grid(
+        SpectralClustering,
+        n_clusters = n_clusters,
+        affinity = "rbf",
+        gamma = estimate_knn_gamma(X)
       )
-    )
+    ))
   }
-
   grids
 }
 
-
-#' Default normalization options
-#'
-#' Mirrors `_grids.default_normalization_options`. Returns identity,
-#' standardization, and `log1p`.
-#'
-#' @return A list of preprocessor specs.
-#'
-#' @export
-default_normalization_options <- function() {
-  list(
-    list(type = "identity", grid = list(), name = "Identity"),
-    list(type = "standardize", grid = list(), name = "StandardScaler"),
-    list(type = "log1p", grid = list(), name = "Log1p")
+# Graph communities swept over resolution on a 15-neighbor graph; the full
+# preset adds 10- and 30-neighbor graphs.
+default_resolution_grids <- function(resolutions, preset) {
+  resolutions <- as.numeric(resolutions)
+  grids <- list(
+    estimator_grid(LeidenClustering, resolution = resolutions, n_neighbors = 15L),
+    estimator_grid(LouvainClustering, resolution = resolutions, n_neighbors = 15L)
   )
-}
-
-
-#' Default dimensionality reduction options
-#'
-#' Mirrors `_grids.default_dim_reduction_options` but only supports
-#' identity and PCA in this phase; t-SNE and UMAP are reserved for a
-#' later milestone. The PCA grid spans `2:min(min_n, p)` components,
-#' where `min_n = round(n * (1 - subsample_ratio)) - 1` is the smallest
-#' subsample size CARVE will use downstream.
-#'
-#' @param X Numeric matrix.
-#' @param subsample_ratio Numeric in `(0, 1)`.
-#'
-#' @return A list of preprocessor specs.
-#'
-#' @export
-default_dim_reduction_options <- function(X, subsample_ratio = 0.6) {
-  X <- ensure_2d_matrix(X)
-  n <- nrow(X)
-  p <- ncol(X)
-  min_n <- as.integer(round(n * (1 - subsample_ratio))) - 1L
-  upper <- min(min_n, p)
-  components <- if (upper >= 2L) seq.int(2L, upper) else integer(0L)
-
-  opts <- list(
-    list(type = "identity", grid = list(), name = "Identity")
-  )
-  if (length(components) > 0L) {
-    opts <- c(opts, list(
-      list(type = "pca",
-           grid = list(n_components = components),
-           name = "PCA")
+  if (identical(preset, "full")) {
+    grids <- c(grids, list(
+      estimator_grid(LeidenClustering, resolution = resolutions, n_neighbors = c(10L, 30L)),
+      estimator_grid(LouvainClustering, resolution = resolutions, n_neighbors = c(10L, 30L))
     ))
   }
-  opts
+  grids
 }
 
-
-# Expand a grid-spec `grid` into a list of parameter lists. Mirrors
-# sklearn's `ParameterGrid`. Returns list() for an empty grid (one empty
-# config, matching ParameterGrid semantics).
-expand_grid_spec <- function(grid) {
-  if (length(grid) == 0L) return(list(list()))
-  # Preserve argument order; stringsAsFactors=FALSE keeps character values.
-  df <- do.call(
-    expand.grid,
-    c(grid, list(stringsAsFactors = FALSE, KEEP.OUT.ATTRS = FALSE))
+# HDBSCAN swept over min_cluster_size with excess-of-mass selection; the full
+# preset adds leaf selection.
+default_min_cluster_size_grids <- function(sizes, preset) {
+  require_package("dbscan", "HDBSCAN")
+  sizes <- as.integer(sizes)
+  grids <- list(
+    estimator_grid(HDBSCAN, min_cluster_size = sizes, cluster_selection_method = "eom")
   )
-  lapply(seq_len(nrow(df)), function(i) as.list(df[i, , drop = FALSE]))
+  if (identical(preset, "full")) {
+    grids <- c(grids, list(
+      estimator_grid(HDBSCAN, min_cluster_size = sizes, cluster_selection_method = "leaf")
+    ))
+  }
+  grids
+}
+
+# Candidate values of the default reduction grids, before they are filtered
+# to what the smallest subsample supports.
+PCA_COMPONENTS <- c(2L, 5L, 10L, 20L, 50L)
+TSNE_PERPLEXITIES <- c(15, 30, 50)
+UMAP_NEIGHBORS <- c(15L, 30L)
+
+# Identity and standardization always; log1p only for data without negative
+# values, since it is NaN below -1 and meant for counts.
+default_normalization_options <- function(X) {
+  options <- list(preprocessing_option(Identity), preprocessing_option(StandardScaler))
+  x_min <- min(X)
+  if (x_min >= 0) {
+    return(c(options, list(preprocessing_option(Log1p))))
+  }
+  warning(sprintf(
+    "X has negative values (minimum %s), so log1p is omitted from the default normalization options.",
+    sprintf("%.3g", x_min)
+  ), call. = FALSE)
+  options
+}
+
+warn_omitted <- function(name, param, limit) {
+  warning(sprintf(
+    "%s is omitted from the default dimensionality reduction options: no candidate %s is below %s, the limit the smallest subsample sets.",
+    name, param, format_param_value(limit)
+  ), call. = FALSE)
+}
+
+# Identity, PCA, t-SNE and, with uwot, UMAP, over discrete grids filtered to
+# the smaller of a resample's training subsample and held-out set, the
+# smallest set a pipeline is fit on. Rtsne needs 3 * perplexity <= n - 1,
+# stricter than scikit-learn's perplexity < n, so the t-SNE limit is
+# floor((n_min - 1) / 3) + 1.
+default_dim_reduction_options <- function(X, subsample_ratio = 0.6) {
+  n_samples <- nrow(X)
+  n_train <- floor(subsample_ratio * n_samples)
+  n_min <- min(n_train, n_samples - n_train)
+  options <- list(preprocessing_option(Identity))
+
+  pca_limit <- min(n_min, ncol(X))
+  components <- PCA_COMPONENTS[PCA_COMPONENTS < pca_limit]
+  if (length(components) > 0L) {
+    options <- c(options, list(preprocessing_option(PCA, n_components = components)))
+  } else {
+    warn_omitted("PCA", "n_components", pca_limit)
+  }
+
+  tsne_limit <- floor((n_min - 1) / 3) + 1
+  perplexities <- TSNE_PERPLEXITIES[TSNE_PERPLEXITIES < tsne_limit]
+  if (length(perplexities) > 0L) {
+    options <- c(options, list(preprocessing_option(TSNE, n_components = 2L, perplexity = perplexities)))
+  } else {
+    warn_omitted("TSNE", "perplexity", tsne_limit)
+  }
+
+  if (!has_package("uwot")) {
+    warning(
+      'uwot is not installed; UMAP is omitted from the default dimensionality reduction options. Install it with install.packages("uwot").',
+      call. = FALSE
+    )
+    return(options)
+  }
+  neighbors <- UMAP_NEIGHBORS[UMAP_NEIGHBORS < n_min]
+  if (length(neighbors) == 0L) {
+    warn_omitted("UMAP", "n_neighbors", n_min)
+    return(options)
+  }
+  c(options, list(preprocessing_option(UMAP, n_components = 2L, n_neighbors = neighbors, min_dist = 0.1)))
 }

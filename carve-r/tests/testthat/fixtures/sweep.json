@@ -1,0 +1,128 @@
+{
+ "labels": [
+  {
+   "estimator": "KMeans",
+   "params": {
+    "n_clusters": 3
+   },
+   "sweep_param": "n_clusters",
+   "label": "KMeans"
+  },
+  {
+   "estimator": "AgglomerativeClustering",
+   "params": {
+    "n_clusters": 3,
+    "linkage": "ward"
+   },
+   "sweep_param": "n_clusters",
+   "label": "AgglomerativeClustering, linkage=ward"
+  },
+  {
+   "estimator": "SpectralClustering",
+   "params": {
+    "n_clusters": 3,
+    "affinity": "rbf",
+    "gamma": 0.5
+   },
+   "sweep_param": "n_clusters",
+   "label": "SpectralClustering, affinity=rbf, gamma=0.5"
+  },
+  {
+   "estimator": "SpectralClustering",
+   "params": {
+    "n_clusters": 3,
+    "gamma": 1.0,
+    "n_neighbors": 7
+   },
+   "sweep_param": "n_clusters",
+   "label": "SpectralClustering, gamma=1, n_neighbors=7"
+  },
+  {
+   "estimator": "Custom",
+   "params": {
+    "tol": 1e-05,
+    "scale": true,
+    "b": 1234.5,
+    "resolution": 0.25
+   },
+   "sweep_param": "resolution",
+   "label": "Custom, b=1.23e+03, scale=True, tol=1e-05"
+  }
+ ],
+ "grid": {
+  "n_clusters": [
+   2,
+   3
+  ],
+  "linkage": [
+   "ward",
+   "average"
+  ],
+  "affinity": [
+   "x"
+  ]
+ },
+ "grid_order": [
+  {
+   "affinity": "x",
+   "linkage": "ward",
+   "n_clusters": 2
+  },
+  {
+   "affinity": "x",
+   "linkage": "ward",
+   "n_clusters": 3
+  },
+  {
+   "affinity": "x",
+   "linkage": "average",
+   "n_clusters": 2
+  },
+  {
+   "affinity": "x",
+   "linkage": "average",
+   "n_clusters": 3
+  }
+ ],
+ "ranks": [
+  {
+   "param": "n_clusters",
+   "values": [
+    5,
+    2,
+    3
+   ],
+   "ranks": [
+    2,
+    0,
+    1
+   ]
+  },
+  {
+   "param": "resolution",
+   "values": [
+    0.1,
+    0.5,
+    1.0
+   ],
+   "ranks": [
+    0,
+    1,
+    2
+   ]
+  },
+  {
+   "param": "min_cluster_size",
+   "values": [
+    5,
+    10,
+    20
+   ],
+   "ranks": [
+    2,
+    1,
+    0
+   ]
+  }
+ ]
+}

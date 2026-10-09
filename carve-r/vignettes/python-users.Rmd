@@ -1,0 +1,191 @@
+---
+title: "CARVE for Python users"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{CARVE for Python users}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+The R package has the same scores, selection rules and defaults as the
+Python package, `carve-validate` (imported as `carve`). This page maps the
+Python names to the R ones and lists where the two packages differ.
+
+## Names
+
+A fit is an S4 object of class `CARVE`. Each method of the Python class is
+a function that takes the fit first, and each fitted attribute has an
+accessor.
+
+| Python | R |
+|---|---|
+| `CARVE(...).fit(X)` | `carve(X, ...)` |
+| arguments of `fit()`: `reference_labels`, `randomize_preprocessing`, `show_progress`, `mode`, `random_state` | arguments of `carve()` |
+| `model.get_k()`, `get_sweep_value()`, `get_labels()` | `get_k(fit)`, `get_sweep_value(fit)`, `get_labels(fit)` |
+| `model.get_estimator()`, an unfitted estimator | `get_estimator(fit)`, a function of the data and a seed |
+| `model.estimator_results_` | `estimator_results(fit)` |
+| `model.estimator_param_grids_` | `estimator_param_grids(fit)` |
+| `model.preprocessing_results_`, `preprocessing_pipelines_` | `preprocessing_results(fit)`, `preprocessing_pipelines(fit)` |
+| `model.sweep_` | `sweep_spec(fit)` |
+| `model.consensus_matrices_`, `consensus_generalizability_matrices_` | `consensus_matrix(fit, config_id, type = "stability")` or `"generalizability"` |
+| `model.stability_gini_scores_`, `stability_ce_scores_`, `generalizability_scores_` | `sample_scores(fit, config_id, source = "gini")`, `"ce"` or `"accuracy"` |
+| `model.consensus_anchors_` | `consensus_anchors(fit)` |
+| `model.X_` | `input_data(fit)` |
+| `model.save(path)`, `CARVE.load(path)` | `saveRDS(fit, path)`, `readRDS(path)` |
+| `model.plot_cluster_violin()` and the other plot methods | `plot_cluster_violin(fit)` and so on |
+| `carve.tl.carve(adata)`, `carve.tl.attach_results(adata, model)` | `run_carve(object)`, `attach_results(object, fit)` |
+| `carve.pl.cluster_violin(adata)` and the other `pl` functions | `plot_cluster_violin(object)` and so on |
+| `key_added=` | `key =` |
+| `use_rep=`, `layer=`, `n_pcs=` | `reduction =`, `assay =`, `n_dims =` |
+| `(KMeans, {"n_clusters": [2, 3, 4]})` | `estimator_grid(KMeans, n_clusters = 2:4)` |
+| `(PCA, {"n_components": [5, 10]})` | `preprocessing_option(PCA, n_components = c(5, 10))` |
+| `carve.LeidenClustering(resolution=1).fit_predict(X)` | `LeidenClustering(X, resolution = 1)` |
+| a scikit-learn classifier for `classifier=` | a function of `x_train`, `y_train` and `x_test` |
+
+The estimators keep their Python and scikit-learn names: `KMeans()`,
+`AgglomerativeClustering()`, `SpectralClustering()`,
+`LeidenClustering()`, `LouvainClustering()` and `HDBSCAN()`. So do the
+transforms `StandardScaler()`, `PCA()`, `TSNE()` and `UMAP()`, with
+`Identity()` and `Log1p()` for the two `FunctionTransformer` options.
+Each takes the data matrix first and returns labels or a transformed
+matrix.
+
+On a SingleCellExperiment, `obs` becomes `colData(object)` and the `uns`
+record `metadata(object)[[key]]`; on a Seurat object they are the cell
+metadata and `object@misc[[key]]`. The consensus matrix that Python keeps
+in `obsp` is part of the record. Plots are saved with `ggplot2::ggsave()`
+and changed with `+`, so the `ax`, `figsize`, `show`, `save` and `dpi`
+arguments are gone, and `tl.carve()`'s `copy` is not needed because R
+returns the changed object.
+
+## Defaults
+
+The defaults are Python's: `n_clusters = 2:10`, `n_resamples = 100`,
+`subsample_ratio = 0.618`, `anchor_threshold = 5000`,
+`estimator_param_grids = "light"`, `n_trees = 100`,
+`noise_policy = "drop"`, `measure = "stability"` and `rule = "1se"`.
+`run_carve()` sets `random_state = 0`, following scanpy as `tl.carve()`
+does. `carve(random_state = NULL)` also runs with seed 0, as the Python
+runner does. `attach_results()` records 0 in the stored parameters, where
+Python records the model's `random_state`, which is `None` for a
+`CARVE()` created without one.
+
+## Behavior that differs
+
+- Labels run from 1 to k, as `kmeans()` and `cutree()` number them, where
+  Python's run from 0 to k - 1. Noise is -1 in both. `config_id`,
+  `sweep_rank` and the method ids keep Python's values, starting at 0.
+- `get_labels()` keeps no state. Python's `get_labels()` stores its result
+  as the reference labels when there are none or their cluster count
+  differs, and matches later calls to them. In R, pass earlier labels as
+  `reference_labels` to keep cluster names stable.
+- `consensus_anchors = 1` means every sample, so the run stays exact.
+  Python tells a share from a count by type and rejects the integer 1. In
+  R, a number in (0, 1] is a share and a whole number above 1 a count.
+- Consensus matrices are doubles, so they take twice the memory of
+  Python's float32 matrices. A fit keeps two matrices per configuration, so
+  20 configurations at 5,000 anchors hold about 8 GB in R and 4 GB in
+  Python.
+- Each `run_carve()` or `attach_results()` call replaces the whole record.
+  Python leaves an earlier consensus matrix in `obsp` when a later call
+  has `store_consensus=False`.
+- `model.save()` leaves the input data out of the file unless
+  `include_data=True`. `saveRDS(fit, path)` always keeps it, so the file
+  is larger, and a loaded fit can label an anchored run without the data
+  being supplied again.
+- For a Seurat object, `assay` names a Seurat assay, and CARVE clusters its
+  `"data"` layer.
+- R checks some input before Python does or where Python does not: missing
+  or infinite values in the data, which Python's estimators report later;
+  `noise_policy` at fit time, where Python checks it inside the first
+  resample; and the plot arguments `inner` and `annotation_style`, where
+  Python ignores an unknown value. `legend_loc` and `markers` are checked
+  because R accepts fewer values than matplotlib; see Plots.
+
+## Plots
+
+- `legend_loc` takes ggplot2 positions: `"right"` (the default), `"left"`,
+  `"top"`, `"bottom"`, or two numbers inside the panel. `"right"` places
+  the legend outside the panel as Python's `"right margin"` does.
+  matplotlib's `"best"` and its corner names, such as `"upper left"`, have
+  no equivalent.
+- `palette` and `cmap` take R palette names, such as `"Accent"`,
+  `"viridis"` and `"Greens_r"`, or a vector of colors.
+- Sizes and widths keep matplotlib's units, marker areas in square points
+  and line widths in points, so Python's values give marks of about the
+  same size.
+- The annotation goes in the caption below the panel or, on the scatter
+  plots with `annotation_style = "legend"`, at the top of the legend
+  title. ggplot2 cannot place a box where it hides the least data, as
+  matplotlib does.
+- Off the `n_clusters` axis the annotation writes `k ~ 7` where Python
+  writes k with an approximately-equal sign, which R's PDF device cannot
+  print.
+- `density_norm = "area"` gives violins of equal area, and `"count"` makes
+  their areas proportional to the number of samples, as in ggplot2.
+  Python draws `"area"` like `"width"`, and scales `"count"` widths as
+  `0.2 + 0.6 * n / max(n)`.
+- The diagnostic scatter uses the five shapes of ggplot2 that take a fill,
+  where Python's default list has 14 markers. The shapes repeat after five
+  clusters, with Python's warning, and `markers` must be shapes 21 to 25.
+- The violins' jittered points are seeded, so a plot is the same each
+  time. Python's jitter is not seeded.
+- Both scatter plots label their axes "Component 1" and "Component 2" by
+  default. In Python, `xlabel=None` selects that default; in R,
+  `xlabel = NULL` drops the label.
+- Samples whose score is `NaN` are left out of `plot_cluster_scatter()`.
+  Python leaves them out too, except when all the other scores are equal.
+
+## Where the results differ
+
+R and numpy draw different random numbers, so at the same seed the two
+packages draw different subsamples and their scores differ. The source
+repository's `carve-r/data-raw/parity_check.R` fits both packages on the
+same data, and `carve-r/data-raw/parity-report.md` gives the differences
+with their tolerances. The report covers one seed per case. The figures
+below that cite several seeds come from refits over five or ten seeds made
+while porting; they are not in the report. Beyond the random numbers, the
+methods differ in these ways.
+
+- KMeans uses an R implementation of k-means++ seeding and Lloyd's
+  iterations, which follows scikit-learn's algorithm with different random
+  numbers.
+- Leiden runs igraph's implementation, and Python runs leidenalg. On the
+  same graphs from `pbmc3k_subset`, igraph's partitions reach a slightly
+  higher modularity on average, by less than 0.002. Over five seeds,
+  CARVE's Leiden scores at resolutions 0.75 and 1 are 0.008 to 0.029
+  higher in R. In the parity check on the 1,000 cells of `pbmc3k_subset`,
+  which uses one seed, Leiden's `consensus_pac_stability` at resolution
+  0.75 is 0.038 higher in R, over the check's tolerance of 0.03, and the
+  labels at the default selection agree with an adjusted Rand index of
+  0.918. Louvain runs igraph's code in both packages, and its scores agree
+  within the seed-to-seed spread.
+- HDBSCAN builds its tree with the dbscan package and selects clusters
+  with a port of scikit-learn's selection. Where mutual reachability
+  distances tie, dbscan can merge samples in a different order, which
+  changes the tree and so the clusters. In the parity check's HDBSCAN case
+  the scores agree within 0.007, although the stability measure selects a
+  minimum cluster size of 5 in R and 10 in Python. dbscan computes all
+  pairwise distances, so its memory grows with the square of the number of
+  samples.
+- The default classifier is a ranger probability forest with scikit-learn's
+  settings, which predicts the class with the highest mean leaf
+  probability, as scikit-learn's random forest does.
+- `PCA()` gives scikit-learn's scores up to the sign of each component,
+  and up to the approximation error of the truncated solver. `TSNE()` runs
+  Rtsne and `UMAP()` runs uwot, which implement the methods separately from
+  scikit-learn and umap-learn, so the embeddings differ.
+
+Two differences have no explanation yet. With randomized preprocessing,
+spectral clustering's consensus scores at 3 and 4 clusters are lower in R
+by about 0.015 to 0.033 over ten seeds; each gap is about as large as the
+seed-to-seed spread of a single fit, but all have the same sign. On an
+anchored run, spectral clustering's accuracy at 5 clusters is 0.759 in R
+and 0.781 in Python over five seeds, a gap outside both seed-to-seed
+spreads.
+
+## Session information
+
+```{r session}
+sessionInfo()
+```

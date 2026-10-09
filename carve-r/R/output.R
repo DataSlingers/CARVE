@@ -1,63 +1,79 @@
-# Console output helpers. Mirrors _output.py.
-#
-# Verbosity levels follow the Python convention:
-#   0 = silent
-#   1 = per-configuration progress
-#   2 = header, per-config, footer
+# Console output of a run. Mirrors _output.py, through message() so that
+# suppressMessages() silences it.
 
+print_run_header <- function(X, sweep, n_resamples, subsample_ratio, estimator_grids,
+                             n_jobs, random_state, verbose, mode = "default", anchors = NULL,
+                             randomize_preprocessing = FALSE, normalization_options = list(),
+                             dim_reduction_options = list()) {
+  if (verbose < 2) {
+    return(invisible(NULL))
+  }
+  total <- sum(vapply(estimator_grids, function(g) length(expand_param_grid(g$grid)), integer(1)))
+  policy <- resolve_mode(mode)
+  n_matrices <- total * (policy$run_stability + policy$run_generalizability)
+  # An anchored run keeps m by m blocks instead of n by n matrices.
+  side <- if (is.null(anchors)) nrow(X) else length(anchors)
+  memory_gb <- n_matrices * as.numeric(side)^2 * 8 / 1e9
+  option_names <- function(options) {
+    paste(vapply(options, function(o) o$name, character(1)), collapse = ", ")
+  }
+  preprocessing <- if (isTRUE(randomize_preprocessing)) {
+    c(
+      sprintf("[CARVE] normalization      : %s", option_names(normalization_options)),
+      sprintf("[CARVE] dim_reduction      : %s", option_names(dim_reduction_options))
+    )
+  }
+  line <- strrep("=", 60)
+  message(paste(c(
+    paste("[CARVE]", line),
+    "[CARVE] Validation Settings:",
+    sprintf("[CARVE] n_samples          : %d", nrow(X)),
+    sprintf("[CARVE] n_features         : %d", ncol(X)),
+    sprintf("[CARVE] sweep parameter    : %s", sweep@param),
+    sprintf(
+      "[CARVE] %-19s: [%s]",
+      sweep@param,
+      paste(vapply(sweep@values, format_param_value, character(1)), collapse = " ")
+    ),
+    sprintf("[CARVE] n_resamples        : %d", as.integer(n_resamples)),
+    sprintf("[CARVE] subsample_ratio    : %s", format(subsample_ratio)),
+    sprintf("[CARVE] n_jobs             : %s", if (is.null(n_jobs)) "NULL" else format(n_jobs)),
+    sprintf("[CARVE] total configs      : %d", total),
+    sprintf("[CARVE] randomize_preproc  : %s", if (isTRUE(randomize_preprocessing)) "TRUE" else "FALSE"),
+    preprocessing,
+    sprintf("[CARVE] consensus anchors  : %s", if (is.null(anchors)) "none" else length(anchors)),
+    sprintf("[CARVE] consensus memory   : %.2f GB", memory_gb),
+    sprintf("[CARVE] random_state       : %d", as.integer(random_state)),
+    paste("[CARVE]", line),
+    "",
+    "[CARVE] Starting validation ...",
+    ""
+  ), collapse = "\n"))
+}
 
-#' @noRd
-print_run_header <- function(X, n_clusters, n_resamples, subsample_ratio,
-                             estimator_grids, n_jobs, randomize_preprocessing,
-                             random_state, verbose) {
-  if (verbose < 2L) return(invisible(NULL))
+print_run_footer <- function(results, verbose) {
+  if (verbose < 2) {
+    return(invisible(NULL))
+  }
+  message(sprintf("\n[CARVE] finished. evaluated %d estimator configurations.", nrow(results)))
+}
 
-  total_configs <- sum(vapply(
-    estimator_grids,
-    function(g) length(expand_grid_spec(g$grid)),
-    integer(1L)
+log_config_progress <- function(config_idx, total_configs, estimator_name, params, record,
+                                sweep_param, verbose) {
+  if (verbose <= 0) {
+    return(invisible(NULL))
+  }
+  value <- params[[sweep_param]]
+  message(sprintf(
+    "[CARVE] [%d/%d] est=%s %s=%s | ARI_stab=%.3f\u00b1%.3f  ARI_gen=%.3f\u00b1%.3f  ",
+    as.integer(config_idx),
+    as.integer(total_configs),
+    estimator_name,
+    sweep_param,
+    if (is.null(value)) "?" else format(value),
+    record$ari_stability,
+    record$ari_stability_se,
+    record$ari_generalizability,
+    record$ari_generalizability_se
   ))
-  line <- strrep("=", 60L)
-
-  message("[CARVE] ", line)
-  message("[CARVE] Validation Settings:")
-  message("[CARVE] n_samples          : ", nrow(X))
-  message("[CARVE] n_features         : ", ncol(X))
-  message("[CARVE] n_clusters         : ",
-          paste(n_clusters, collapse = ", "))
-  message("[CARVE] n_resamples        : ", n_resamples)
-  message("[CARVE] subsample_ratio    : ", subsample_ratio)
-  message("[CARVE] n_jobs             : ", n_jobs)
-  message("[CARVE] total configs      : ", total_configs)
-  message("[CARVE] randomize_preproc  : ", randomize_preprocessing)
-  message("[CARVE] random_state       : ",
-          if (is.null(random_state)) "NULL" else random_state)
-  message("[CARVE] ", line)
-  message("")
-  message("[CARVE] Starting validation ...")
-  message("")
-}
-
-
-#' @noRd
-print_run_footer <- function(estimator_df, verbose) {
-  if (verbose < 2L) return(invisible(NULL))
-  message("")
-  message("[CARVE] finished. evaluated ", nrow(estimator_df),
-          " estimator configurations.")
-}
-
-
-#' @noRd
-log_config_progress <- function(config_idx, total_configs, type, params,
-                                record, verbose = 0L) {
-  if (verbose <= 0L) return(invisible(NULL))
-  n_clusters <- params$n_clusters %||% "?"
-  msg <- sprintf(
-    "[CARVE] [%d/%d] est=%s n_clusters=%s | ARI_stab=%.3f\u00b1%.3f  ARI_gen=%.3f\u00b1%.3f",
-    config_idx, total_configs, type, as.character(n_clusters),
-    record$ari_stability %||% NaN, record$ari_stability_se %||% NaN,
-    record$ari_generalizability %||% NaN, record$ari_generalizability_se %||% NaN
-  )
-  message(msg)
 }

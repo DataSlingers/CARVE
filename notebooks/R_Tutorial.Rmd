@@ -1,0 +1,591 @@
+---
+title: "CARVE tutorial for R"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 7, fig.height = 4.5)
+tutorial_start <- Sys.time()
+```
+
+This tutorial goes through the CARVE R package, on simulated data in
+part 1 and on the PBMC 3k single-cell data set in part 2. It follows the
+Python notebooks `Tutorial.ipynb` and `Resolution_Tutorial.ipynb` in this
+folder and fits at full size, with the default 100 resamples except in the
+randomized preprocessing fits, which use 60. The
+package's vignettes explain the same steps on smaller data:
+`vignette("CARVE", package = "CARVE")` for the scores and the selection
+rules, `vignette("single-cell", package = "CARVE")`,
+`vignette("customizing", package = "CARVE")` and
+`vignette("python-users", package = "CARVE")`.
+
+Part 1 needs the mclust package, and part 2 also needs Seurat,
+SeuratObject and dbscan. Part 2 downloads 7 MB from 10x Genomics into
+`data/` on its first run.
+
+```{r packages}
+library(CARVE)
+
+n_jobs <- max(1L, parallel::detectCores() - 1L)
+n_jobs
+```
+
+`n_jobs` is the number of worker processes that share the resamples. Each
+worker's random forest gets the machine's cores divided by the workers, so
+`n_jobs = 1` leaves the forest every core.
+
+# Part 1: simulated data
+
+## Quick start
+
+Two pairs of interleaved half-moons, 1,000 points in four groups. The
+groups are curved, so they are not convex clusters.
+
+```{r moons, fig.width = 6, fig.height = 4}
+make_moons <- function(n, noise) {
+  n_outer <- n %/% 2
+  n_inner <- n - n_outer
+  t_outer <- seq(0, pi, length.out = n_outer)
+  t_inner <- seq(0, pi, length.out = n_inner)
+  X <- rbind(cbind(cos(t_outer), sin(t_outer)),
+             cbind(1 - cos(t_inner), 1 - sin(t_inner) - 0.5))
+  X + matrix(rnorm(2 * n, sd = noise), ncol = 2)
+}
+
+set.seed(42)
+moons <- rbind(make_moons(500, noise = 0.12),
+               make_moons(500, noise = 0.10) + matrix(c(2, 1.5), 500, 2, byrow = TRUE))
+moons_truth <- rep(1:4, each = 250)
+plot(moons, col = moons_truth, pch = 19, cex = 0.5, asp = 1, xlab = "", ylab = "")
+```
+
+```{r moons-fit}
+moons_grids <- list(
+  estimator_grid(AgglomerativeClustering, n_clusters = 2:6, linkage = "ward"),
+  estimator_grid(SpectralClustering, n_clusters = 2:6, affinity = "self_tuning")
+)
+fit_moons <- carve(moons, estimator_param_grids = moons_grids,
+                   n_jobs = n_jobs, random_state = 42)
+fit_moons
+get_k(fit_moons, measure = "generalizability", rule = "1se", not_two = TRUE)
+moons_labels <- get_labels(fit_moons, measure = "generalizability", rule = "1se", not_two = TRUE)
+table(moons_labels, moons_truth)
+moons_ari <- mclust::adjustedRandIndex(moons_labels, moons_truth)
+moons_ari
+```
+
+This fit uses two methods, ward-linkage agglomerative clustering and
+self-tuning spectral clustering, each with 2 to 6 clusters. The selection
+scores each configuration by generalizability, takes the largest number of
+clusters within one standard error of the best (`rule = "1se"`), and
+leaves two clusters out (`not_two = TRUE`). The two pairs of moons are far
+apart, so a split into two is easy to reproduce, and the default selection
+returns `r get_k(fit_moons)`; the section on two clusters below shows the
+same effect on other data. With the selection above, CARVE selects
+`r get_k(fit_moons, measure = "generalizability", rule = "1se", not_two = TRUE)`
+clusters, and the labels have an ARI of `r round(moons_ari, 2)` with the
+four true groups. The table shows that the first pair of moons is one
+cluster, while the second pair is split into two clusters that follow its
+moons except for `r sum(moons_labels == 2 & moons_truth == 3)` points.
+
+```{r moons-plots}
+plot_metric_over_n_clusters(fit_moons, measure = "generalizability", rule = "1se", not_two = TRUE)
+plot_cluster_scatter(fit_moons, measure = "generalizability", rule = "1se", not_two = TRUE)
+```
+
+## How CARVE scores a configuration
+
+A configuration is a clustering method, its parameters and a value of the
+swept parameter, here the number of clusters. For each of `n_resamples`
+resamples, CARVE draws two overlapping subsamples of `subsample_ratio` of
+the samples (0.618 by default) and clusters both. Stability is the
+adjusted Rand index (ARI) between the two clusterings on the samples they
+share. For generalizability, a random forest trained on one subsample's
+clusters predicts the clusters of the samples held out of it, and the ARI
+compares the prediction with the clusters those samples were given. After
+the resamples, CARVE builds each configuration's consensus matrix, the
+share of the subsamples drawing two samples in which they fell in the
+same cluster, and computes per-sample scores from it.
+
+```{r results}
+results <- estimator_results(fit_moons)
+names(results)
+results[results$n_clusters == 4,
+        c("method_label", "ari_stability", "ari_generalizability",
+          "consensus_pac_stability", "consensus_gini_stability", "accuracy_generalizability")]
+```
+
+`ari_stability` and `ari_generalizability` are means over the resamples,
+with standard errors (`_se`) and 5th and 95th percentiles (`_lower`,
+`_upper`). `consensus_pac_stability` is one minus the proportion of
+ambiguous clustering, the share of consensus entries between 0.05 and 0.95,
+so higher is better, as for every score in the table.
+`consensus_gini_stability` and `consensus_ce_stability` average the
+per-sample stability scores, and `accuracy_generalizability` the
+per-sample accuracy of the classifier on held-out samples.
+
+## Plots
+
+The eight plots return ggplot objects. The metric plot draws one line per
+method over the swept values, and the dashed line marks the selection. The
+quick start passed the selection arguments to it. With the defaults
+(stability, the 1se rule, two clusters allowed) the dashed line is at
+`r get_k(fit_moons)` clusters:
+
+```{r plot-metric}
+plot_metric_over_n_clusters(fit_moons)
+```
+
+`plot_n_clusters_over_sweep()` draws the number of clusters each method
+returned, averaged over the resamples. It needs a sweep over a parameter
+other than `n_clusters`, such as a resolution, where the count is an
+outcome; on an `n_clusters` sweep the count is the swept value itself and
+the function stops with an error saying so. Part 2 uses it.
+
+The consensus heatmap orders the samples by cluster. `k` shows another
+number of clusters:
+
+```{r plot-consensus, fig.width = 5.5, fig.height = 5}
+plot_consensus_matrix(fit_moons, measure = "generalizability", rule = "1se", not_two = TRUE)
+plot_consensus_matrix(fit_moons, k = 6)
+```
+
+The per-sample plots show the stability of each sample (`source = "gini"`
+or `"ce"`) or the share of the draws holding it out in which the
+classifier predicted its cluster (`source = "accuracy"`):
+
+```{r plot-per-sample}
+plot_cluster_boxplot(fit_moons, measure = "generalizability", rule = "1se", not_two = TRUE)
+plot_cluster_violin(fit_moons, source = "accuracy", measure = "generalizability", rule = "1se", not_two = TRUE)
+plot_diagnostic_scatter(fit_moons, measure = "generalizability", rule = "1se", not_two = TRUE)
+```
+
+`plot_metric_by_pipeline()`, the eighth, is in the section on randomized
+preprocessing below.
+
+## Selecting a configuration and labeling the samples
+
+```{r selecting}
+c(default = get_k(fit_moons),
+  generalizability = get_k(fit_moons, measure = "generalizability", rule = "1se", not_two = TRUE))
+get_sweep_value(fit_moons, measure = "generalizability", rule = "1se", not_two = TRUE)
+moons_estimator <- get_estimator(fit_moons, measure = "generalizability", rule = "1se", not_two = TRUE)
+attributes(moons_estimator)[c("estimator", "params")]
+table(get_labels(fit_moons, k = 2), moons_truth)
+```
+
+`get_k(fit_moons)` with the defaults returns `r get_k(fit_moons)`, and
+the selection of the quick start returns
+`r get_k(fit_moons, measure = "generalizability", rule = "1se", not_two = TRUE)`.
+`get_estimator()` returns the selected method as a function of
+the data and a seed, and `get_labels(k = 2)` cuts the best configuration
+at two clusters instead of the selected one. Labels run from 1 to the
+number of clusters.
+
+## Easy and hard data
+
+Three well-separated groups, and five that overlap:
+
+```{r easy-hard}
+make_blobs <- function(n_per, centers, sd) {
+  truth <- rep(seq_len(nrow(centers)), each = n_per)
+  noise <- matrix(rnorm(length(truth) * ncol(centers), sd = sd), ncol = ncol(centers))
+  list(X = centers[truth, ] + noise, truth = truth)
+}
+
+set.seed(0)
+easy <- make_blobs(100, rbind(c(0, 0), c(8, 0), c(4, 7)), sd = 1)
+hard <- make_blobs(100, rbind(c(0, 0), c(3, 0), c(1.5, 2.6), c(4.5, 2.6), c(3, 5.2)), sd = 1.2)
+fit_easy <- carve(easy$X, n_clusters = 2:8, n_jobs = n_jobs, random_state = 0)
+fit_hard <- carve(hard$X, n_clusters = 2:8, n_jobs = n_jobs, random_state = 0)
+c(easy = get_k(fit_easy), hard = get_k(fit_hard))
+```
+
+```{r easy-hard-plots}
+plot_metric_over_n_clusters(fit_easy) + ggplot2::labs(title = "Three separated groups")
+plot_metric_over_n_clusters(fit_hard) + ggplot2::labs(title = "Five overlapping groups")
+```
+
+On the easy data the scores of all three methods peak at the true three
+groups, at an ARI near 1. On the hard data the scores are lower and the
+methods disagree, and the best score, from k-means, is at two clusters,
+not at the five true groups.
+
+## The selection rules
+
+The same hard fit under each measure and rule:
+
+```{r rules}
+measures <- c("stability", "generalizability", "average")
+rules <- c("max", "1se", "quantile")
+sapply(rules, function(rule) {
+  sapply(measures, function(measure) get_k(fit_hard, measure = measure, rule = rule))
+})
+```
+
+`"max"` takes the highest mean score. `"1se"` takes the largest number of
+clusters whose score is within one standard error of the highest, and
+`"quantile"` the largest within the 5th to 95th percentiles of the best
+configuration's resample scores, so both lean toward finer clusterings
+when scores are close. On this fit `"max"` and `"1se"` give
+`r paste(unique(c(sapply(measures, function(m) c(get_k(fit_hard, measure = m, rule = "max"), get_k(fit_hard, measure = m, rule = "1se"))))), collapse = ", ")`
+clusters, whichever measure is used. `"quantile"` gives
+`r get_k(fit_hard, measure = "stability", rule = "quantile")` for stability
+and `r get_k(fit_hard, measure = "generalizability", rule = "quantile")`
+for generalizability, so the two scores can point to different numbers of
+clusters when the rule is looser.
+
+## Two clusters
+
+Four groups in a row can be split into two halves the same way in every
+resample, so two clusters can score as well as four:
+
+```{r not-two}
+set.seed(1)
+line <- make_blobs(75, cbind(c(0, 3, 6, 9), 0), sd = 0.7)
+fit_line <- carve(line$X, n_clusters = 2:8, n_jobs = n_jobs, random_state = 1)
+c(max = get_k(fit_line, rule = "max"),
+  max_not_two = get_k(fit_line, rule = "max", not_two = TRUE),
+  one_se = get_k(fit_line))
+```
+
+```{r not-two-plots, fig.width = 5.5, fig.height = 5}
+plot_consensus_matrix(fit_line, k = 2)
+plot_consensus_matrix(fit_line, rule = "max", not_two = TRUE)
+```
+
+The two-cluster consensus matrix looks clean, but it says little about
+the four groups. `not_two = TRUE` leaves two clusters out of the
+selection.
+
+## Custom grids
+
+`estimator_grid()` sets the methods and the values of their parameters:
+
+```{r grids}
+grids <- list(
+  estimator_grid(KMeans, n_clusters = 2:8, n_init = 10),
+  estimator_grid(AgglomerativeClustering, n_clusters = 2:8, linkage = c("ward", "single")),
+  estimator_grid(SpectralClustering, n_clusters = 2:8, n_neighbors = c(5, 15))
+)
+fit_grid <- carve(moons, estimator_param_grids = grids, n_jobs = n_jobs, random_state = 42)
+unique(estimator_results(fit_grid)$method_label)
+get_k(fit_grid)
+plot_metric_over_n_clusters(fit_grid)
+```
+
+## Randomized preprocessing
+
+k-means does not follow the curved shapes of the moons in their own
+coordinates. In the run below, half the resamples give it a t-SNE
+embedding to cluster. With `randomize_preprocessing = TRUE`, each resample
+draws a normalization and a dimensionality reduction from the options
+given and clusters the transformed subsamples; the classifier still trains
+on the raw coordinates.
+
+```{r randomized}
+fit_random <- carve(
+  moons, randomize_preprocessing = TRUE, n_resamples = 60, n_jobs = n_jobs, random_state = 42,
+  estimator_param_grids = list(estimator_grid(KMeans, n_clusters = 2:8)),
+  normalization_options = list(preprocessing_option(Identity), preprocessing_option(StandardScaler)),
+  dim_reduction_options = list(preprocessing_option(Identity), preprocessing_option(TSNE, perplexity = c(30, 50)))
+)
+plot_metric_by_pipeline(fit_random)
+pipeline_results <- preprocessing_results(fit_random)
+pipeline_results[pipeline_results$n_clusters == 4,
+                 c("pipeline", "n_resamples", "ari_stability", "ari_generalizability")]
+```
+
+`preprocessing_results()` splits each configuration's scores by pipeline.
+This run uses 60 resamples instead of 100 to save time, so each pipeline's
+scores rest on `r min(pipeline_results$n_resamples)` to
+`r max(pipeline_results$n_resamples)` resamples (`n_resamples` in the
+table) and are noisy. At four clusters the pipelines with t-SNE do not
+score higher than the identity pipelines on these data.
+
+## Saving a fit
+
+```{r save}
+path <- file.path(tempdir(), "fit_moons.rds")
+saveRDS(fit_moons, path)
+reloaded <- readRDS(path)
+identical(get_labels(reloaded, measure = "generalizability", rule = "1se", not_two = TRUE), moons_labels)
+round(file.size(path) / 2^20, 1)
+```
+
+The size is in MB. A fit keeps the data, so the scatter plots work on a
+fit read back from disk; Python's `save()` leaves the data out unless
+`include_data=True`.
+
+## Reference labels
+
+Cluster numbers are arbitrary. `reference_labels` renames the clusters to
+match another labeling with the same number of clusters, here the truth:
+
+```{r reference}
+table(get_labels(fit_moons, k = 4, reference_labels = moons_truth), moons_truth)
+```
+
+`carve(reference_labels = )` sets the labeling for every `get_labels()`
+call on the fit.
+
+## Parallel runs
+
+A run clusters every configuration on every resample, so its cost grows
+with the number of configurations times `n_resamples`. `n_jobs` spreads
+each configuration's resamples over worker processes; the results do not
+depend on it.
+
+```{r timing}
+blob_grid <- list(estimator_grid(KMeans, n_clusters = 2:8))
+time_serial <- system.time(fit_serial <- carve(hard$X, estimator_param_grids = blob_grid, random_state = 0))
+time_workers <- system.time(fit_workers <- carve(hard$X, estimator_param_grids = blob_grid, n_jobs = n_jobs, random_state = 0))
+c(serial = time_serial[["elapsed"]], workers = time_workers[["elapsed"]])
+all.equal(estimator_results(fit_serial), estimator_results(fit_workers))
+```
+
+Starting the workers has a cost of its own, so the gain grows with the
+work in each resample.
+
+# Part 2: PBMC 3k
+
+Single-cell data are usually clustered with Leiden or Louvain community
+detection on a nearest-neighbor graph of principal components. These
+methods take a resolution instead of a number of clusters. CARVE compares
+resolutions the way it compares numbers of clusters, and records, for
+each resolution, the mean number of clusters it gives over the resamples.
+
+## Data and the Seurat workflow
+
+The 10x Genomics PBMC 3k data, processed with the steps of Seurat's
+tutorial:
+
+```{r pbmc-download}
+url <- "https://cf.10xgenomics.com/samples/cell/pbmc3k/pbmc3k_filtered_gene_bc_matrices.tar.gz"
+dir.create("data", showWarnings = FALSE)
+archive <- file.path("data", basename(url))
+if (!file.exists(archive)) {
+  utils::download.file(url, archive, mode = "wb")
+}
+matrix_dir <- file.path("data", "filtered_gene_bc_matrices", "hg19")
+if (!dir.exists(matrix_dir)) {
+  utils::untar(archive, exdir = "data")
+}
+```
+
+```{r pbmc-seurat, message = FALSE, warning = FALSE}
+pbmc <- SeuratObject::CreateSeuratObject(
+  counts = Seurat::Read10X(matrix_dir), project = "pbmc3k", min.cells = 3, min.features = 200
+)
+pbmc[["percent.mt"]] <- Seurat::PercentageFeatureSet(pbmc, pattern = "^MT-")
+keep <- pbmc$nFeature_RNA > 200 & pbmc$nFeature_RNA < 2500 & pbmc$percent.mt < 5
+pbmc <- subset(pbmc, cells = colnames(pbmc)[keep])
+pbmc <- Seurat::NormalizeData(pbmc, verbose = FALSE)
+pbmc <- Seurat::FindVariableFeatures(pbmc, nfeatures = 2000, verbose = FALSE)
+pbmc <- Seurat::ScaleData(pbmc, verbose = FALSE)
+pbmc <- Seurat::RunPCA(pbmc, npcs = 30, verbose = FALSE)
+pbmc <- Seurat::FindNeighbors(pbmc, dims = 1:10, verbose = FALSE)
+pbmc <- Seurat::FindClusters(pbmc, resolution = 0.5, verbose = FALSE)
+pbmc <- Seurat::RunUMAP(pbmc, dims = 1:10, verbose = FALSE)
+pbmc
+```
+
+The chunk hides Seurat's own messages and warnings, such as its notice
+about the UMAP method; CARVE's output is shown everywhere else.
+
+## Comparing resolutions
+
+```{r pbmc-fit}
+resolutions <- c(0.25, 0.5, 0.75, 1, 1.5)
+fit_pbmc <- carve(pbmc, resolution = resolutions, n_dims = 10, n_jobs = n_jobs, random_state = 0)
+fit_pbmc
+```
+
+`carve()` reads the first 10 principal components of the `"pca"`
+reduction, the ones Seurat's graph used. With `resolution` given, it
+compares Leiden and Louvain at each resolution, each on a graph of the 15
+nearest neighbors scaled to the subsample's size.
+
+```{r pbmc-sweep}
+sweep_spec(fit_pbmc)
+get_sweep_value(fit_pbmc)
+get_k(fit_pbmc)
+```
+
+`sweep_spec()` describes the sweep: the parameter, its values, and that
+larger values give more clusters. `get_sweep_value()` returns the selected
+resolution, and `get_k()` the number of clusters at it, rounded from the
+mean over the resamples.
+
+```{r pbmc-curves}
+plot_metric_over_n_clusters(fit_pbmc)
+plot_n_clusters_over_sweep(fit_pbmc)
+```
+
+The metric plot has the resolution on its x axis, one line per method.
+The second plot shows how many clusters each method found at each
+resolution.
+
+```{r pbmc-consensus, fig.width = 5.5, fig.height = 5}
+plot_consensus_matrix(fit_pbmc)
+plot_consensus_matrix(fit_pbmc, sweep_value = 1.5)
+```
+
+`sweep_value` pins a resolution in `get_labels()`, in the consensus plot
+and in the four per-sample plots. Below, the scatter plot on the UMAP and
+the violin plot are each drawn at the selected resolution and at the
+finest one:
+
+```{r pbmc-scatter}
+umap <- SeuratObject::Embeddings(pbmc, reduction = "umap")
+plot_cluster_scatter(fit_pbmc, embedding = umap)
+plot_cluster_scatter(fit_pbmc, embedding = umap, sweep_value = 1.5)
+plot_cluster_violin(fit_pbmc)
+plot_cluster_violin(fit_pbmc, sweep_value = 1.5)
+```
+
+The results table gains the sweep columns:
+
+```{r pbmc-results}
+results_pbmc <- estimator_results(fit_pbmc)
+results_pbmc[, c("method_label", "resolution", "sweep_rank", "n_clusters_observed",
+                 "ari_stability", "ari_generalizability")]
+```
+
+`sweep_rank` orders the values from coarse to fine, and the selection
+rules work on it, so they behave the same on every axis.
+`n_clusters_observed` is the mean number of clusters over the resamples.
+
+## Labels and Seurat's clusters
+
+```{r pbmc-labels}
+labels_pbmc <- get_labels(fit_pbmc)
+table(CARVE = labels_pbmc, Seurat = pbmc$seurat_clusters)
+mclust::adjustedRandIndex(labels_pbmc, pbmc$seurat_clusters)
+table(get_labels(fit_pbmc, consensus_k = 4))
+```
+
+`consensus_k` cuts the selected consensus matrix into another number of
+clusters, to see how the cells group at a coarser level.
+
+## Storing the results in the object
+
+`attach_results()` writes the selected configuration into the Seurat
+object: the labels and the per-cell scores into the cell metadata, and the
+parameters, the results table and the consensus matrix into
+`pbmc@misc$carve`.
+
+```{r pbmc-attach}
+pbmc <- attach_results(pbmc, fit_pbmc)
+head(pbmc@meta.data[, c("seurat_clusters", "carve", "carve_stability", "carve_generalizability")])
+Seurat::DimPlot(pbmc, group.by = "carve")
+plot_diagnostic_scatter(pbmc, basis = "umap")
+```
+
+`run_carve()` does both steps in one call. On a SingleCellExperiment made
+from the same object, with the same seed, it gives the same labels:
+
+```{r pbmc-sce}
+sce <- Seurat::as.SingleCellExperiment(pbmc)
+SingleCellExperiment::reducedDimNames(sce)
+sce <- run_carve(sce, resolution = resolutions, n_dims = 10, n_jobs = n_jobs)
+identical(as.character(sce$carve), as.character(pbmc$carve))
+plot_cluster_scatter(sce, basis = "UMAP")
+```
+
+## Ambiguous cells
+
+```{r pbmc-noise}
+noisy <- get_labels(fit_pbmc, noise_labels = TRUE, noise_quantile = 0.05)
+table(noisy)
+pbmc$carve_noise <- factor(noisy)
+Seurat::DimPlot(pbmc, group.by = "carve_noise")
+```
+
+`noise_labels = TRUE` labels -1 the cells whose stability is in the
+lowest 5 percent and more than 0.05 below the median.
+
+## HDBSCAN
+
+HDBSCAN takes a minimum cluster size and labels cells in sparse regions
+-1. It needs the dbscan package.
+
+```{r pbmc-hdbscan}
+pcs <- SeuratObject::Embeddings(pbmc, reduction = "pca")[, 1:10]
+hdbscan_grid <- list(estimator_grid(HDBSCAN, min_cluster_size = c(10, 20, 40, 80)))
+fit_hdbscan <- carve(pcs, estimator_param_grids = hdbscan_grid, n_jobs = n_jobs, random_state = 0)
+sweep_spec(fit_hdbscan)
+estimator_results(fit_hdbscan)[, c("min_cluster_size", "n_clusters_observed", "noise_fraction", "ari_stability")]
+get_sweep_value(fit_hdbscan)
+```
+
+From the grid, CARVE infers that `min_cluster_size` is swept and that
+larger values give fewer clusters. `noise_fraction` is the share of cells
+labeled noise, averaged over the resamples. By default, `noise_policy =
+"drop"` leaves noise cells out of each resample's scores.
+
+## Graph methods on their own, and neighborhood sizes
+
+`LeidenClustering()` and `LouvainClustering()` are plain functions:
+
+```{r pbmc-graph}
+table(LeidenClustering(pcs, resolution = 0.5, random_state = 0))
+table(LouvainClustering(pcs, resolution = 0.5, random_state = 0))
+```
+
+A grid can vary the graph as well as the resolution. CARVE infers the
+resolution sweep from the grid:
+
+```{r pbmc-neighbors}
+neighbor_grid <- list(estimator_grid(LeidenClustering, resolution = resolutions, n_neighbors = c(10, 15, 30)))
+fit_neighbors <- carve(pcs, estimator_param_grids = neighbor_grid, n_jobs = n_jobs, random_state = 0)
+sweep_spec(fit_neighbors)
+plot_metric_over_n_clusters(fit_neighbors)
+```
+
+## Randomized preprocessing
+
+The principal components above are one choice of preprocessing. With
+`randomize_preprocessing = TRUE`, CARVE draws a pipeline for each resample
+and fits it on the subsamples, here on the log-normalized expression of
+the 2,000 variable genes. On macOS and Linux the default backend forks the R session. After
+Seurat's PCA had run in this session, the forked workers of this fit
+crashed, so this fit passes a socket backend through `BPPARAM`:
+
+```{r pbmc-randomized}
+genes <- SeuratObject::VariableFeatures(pbmc)
+expression <- t(as.matrix(SeuratObject::LayerData(pbmc, layer = "data")[genes, ]))
+dim(expression)
+fit_random_pbmc <- carve(
+  expression, randomize_preprocessing = TRUE, n_resamples = 60, n_jobs = n_jobs, random_state = 0,
+  BPPARAM = BiocParallel::SnowParam(workers = n_jobs),
+  estimator_param_grids = list(estimator_grid(LeidenClustering, resolution = c(0.25, 0.5, 1))),
+  normalization_options = list(preprocessing_option(Identity), preprocessing_option(StandardScaler)),
+  dim_reduction_options = list(preprocessing_option(PCA, n_components = c(10, 20, 30)))
+)
+plot_metric_by_pipeline(fit_random_pbmc)
+```
+
+`pipeline_from_spec()` applies a pipeline to all the cells, for example
+the one with the highest stability:
+
+```{r pbmc-pipeline}
+pipeline_results <- preprocessing_results(fit_random_pbmc)
+best <- pipeline_results$pipeline[which.max(pipeline_results$ari_stability)]
+best
+embedding <- pipeline_from_spec(preprocessing_pipelines(fit_random_pbmc)[[best]], random_state = 0)(expression)
+dim(embedding)
+```
+
+# Session information
+
+This rendering took
+`r round(as.numeric(difftime(Sys.time(), tutorial_start, units = "mins")))`
+minutes on `r n_jobs` cores.
+
+```{r session}
+sessionInfo()
+```

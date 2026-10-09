@@ -1,23 +1,18 @@
-#' CARVE: Cluster Analysis with Resampling for Validation and Exploration
+#' CARVE: cluster analysis with resampling for validation and exploration
 #'
-#' Stability- and generalizability-based validation of clustering methods via
-#' repeated subsampling, consensus matrices, and rule-based selection.
+#' CARVE chooses the number of clusters, and the clustering method, by
+#' resampling. [carve()] clusters many subsamples of the data with every
+#' candidate configuration and scores each one for stability and
+#' generalizability. [get_k()] and [get_labels()] then pick a configuration
+#' with a selection rule.
 #'
-#' The entry point is [CARVE], an R6 estimator class, with S3 dispatch via
-#' [carve()] for matrix, Seurat, and SingleCellExperiment inputs.
+#' Start with `vignette("CARVE", package = "CARVE")`. The other vignettes
+#' cover single-cell data (`"single-cell"`), the options of a run
+#' (`"customizing"`) and the differences from the Python package
+#' (`"python-users"`).
 #'
 #' @keywords internal
-#' @importFrom stats hclust as.dist quantile sd var prcomp kmeans cutree dist
-#'   rnorm runif setNames median
-#' @importFrom utils packageVersion head tail
-#' @importFrom R6 R6Class
-#' @importFrom FNN get.knn
-#' @importFrom Matrix sparseMatrix Diagonal t
-#' @importFrom RSpectra eigs_sym
-#' @importFrom ranger ranger
-#' @importFrom future plan multisession sequential
-#' @importFrom furrr future_map furrr_options
-#' @importFrom progressr with_progress progressor
+#' @importFrom methods new setClass setClassUnion setGeneric setMethod
+#' @importFrom methods setValidity show validObject
 #' @importFrom ggplot2 .data
-#' @importFrom patchwork wrap_plots
 "_PACKAGE"

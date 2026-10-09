@@ -1,0 +1,50 @@
+{
+ "cases": [
+  {
+   "params": {},
+   "n_fit": 618,
+   "n_full": 1000,
+   "n_neighbors": 4
+  },
+  {
+   "params": {
+    "n_neighbors": 15
+   },
+   "n_fit": 618,
+   "n_full": 1000,
+   "n_neighbors": 9
+  },
+  {
+   "params": {
+    "n_neighbors": 3
+   },
+   "n_fit": 10,
+   "n_full": 1000,
+   "n_neighbors": 2
+  },
+  {
+   "params": {
+    "n_neighbors": 15
+   },
+   "n_fit": 1000,
+   "n_full": 1000,
+   "n_neighbors": 15
+  },
+  {
+   "params": {
+    "n_neighbors": 9
+   },
+   "n_fit": 500,
+   "n_full": 1000,
+   "n_neighbors": 4
+  },
+  {
+   "params": {
+    "n_neighbors": 15
+   },
+   "n_fit": 1,
+   "n_full": 1000,
+   "n_neighbors": 2
+  }
+ ]
+}
