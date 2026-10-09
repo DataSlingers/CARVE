@@ -100,3 +100,14 @@ test_that("sce_basis prefers UMAP, then TSNE, then PCA, then the fallback", {
   one <- make_sce(X, reductions = list(one = X[, 1L, drop = FALSE]))
   expect_error(sce_basis(one, basis = "one"), "reducedDim(object, 'one') has shape (90, 1); a basis needs at least two columns.", fixed = TRUE)
 })
+
+test_that("the lists in the error messages are in code point order", {
+  local_collation()
+  X <- blobs$X
+  # Inserted in the locale's order, so neither an unsorted nor a
+  # locale-sorted list matches.
+  mixed <- make_sce(X, reductions = list(harmony = X, PCA = X), assays = list(logcounts = t(X), SCT = t(X)))
+  expect_error(sce_matrix(mixed, assay = "counts"), "Available assays: ['SCT', 'logcounts']", fixed = TRUE)
+  expect_error(sce_matrix(mixed, reduction = "UMAP"), "Available names: ['PCA', 'harmony']. Pass assay=", fixed = TRUE)
+  expect_error(sce_basis(mixed, basis = "UMAP"), "Available names: ['PCA', 'harmony']", fixed = TRUE)
+})

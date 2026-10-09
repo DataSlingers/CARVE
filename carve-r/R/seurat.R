@@ -22,7 +22,15 @@ seurat_selection <- function(assay = NULL, reduction = NULL, n_dims = NULL, ...)
 }
 
 seurat_data_layer <- function(object, assay) {
-  if (!"data" %in% SeuratObject::Layers(object[[assay]])) {
+  layers <- SeuratObject::Layers(object[[assay]])
+  if (!"data" %in% layers) {
+    split <- grep("^data[.]", layers, value = TRUE)
+    if (length(split) > 0L) {
+      stop(sprintf(
+        "Assay '%s' keeps its normalized data in split layers %s. Join them first with SeuratObject::JoinLayers(), or pass reduction=.",
+        assay, python_list(split)
+      ), call. = FALSE)
+    }
     stop(sprintf(
       "Assay '%s' has no 'data' layer. Normalize it first, for example with Seurat::NormalizeData(), or pass reduction=.",
       assay
@@ -40,7 +48,7 @@ seurat_matrix <- function(object, assay = NULL, reduction = NULL, n_dims = NULL)
     if (!assay %in% assays) {
       stop(sprintf(
         "assay=%s not found. Available assays: %s",
-        format_repr(assay), python_list(sort(assays))
+        format_repr(assay), python_list(sort(assays, method = "radix"))
       ), call. = FALSE)
     }
     X <- seurat_data_layer(object, assay)
@@ -48,7 +56,7 @@ seurat_matrix <- function(object, assay = NULL, reduction = NULL, n_dims = NULL)
     if (!reduction %in% reductions) {
       stop(sprintf(
         "reduction=%s not found in Reductions(object). Available names: %s. Pass assay=... to cluster an assay.",
-        format_repr(reduction), python_list(sort(reductions))
+        format_repr(reduction), python_list(sort(reductions, method = "radix"))
       ), call. = FALSE)
     }
     X <- SeuratObject::Embeddings(object, reduction = reduction)
@@ -103,7 +111,7 @@ seurat_basis <- function(object, basis = NULL, fallback = NULL) {
     if (!basis %in% reductions) {
       stop(sprintf(
         "basis=%s not found in Reductions(object). Available names: %s",
-        format_repr(basis), python_list(sort(reductions))
+        format_repr(basis), python_list(sort(reductions, method = "radix"))
       ), call. = FALSE)
     }
     return(read(basis))

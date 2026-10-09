@@ -140,10 +140,13 @@ test_that("k pins the configuration and a resolution run records its axis", {
   pinned <- S4Vectors::metadata(run(sce, k = 2))$carve$params
   expect_true(pinned$pinned)
   expect_equal(pinned$selected_k, 2)
-  graph <- run_carve(sce, n_resamples = 4, estimator_param_grids = list(estimator_grid(LeidenClustering, resolution = c(0.5, 1))))
-  params <- S4Vectors::metadata(graph)$carve$params
-  expect_identical(params$sweep_param, "resolution")
-  expect_true(params$selected_resolution %in% c(0.5, 1))
+  graph_grid <- list(estimator_grid(LeidenClustering, resolution = c(0.5, 1)))
+  for (value in c(0.5, 1)) {
+    graph <- run_carve(sce, n_resamples = 4, estimator_param_grids = graph_grid, sweep_value = value)
+    params <- S4Vectors::metadata(graph)$carve$params
+    expect_identical(params$sweep_param, "resolution")
+    expect_equal(params$selected_resolution, value)
+  }
 })
 
 test_that("attach_results stores what run_carve stores", {
@@ -236,4 +239,12 @@ test_that("run_carve writes the same results into a Seurat object", {
   expect_identical(methods::slot(again, "misc")$carve$params$rule, "max")
   anchored <- muffle(direct_fit(anchor_threshold = 30), "anchored consensus")
   expect_warning(attach_results(object, anchored), "Misc(object, 'carve') holds only the latter", fixed = TRUE)
+})
+
+test_that("reference_key's error lists the columns in code point order", {
+  local_collation()
+  mixed <- sce
+  SummarizedExperiment::colData(mixed)$batch <- 1
+  SummarizedExperiment::colData(mixed)$Truth <- blobs$y
+  expect_error(run(mixed, reference_key = "nope"), "Available columns: ['Truth', 'batch']", fixed = TRUE)
 })

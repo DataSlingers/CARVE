@@ -233,7 +233,7 @@ run_carve <- function(object, ..., assay = NULL, reduction = NULL, n_dims = NULL
         "reference_key=%s not found in %s. Available columns: %s",
         format_repr(reference_key),
         cells_columns_where(object),
-        python_list(sort(cells_column_names(object)))
+        python_list(sort(cells_column_names(object), method = "radix"))
       ), call. = FALSE)
     }
   }

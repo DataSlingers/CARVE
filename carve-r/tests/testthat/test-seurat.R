@@ -83,3 +83,28 @@ test_that("seurat_basis prefers umap, then tsne, then pca, then the fallback", {
     fixed = TRUE
   )
 })
+
+test_that("the lists in the error messages are in code point order", {
+  local_collation()
+  X <- blobs$X
+  object <- make_seurat(X, reductions = list(harmony = X, UMAP = X))
+  object[["integrated"]] <- SeuratObject::CreateAssay5Object(
+    counts = SeuratObject::LayerData(object, assay = "RNA", layer = "counts")
+  )
+  expect_error(seurat_matrix(object, assay = "ADT"), "Available assays: ['RNA', 'integrated']", fixed = TRUE)
+  expect_error(seurat_matrix(object, reduction = "tsne"), "Available names: ['UMAP', 'harmony']. Pass assay=", fixed = TRUE)
+  expect_error(seurat_basis(object, basis = "tsne"), "Available names: ['UMAP', 'harmony']", fixed = TRUE)
+})
+
+test_that("a data layer split across layers gets the JoinLayers() hint", {
+  object <- make_seurat(blobs$X, reductions = list())
+  object[["RNA"]] <- split(object[["RNA"]], f = rep(c("a", "b"), length.out = ncol(object)))
+  expect_error(
+    seurat_matrix(object),
+    "Assay 'RNA' keeps its normalized data in split layers ['data.a', 'data.b']. Join them first with SeuratObject::JoinLayers(), or pass reduction=.",
+    fixed = TRUE
+  )
+  expect_error(seurat_matrix(object, assay = "RNA"), "Join them first with SeuratObject::JoinLayers()", fixed = TRUE)
+  joined <- SeuratObject::JoinLayers(object)
+  expect_equal(unname(seurat_matrix(joined)), blobs$X)
+})

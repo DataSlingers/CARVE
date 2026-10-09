@@ -22,7 +22,7 @@ sce_matrix <- function(object, assay = NULL, reduction = NULL, n_dims = NULL) {
     if (!assay %in% assays) {
       stop(sprintf(
         "assay=%s not found. Available assays: %s",
-        format_repr(assay), python_list(sort(assays))
+        format_repr(assay), python_list(sort(assays, method = "radix"))
       ), call. = FALSE)
     }
     X <- cells_by_features(SummarizedExperiment::assay(object, assay))
@@ -30,7 +30,7 @@ sce_matrix <- function(object, assay = NULL, reduction = NULL, n_dims = NULL) {
     if (!reduction %in% reductions) {
       stop(sprintf(
         "reduction=%s not found in reducedDimNames(object). Available names: %s. Pass assay=... to cluster an assay.",
-        format_repr(reduction), python_list(sort(reductions))
+        format_repr(reduction), python_list(sort(reductions, method = "radix"))
       ), call. = FALSE)
     }
     X <- SingleCellExperiment::reducedDim(object, reduction)
@@ -89,7 +89,7 @@ sce_basis <- function(object, basis = NULL, fallback = NULL) {
     if (!basis %in% reductions) {
       stop(sprintf(
         "basis=%s not found in reducedDimNames(object). Available names: %s",
-        format_repr(basis), python_list(sort(reductions))
+        format_repr(basis), python_list(sort(reductions, method = "radix"))
       ), call. = FALSE)
     }
     return(read(basis))
