@@ -286,9 +286,8 @@ The `SingleCellExperiment` methods, and the `ANY` methods, which handle Seurat o
 to the `carve.pl` functions and read the stored record; the scatter plots take `basis`, a
 reduced-dimension name. Every plot returns a ggplot object. Python's `ax`, `figsize`, `show`,
 `save` and `dpi` arguments are dropped, because plots are saved with `ggsave` and styled with `+`.
-Selection and content arguments
-keep Python's names and defaults. The palette uses the color values of `_plotting.py`, defined once
-in `plotting.R`.
+Selection and content arguments keep Python's names and defaults. The palette uses the color
+values of `_plotting.py`, defined once in `plotting.R`.
 
 ### Bundled data
 
