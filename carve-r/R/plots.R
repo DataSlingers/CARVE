@@ -434,7 +434,7 @@ setMethod("plot_n_clusters_over_sweep", "ANY", function(object, ...) {
 #' @seealso [consensus_matrix()], [get_labels()]
 #' @examples
 #' set.seed(1)
-#' X <- rbind(matrix(rnorm(60, 0, 0.3), ncol = 2), matrix(rnorm(60, 3, 0.3), ncol = 2))
+#' X <- rbind(matrix(rnorm(60, 0, 0.6), ncol = 2), matrix(rnorm(60, 2, 0.6), ncol = 2))
 #' rownames(X) <- sprintf("cell%02d", seq_len(nrow(X)))
 #' grid <- list(estimator_grid(KMeans, n_clusters = 2:4))
 #' fit <- carve(X, n_resamples = 10, random_state = 0, estimator_param_grids = grid)
@@ -664,7 +664,7 @@ cells_scatter_data <- function(object, key, basis) {
 #' @seealso [plot_cluster_violin()], [sample_scores()]
 #' @examples
 #' set.seed(1)
-#' X <- rbind(matrix(rnorm(60, 0, 0.3), ncol = 2), matrix(rnorm(60, 3, 0.3), ncol = 2))
+#' X <- rbind(matrix(rnorm(60, 0, 0.6), ncol = 2), matrix(rnorm(60, 2, 0.6), ncol = 2))
 #' rownames(X) <- sprintf("cell%02d", seq_len(nrow(X)))
 #' grid <- list(estimator_grid(KMeans, n_clusters = 2:4))
 #' fit <- carve(X, n_resamples = 10, random_state = 0, estimator_param_grids = grid)
@@ -754,7 +754,7 @@ setMethod("plot_cluster_boxplot", "ANY", function(object, ...) {
 #' @seealso [plot_cluster_boxplot()], [sample_scores()]
 #' @examples
 #' set.seed(1)
-#' X <- rbind(matrix(rnorm(60, 0, 0.3), ncol = 2), matrix(rnorm(60, 3, 0.3), ncol = 2))
+#' X <- rbind(matrix(rnorm(60, 0, 0.6), ncol = 2), matrix(rnorm(60, 2, 0.6), ncol = 2))
 #' rownames(X) <- sprintf("cell%02d", seq_len(nrow(X)))
 #' grid <- list(estimator_grid(KMeans, n_clusters = 2:4))
 #' fit <- carve(X, n_resamples = 10, random_state = 0, estimator_param_grids = grid)
@@ -867,7 +867,7 @@ setMethod("plot_cluster_violin", "ANY", function(object, ...) {
 #' @seealso [plot_diagnostic_scatter()], [sample_scores()]
 #' @examples
 #' set.seed(1)
-#' X <- rbind(matrix(rnorm(60, 0, 0.3), ncol = 2), matrix(rnorm(60, 3, 0.3), ncol = 2))
+#' X <- rbind(matrix(rnorm(60, 0, 0.6), ncol = 2), matrix(rnorm(60, 2, 0.6), ncol = 2))
 #' rownames(X) <- sprintf("cell%02d", seq_len(nrow(X)))
 #' grid <- list(estimator_grid(KMeans, n_clusters = 2:4))
 #' fit <- carve(X, n_resamples = 10, random_state = 0, estimator_param_grids = grid)
@@ -973,7 +973,7 @@ setMethod("plot_cluster_scatter", "ANY", function(object, ...) {
 #' @seealso [plot_cluster_scatter()], [sample_scores()]
 #' @examples
 #' set.seed(1)
-#' X <- rbind(matrix(rnorm(60, 0, 0.3), ncol = 2), matrix(rnorm(60, 3, 0.3), ncol = 2))
+#' X <- rbind(matrix(rnorm(60, 0, 0.6), ncol = 2), matrix(rnorm(60, 2, 0.6), ncol = 2))
 #' rownames(X) <- sprintf("cell%02d", seq_len(nrow(X)))
 #' grid <- list(estimator_grid(KMeans, n_clusters = 2:4))
 #' fit <- carve(X, n_resamples = 10, random_state = 0, estimator_param_grids = grid)

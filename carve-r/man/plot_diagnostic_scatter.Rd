@@ -156,7 +156,7 @@ score to the lowest, so the lowest scores end up on top.
 }
 \examples{
 set.seed(1)
-X <- rbind(matrix(rnorm(60, 0, 0.3), ncol = 2), matrix(rnorm(60, 3, 0.3), ncol = 2))
+X <- rbind(matrix(rnorm(60, 0, 0.6), ncol = 2), matrix(rnorm(60, 2, 0.6), ncol = 2))
 rownames(X) <- sprintf("cell\%02d", seq_len(nrow(X)))
 grid <- list(estimator_grid(KMeans, n_clusters = 2:4))
 fit <- carve(X, n_resamples = 10, random_state = 0, estimator_param_grids = grid)

@@ -29,15 +29,16 @@ mononuclear cells from a healthy donor, after the steps of Seurat's PBMC
 single-cell data without a download.
 }
 \details{
-The steps ran on all 2,700 cells. A cell was kept if it had more than 200
-and fewer than 2,500 detected genes, and less than 5 percent of its counts
-came from mitochondrial genes. The counts were log-normalized, the 2,000
-most variable genes were scaled, and 30 principal components were
-computed. The clusters come from Seurat's Louvain clustering at resolution
-0.5 on a neighbor graph of the first 10 components, and the UMAP from the
-same 10 components. Then 1,000 cells were drawn at random, and the
-principal component scores and UMAP coordinates were rounded to four
-decimals.
+The steps ran on all 2,700 cells. Genes detected in fewer than 3 cells
+were dropped, and a cell was kept if it had more than 200 and fewer than
+2,500 detected genes and less than 5 percent of its counts came from
+mitochondrial genes. The counts were log-normalized, the 2,000 most
+variable genes were scaled, and 30 principal components were computed.
+The clusters come from Seurat's Louvain clustering at resolution 0.5 on a
+neighbor graph of the first 10 components, and the UMAP from the same 10
+components. Then 1,000 cells were drawn at random, and the principal
+component scores and UMAP coordinates were rounded to four decimals.
+Clusters 7 and 8 have 12 and 5 cells in the subset.
 The script is \code{data-raw/pbmc3k_subset.R} in the package's source
 repository.
 }
