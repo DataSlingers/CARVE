@@ -2,7 +2,9 @@ Package: CARVE
 Title: Cluster Analysis with Resampling for Validation and Exploration
 Version: 2.0.0
 Authors@R: c(
-    person("Kai", "Wycik", email = "kai.wycik@columbia.edu", role = c("aut", "cre"))
+    person("Kai", "Wycik", email = "kai.wycik@columbia.edu", role = c("aut", "cre")),
+    person("The scikit-learn developers", role = "cph",
+           comment = "HDBSCAN cluster selection in R/estimators.R, ported from scikit-learn")
   )
 Description: Chooses the number of clusters and the clustering method by
     resampling. Every candidate configuration clusters many subsamples of
@@ -11,6 +13,7 @@ Description: Chooses the number of clusters and the clustering method by
     how well a classifier trained on one subsample predicts the clusters
     of the held-out samples.
 License: MIT + file LICENSE
+Copyright: See file inst/COPYRIGHTS.
 Encoding: UTF-8
 LazyData: true
 Depends: R (>= 4.1.0)

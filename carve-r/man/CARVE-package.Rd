@@ -28,5 +28,10 @@ Authors:
   \item Kai Wycik \email{kai.wycik@columbia.edu}
 }
 
+Other contributors:
+\itemize{
+  \item The scikit-learn developers (HDBSCAN cluster selection in R/estimators.R, ported from scikit-learn) [copyright holder]
+}
+
 }
 \keyword{internal}

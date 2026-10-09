@@ -339,3 +339,19 @@ test_that("HDBSCAN needs the dbscan package", {
     fixed = TRUE
   )
 })
+
+test_that("a NaN stability compares as false in the eom selection, as in scikit-learn", {
+  # The root, cluster 5, splits at distance 0 into clusters 6 and 7 of two
+  # samples each. Their samples leave at the same lambda, Inf, at which the
+  # clusters were born, so both stabilities are Inf - Inf = NaN. scikit-learn
+  # compares NaN as false and keeps both clusters.
+  tree <- list(
+    n_samples = 4L,
+    parent = c(5L, 5L, 6L, 6L, 7L, 7L),
+    child = c(6L, 7L, 1L, 2L, 3L, 4L),
+    lambda = rep(Inf, 6L),
+    size = c(2L, 2L, 1L, 1L, 1L, 1L)
+  )
+  expect_identical(select_hdbscan_clusters(tree, "eom"), c(1L, 1L, 2L, 2L))
+  expect_identical(select_hdbscan_clusters(tree, "leaf"), c(1L, 1L, 2L, 2L))
+})

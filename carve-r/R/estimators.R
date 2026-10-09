@@ -419,9 +419,11 @@ knn_graph <- function(X, n_neighbors = 15L, weighting = "connectivity") {
 #' `objective_function = "modularity"` optimizes modularity at the given
 #' resolution, the objective the Python package optimizes with leidenalg.
 #' `"cpm"` uses the constant Potts model, whose resolution is on a different
-#' scale, so the two should not share a resolution grid. igraph's Leiden
-#' implementation differs from leidenalg's in its random choices, so the
-#' partitions agree with the Python package's in quality, not label by label.
+#' scale, so the two should not share a resolution grid. igraph's Leiden and
+#' leidenalg are separate implementations, so the partitions, and the scores
+#' CARVE derives from them, differ somewhat from the Python package's.
+#' `vignette("python-users", package = "CARVE")` gives the measured
+#' differences.
 #'
 #' @param X Numeric matrix or data frame, one row per sample.
 #' @param resolution Resolution of the quality function. Larger values give
@@ -527,10 +529,9 @@ LouvainClustering <- function(X, resolution = 1, n_neighbors = 15L, weighting = 
 #' The selection follows scikit-learn's. The labels can still differ from
 #' scikit-learn's where mutual reachability distances tie, because the two
 #' packages merge tied samples in a different order and that changes the
-#' tree the selection works on. How often this happens depends on the data:
-#' agreement is common when few distances tie and can be rare when many do,
-#' as with small integer counts. dbscan also computes all pairwise
-#' distances, so memory grows with the square of the number of samples.
+#' tree the selection works on. How often this happens depends on the data.
+#' dbscan also computes all pairwise distances, so memory grows with the
+#' square of the number of samples.
 #'
 #' @param X Numeric matrix or data frame, one row per sample.
 #' @param min_cluster_size Smallest cluster, at least 2. Larger values give
@@ -559,6 +560,11 @@ HDBSCAN <- function(X, min_cluster_size = 5L, cluster_selection_method = "eom") 
   select_hdbscan_clusters(condense_tree(fit$hc, min_cluster_size), cluster_selection_method)
 }
 
+# condense_tree() and select_hdbscan_clusters() are ported from
+# sklearn/cluster/_hdbscan/_tree.pyx in scikit-learn 1.7.2, copyright the
+# scikit-learn developers, under the BSD 3-Clause license; inst/COPYRIGHTS
+# has the notice.
+#
 # The condensed tree of scikit-learn's HDBSCAN, built from the single-linkage
 # tree dbscan::hdbscan() returns; a port of _condense_tree() in
 # sklearn/cluster/_hdbscan/_tree.pyx. dbscan condenses the same tree
@@ -647,7 +653,8 @@ condense_tree <- function(hc, min_cluster_size) {
 # together are more stable; "leaf" keeps the clusters without child
 # clusters. The root is never kept. Selected clusters are numbered in order
 # of their cluster numbers; a sample is labeled with the selected cluster
-# above it, or -1 when there is none.
+# above it, or -1 when there is none. A NaN stability, from a split at distance
+# 0, compares as false, as in scikit-learn.
 select_hdbscan_clusters <- function(tree, method) {
   n <- tree$n_samples
   last <- max(tree$parent)
@@ -669,7 +676,7 @@ select_hdbscan_clusters <- function(tree, method) {
     for (cl in rev(candidates)) {
       kids <- split_child[split_parent == cl]
       kids_stability <- sum(stability[kids])
-      if (kids_stability > stability[cl]) {
+      if (isTRUE(kids_stability > stability[cl])) {
         selected[cl] <- FALSE
         stability[cl] <- kids_stability
       } else {

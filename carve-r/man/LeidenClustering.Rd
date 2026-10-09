@@ -57,9 +57,11 @@ shared-nearest-neighbor graph does, which weakens edges between clusters.
 \code{objective_function = "modularity"} optimizes modularity at the given
 resolution, the objective the Python package optimizes with leidenalg.
 \code{"cpm"} uses the constant Potts model, whose resolution is on a different
-scale, so the two should not share a resolution grid. igraph's Leiden
-implementation differs from leidenalg's in its random choices, so the
-partitions agree with the Python package's in quality, not label by label.
+scale, so the two should not share a resolution grid. igraph's Leiden and
+leidenalg are separate implementations, so the partitions, and the scores
+CARVE derives from them, differ somewhat from the Python package's.
+\code{vignette("python-users", package = "CARVE")} gives the measured
+differences.
 }
 \examples{
 X <- rbind(matrix(rnorm(80, 0, 0.3), ncol = 2), matrix(rnorm(80, 3, 0.3), ncol = 2))
