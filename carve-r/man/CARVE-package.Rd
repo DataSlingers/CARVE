@@ -12,6 +12,12 @@ candidate configuration and scores each one for stability and
 generalizability. \code{\link[=get_k]{get_k()}} and \code{\link[=get_labels]{get_labels()}} then pick a configuration
 with a selection rule.
 }
+\details{
+Start with \code{vignette("CARVE", package = "CARVE")}. The other vignettes
+cover single-cell data (\code{"single-cell"}), the options of a run
+(\code{"customizing"}) and the differences from the Python package
+(\code{"python-users"}).
+}
 \seealso{
 Useful links:
 \itemize{

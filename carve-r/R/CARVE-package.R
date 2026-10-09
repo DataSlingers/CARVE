@@ -6,6 +6,11 @@
 #' generalizability. [get_k()] and [get_labels()] then pick a configuration
 #' with a selection rule.
 #'
+#' Start with `vignette("CARVE", package = "CARVE")`. The other vignettes
+#' cover single-cell data (`"single-cell"`), the options of a run
+#' (`"customizing"`) and the differences from the Python package
+#' (`"python-users"`).
+#'
 #' @keywords internal
 #' @importFrom methods new setClass setClassUnion setGeneric setMethod
 #' @importFrom methods setValidity show validObject
