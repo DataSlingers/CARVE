@@ -2,8 +2,9 @@
 
 Date: 2026-10-06
 Branch: `r-package-rework`, off `main` at d5e46eb
-Status: design approved in brainstorming. Each of the four plans below is written in its own
-conversation.
+Status: design approved in brainstorming on 2026-10-06 and implemented in four stages, each planned
+in its own conversation. Edited on 2026-10-08 to describe the package as built; the Decisions
+sections of the four stage plans give the reasons for each change.
 
 ## Goal
 
@@ -29,12 +30,12 @@ Settled with the author on 2026-10-06.
 | Tutorial data | Simulated data first, then PBMC 3k through the standard Seurat workflow. |
 | Writing | The `de-ai-writing` skill governs every text a user reads. The author named this the most important requirement of the project. |
 
-## Current state
+## The package before the rework
 
-The R package was last changed on 2026-08-21. It has about 3,600 lines of R, against about 10,000
-in `src/carve/`. There are 103 testthat tests, and one fails locally (`test-plotting.R:148`, the
-annotation label). The API is an R6 class `CARVE` plus an S3 generic `carve()`, and there are three
-vignettes.
+Before the rework, the R package was last changed on 2026-08-21. It has about 3,600 lines of R,
+against about 10,000 in `src/carve/`. There are 103 testthat tests, and one fails locally
+(`test-plotting.R:148`, the annotation label). The API is an R6 class `CARVE` plus an S3 generic
+`carve()`, and there are three vignettes.
 
 The R package sweeps only k, with KMeans, Ward and spectral clustering. Compared with Python it
 lacks:
@@ -55,8 +56,9 @@ spelling, bold text and em dashes throughout.
 
 The manuscript (V2, Software Availability and Methods) says the R package has an interface
 analogous to Python's, with native Seurat and SingleCellExperiment support, and gives the install
-line `remotes::install_github("DataSlingers/CARVE", subdir = "code/carve-r")`. The rework keeps
-that line valid.
+line `remotes::install_github("DataSlingers/CARVE", subdir = "code/carve-r")`. That line names a
+subdirectory the repository does not have: its root holds `carve-r/` directly, so the README gives
+`subdir = "carve-r"`. The manuscript's line needs the same correction, which is the author's.
 
 ## Architecture
 
@@ -95,24 +97,33 @@ One R file per Python module. Tests mirror the R files one to one (`sweep.R` is 
 | `grids.R` | `_grids.py` |
 | `output.R` | `_output.py` |
 | `estimators.R` | `cluster.py`, plus the KMeans, AgglomerativeClustering and HDBSCAN wrappers |
-| `plotting.R` | `_plotting.py` and `pl/_plots.py` |
-| `sce.R`, `seurat.R` | `tl/_carve.py` and `_anndata.py` |
+| `plotting.R` | `_plotting.py`: drawing from a results table or per-sample vectors |
+| `plots.R` | the plot methods of `api.CARVE` and `pl/_plots.py` |
+| `sce.R`, `seurat.R` | `_anndata.py`, one file per object class |
+| `tl.R` | `tl/_carve.py` |
+| `transforms.R` | scikit-learn's `StandardScaler`, `PCA`, `TSNE` and `FunctionTransformer` options, and umap-learn's `UMAP` |
+| `types.R` | `_types.py`, and `estimator_grid()` with the grid expansion |
+| `data.R` | the help page of `pbmc3k_subset` |
 
 Dependency direction follows CLAUDE.md. `utils.R`, `sweep.R` and `estimators.R` are leaves, and
 nothing called by `carve.R` calls back into `carve.R` or `accessors.R`.
 
 ### Dependencies
 
-Imports: `methods`, `stats`, `utils`, `Matrix`, `BiocParallel`, `SingleCellExperiment`,
-`SummarizedExperiment`, `S4Vectors`, `igraph`, `ranger`, `RSpectra`, `irlba`, `Rtsne`, `FNN`,
-`clue`, `ggplot2`, `patchwork`.
+Imports: `methods`, `stats`, `utils`, `parallel`, `Matrix`, `BiocParallel`,
+`SingleCellExperiment`, `SummarizedExperiment`, `S4Vectors`, `igraph (>= 1.3.0)`, `ranger`,
+`RSpectra`, `irlba`, `Rtsne (>= 0.15)`, `FNN`, `clue`, `ggplot2 (>= 3.5.0)`, `scales`,
+`withr (>= 2.4.2)`.
 
-Suggests: `Seurat`, `SeuratObject`, `dbscan`, `uwot`, `testthat (>= 3.0.0)`, `withr`, `knitr`,
-`rmarkdown`, `reticulate`.
+Suggests: `SeuratObject (>= 5.0.0)`, `dbscan`, `uwot`, `testthat (>= 3.1.8)`, `jsonlite`, `knitr`,
+`rmarkdown`. The package reads Seurat objects through SeuratObject, so Seurat itself is not needed;
+only the tutorial runs Seurat's workflow. `reticulate` is used only by `data-raw/parity_check.R`,
+outside the built package, and is not declared.
 
 This mirrors Python's split between core dependencies and optional extras: HDBSCAN and UMAP are
 optional in both. DESCRIPTION gains a `biocViews:` field so `remotes::install_github` resolves the
-Bioconductor imports. `R6`, `furrr`, `future` and `progressr` are dropped.
+Bioconductor imports. `R6`, `furrr`, `future`, `progressr` and `patchwork` are dropped; the
+consensus heatmap is a single ggplot.
 
 ### Conventions
 
@@ -152,8 +163,8 @@ carve(x, n_clusters = 2:10, resolution = NULL, sweep = NULL, sweep_values = NULL
 
 The `SingleCellExperiment` method adds `assay`, `reduction` and `n_dims`, which correspond to
 Python's `layer`, `use_rep` and `n_pcs`. By default it uses the reduced dimension `"PCA"` when
-present and the `"logcounts"` assay otherwise. The `Seurat` method takes the same three arguments
-and defaults to the `"pca"` reduction, then to the data layer of the default assay. Cells are
+present and the `"logcounts"` assay otherwise. Seurat objects go through the `ANY` method, which
+takes the same three arguments and defaults to the `"pca"` reduction, then to the data layer of the default assay. Cells are
 columns in both classes, so the matrix is transposed before fitting.
 
 ### Querying
@@ -164,12 +175,16 @@ get_sweep_value(fit, measure = "stability", rule = "1se", not_two = FALSE)
 get_estimator(fit, measure = "stability", rule = "1se", not_two = FALSE)
 get_labels(fit, measure = "stability", rule = "1se", k = NULL, sweep_value = NULL,
            consensus_k = NULL, not_two = FALSE, mode = "default", estimator = NULL,
-           noise_labels = FALSE, noise_quantile = 0.05, noise_score = "gini")
+           noise_labels = FALSE, noise_quantile = 0.05, noise_score = "gini",
+           reference_labels = NULL)
 ```
 
 `get_estimator` returns the selected estimator as a function of `X` and `random_state`, with the
 selected parameters already set. Its `"estimator"` and `"params"` attributes record the name and
 the parameters.
+
+`get_labels()` keeps no state. Python's `get_labels` stores its result as the reference for later
+calls; R takes earlier labels through `reference_labels`.
 
 Accessors for the fitted attributes:
 
@@ -188,7 +203,7 @@ Accessors for the fitted attributes:
 ### Estimators
 
 Estimators keep Python's class names and are plain functions that take a data matrix, their
-parameters and `random_state`, and return integer labels with -1 for noise:
+parameters and `random_state`, and return integer labels from 1 to k, with -1 for noise:
 
 - `KMeans(X, n_clusters, ...)`: k-means++ seeding and Lloyd iterations through `stats::kmeans`,
   matching sklearn's algorithm and its `n_init` default.
@@ -199,7 +214,9 @@ parameters and `random_state`, and return integer labels with -1 for noise:
 - `LeidenClustering(X, resolution, n_neighbors = 15, ...)` and `LouvainClustering(...)`:
   `igraph::cluster_leiden` and `igraph::cluster_louvain`, seeded, on a port of `build_knn_graph`
   with both edge weightings.
-- `HDBSCAN(X, min_cluster_size, ...)`: `dbscan::hdbscan`.
+- `HDBSCAN(X, min_cluster_size, cluster_selection_method = "eom")`: the single-linkage tree of
+  `dbscan::hdbscan()`, condensed and selected by a port of scikit-learn's `_tree.pyx`, credited in
+  `inst/COPYRIGHTS`.
 
 The parameter defaults of each function are read from `cluster.py` and from the sklearn classes it
 wraps. `estimator_grid(estimator, ..., name = NULL)` is Python's `(EstimatorClass, param_grid)`
@@ -211,9 +228,9 @@ estimator.
 
 `classifier = NULL` builds a `ranger` forest with `n_trees` trees, the settings of
 `default_generalizability_classifier`, and the per-worker thread count. A custom classifier is a
-function `(x_train, y_train, x_test, n_threads)` that returns predicted labels for `x_test`;
-`n_threads` is passed only when the function has that argument, the same rule Python applies to
-`n_jobs`.
+function `(x_train, y_train, x_test)` that returns predicted labels for `x_test`. CARVE also
+passes `n_threads` and `random_state` when the function has those arguments, the rule Python
+applies to `n_jobs`.
 
 ### Preprocessing
 
@@ -228,12 +245,14 @@ produce, so the R and Python results tables can be compared row by row.
 ### Single-cell integration
 
 ```r
-run_carve(object, ..., key = "carve", measure = "stability", rule = "1se", not_two = FALSE,
-          k = NULL, sweep_value = NULL, consensus_k = NULL, reference_key = NULL,
-          store_consensus = TRUE, store_results = TRUE, random_state = 0)
+run_carve(object, ..., assay = NULL, reduction = NULL, n_dims = NULL, key = "carve",
+          measure = "stability", rule = "1se", not_two = FALSE, k = NULL, sweep_value = NULL,
+          consensus_k = NULL, reference_key = NULL, store_consensus = TRUE,
+          store_results = TRUE, mode = "default", random_state = 0)
 attach_results(object, fit, key = "carve", measure = "stability", rule = "1se",
                not_two = FALSE, k = NULL, sweep_value = NULL, consensus_k = NULL,
-               store_consensus = TRUE, store_results = TRUE, mode = "default")
+               store_consensus = TRUE, store_results = TRUE, assay = NULL, reduction = NULL,
+               n_dims = NULL, mode = "default")
 ```
 
 `run_carve` is `tl.carve` (fit, then attach) and returns the modified object. `attach_results` is
@@ -252,6 +271,9 @@ The fit object itself is not stored, because it holds the consensus matrices of 
 configuration. Users who want those keep the fit, which is also what Python's documentation
 advises. This replaces the wording of the approved section 2, which said the fit would be stored.
 
+`attach_results()` records `assay`, `reduction` and `n_dims`, so that the scatter plots can rebuild
+the data. Each call replaces the whole record.
+
 ### Plots
 
 There are eight plots: `plot_metric_over_n_clusters`, `plot_metric_by_pipeline`,
@@ -259,18 +281,18 @@ There are eight plots: `plot_metric_over_n_clusters`, `plot_metric_by_pipeline`,
 `plot_cluster_violin`, `plot_cluster_scatter`, `plot_diagnostic_scatter`.
 
 Each is an S4 generic. The method for `CARVE` corresponds to the Python method of the same name.
-The methods for `SingleCellExperiment` and `Seurat` correspond to the `carve.pl` functions and read
-the stored record; the scatter plots take `basis`, a reduced-dimension name. Every plot returns a
-ggplot or patchwork object. Python's `ax`, `figsize`, `show`, `save` and `dpi` arguments are
+The `SingleCellExperiment` methods, and the `ANY` methods, which handle Seurat objects, correspond
+to the `carve.pl` functions and read the stored record; the scatter plots take `basis`, a reduced-dimension name. Every plot returns a
+ggplot object. Python's `ax`, `figsize`, `show`, `save` and `dpi` arguments are
 dropped, because plots are saved with `ggsave` and styled with `+`. Selection and content arguments
 keep Python's names and defaults. The palette uses the color values of `_plotting.py`, defined once
 in `plotting.R`.
 
 ### Bundled data
 
-`pbmc3k_subset`: 1,000 cells of PBMC 3k with 30 principal components, a two-dimensional UMAP and
-the Seurat cluster labels, about 150 KB. `data-raw/pbmc3k_subset.R` builds it and records the
-download URL.
+`pbmc3k_subset`: a list with the 30 principal components, a two-dimensional UMAP and the Seurat
+cluster labels of 1,000 PBMC 3k cells, about 150 KB. `data-raw/pbmc3k_subset.R` builds it and
+records the download URL.
 
 ## Engine behavior
 
@@ -311,15 +333,19 @@ The engine ports `_runner.py`, `_sweep.py`, `_consensus.py`, `_selection.py`, `_
 - KMeans seeding is an R implementation of k-means++. It follows sklearn's algorithm but draws
   different random numbers.
 - Leiden runs in igraph's C implementation, Python uses `leidenalg`. Both optimize the same
-  objective.
+  objective, but their partitions differ, and so do CARVE's scores: on `pbmc3k_subset`, R's Leiden
+  scores at resolutions 0.75 and 1 are 0.008 to 0.029 higher (stage 3 report).
 - Consensus blocks take twice the memory (decision above). For example, 20 configurations at
   5,000 anchors hold about 8 GB in R and 4 GB in Python.
-- HDBSCAN: `dbscan::hdbscan` has no leaf cluster selection, and its `minPts` sets both the minimum
-  cluster size and the density smoothing. That matches Python's light preset (excess of mass,
-  `min_samples` at its default) but not the `leaf` option of the full preset. See the open items.
+- HDBSCAN: `dbscan::hdbscan` builds the single-linkage tree, and R condenses it and selects
+  clusters with a port of scikit-learn's code, so `eom` and `leaf` both follow scikit-learn. Labels
+  can still differ where mutual reachability distances tie, because dbscan merges tied samples in a
+  different order.
 - Reference labels containing -1: Python counts -1 as a reference cluster and can map a real
-  cluster onto it (parked, see the noise labels spec). R ports the fixed behavior: reference
-  clusters are counted with `count_clusters`, and labels are matched only onto classes 0 and up.
+  cluster onto it (not yet fixed in Python). R ports the fixed behavior: reference clusters are
+  counted with `count_clusters`, and labels are matched only onto classes 0 and up.
+- `vignette("python-users")` lists every difference a user can see, the plot differences among
+  them.
 
 ## Testing and parity
 
@@ -341,7 +367,8 @@ The engine ports `_runner.py`, `_sweep.py`, `_consensus.py`, `_selection.py`, `_
   selected k or resolution, the metric curves within stated tolerances, and the ARI between the R
   and Python labels. It runs at the end of each stage and is not part of CI. It replaces the public
   `cross-validation` vignette.
-- Gates: CI is unchanged, `R CMD check --no-manual` with warnings as errors (`r-ci.yml`). The final
+- Gates: CI runs `R CMD check --no-manual` with warnings as errors (`r-ci.yml`); stage 4 added a
+  pandoc step so that the vignettes build. The final
   stage installs BiocCheck and runs it once as a report; it gates nothing until the author decides
   to submit.
 
@@ -362,7 +389,8 @@ Each builds inside `R CMD check` in under a minute.
    plots.
 2. `single-cell.Rmd`: SingleCellExperiment and Seurat, resolution sweeps with Leiden and Louvain,
    `run_carve` and `attach_results`, per-cell scores, plots on objects, anchors at large n, noise
-   labels. It uses `pbmc3k_subset`. Seurat chunks run only when Seurat is installed.
+   labels. It uses `pbmc3k_subset`, and `SeuratObject::pbmc_small` for Seurat objects; those chunks run only
+   when SeuratObject is installed.
 3. `customizing.Rmd`: custom grids and estimator functions, the HDBSCAN sweep with a noise policy,
    a custom classifier, randomized preprocessing with `plot_metric_by_pipeline`, `n_jobs`,
    `BPPARAM` and memory, reference labels.
@@ -375,14 +403,16 @@ Each builds inside `R CMD check` in under a minute.
 with their outputs. It is not built by `R CMD check`, so it can run full-size fits.
 
 - Part 1 follows `Tutorial.ipynb` on simulated data: easy and hard blobs, every `get_*` function,
-  all eight plots, the selection rules and `not_two`, the fixed-k override, custom grids,
+  seven of the eight plots (`plot_n_clusters_over_sweep()` stops with an error on an `n_clusters`
+  sweep, so part 2 shows it on the resolution sweep), the selection rules and `not_two`, the fixed-k override, custom grids,
   `saveRDS`, reference labels, parallelism.
 - Part 2 follows `Resolution_Tutorial.ipynb` on PBMC 3k. The 10x download is cached in
   `notebooks/data/` and processed with the standard Seurat workflow. It covers the Leiden and
   Louvain sweep, `sweep_value`, `consensus_k`, HDBSCAN, `run_carve` and `attach_results` on Seurat
   and SingleCellExperiment objects, randomized preprocessing and noise labels.
 
-A check script fails if any export is used in neither the tutorial nor a vignette.
+A check script, `data-raw/check_exports_used.R`, fails if any export is used in neither the
+tutorial nor a vignette.
 
 ## Writing standard
 
@@ -422,27 +452,26 @@ each ending with `R CMD check` green and the parity script run:
 ## Out of scope
 
 - `carve.sim` and `benchmarks`.
-- Manuscript edits. The install line stays valid.
+- Manuscript edits. The manuscript's install line needs the correction described under the package
+  before the rework; that edit is the author's.
 - The Python fix for reference labels containing -1. It is a separate change; until it lands, R and
   Python differ on such inputs.
 - A Bioconductor or CRAN submission.
 - The nightly notebook `OMP_NUM_THREADS` pin.
 - The DESCRIPTION maintainer address, which stays as it is unless the author changes it.
 
-## Open items for the plans
+## Open items for the plans, and how they were settled
 
-1. HDBSCAN leaf selection (plan 2): check whether leaf selection can be computed from the
-   simplified tree `dbscan::hdbscan` returns. If not, R's full preset omits `leaf`, warns once, and
-   `python-users.Rmd` says so.
-2. Warnings as test failures (plan 1): choose the mechanism and confirm that `expect_warning` still
-   works under it.
-3. Seurat dispatch (plan 3): `Seurat` is an S4 class from a suggested package. Choose between a
-   conditional `setMethod` at load time and an `inherits()` check inside a general method.
-4. k-means++ (plan 1): implement it and confirm on fixtures that it reproduces sklearn's seeding
-   distribution.
-5. Code worth keeping (plan 1): the old `SpectralClustering` (`cluster.R`), `align_cluster_labels`
-   (`utils.R`) and the consensus formulas (`consensus.R`) are kept only if they pass the Python
-   fixtures; otherwise they are rewritten.
-6. PBMC 3k download URL and caching for the tutorial and `data-raw/pbmc3k_subset.R` (plan 3).
-7. Estimator defaults (plans 1 and 2): read each default from `cluster.py` and the sklearn class it
-   wraps, and record them in the roxygen pages.
+1. HDBSCAN leaf selection (stage 2): R ports scikit-learn's condensed tree and selection onto
+   dbscan's tree, so the full preset keeps `leaf`.
+2. Warnings as test failures (stage 1): `tests/testthat/setup.R` sets `warn = 2`, and
+   `expect_warning()` still works under it.
+3. Seurat dispatch (stage 3): `ANY` methods that check `methods::is(x, "Seurat")`.
+4. k-means++ (stage 1): implemented and checked against scikit-learn on fixtures.
+5. Code worth keeping (stage 1): the old R code was removed at the start of stage 1, and the new
+   ports were checked against the Python fixtures.
+6. PBMC 3k download (stage 3): the 10x Genomics URL in `data-raw/pbmc3k_subset.R`, cached in
+   `data-raw/cache/` for the data script and `notebooks/data/` for the tutorial, both ignored by
+   git.
+7. Estimator defaults (stages 1 and 2): read from `cluster.py` and the scikit-learn classes, and
+   given on the help pages.
