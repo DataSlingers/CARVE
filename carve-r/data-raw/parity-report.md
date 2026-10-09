@@ -1,6 +1,6 @@
 # R and Python parity report
 
-Generated on 2026-10-07 with CARVE 2.0.0 in R and carve 1.0.0 in Python, 100 resamples per configuration and random_state 0. The k cases use the light preset over k = 2 to 6.
+Generated on 2026-10-09 with CARVE 2.0.0 in R and carve 1.0.0 in Python, 100 resamples per configuration and random_state 0. The k cases use the light preset over k = 2 to 6.
 
 ## easy blobs
 
