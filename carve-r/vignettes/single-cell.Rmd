@@ -14,9 +14,10 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 6, fig.height
 Single-cell data are usually clustered with a community detection method,
 Leiden or Louvain, on a nearest-neighbor graph of the cells' principal
 components. These methods take a resolution instead of a number of
-clusters, and CARVE compares resolutions the way it compares numbers of
-clusters: the number of clusters becomes an outcome of each resolution.
-This vignette fits CARVE to a SingleCellExperiment and a Seurat object.
+clusters. CARVE compares resolutions the way it compares numbers of
+clusters, and records the number of clusters each resolution gives as a
+result, averaged over the resamples. This vignette fits CARVE to a
+SingleCellExperiment and a Seurat object.
 `vignette("CARVE", package = "CARVE")` explains the scores and the
 selection rules.
 
@@ -68,6 +69,11 @@ holding the cell out in which the classifier predicted its cluster.
 the selected configuration's consensus matrix. The `key` argument changes
 the name `carve` in all of them, so the results of several runs can sit in
 one object.
+
+CARVE's `r nlevels(sce$carve)` clusters are coarser than the
+`r nlevels(sce$seurat_clusters)` of Seurat's tutorial. In the table, its
+cluster 1 holds most cells of Seurat's clusters 0 and 2, and its cluster 2
+most cells of clusters 4 and 6.
 
 ## Plots of the object
 

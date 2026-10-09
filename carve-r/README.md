@@ -15,7 +15,9 @@ resolutions, or HDBSCAN's minimum cluster size, on a matrix or on a
 SingleCellExperiment or Seurat object.
 
 This is the R package. The Python package, carve-validate, is in the
-same repository; both compute the same scores with the same defaults.
+same repository and has the same scores, selection rules and defaults;
+`vignette("python-users", package = "CARVE")` lists where the two
+differ.
 
 ## Installation
 

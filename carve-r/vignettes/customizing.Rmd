@@ -89,27 +89,36 @@ package, which CARVE suggests but does not install.
 ```{r hdbscan, eval = requireNamespace("dbscan", quietly = TRUE)}
 fit_hdbscan <- carve(X, sweep = "min_cluster_size", sweep_values = c(5, 10),
                      n_resamples = 20, random_state = 0)
-estimator_results(fit_hdbscan)[, c("min_cluster_size", "ari_stability", "noise_fraction",
-                                   "n_clusters_observed")]
+estimator_results(fit_hdbscan)[, c("min_cluster_size", "ari_stability", "ari_stability_se",
+                                   "noise_fraction", "n_clusters_observed")]
 get_sweep_value(fit_hdbscan)
 ```
 
-A larger minimum size gives fewer clusters, so this sweep runs from fine
-to coarse, and among sizes that score about the same, `"1se"` prefers the
-smaller one. `HDBSCAN()`
-can also be used in a grid, with `estimator_grid(HDBSCAN, min_cluster_size
-= ...)`. `noise_policy` sets what happens to the -1 labels in each
-resample. `"drop"`, the default, leaves those samples out, so the
-consensus matrix, the ARIs and the classifier treat them as not drawn.
-`"as_cluster"` keeps -1 as an ordinary label, and `"singleton"` puts each
-noise sample in a cluster of its own. `noise_fraction` is the share of the
-samples labeled -1, averaged over the resamples.
+A larger minimum size gives fewer clusters, so on this axis `"1se"` takes
+the smallest size whose score is within one standard error of the best.
+Size 5 scores more than one standard error below size 10, so the
+selection is 10. `HDBSCAN()` can also be used in a grid, with
+`estimator_grid(HDBSCAN, min_cluster_size = ...)`.
+
+`noise_policy` sets what happens to the -1 labels in each resample.
+`"drop"`, the default, leaves those samples out, so the consensus matrix,
+the ARIs and the classifier treat them as not drawn. `"as_cluster"` keeps
+-1 as an ordinary label, and `"singleton"` puts each noise sample in a
+cluster of its own. `noise_fraction` is the share of the samples labeled
+-1, averaged over the resamples. The same run with `"as_cluster"` draws
+the same subsamples, so only the scores change:
 
 ```{r hdbscan-policy, eval = requireNamespace("dbscan", quietly = TRUE)}
 fit_kept <- carve(X, sweep = "min_cluster_size", sweep_values = c(5, 10),
                   noise_policy = "as_cluster", n_resamples = 20, random_state = 0)
+data.frame(min_cluster_size = c(5, 10),
+           drop = estimator_results(fit_hdbscan)$ari_stability,
+           as_cluster = estimator_results(fit_kept)$ari_stability)
 get_sweep_value(fit_kept)
 ```
+
+Scoring the noise samples as one more cluster lowers the stability at both
+sizes here, and the selection stays at 10.
 
 ## The classifier
 

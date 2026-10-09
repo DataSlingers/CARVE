@@ -1,8 +1,9 @@
 # CARVE 2.0.0
 
-Version 2.0.0 is a rewrite. The package now follows the Python package,
-carve-validate, function for function, and its interface is not
-compatible with version 1.0.0.
+Version 2.0.0 is a rewrite with the same scores, selection rules and
+defaults as the Python package, carve-validate;
+`vignette("python-users")` lists where the two differ. Its interface is
+not compatible with version 1.0.0.
 
 ## Replaced functions
 

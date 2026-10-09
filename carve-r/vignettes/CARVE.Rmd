@@ -55,9 +55,9 @@ compares three methods, k-means, Ward's agglomerative clustering and
 spectral clustering, so this run has
 `r nrow(estimator_results(fit))` configurations. Each configuration is
 clustered on `n_resamples` resamples. The default is 100; fewer resamples
-give noisier scores. With `random_state` set, resample `b` draws its
-subsamples with the seeds `random_state + b` and
-`random_state + b + n_resamples`, so a run gives the same results on any
+give noisier scores. Resample `b` draws its subsamples with the seeds
+`random_state + b` and `random_state + b + n_resamples`, where the default
+`random_state = NULL` counts as 0, so a run gives the same results on any
 number of cores.
 
 ## The results table
@@ -94,8 +94,6 @@ pick a configuration:
 - `"max"` takes the one with the highest mean score.
 - `"1se"`, the default, takes the largest number of clusters among the
   configurations whose score is within one standard error of the highest.
-  When several numbers of clusters score about the same, it prefers the
-  finer clustering.
 - `"quantile"` does the same with another band: the 5th to 95th
   percentiles of the best configuration's resample scores.
 
@@ -167,11 +165,12 @@ samples ordered by cluster and the clusters shown in the band above it. A
 cluster that the resamples reproduce is a block of values near 1 on the
 diagonal.
 
-Four plots show per-sample scores. `source` picks the score: `"gini"`
-(the default) or `"ce"` for stability, which is 1 when every subsample
-drawing the sample agreed on its partners, and `"accuracy"` for
-generalizability, the share of the draws holding the sample out in which
-the classifier predicted its cluster.
+Four plots show per-sample scores, and `source` picks the score.
+`"gini"`, the default, and `"ce"` measure stability. Both run from 0 to 1,
+and a sample scores 1 when each sample drawn with it was always in its
+cluster or never. `"accuracy"` measures generalizability: the share of the
+draws holding the sample out in which the classifier predicted its
+cluster.
 
 ```{r per-sample}
 plot_cluster_violin(fit)

@@ -7,9 +7,8 @@ vignette: >
   %\VignetteEncoding{UTF-8}
 ---
 
-The R package follows the Python package, `carve-validate` (imported as
-`carve`), function for function: the same scores, selection rules and
-defaults, and the same error and warning messages. This page maps the
+The R package has the same scores, selection rules and defaults as the
+Python package, `carve-validate` (imported as `carve`). This page maps the
 Python names to the R ones and lists where the two packages differ.
 
 ## Names
@@ -139,8 +138,8 @@ Python records the model's `random_state`, which is `None` for a
 
 ## Where the results differ
 
-R and numpy draw different random numbers, so the subsamples differ, and
-the two packages agree statistically, not number for number. The source
+R and numpy draw different random numbers, so at the same seed the two
+packages draw different subsamples and their scores differ. The source
 repository's `carve-r/data-raw/parity_check.R` fits both packages on the
 same data, and `carve-r/data-raw/parity-report.md` gives the differences
 with their tolerances. Beyond the random numbers, the methods differ in
@@ -154,9 +153,11 @@ these ways.
   higher modularity on average, by less than 0.002, and over five seeds
   CARVE's Leiden scores at resolutions 0.75 and 1 were 0.008 to 0.029
   higher in R. In the parity check on the 1,000 cells of `pbmc3k_subset`,
-  the labels at the default selection agree with an adjusted Rand index
-  of 0.918. Louvain runs igraph's code in both packages, and its scores
-  agreed within the seed-to-seed spread.
+  Leiden's `consensus_pac_stability` at resolution 0.75 is 0.038 higher in
+  R, over the check's tolerance of 0.03, and the labels at the default
+  selection agree with an adjusted Rand index of 0.918. Louvain runs
+  igraph's code in both packages, and its scores agreed within the
+  seed-to-seed spread.
 - HDBSCAN builds its tree with the dbscan package and selects clusters
   with a port of scikit-learn's selection. Where mutual reachability
   distances tie, dbscan can merge samples in a different order, which
