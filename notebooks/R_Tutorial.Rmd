@@ -33,7 +33,9 @@ n_jobs <- max(1L, parallel::detectCores() - 1L)
 n_jobs
 ```
 
-`n_jobs` is the number of cores each fit may use.
+`n_jobs` is the number of worker processes that share the resamples. Each
+worker's random forest gets the machine's cores divided by the workers, so
+`n_jobs = 1` leaves the forest every core.
 
 # Part 1: simulated data
 
@@ -353,9 +355,8 @@ work in each resample.
 Single-cell data are usually clustered with Leiden or Louvain community
 detection on a nearest-neighbor graph of principal components. These
 methods take a resolution instead of a number of clusters. CARVE compares
-resolutions the way it compares numbers of clusters, and records the
-number of clusters each resolution gives as a result, averaged over the
-resamples.
+resolutions the way it compares numbers of clusters, and records, for
+each resolution, the mean number of clusters it gives over the resamples.
 
 ## Data and the Seurat workflow
 
@@ -550,7 +551,7 @@ plot_metric_over_n_clusters(fit_neighbors)
 The principal components above are one choice of preprocessing. With
 `randomize_preprocessing = TRUE`, CARVE draws a pipeline for each resample
 and fits it on the subsamples, here on the log-normalized expression of
-the 2,000 variable genes. The default backend forks the R session. After
+the 2,000 variable genes. On macOS and Linux the default backend forks the R session. After
 Seurat's PCA had run in this session, the forked workers of this fit
 crashed, so this fit passes a socket backend through `BPPARAM`:
 
