@@ -39,6 +39,7 @@ estimator_grid(AgglomerativeClustering, n_clusters = 2:6,
                linkage = c("ward", "average"))
 }
 \seealso{
-\code{\link[=KMeans]{KMeans()}}, \code{\link[=AgglomerativeClustering]{AgglomerativeClustering()}} and \code{\link[=SpectralClustering]{SpectralClustering()}}
-for the built-in estimators.
+The built-in estimators: \code{\link[=KMeans]{KMeans()}}, \code{\link[=AgglomerativeClustering]{AgglomerativeClustering()}},
+\code{\link[=SpectralClustering]{SpectralClustering()}}, \code{\link[=LeidenClustering]{LeidenClustering()}}, \code{\link[=LouvainClustering]{LouvainClustering()}} and
+\code{\link[=HDBSCAN]{HDBSCAN()}}.
 }

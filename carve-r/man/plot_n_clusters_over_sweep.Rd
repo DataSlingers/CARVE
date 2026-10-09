@@ -90,10 +90,11 @@ the swept value itself, and the function stops with an error.
 }
 \details{
 The count is the mean, over resamples, of the number of clusters in the
-clustering of each resample's subsample, counted after the \code{noise_policy}
-of \code{\link[=carve]{carve()}}: \code{"drop"} leaves noise points out, \code{"as_cluster"} counts the
-noise as one cluster, and \code{"singleton"} counts each noise point as its own
-cluster. It is not the count of one clustering of all the samples.
+clustering of each resample's first subsample, counted after the
+\code{noise_policy} of \code{\link[=carve]{carve()}}. The -1 noise label is not counted under
+\code{"drop"} or \code{"as_cluster"}, and under \code{"singleton"} each noise point
+counts as a cluster of its own. It is not the count of one clustering of
+all the samples.
 \code{\link[=get_labels]{get_labels()}} cuts the consensus matrix at the rounded count unless
 \code{consensus_k} is given. The error bars show the standard error of the
 mean, not the spread of the counts.

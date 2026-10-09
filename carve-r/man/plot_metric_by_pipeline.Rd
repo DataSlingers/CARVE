@@ -92,9 +92,8 @@ with error bars of one standard error over the resamples each pipeline
 received. The dashed line marks the value CARVE selects from
 \code{\link[=estimator_results]{estimator_results()}}, which pools the pipelines. Each pipeline's line
 crosses the dashed line at that pipeline's score for the selected
-configuration. For a
-\code{method_id} that CARVE did not select, the dashed line marks the value
-\code{rule} picks among that configuration's rows.
+configuration. For a \code{method_id} that CARVE did not select, the dashed
+line marks the value \code{rule} picks among that configuration's rows.
 }
 \details{
 For a SingleCellExperiment or a Seurat object, the plot reads the two

@@ -209,9 +209,8 @@ setMethod("plot_metric_over_n_clusters", "ANY", function(object, ...) {
 #' received. The dashed line marks the value CARVE selects from
 #' [estimator_results()], which pools the pipelines. Each pipeline's line
 #' crosses the dashed line at that pipeline's score for the selected
-#' configuration. For a
-#' `method_id` that CARVE did not select, the dashed line marks the value
-#' `rule` picks among that configuration's rows.
+#' configuration. For a `method_id` that CARVE did not select, the dashed
+#' line marks the value `rule` picks among that configuration's rows.
 #'
 #' For a SingleCellExperiment or a Seurat object, the plot reads the two
 #' tables [run_carve()] or [attach_results()] stored under `key`; they are
@@ -319,10 +318,11 @@ setMethod("plot_metric_by_pipeline", "ANY", function(object, ...) {
 #' the swept value itself, and the function stops with an error.
 #'
 #' The count is the mean, over resamples, of the number of clusters in the
-#' clustering of each resample's subsample, counted after the `noise_policy`
-#' of [carve()]: `"drop"` leaves noise points out, `"as_cluster"` counts the
-#' noise as one cluster, and `"singleton"` counts each noise point as its own
-#' cluster. It is not the count of one clustering of all the samples.
+#' clustering of each resample's first subsample, counted after the
+#' `noise_policy` of [carve()]. The -1 noise label is not counted under
+#' `"drop"` or `"as_cluster"`, and under `"singleton"` each noise point
+#' counts as a cluster of its own. It is not the count of one clustering of
+#' all the samples.
 #' [get_labels()] cuts the consensus matrix at the rounded count unless
 #' `consensus_k` is given. The error bars show the standard error of the
 #' mean, not the spread of the counts.

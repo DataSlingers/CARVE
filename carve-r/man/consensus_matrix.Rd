@@ -40,10 +40,10 @@ error.}
 samples.}
 
 \item{source}{\code{"gini"} or \code{"ce"} for per-sample stability, in its Gini or
-cross-entropy form; both run from 0 to 1, and 1 means every pair the
-sample was drawn with always agreed. \code{"accuracy"} is the share of the
-draws holding the sample out in which the classifier predicted its
-cluster.}
+cross-entropy form; both run from 0 to 1, and a sample scores 1 when
+each sample drawn with it was always in its cluster or never.
+\code{"accuracy"} is the share of the draws holding the sample out in which
+the classifier predicted its cluster.}
 }
 \value{
 \code{consensus_matrix()} returns an \code{n} by \code{n} matrix, or \code{m} by \code{m} on

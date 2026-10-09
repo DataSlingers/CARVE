@@ -6,7 +6,7 @@ setClassUnion("carveDataFrameOrNULL", c("data.frame", "NULL"))
 
 #' Sweep axis of a CARVE run
 #'
-#' Records the hyperparameter a [carve()] run swept, the values it tried and
+#' Records the parameter a [carve()] run swept, the values it tried and
 #' whether larger values give more clusters. [sweep_spec()] returns it.
 #'
 #' @slot param Name of the swept parameter, such as `"n_clusters"`.

@@ -37,8 +37,9 @@ resolve_mode <- function(mode) {
 #'
 #' @return An object of class `carve_estimator_grid`: a list with the
 #'   function, its name and the grid.
-#' @seealso [KMeans()], [AgglomerativeClustering()] and [SpectralClustering()]
-#'   for the built-in estimators.
+#' @seealso The built-in estimators: [KMeans()], [AgglomerativeClustering()],
+#'   [SpectralClustering()], [LeidenClustering()], [LouvainClustering()] and
+#'   [HDBSCAN()].
 #' @examples
 #' estimator_grid(KMeans, n_clusters = 2:6)
 #' estimator_grid(AgglomerativeClustering, n_clusters = 2:6,

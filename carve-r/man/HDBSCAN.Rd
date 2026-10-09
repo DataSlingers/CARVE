@@ -35,12 +35,11 @@ more and smaller clusters and more noise. \code{min_cluster_size} also sets the
 number of neighbors of the core distances, as in scikit-learn's \code{HDBSCAN}
 with \code{min_samples} left at its default.
 
-The selection follows scikit-learn's. The labels can still differ from
-scikit-learn's where mutual reachability distances tie, because the two
-packages merge tied samples in a different order and that changes the
-tree the selection works on. How often this happens depends on the data.
-dbscan also computes all pairwise distances, so memory grows with the
-square of the number of samples.
+Where mutual reachability distances tie, the labels can still differ from
+scikit-learn's: the two packages merge tied samples in a different order,
+which changes the tree the selection works on. dbscan also computes all
+pairwise distances, so memory grows with the square of the number of
+samples.
 }
 \examples{
 X <- rbind(matrix(rnorm(80, 0, 0.3), ncol = 2), matrix(rnorm(80, 3, 0.3), ncol = 2))

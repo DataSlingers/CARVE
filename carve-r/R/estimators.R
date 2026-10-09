@@ -526,12 +526,11 @@ LouvainClustering <- function(X, resolution = 1, n_neighbors = 15L, weighting = 
 #' number of neighbors of the core distances, as in scikit-learn's `HDBSCAN`
 #' with `min_samples` left at its default.
 #'
-#' The selection follows scikit-learn's. The labels can still differ from
-#' scikit-learn's where mutual reachability distances tie, because the two
-#' packages merge tied samples in a different order and that changes the
-#' tree the selection works on. How often this happens depends on the data.
-#' dbscan also computes all pairwise distances, so memory grows with the
-#' square of the number of samples.
+#' Where mutual reachability distances tie, the labels can still differ from
+#' scikit-learn's: the two packages merge tied samples in a different order,
+#' which changes the tree the selection works on. dbscan also computes all
+#' pairwise distances, so memory grows with the square of the number of
+#' samples.
 #'
 #' @param X Numeric matrix or data frame, one row per sample.
 #' @param min_cluster_size Smallest cluster, at least 2. Larger values give

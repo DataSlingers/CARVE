@@ -12,7 +12,7 @@
 \item{object}{A \code{SweepSpec} object.}
 }
 \description{
-Records the hyperparameter a \code{\link[=carve]{carve()}} run swept, the values it tried and
+Records the parameter a \code{\link[=carve]{carve()}} run swept, the values it tried and
 whether larger values give more clusters. \code{\link[=sweep_spec]{sweep_spec()}} returns it.
 }
 \section{Slots}{

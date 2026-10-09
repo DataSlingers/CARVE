@@ -14,9 +14,8 @@
 #' neighbor graph of the first 10 components, and the UMAP from the same 10
 #' components. Then 1,000 cells were drawn at random, and the principal
 #' component scores and UMAP coordinates were rounded to four decimals.
-#' Clusters 7 and 8 have 12 and 5 cells in the subset.
-#' The script is `data-raw/pbmc3k_subset.R` in the package's source
-#' repository.
+#' Clusters 7 and 8 have 12 and 5 cells in the subset. The script is
+#' `data-raw/pbmc3k_subset.R` in the package's source repository.
 #'
 #' @format A list of three elements, with the cells in the same order in
 #'   each:
