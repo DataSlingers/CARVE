@@ -22,8 +22,9 @@ rules, `vignette("single-cell", package = "CARVE")`,
 `vignette("customizing", package = "CARVE")` and
 `vignette("python-users", package = "CARVE")`.
 
-Part 2 needs the Seurat, SeuratObject, dbscan and mclust packages, and
-downloads 7 MB from 10x Genomics into `data/` on its first run.
+Part 1 needs the mclust package, and part 2 also needs Seurat,
+SeuratObject and dbscan. Part 2 downloads 7 MB from 10x Genomics into
+`data/` on its first run.
 
 ```{r packages}
 library(CARVE)
@@ -86,8 +87,7 @@ same effect on other data. With the selection above, CARVE selects
 clusters, and the labels have an ARI of `r round(moons_ari, 2)` with the
 four true groups. The table shows that the first pair of moons is one
 cluster, while the second pair is split into two clusters that follow its
-moons except for `r sum(moons_labels == 2 & moons_truth == 3)` points. The
-two moons of the first pair are not separated.
+moons except for `r sum(moons_labels == 2 & moons_truth == 3)` points.
 
 ```{r moons-plots}
 plot_metric_over_n_clusters(fit_moons, measure = "generalizability", rule = "1se", not_two = TRUE)
@@ -278,11 +278,11 @@ plot_metric_over_n_clusters(fit_grid)
 ## Randomized preprocessing
 
 k-means does not follow the curved shapes of the moons in their own
-coordinates. This section shows how to set up a randomized run and how to
-read its results. With `randomize_preprocessing = TRUE`, each resample
-draws a normalization and a dimensionality reduction and clusters the
-transformed subsamples; the classifier still trains on the raw
-coordinates.
+coordinates. In the run below, half the resamples give it a t-SNE
+embedding to cluster. With `randomize_preprocessing = TRUE`, each resample
+draws a normalization and a dimensionality reduction from the options
+given and clusters the transformed subsamples; the classifier still trains
+on the raw coordinates.
 
 ```{r randomized}
 fit_random <- carve(
@@ -298,11 +298,11 @@ pipeline_results[pipeline_results$n_clusters == 4,
 ```
 
 `preprocessing_results()` splits each configuration's scores by pipeline.
-This run uses 60 resamples, because every resample runs t-SNE on its
-subsamples, so each pipeline's scores rest on
-`r min(pipeline_results$n_resamples)` to `r max(pipeline_results$n_resamples)`
-resamples (`n_resamples` in the table) and are noisy. At four clusters the pipelines
-with t-SNE do not score higher than the identity pipelines on these data.
+This run uses 60 resamples instead of 100 to save time, so each pipeline's
+scores rest on `r min(pipeline_results$n_resamples)` to
+`r max(pipeline_results$n_resamples)` resamples (`n_resamples` in the
+table) and are noisy. At four clusters the pipelines with t-SNE do not
+score higher than the identity pipelines on these data.
 
 ## Saving a fit
 
@@ -352,8 +352,10 @@ work in each resample.
 
 Single-cell data are usually clustered with Leiden or Louvain community
 detection on a nearest-neighbor graph of principal components. These
-methods take a resolution, and CARVE compares resolutions the way it
-compares numbers of clusters; the number of clusters becomes an outcome.
+methods take a resolution instead of a number of clusters. CARVE compares
+resolutions the way it compares numbers of clusters, and records the
+number of clusters each resolution gives as a result, averaged over the
+resamples.
 
 ## Data and the Seurat workflow
 
@@ -431,15 +433,16 @@ plot_consensus_matrix(fit_pbmc)
 plot_consensus_matrix(fit_pbmc, sweep_value = 1.5)
 ```
 
-`sweep_value` pins a resolution in the consensus, violin and scatter
-plots and in `get_labels()`. On the UMAP, at the selected resolution and
-at the finest one:
+`sweep_value` pins a resolution in `get_labels()`, in the consensus plot
+and in the four per-sample plots. Below, the scatter plot on the UMAP and
+the violin plot are each drawn at the selected resolution and at the
+finest one:
 
 ```{r pbmc-scatter}
 umap <- SeuratObject::Embeddings(pbmc, reduction = "umap")
 plot_cluster_scatter(fit_pbmc, embedding = umap)
 plot_cluster_scatter(fit_pbmc, embedding = umap, sweep_value = 1.5)
-plot_cluster_violin(fit_pbmc, sweep_value = 0.25)
+plot_cluster_violin(fit_pbmc)
 plot_cluster_violin(fit_pbmc, sweep_value = 1.5)
 ```
 
