@@ -36,9 +36,8 @@ build/
 .ruff_cache/
 .hatch/
 
-# docs build output
-docs/_build/
-docs/api/generated/
+# design specs, plans and notes, kept local
+docs/
 
 # agent scratch (subagent-driven-development workspaces)
 .superpowers/
