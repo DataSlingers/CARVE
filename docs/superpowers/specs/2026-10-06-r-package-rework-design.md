@@ -342,8 +342,9 @@ The engine ports `_runner.py`, `_sweep.py`, `_consensus.py`, `_selection.py`, `_
   can still differ where mutual reachability distances tie, because dbscan merges tied samples in a
   different order.
 - Reference labels containing -1: Python counts -1 as a reference cluster and can map a real
-  cluster onto it (not yet fixed in Python). R ports the fixed behavior: reference clusters are
-  counted with `count_clusters`, and labels are matched only onto classes 0 and up.
+  cluster onto it (not yet fixed in Python; see the open API issues note). R ports the fixed
+  behavior: reference clusters are counted with `count_clusters`, and labels are matched only onto
+  classes 0 and up.
 - `vignette("python-users")` lists every difference a user can see, the plot differences among
   them.
 

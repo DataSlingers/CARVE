@@ -3,7 +3,7 @@
 Date: 2026-10-08. These came up while porting the package to R (branch
 `r-package-rework`). The first three behave the same way in both packages
 today. The author chose to keep them aligned and to fix each issue later in
-both. The fourth is specific to R and was found while writing the tutorial.
+both. The fourth and fifth are specific to one package.
 
 ## An invalid rule removes the selection line without an error
 
@@ -50,6 +50,29 @@ split-mode and skipped building that artifact." Passing both
 form. I did not run the Python function.
 
 Fix in both: default `mode` to the mode the fit ran with.
+
+## Reference labels containing -1 (Python only)
+
+A `reference_labels` array that contains -1 makes Python count -1 as a
+cluster, and the alignment can then map a real cluster to -1, even with
+`noise_labels=False`. Examples are a reference with NaN values factorized by
+pandas, a `tl.carve` `reference_key` column with NaN, categorical codes, or a
+user estimator that emits -1. In `CARVE.get_labels`, `src/carve/api.py`
+line 1009 sets `ref_k = int(np.unique(ref).size)`, and line 1014 calls
+`align_cluster_labels(ref, labels)`, which takes every value of the
+reference, -1 included, as a target class.
+
+R counts reference clusters with `count_clusters()` (`carve-r/R/utils.R`),
+which skips negative labels, and `get_labels()` in `carve-r/R/accessors.R`
+aligns with `keep = reference >= 0`, so labels are matched only onto
+reference labels 0 and up. The two packages differ on such input until
+Python is fixed.
+
+This was found during the review of the noise labels work (2026-10-06) and
+left for a separate change.
+
+Fix in Python: count `ref_k` with `count_clusters` and match only onto
+classes 0 and up.
 
 ## Forked workers crash after Seurat's PCA (R only)
 
