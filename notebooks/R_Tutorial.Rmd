@@ -86,8 +86,8 @@ same effect on other data. With the selection above, CARVE selects
 clusters, and the labels have an ARI of `r round(moons_ari, 2)` with the
 four true groups. The table shows that the first pair of moons is one
 cluster, while the second pair is split into two clusters that follow its
-moons except for `r sum(moons_labels == 2 & moons_truth == 3)` points. The two moons of the first pair are
-not separated.
+moons except for `r sum(moons_labels == 2 & moons_truth == 3)` points. The
+two moons of the first pair are not separated.
 
 ```{r moons-plots}
 plot_metric_over_n_clusters(fit_moons, measure = "generalizability", rule = "1se", not_two = TRUE)
@@ -180,7 +180,8 @@ the selection of the quick start returns
 `r get_k(fit_moons, measure = "generalizability", rule = "1se", not_two = TRUE)`.
 `get_estimator()` returns the selected method as a function of
 the data and a seed, and `get_labels(k = 2)` cuts the best configuration
-at two clusters instead of the selected one. Labels run from 1 to the number of clusters.
+at two clusters instead of the selected one. Labels run from 1 to the
+number of clusters.
 
 ## Easy and hard data
 
@@ -278,9 +279,10 @@ plot_metric_over_n_clusters(fit_grid)
 
 k-means does not follow the curved shapes of the moons in their own
 coordinates. This section shows how to set up a randomized run and how to
-read its results. With `randomize_preprocessing = TRUE`, each resample draws a normalization and
-a dimensionality reduction and clusters the transformed subsamples; the
-classifier still trains on the raw coordinates.
+read its results. With `randomize_preprocessing = TRUE`, each resample
+draws a normalization and a dimensionality reduction and clusters the
+transformed subsamples; the classifier still trains on the raw
+coordinates.
 
 ```{r randomized}
 fit_random <- carve(
@@ -430,8 +432,8 @@ plot_consensus_matrix(fit_pbmc, sweep_value = 1.5)
 ```
 
 `sweep_value` pins a resolution in the consensus, violin and scatter
-plots and in `get_labels()`. On
-the UMAP, at the selected resolution and at the finest one:
+plots and in `get_labels()`. On the UMAP, at the selected resolution and
+at the finest one:
 
 ```{r pbmc-scatter}
 umap <- SeuratObject::Embeddings(pbmc, reduction = "umap")
@@ -546,8 +548,8 @@ The principal components above are one choice of preprocessing. With
 `randomize_preprocessing = TRUE`, CARVE draws a pipeline for each resample
 and fits it on the subsamples, here on the log-normalized expression of
 the 2,000 variable genes. The default backend forks the R session. After
-Seurat's PCA had run in this session, the forked workers crashed when they
-computed a PCA, so this fit passes a socket backend through `BPPARAM`:
+Seurat's PCA had run in this session, the forked workers of this fit
+crashed, so this fit passes a socket backend through `BPPARAM`:
 
 ```{r pbmc-randomized}
 genes <- SeuratObject::VariableFeatures(pbmc)
