@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
 from .._theme import ESTIMATOR_CMAP_NAME, FONT_SIZES, save_figure, theme_context
@@ -21,6 +22,14 @@ from ._paths import CASE_STUDY_DIR, figure_path
 MARKER_SIZE = 3.0
 AXIS_LABELS = ("UMAP 1", "UMAP 2")
 DEFAULT_SCATTER_SUBSAMPLE = 50_000
+
+
+def resolution_axis(ax: Axes, resolutions: Sequence[float]) -> None:
+    """Log-scale x axis with one labeled tick per fitted resolution."""
+    ax.set_xscale("log")
+    ax.set_xticks(list(resolutions), labels=[f"{r:g}" for r in resolutions])
+    ax.tick_params(axis="x", labelrotation=90)
+    ax.minorticks_off()
 
 
 def figure_heca_carve(
@@ -71,10 +80,7 @@ def figure_heca_carve(
             legend=False,
         )
         for ax in axes:
-            ax.set_xscale("log")
-            ax.set_xticks(list(resolutions), labels=[f"{r:g}" for r in resolutions])
-            ax.tick_params(axis="x", labelrotation=90)
-            ax.minorticks_off()
+            resolution_axis(ax, resolutions)
 
         handles: list[Any] = []
         labels: list[str] = []

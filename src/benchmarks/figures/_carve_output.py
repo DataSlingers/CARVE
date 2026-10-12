@@ -10,17 +10,39 @@ only arranges the six axes into one gridspec, calls each method with ``ax=``
 set, and saves the result once; it does not resolve config_id, recompute a
 selection, or reimplement any encoding CARVE's own plotting functions already
 provide.
+
+figure_carve_output_heca draws the same six panels for the hECA notebook at
+a caller-chosen resolution. Its two scatters draw a subsample, which CARVE's
+public scatter methods do not take, so for those it resolves the
+configuration through CARVE's _select_row, as the methods do, and calls the
+plotting functions behind them.
 """
 
+import re
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
+from carve._plotting import plot_cluster_scatter as _plot_cluster_scatter
+from carve._plotting import plot_diagnostic_scatter as _plot_diagnostic_scatter
+
 from .._panels import panel_letter
-from .._theme import ESTIMATOR_CMAP_NAME, cluster_cmap, save_figure, theme_context
+from .._theme import (
+    ESTIMATOR_CMAP_NAME,
+    FONT_SIZES,
+    FOREGROUND_COLOR,
+    REFERENCE_LINEWIDTH,
+    cluster_cmap,
+    save_figure,
+    theme_context,
+)
 from ._case_study import CompositeInputs, carve_labels_aligned
+from ._heca_carve import AXIS_LABELS, MARKER_SIZE, resolution_axis
 from ._paths import CASE_STUDY_DIR, figure_path
 
 # Panel A is always the stability overview and panel B always the
@@ -35,6 +57,21 @@ from ._paths import CASE_STUDY_DIR, figure_path
 # ("stability") gets panel A and panels C to F showing the same selection.
 _MEASURE_STABILITY = "stability"
 _MEASURE_GENERALIZABILITY = "generalizability"
+
+
+def _six_panel_grid(scatter_row_height: float) -> tuple[Figure, tuple[Axes, ...]]:
+    """The figure and its six axes, A to F, in three rows of two."""
+    # No explicit hspace/wspace here: passing them marks the gridspec as
+    # manually customized, which makes every one of CARVE's own plotting
+    # calls -- each ends with its own fig.tight_layout() -- warn that the
+    # figure is "not compatible with tight_layout" on every subsequent
+    # call. Leaving spacing to the default lets those internal calls lay
+    # the panels out cleanly instead.
+    row_height = 14.0 / 3
+    fig = plt.figure(figsize=(13.0, row_height * (2 + scatter_row_height)))
+    gs = fig.add_gridspec(3, 2, height_ratios=(1.0, 1.0, scatter_row_height))
+    axes = tuple(fig.add_subplot(gs[row, col]) for row in range(3) for col in range(2))
+    return fig, axes
 
 
 def carve_output_figure(
@@ -78,21 +115,7 @@ def carve_output_figure(
     scatter_size_range = (marker_size * 0.75, marker_size * 3.0)
 
     with theme_context(), carve_labels_aligned(carve, inputs.y):
-        # No explicit hspace/wspace here: passing them marks the gridspec as
-        # manually customized, which makes every one of CARVE's own plotting
-        # calls -- each ends with its own fig.tight_layout() -- warn that the
-        # figure is "not compatible with tight_layout" on every subsequent
-        # call. Leaving spacing to the default lets those internal calls lay
-        # the panels out cleanly instead.
-        row_height = 14.0 / 3
-        fig = plt.figure(figsize=(13.0, row_height * (2 + scatter_row_height)))
-        gs = fig.add_gridspec(3, 2, height_ratios=(1.0, 1.0, scatter_row_height))
-        ax_a = fig.add_subplot(gs[0, 0])
-        ax_b = fig.add_subplot(gs[0, 1])
-        ax_c = fig.add_subplot(gs[1, 0])
-        ax_d = fig.add_subplot(gs[1, 1])
-        ax_e = fig.add_subplot(gs[2, 0])
-        ax_f = fig.add_subplot(gs[2, 1])
+        fig, (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f) = _six_panel_grid(scatter_row_height)
 
         # A and B draw the same estimators in the same colors, so one
         # legend, in B, names them for both.
@@ -213,3 +236,180 @@ def figure_carve_output_levine(
         save=save,
         out_dir=out_dir,
     )
+
+
+# CARVE's public scatter methods resolve these names for the gini source;
+# the hECA figure calls the functions behind them and passes the same.
+_GINI_SCORES_NAME = "Gini Stability"
+
+
+def _setting_label(text: str) -> str:
+    """A curve's legend text without the estimator repr's long tail.
+
+    "LeidenClustering, n_neighbors=15, objective_function=modularity" reads
+    "Leiden, 15 neighbors". Text without a neighbor count, such as the
+    selection lines', is returned unchanged.
+    """
+    match = re.search(r"n_neighbors=(\d+)", text)
+    if match is None:
+        return text
+    name = text.partition(",")[0].removesuffix("Clustering")
+    return f"{name}, {match.group(1)} neighbors"
+
+
+def figure_carve_output_heca(
+    carve: Any,
+    *,
+    sweep_value: float,
+    resolutions: Sequence[float],
+    rows: np.ndarray,
+    embedding: np.ndarray,
+    X: np.ndarray | None = None,
+    measure: str = "stability",
+    rule: str = "1se",
+    save: bool = True,
+    out_dir: Path | None = None,
+) -> Figure:
+    """Build the hECA counterpart of Fig 3: CARVE's output at one resolution.
+
+    The six panels of carve_output_figure, adapted to a resolution sweep on
+    695,304 cells. Panels C to F show the partition at ``sweep_value``, a
+    resolution the caller chooses, rather than the rule's selection; A and
+    B mark both on a log resolution axis, with one legend in B that names
+    each setting by its neighbor count. ``measure`` and ``rule`` pick
+    between the settings fitted at ``sweep_value``. CARVE's configuration
+    note is left out of D, E and F: at this panel width it overflows the
+    figure, and C's title and the caption carry the same information.
+
+    C is the anchor block, the consensus an anchored fit stores. D's violins
+    take every cell's score, without CARVE's per-cell dots, which at this
+    size merge into a solid band. E and F draw ``rows``, a subsample, at
+    ``embedding``, one coordinate pair per subsample row. CARVE's public
+    scatter methods take coordinates for every cell, so E and F call the
+    plotting functions those methods wrap, with the labels and per-sample
+    scores the methods would resolve; the cluster means in their legends
+    are the subsample's. ``X`` defaults to ``carve.X_``.
+
+    Raises ValueError when ``rows`` misses a cluster: CARVE's scatters color
+    and shape clusters by their position among the labels drawn, so a
+    missing cluster would shift E and F away from C and D.
+    """
+    rows = np.asarray(rows)
+    data = np.asarray(carve.X_ if X is None else X)
+    _, config_id, selected_k, _ = carve._select_row(
+        measure=measure, rule=rule, sweep_value=sweep_value
+    )
+    labels = np.asarray(
+        carve.get_labels(
+            measure=measure,
+            rule=rule,
+            sweep_value=sweep_value,
+            consensus_k=selected_k,
+        )
+    )
+    clusters = np.unique(labels)
+    if not np.array_equal(np.unique(labels[rows]), clusters):
+        raise ValueError(
+            "rows must include every cluster at this resolution; CARVE's "
+            "scatters color clusters by position among the labels drawn."
+        )
+    scores = carve._sample_scores("gini", config_id)
+    cluster_panel_cmap = cluster_cmap(clusters.size)
+
+    with theme_context():
+        fig, (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f) = _six_panel_grid(1.0)
+
+        for ax, curve_measure, title in (
+            (ax_a, _MEASURE_STABILITY, "Stability ARI over resolution"),
+            (ax_b, _MEASURE_GENERALIZABILITY, "Generalizability ARI over resolution"),
+        ):
+            carve.plot_metric_over_n_clusters(
+                measure=curve_measure,
+                rule=rule,
+                ax=ax,
+                palette=ESTIMATOR_CMAP_NAME,
+                title=title,
+                xlabel="Resolution",
+                legend=False,
+                show=False,
+            )
+            ax.axvline(
+                sweep_value,
+                color=FOREGROUND_COLOR,
+                linestyle=":",
+                linewidth=REFERENCE_LINEWIDTH,
+                label=f"Shown in C to F: {sweep_value:g}",
+                zorder=0,
+            )
+            resolution_axis(ax, resolutions)
+        handles, texts = ax_b.get_legend_handles_labels()
+        ax_b.legend(
+            handles,
+            [_setting_label(text) for text in texts],
+            loc="upper right",
+            frameon=False,
+            fontsize=FONT_SIZES["legend"],
+        )
+
+        carve.plot_consensus_matrix(
+            measure=measure,
+            rule=rule,
+            sweep_value=sweep_value,
+            ax=ax_c,
+            palette=cluster_panel_cmap,
+            title=(
+                f"Consensus matrix ($k={clusters.size}$, "
+                f"{carve.consensus_anchors_.size:,} anchor cells)"
+            ),
+            show=False,
+        )
+        carve.plot_cluster_violin(
+            source="gini",
+            measure=measure,
+            rule=rule,
+            sweep_value=sweep_value,
+            ax=ax_d,
+            palette=cluster_panel_cmap,
+            stripplot=False,
+            title="Per-cluster stability",
+            annotation=False,
+            show=False,
+        )
+        scatter_args = (data[rows], labels[rows], scores[rows])
+        _plot_cluster_scatter(
+            *scatter_args,
+            embedding=embedding,
+            ax=ax_e,
+            palette=cluster_panel_cmap,
+            size_range=(MARKER_SIZE * 0.75, MARKER_SIZE * 3.0),
+            title="Consensus labels",
+            scores_name=_GINI_SCORES_NAME,
+            xlabel=AXIS_LABELS[0],
+            ylabel=AXIS_LABELS[1],
+            show=False,
+        )
+        _plot_diagnostic_scatter(
+            *scatter_args,
+            embedding=embedding,
+            ax=ax_f,
+            marker_size=MARKER_SIZE,
+            title="Consensus assignment (diagnostic)",
+            scores_name=_GINI_SCORES_NAME,
+            xlabel=AXIS_LABELS[0],
+            ylabel=AXIS_LABELS[1],
+            show=False,
+        )
+
+        for letter, ax in zip("ABCDEF", (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f)):
+            panel_letter(ax, letter)
+
+        fig.tight_layout()
+
+        if save:
+            save_figure(
+                fig,
+                figure_path(
+                    "CARVE_output_heca.png", subdir=CASE_STUDY_DIR, out_dir=out_dir
+                ),
+            )
+    return fig

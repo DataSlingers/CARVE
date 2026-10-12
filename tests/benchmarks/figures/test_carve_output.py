@@ -21,6 +21,7 @@ measures between those panels.
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
+import matplotlib.text as mtext
 import numpy as np
 import pandas as pd
 import pytest
@@ -28,8 +29,11 @@ from matplotlib.collections import PathCollection, PolyCollection
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
 
+from benchmarks._estimators import resolution_grids
 from benchmarks._theme import ESTIMATOR_COLORS, cluster_colors
+from benchmarks._types import EstimatorSpec
 from benchmarks.figures import (
+    figure_carve_output_heca,
     figure_carve_output_klein,
     figure_carve_output_levine,
 )
@@ -599,3 +603,218 @@ class TestClusterIdsAgreeWithTheComposite:
         fig = figure_carve_output_klein(inputs, save=False)
         plt.close(fig)
         assert carve.reference_labels is before
+
+
+# hECA's overview draws a pinned resolution rather than the rule's pick, on
+# an anchored fit, with the two scatters on a subsample. The fixture is
+# shaped the same way at toy size: two Leiden settings over three
+# resolutions, 60 anchors. At this seed both criteria's 1-SE rule select
+# resolution 0.5 (3 clusters) while the pin, 1.0, resolves to 5 clusters,
+# so every test below can tell the pinned partition from the selected one.
+HECA_RESOLUTIONS = (0.5, 1.0, 2.0)
+HECA_PIN = 1.0
+HECA_ANCHORS = 60
+
+
+@pytest.fixture(scope="module")
+def anchored_leiden():
+    rng = np.random.default_rng(0)
+    centers = np.array([[0.0, 0.0], [6.0, 0.0], [3.0, 5.0]])
+    X = centers[rng.integers(0, 3, 240)] + rng.normal(0, 0.6, (240, 2))
+    grids = []
+    for n_neighbors in (10, 20):
+        spec = EstimatorSpec(name="leiden", params=(("n_neighbors", n_neighbors),))
+        grids += resolution_grids(spec, HECA_RESOLUTIONS)
+    with pytest.warns(RuntimeWarning, match="anchored consensus"):
+        carve = CARVE(
+            estimator_param_grids=grids,
+            n_resamples=3,
+            random_state=0,
+            consensus_anchors=HECA_ANCHORS,
+        ).fit(X)
+    labels = carve.get_labels(sweep_value=HECA_PIN)
+    # One row from every cluster first, so the subsample is valid whatever
+    # the cluster sizes; the rest at random.
+    first = [int(np.flatnonzero(labels == lab)[0]) for lab in np.unique(labels)]
+    rest = rng.choice(np.setdiff1d(np.arange(len(X)), first), 96, replace=False)
+    rows = np.sort(np.concatenate([first, rest]))
+    embedding = rng.normal(size=(len(rows), 2))
+    return carve, rows, embedding
+
+
+def _draw_heca(anchored_leiden, **kwargs):
+    carve, rows, embedding = anchored_leiden
+    kwargs.setdefault("save", False)
+    return figure_carve_output_heca(
+        carve,
+        sweep_value=HECA_PIN,
+        resolutions=HECA_RESOLUTIONS,
+        rows=rows,
+        embedding=embedding,
+        **kwargs,
+    )
+
+
+def _vertical_line_positions(ax):
+    """x of every vertical line on ax (two points sharing one x)."""
+    positions = set()
+    for line in ax.get_lines():
+        x = np.asarray(line.get_xdata(), dtype=float)
+        if x.size == 2 and x[0] == x[1]:
+            positions.add(float(x[0]))
+    return positions
+
+
+class TestCarveOutputHeca:
+    def test_fixture_pin_differs_from_the_rule_selection(self, anchored_leiden):
+        carve, _, _ = anchored_leiden
+        for measure in ("stability", "generalizability"):
+            assert float(carve.get_sweep_value(measure=measure)) != HECA_PIN
+
+    def test_saves_under_its_own_filename(self, anchored_leiden, tmp_path):
+        fig = _draw_heca(anchored_leiden, save=True, out_dir=tmp_path)
+        assert [p.name for p in tmp_path.iterdir()] == ["CARVE_output_heca.png"]
+        plt.close(fig)
+
+    def test_save_false_writes_nothing(self, anchored_leiden, tmp_path):
+        fig = _draw_heca(anchored_leiden, out_dir=tmp_path)
+        assert list(tmp_path.iterdir()) == []
+        plt.close(fig)
+
+    def test_draws_six_lettered_panels(self, anchored_leiden):
+        fig = _draw_heca(anchored_leiden)
+        assert set(_panel_by_letter(fig)) == set("ABCDEF")
+        plt.close(fig)
+
+    @pytest.mark.parametrize(
+        ("letter", "measure"), [("A", "stability"), ("B", "generalizability")]
+    )
+    def test_curves_mark_the_rule_selection_and_the_shown_resolution(
+        self, anchored_leiden, letter, measure
+    ):
+        carve, _, _ = anchored_leiden
+        fig = _draw_heca(anchored_leiden)
+        ax = _panel_by_letter(fig)[letter]
+        assert ax.get_xscale() == "log"
+        selected = float(carve.get_sweep_value(measure=measure))
+        assert _vertical_line_positions(ax) == {selected, HECA_PIN}
+        plt.close(fig)
+
+    def test_panel_b_legend_names_each_setting_by_neighbor_count(
+        self, anchored_leiden
+    ):
+        fig = _draw_heca(anchored_leiden)
+        legend = _panel_by_letter(fig)["B"].get_legend()
+        texts = {text.get_text() for text in legend.get_texts()}
+        assert {"Leiden, 10 neighbors", "Leiden, 20 neighbors"} <= texts
+        assert f"Shown in C to F: {HECA_PIN:g}" in texts
+        plt.close(fig)
+
+    def test_no_text_carries_the_estimator_repr(self, anchored_leiden):
+        """CARVE's configuration note and full estimator names overflow the
+        figure at hECA's panel width; neither is drawn anywhere."""
+        fig = _draw_heca(anchored_leiden)
+        texts = [t.get_text() for t in fig.findobj(mtext.Text)]
+        assert not any("LeidenClustering" in text for text in texts)
+        plt.close(fig)
+
+    def test_consensus_panel_is_the_pinned_anchor_block(self, anchored_leiden):
+        """The drawn matrix is the pinned configuration's, not the rule's.
+
+        The references are CARVE's own renderings, which fill the pairs a
+        short fit never co-sampled. Cluster order permutes rows and columns,
+        so the comparison is on the sorted values, which it leaves unchanged.
+        """
+        carve, _, _ = anchored_leiden
+
+        def rendered(**pin):
+            ref_fig, ref_ax = plt.subplots()
+            carve.plot_consensus_matrix(ax=ref_ax, **pin)
+            values = np.sort(np.asarray(ref_ax.images[0].get_array()).ravel())
+            plt.close(ref_fig)
+            return values
+
+        pinned = rendered(sweep_value=HECA_PIN)
+        selected = rendered()
+        assert not np.allclose(pinned, selected)
+
+        fig = _draw_heca(anchored_leiden)
+        drawn = np.asarray(_panel_by_letter(fig)["C"].images[0].get_array())
+        assert drawn.shape == (HECA_ANCHORS, HECA_ANCHORS)
+        assert np.allclose(np.sort(drawn.ravel()), pinned)
+        plt.close(fig)
+
+    def test_violins_cover_the_pinned_clusters_without_dots(self, anchored_leiden):
+        carve, _, _ = anchored_leiden
+        fig = _draw_heca(anchored_leiden)
+        ax_d = _panel_by_letter(fig)["D"]
+        bodies = [c for c in ax_d.collections if isinstance(c, PolyCollection)]
+        n_clusters = np.unique(carve.get_labels(sweep_value=HECA_PIN)).size
+        assert len(bodies) == n_clusters
+        assert not any(isinstance(c, PathCollection) for c in ax_d.collections)
+        plt.close(fig)
+
+    def test_panel_e_draws_the_subsample_in_its_pinned_cluster_colors(
+        self, anchored_leiden
+    ):
+        """Every drawn point is a subsample row, colored by that row's
+        cluster at the pin. A figure that drew the rule's labels, or the
+        labels of the wrong rows, gives at least one point the wrong color.
+        """
+        carve, rows, embedding = anchored_leiden
+        labels = carve.get_labels(sweep_value=HECA_PIN)[rows]
+        uniq = np.unique(labels)
+        palette = cluster_colors(uniq.size)
+        expected = {
+            tuple(np.round(point, 9)): mcolors.to_rgb(
+                palette[int(np.searchsorted(uniq, lab))]
+            )
+            for point, lab in zip(embedding, labels, strict=True)
+        }
+        fig = _draw_heca(anchored_leiden)
+        ax_e = _panel_by_letter(fig)["E"]
+        (points,) = [c for c in ax_e.collections if isinstance(c, PathCollection)]
+        offsets = np.asarray(points.get_offsets())
+        colors = np.asarray(points.get_facecolors())[:, :3]
+        assert len(offsets) == len(rows)
+        for point, color in zip(offsets, colors, strict=True):
+            assert np.allclose(color, expected[tuple(np.round(point, 9))])
+        plt.close(fig)
+
+    def test_panel_f_groups_the_subsample_by_pinned_cluster(self, anchored_leiden):
+        carve, rows, embedding = anchored_leiden
+        labels = carve.get_labels(sweep_value=HECA_PIN)[rows]
+        by_point = {
+            tuple(np.round(p, 9)): lab
+            for p, lab in zip(embedding, labels, strict=True)
+        }
+        fig = _draw_heca(anchored_leiden)
+        ax_f = _panel_by_letter(fig)["F"]
+        groups = [
+            np.asarray(c.get_offsets())
+            for c in ax_f.collections
+            if isinstance(c, PathCollection) and len(c.get_offsets())
+        ]
+        assert sum(len(g) for g in groups) == len(rows)
+        assert len(groups) == np.unique(labels).size
+        for group in groups:
+            assert len({by_point[tuple(np.round(p, 9))] for p in group}) == 1
+        plt.close(fig)
+
+    def test_a_subsample_missing_a_cluster_is_refused(self, anchored_leiden):
+        """CARVE's scatters color by position among the labels they are
+        given, so a missing cluster would shift every later cluster's color
+        away from panels C and D."""
+        carve, rows, embedding = anchored_leiden
+        labels = carve.get_labels(sweep_value=HECA_PIN)
+        keep = labels[rows] != labels[rows][0]
+        with pytest.raises(ValueError, match="every cluster"):
+            figure_carve_output_heca(
+                carve,
+                sweep_value=HECA_PIN,
+                resolutions=HECA_RESOLUTIONS,
+                rows=rows[keep],
+                embedding=embedding[keep],
+                save=False,
+            )
+
