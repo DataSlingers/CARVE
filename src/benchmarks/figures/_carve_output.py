@@ -242,6 +242,11 @@ def figure_carve_output_levine(
 # the hECA figure calls the functions behind them and passes the same.
 _GINI_SCORES_NAME = "Gini Stability"
 
+# The UMAP's islands spread over its full height, and F shares its cell with
+# the colorbar, so the E-F row is 1.4 of the other rows' height; the figure
+# grows with it and panels A to D keep their size.
+_HECA_SCATTER_ROW_HEIGHT = 1.4
+
 
 def _setting_label(text: str) -> str:
     """A curve's legend text without the estimator repr's long tail.
@@ -320,7 +325,9 @@ def figure_carve_output_heca(
     cluster_panel_cmap = cluster_cmap(clusters.size)
 
     with theme_context():
-        fig, (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f) = _six_panel_grid(1.0)
+        fig, (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f) = _six_panel_grid(
+            _HECA_SCATTER_ROW_HEIGHT
+        )
 
         for ax, curve_measure, title in (
             (ax_a, _MEASURE_STABILITY, "Stability ARI over resolution"),

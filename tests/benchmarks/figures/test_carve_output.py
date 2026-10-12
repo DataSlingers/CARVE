@@ -836,6 +836,21 @@ class TestCarveOutputHeca:
                 assert np.allclose(collection.get_sizes(), MARKER_SIZE)
         plt.close(fig)
 
+    def test_scatter_row_is_taller_and_rows_a_to_d_keep_their_size(
+        self, anchored_leiden
+    ):
+        fig = _draw_heca(anchored_leiden)
+        gs = (
+            _panel_by_letter(fig)["E"]
+            .get_subplotspec()
+            .get_topmost_subplotspec()
+            .get_gridspec()
+        )
+        assert tuple(gs.get_height_ratios()) == (1.0, 1.0, 1.4)
+        # Each of rows A-B and C-D stays 14/3 inches; row E-F gets 1.4 of one.
+        assert fig.get_size_inches()[1] == pytest.approx(14.0 / 3 * 3.4)
+        plt.close(fig)
+
     def test_a_subsample_missing_a_cluster_is_refused(self, anchored_leiden):
         """CARVE's scatters color by position among the labels they are
         given, so a missing cluster would shift every later cluster's color
