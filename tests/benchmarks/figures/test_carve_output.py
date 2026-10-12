@@ -31,6 +31,7 @@ from sklearn.decomposition import PCA
 
 from benchmarks._estimators import resolution_grids
 from benchmarks._theme import ESTIMATOR_COLORS, cluster_colors
+from benchmarks.figures._heca_carve import MARKER_LINEWIDTH, MARKER_SIZE
 from benchmarks._types import EstimatorSpec
 from benchmarks.figures import (
     figure_carve_output_heca,
@@ -799,6 +800,40 @@ class TestCarveOutputHeca:
         assert len(groups) == np.unique(labels).size
         for group in groups:
             assert len({by_point[tuple(np.round(p, 9))] for p in group}) == 1
+        plt.close(fig)
+
+    def test_panels_e_and_f_carry_no_cluster_legend(self, anchored_leiden):
+        fig = _draw_heca(anchored_leiden)
+        panels = _panel_by_letter(fig)
+        assert panels["E"].get_legend() is None
+        assert panels["F"].get_legend() is None
+        # F keeps its score colorbar.
+        assert any(ax.get_label() == "<colorbar>" for ax in fig.get_axes())
+        plt.close(fig)
+
+    @pytest.mark.parametrize("letter", ["E", "F"])
+    def test_scatter_outlines_take_the_hECA_linewidth(self, anchored_leiden, letter):
+        fig = _draw_heca(anchored_leiden)
+        ax = _panel_by_letter(fig)[letter]
+        points = [c for c in ax.collections if isinstance(c, PathCollection)]
+        assert points
+        for collection in points:
+            assert np.allclose(collection.get_linewidths(), MARKER_LINEWIDTH)
+        plt.close(fig)
+
+    def test_scatter_markers_take_the_hECA_size(self, anchored_leiden):
+        fig = _draw_heca(anchored_leiden)
+        panels = _panel_by_letter(fig)
+        (points_e,) = [
+            c for c in panels["E"].collections if isinstance(c, PathCollection)
+        ]
+        # A cell the toy fit never co-sampled has a NaN score and a NaN size.
+        sizes_e = points_e.get_sizes()
+        assert np.nanmin(sizes_e) == pytest.approx(MARKER_SIZE * 0.75)
+        assert np.nanmax(sizes_e) == pytest.approx(MARKER_SIZE * 3.0)
+        for collection in panels["F"].collections:
+            if isinstance(collection, PathCollection) and len(collection.get_offsets()):
+                assert np.allclose(collection.get_sizes(), MARKER_SIZE)
         plt.close(fig)
 
     def test_a_subsample_missing_a_cluster_is_refused(self, anchored_leiden):

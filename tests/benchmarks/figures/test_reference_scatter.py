@@ -69,6 +69,39 @@ def test_marker_size_reaches_the_markers(embedding, tmp_path):
         assert collection.get_sizes()[0] == 3.0
 
 
+def test_marker_linewidth_reaches_the_outlines(embedding, tmp_path):
+    Z, y = embedding
+    fig = figure_reference_scatter(
+        Z, y, axis_labels=AXIS_LABELS, marker_linewidth=0.1, save=False,
+        out_dir=tmp_path,
+    )
+    for collection in _scatter_ax(fig).collections:
+        assert collection.get_linewidths()[0] == pytest.approx(0.1)
+
+
+def test_legend_markers_match_the_scatter_by_default(embedding, tmp_path):
+    Z, y = embedding
+    fig = figure_reference_scatter(
+        Z, y, axis_labels=AXIS_LABELS, marker_size=3.0, save=False, out_dir=tmp_path
+    )
+    for handle in fig.legends[0].legend_handles:
+        assert handle.get_sizes()[0] == 3.0
+
+
+def test_legend_marker_size_enlarges_only_the_legend(embedding, tmp_path):
+    # hECA draws 2-point markers, too small to tell the organ colors apart
+    # in the legend; the legend takes its own size, the scatter keeps its.
+    Z, y = embedding
+    fig = figure_reference_scatter(
+        Z, y, axis_labels=AXIS_LABELS, marker_size=2.0, legend_marker_size=40.0,
+        save=False, out_dir=tmp_path,
+    )
+    for handle in fig.legends[0].legend_handles:
+        assert handle.get_sizes()[0] == 40.0
+    for collection in _scatter_ax(fig).collections:
+        assert collection.get_sizes()[0] == 2.0
+
+
 def test_default_colors_are_the_composite_reported_label_colors(embedding, tmp_path):
     # The composite's panel A colors reported labels through
     # aligned_color_maps in sorted category order. The overview must use the

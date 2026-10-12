@@ -29,6 +29,7 @@ from ._paths import CASE_STUDY_DIR, figure_path
 # reads at the same density here.
 FIGSIZE = (6.0, 6.0)
 DEFAULT_MARKER_SIZE = 8.0
+DEFAULT_MARKER_LINEWIDTH = 0.3
 
 
 def _subsample(n: int, max_points: int | None, random_state: int) -> np.ndarray:
@@ -53,6 +54,8 @@ def figure_reference_scatter(
     max_points: int | None = None,
     random_state: int = 42,
     marker_size: float = DEFAULT_MARKER_SIZE,
+    marker_linewidth: float = DEFAULT_MARKER_LINEWIDTH,
+    legend_marker_size: float | None = None,
     save: bool = True,
     out_dir: Path | None = None,
     save_name: str = "reference_scatter.png",
@@ -81,6 +84,12 @@ def figure_reference_scatter(
     marker_size : float
         Scatter marker size, in points squared. Pass the composite's own
         marker size so the two figures agree.
+    marker_linewidth : float
+        Width of each marker's outline, in points.
+    legend_marker_size : float or None
+        Legend marker size, in points squared. None draws the legend markers
+        at ``marker_size``; a scatter with very small markers passes a larger
+        size so the label colors can be told apart in the legend.
     save : bool
         Write the figure under ``save_name``.
     out_dir : Path or None
@@ -105,7 +114,13 @@ def figure_reference_scatter(
     with theme_context():
         fig, ax = plt.subplots(figsize=FIGSIZE)
         scatter_clusters(
-            ax, Z[idx], y[idx], color_map=color_map, s=marker_size, title=title
+            ax,
+            Z[idx],
+            y[idx],
+            color_map=color_map,
+            s=marker_size,
+            linewidth=marker_linewidth,
+            title=title,
         )
         axis_arrows(ax, axis_labels)
 
@@ -125,7 +140,7 @@ def figure_reference_scatter(
         # evenly: five organs read as 2+2+1 across three columns rather than
         # 4+1 across four.
         n_rows = -(-len(labels) // 4)
-        fig.legend(
+        legend = fig.legend(
             handles,
             labels,
             loc="upper center",
@@ -134,6 +149,9 @@ def figure_reference_scatter(
             frameon=False,
             fontsize=FONT_SIZES["legend"],
         )
+        if legend_marker_size is not None:
+            for handle in legend.legend_handles:
+                handle.set_sizes([legend_marker_size])
         fig.tight_layout()
 
         if save:

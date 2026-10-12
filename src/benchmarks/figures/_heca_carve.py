@@ -16,10 +16,15 @@ from matplotlib.figure import Figure
 from .._theme import ESTIMATOR_CMAP_NAME, FONT_SIZES, save_figure, theme_context
 from ._paths import CASE_STUDY_DIR, figure_path
 
-#: The notebook's reference scatter: a declared fixed subsample of cells,
-#: because half a million points do not rasterize legibly, drawn on a UMAP
-#: of those cells.
-MARKER_SIZE = 3.0
+#: The notebook's scatters: a declared fixed subsample of cells, because half
+#: a million points do not rasterize legibly, drawn on a UMAP of those cells.
+#: At 50,000 cells the markers are small and thinly outlined, so the outline
+#: does not darken the dense regions; the reference scatter's legend markers
+#: take their own, larger size, since at 2 points the organ colors cannot be
+#: told apart in the legend.
+MARKER_SIZE = 2.0
+MARKER_LINEWIDTH = 0.1
+LEGEND_MARKER_SIZE = 40.0
 AXIS_LABELS = ("UMAP 1", "UMAP 2")
 DEFAULT_SCATTER_SUBSAMPLE = 50_000
 

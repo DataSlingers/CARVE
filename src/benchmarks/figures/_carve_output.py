@@ -42,7 +42,7 @@ from .._theme import (
     theme_context,
 )
 from ._case_study import CompositeInputs, carve_labels_aligned
-from ._heca_carve import AXIS_LABELS, MARKER_SIZE, resolution_axis
+from ._heca_carve import AXIS_LABELS, MARKER_LINEWIDTH, MARKER_SIZE, resolution_axis
 from ._paths import CASE_STUDY_DIR, figure_path
 
 # Panel A is always the stability overview and panel B always the
@@ -287,8 +287,11 @@ def figure_carve_output_heca(
     ``embedding``, one coordinate pair per subsample row. CARVE's public
     scatter methods take coordinates for every cell, so E and F call the
     plotting functions those methods wrap, with the labels and per-sample
-    scores the methods would resolve; the cluster means in their legends
-    are the subsample's. ``X`` defaults to ``carve.X_``.
+    scores the methods would resolve. Neither carries a cluster legend; C's
+    band and D's axis number the clusters in the same colors, and F keeps
+    its score colorbar. Their markers take hECA's size and outline width;
+    CARVE's plot_cluster_scatter fixes E's outline at 0.2 points, so it is
+    thinned on the drawn markers afterwards. ``X`` defaults to ``carve.X_``.
 
     Raises ValueError when ``rows`` misses a cluster: CARVE's scatters color
     and shape clusters by their position among the labels drawn, so a
@@ -382,17 +385,22 @@ def figure_carve_output_heca(
             ax=ax_e,
             palette=cluster_panel_cmap,
             size_range=(MARKER_SIZE * 0.75, MARKER_SIZE * 3.0),
+            legend=False,
             title="Consensus labels",
             scores_name=_GINI_SCORES_NAME,
             xlabel=AXIS_LABELS[0],
             ylabel=AXIS_LABELS[1],
             show=False,
         )
+        for points in ax_e.collections:
+            points.set_linewidths(MARKER_LINEWIDTH)
         _plot_diagnostic_scatter(
             *scatter_args,
             embedding=embedding,
             ax=ax_f,
             marker_size=MARKER_SIZE,
+            marker_linewidth=MARKER_LINEWIDTH,
+            legend=False,
             title="Consensus assignment (diagnostic)",
             scores_name=_GINI_SCORES_NAME,
             xlabel=AXIS_LABELS[0],
