@@ -1,10 +1,14 @@
 """Tests for the Levine composition figure and its tables."""
 
+import matplotlib.image as mpimg
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
+from matplotlib.text import Text
 
 from benchmarks._estimators import param_grids
+from benchmarks._theme import PRINT_MAX_HEIGHT_IN, PRINT_WIDTH_IN
 from benchmarks._types import EstimatorSpec
 from benchmarks.datasets._levine import _POPULATION_NAMES
 from benchmarks.figures._case_study import (
@@ -17,6 +21,7 @@ from benchmarks.figures._levine_composition import (
     carve_cluster_numbers,
     cluster_composition,
     composition_tables,
+    figure_levine_composition,
     marker_medians,
     marker_order,
     marker_table,
@@ -319,3 +324,127 @@ class TestMarkerTable:
         )
         assert list(table.columns) == marker_order(gated)
         assert list(table.columns) != MARKERS
+
+
+def _axes(fig, label):
+    """The one axes the figure labeled label."""
+    (ax,) = [ax for ax in fig.axes if ax.get_label() == label]
+    return ax
+
+
+@pytest.fixture
+def drawn(levine_like):
+    fig = figure_levine_composition(levine_like, MARKERS, save=False)
+    fig.canvas.draw()
+    yield fig
+    plt.close(fig)
+
+
+class TestFigurePage:
+    def test_saves_under_its_filename(self, levine_like, tmp_path):
+        fig = figure_levine_composition(levine_like, MARKERS, out_dir=tmp_path)
+        assert (tmp_path / "levine_composition.png").is_file()
+        plt.close(fig)
+
+    def test_is_drawn_at_the_plos_page_width(self, drawn):
+        width, height = drawn.get_size_inches()
+        assert width == pytest.approx(PRINT_WIDTH_IN)
+        assert height <= PRINT_MAX_HEIGHT_IN
+
+    def test_every_text_is_within_plos_sizes(self, drawn):
+        sizes = [
+            text.get_fontsize()
+            for text in drawn.findobj(Text)
+            if text.get_visible() and text.get_text().strip()
+        ]
+        assert sizes
+        assert all(8.0 <= size <= 12.0 for size in sizes)
+
+    def test_the_saved_file_fits_the_page_at_300_dpi(self, levine_like, tmp_path):
+        fig = figure_levine_composition(levine_like, MARKERS, out_dir=tmp_path)
+        height, width = mpimg.imread(tmp_path / "levine_composition.png").shape[:2]
+        assert width <= 2250
+        assert height <= 2625
+        plt.close(fig)
+
+    def test_panels_are_lettered(self, drawn):
+        bold = {
+            text.get_text()
+            for text in drawn.findobj(Text)
+            if text.get_fontweight() == "bold"
+        }
+        assert {"A", "B"} <= bold
+
+
+class TestPanelA:
+    def test_draws_each_clusters_fractions(self, levine_like, drawn):
+        for key, labels in (
+            ("carve", levine_like.carve_labels),
+            ("comparison", levine_like.comparison_labels),
+        ):
+            counts = cluster_composition(labels, levine_like.y, order=POPULATION_ORDER)
+            expected = counts.div(counts.sum(axis=1), axis=0).to_numpy()
+            image = _axes(drawn, f"composition:{key}").get_images()[0]
+            np.testing.assert_allclose(np.asarray(image.get_array()), expected)
+
+    def test_prints_each_nonzero_count(self, levine_like, drawn):
+        carve, _ = composition_tables(levine_like)
+        printed = sorted(
+            int(text.get_text()) for text in _axes(drawn, "composition:carve").texts
+        )
+        values = carve.to_numpy()
+        assert printed == sorted(values[values > 0].tolist())
+
+    def test_rows_carry_the_table_names_and_sizes(self, levine_like, drawn):
+        carve, comparison = composition_tables(levine_like)
+        for key, table in (("carve", carve), ("comparison", comparison)):
+            expected = [f"{name} (n={n})" for name, n in table.sum(axis=1).items()]
+            for panel in ("composition", "markers"):
+                ticks = _axes(drawn, f"swatch:{panel}:{key}").get_yticklabels()
+                assert [tick.get_text() for tick in ticks] == expected
+
+    def test_population_names_sit_under_the_lower_heatmap_at_45_degrees(self, drawn):
+        lower = _axes(drawn, "composition:comparison").get_xticklabels()
+        assert [label.get_text() for label in lower] == [
+            p.replace("_", " ") for p in POPULATION_ORDER
+        ]
+        assert all(label.get_rotation() == 45 for label in lower)
+        upper = _axes(drawn, "composition:carve").get_xticklabels()
+        assert not any(label.get_visible() and label.get_text() for label in upper)
+
+    def test_titles_name_both_selections(self, drawn):
+        assert (
+            _axes(drawn, "composition:carve").get_title(loc="left")
+            == "CARVE (stability, 1-SE): KMeans, n_init=100, k=10"
+        )
+        assert (
+            _axes(drawn, "composition:comparison").get_title(loc="left")
+            == "Silhouette: KMeans (n_init=100), k=7"
+        )
+
+
+class TestPanelB:
+    def test_draws_the_marker_table(self, levine_like, drawn):
+        table = marker_table(levine_like, MARKERS)
+        for key, block in (
+            ("gated", "Gated"),
+            ("carve", "CARVE"),
+            ("comparison", "Silhouette"),
+        ):
+            image = _axes(drawn, f"markers:{key}").get_images()[0]
+            np.testing.assert_allclose(
+                np.asarray(image.get_array()), table.loc[block].to_numpy()
+            )
+
+    def test_marker_names_sit_upright_under_the_last_block(self, levine_like, drawn):
+        table = marker_table(levine_like, MARKERS)
+        labels = _axes(drawn, "markers:comparison").get_xticklabels()
+        assert [label.get_text() for label in labels] == list(table.columns)
+        assert all(label.get_rotation() == 90 for label in labels)
+
+    def test_blocks_are_labeled_on_the_left(self, drawn):
+        labels = [
+            _axes(drawn, f"swatch:markers:{key}").get_ylabel()
+            for key in ("gated", "carve", "comparison")
+        ]
+        assert labels == ["Gated", "CARVE", "Silhouette"]

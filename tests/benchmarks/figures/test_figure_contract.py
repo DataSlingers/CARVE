@@ -14,6 +14,7 @@ EXPECTED = (
     "figure_scaling_runtime",
     "figure_klein_results",
     "figure_levine_results",
+    "figure_levine_composition",
     "figure_carve_output_klein",
     "figure_carve_output_levine",
     "figure_carve_output_heca",

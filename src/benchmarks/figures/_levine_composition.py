@@ -15,13 +15,28 @@ printed size.
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.axes import Axes
+from matplotlib.colors import to_rgba
+from matplotlib.figure import Figure
+from matplotlib.gridspec import GridSpec
+from matplotlib.image import AxesImage
 from scipy.cluster.hierarchy import leaves_list, linkage
 
 from .._panels import _order_by_reference
+from .._theme import (
+    PRINT_FONT_SIZES,
+    PRINT_WIDTH_IN,
+    SEQUENTIAL_CMAP_NAME,
+    print_theme_context,
+    save_figure,
+)
 from ._case_study import CompositeInputs, carve_labels_aligned, composite_color_maps
+from ._paths import CASE_STUDY_DIR, figure_path
 
 #: The 14 gated populations by lineage: T, NK, B, myeloid, progenitor.
 #: Related populations sit next to each other, so a merge within a lineage
@@ -45,6 +60,27 @@ POPULATION_ORDER: tuple[str, ...] = (
 )
 
 RULE_NAMES: dict[str, str] = {"1se": "1-SE"}
+
+# Layout in inches at the printed size. A row fits one 8-point label. The
+# label bands fit the longest population name at 45 degrees and the longest
+# marker name (CD235ab) upright. With Levine's 14 populations and 10 and 7
+# clusters the figure is 8.62 inches tall, under PRINT_MAX_HEIGHT_IN.
+ROW_HEIGHT_IN = 0.125
+TOP_IN = 0.25
+TITLE_GAP_IN = 0.3
+POPULATION_LABEL_IN = 1.15
+PANEL_GAP_IN = 0.25
+BLOCK_GAP_IN = 0.06
+MARKER_LABEL_IN = 0.55
+LEFT_IN = 1.75
+RIGHT_IN = 0.55
+SWATCH_IN = 0.12
+SWATCH_GAP_IN = 0.04
+COLORBAR_GAP_IN = 0.12
+COLORBAR_IN = 0.12
+LETTER_OFFSET_PT = -4.0
+# A count is printed in white on cells above this fraction, black below it.
+TEXT_ON_DARK = 0.6
 
 
 @dataclass(frozen=True)
@@ -308,3 +344,209 @@ def marker_table(inputs: CompositeInputs, markers: Sequence[str]) -> pd.DataFram
     return pd.concat(
         {label: frame for label, frame, _ in blocks}, names=["block", "row"]
     )
+
+
+def _hide_spines(ax: Axes) -> None:
+    for side in ("top", "right", "bottom", "left"):
+        ax.spines[side].set_visible(False)
+
+
+def _heatmap(ax: Axes, values: np.ndarray) -> AxesImage:
+    """values on [0, 1] in the sequential map, one cell per entry, no grid."""
+    image = ax.imshow(
+        values,
+        cmap=SEQUENTIAL_CMAP_NAME,
+        vmin=0.0,
+        vmax=1.0,
+        aspect="auto",
+        interpolation="nearest",
+    )
+    ax.grid(False)
+    ax.set_yticks([])
+    _hide_spines(ax)
+    return image
+
+
+def _swatches(ax: Axes, colors: Sequence[str], names: Sequence[str]) -> None:
+    """A one-column strip of row colors, carrying the row names as y ticks."""
+    ax.imshow(
+        np.array([to_rgba(color) for color in colors])[:, None, :],
+        aspect="auto",
+        interpolation="nearest",
+    )
+    ax.grid(False)
+    ax.set_xticks([])
+    ax.set_yticks(range(len(names)), labels=list(names))
+    ax.tick_params(left=False)
+    _hide_spines(ax)
+
+
+def _column_labels(
+    ax: Axes, names: Sequence[str], *, show: bool, rotation: float
+) -> None:
+    """Column names under a heatmap, or none on a heatmap with another below.
+
+    rotation_mode="anchor" with ha="right" ends each label at its tick at
+    any angle. Matplotlib's "xtick" mode does the same but needs 3.11, above
+    the 3.9.4 floor.
+    """
+    if show:
+        ax.set_xticks(
+            range(len(names)),
+            labels=list(names),
+            rotation=rotation,
+            ha="right",
+            va="center" if rotation == 90 else "top",
+            rotation_mode="anchor",
+        )
+    else:
+        ax.set_xticks([])
+    ax.tick_params(bottom=False)
+
+
+def _letter(ax: Axes, letter: str) -> None:
+    """A bold panel letter left of the axes, on its title's baseline."""
+    ax.annotate(
+        letter,
+        xy=(0.0, 1.0),
+        xycoords="axes fraction",
+        xytext=(LETTER_OFFSET_PT, plt.rcParams["axes.titlepad"]),
+        textcoords="offset points",
+        ha="right",
+        va="baseline",
+        fontweight="bold",
+        fontsize=PRINT_FONT_SIZES["panel_letter"],
+    )
+
+
+def _counts(ax: Axes, counts: np.ndarray, fractions: np.ndarray) -> None:
+    """Each nonzero count in its cell, white on the darker cells."""
+    for (i, j), count in np.ndenumerate(counts):
+        if count:
+            ax.text(
+                j,
+                i,
+                f"{int(count)}",
+                ha="center",
+                va="center",
+                fontsize=PRINT_FONT_SIZES["tick"],
+                color="white" if fractions[i, j] > TEXT_ON_DARK else "black",
+            )
+
+
+def _row_axes(fig: Figure, grid: GridSpec, row: int, label: str) -> tuple[Axes, Axes]:
+    """One block's swatch and heatmap axes, labeled so tests can find them."""
+    swatch = fig.add_subplot(grid[row, 0])
+    heat = fig.add_subplot(grid[row, 2])
+    swatch.set_label(f"swatch:{label}")
+    heat.set_label(label)
+    return swatch, heat
+
+
+def figure_levine_composition(
+    inputs: CompositeInputs,
+    markers: Sequence[str],
+    *,
+    save: bool = True,
+    out_dir: Path | None = None,
+    save_name: str = "levine_composition.png",
+) -> Figure:
+    """Draw panel A (cluster composition) and panel B (marker medians).
+
+    markers names the columns of inputs.X, as load_levine32 returns them in
+    meta["markers"]. Rows are named and colored as composition_tables and
+    marker_table name them; the module docstring describes the panels.
+    """
+    carve, comparison = _partitions(inputs)
+    blocks = _marker_blocks(inputs, markers, (carve, comparison))
+    sized = {
+        partition.block: [
+            f"{name} (n={int(n)})"
+            for name, n in zip(partition.names, partition.counts.sum(axis=1))
+        ]
+        for partition in (carve, comparison)
+    }
+
+    heights = [
+        len(carve.counts) * ROW_HEIGHT_IN,
+        TITLE_GAP_IN,
+        len(comparison.counts) * ROW_HEIGHT_IN,
+        POPULATION_LABEL_IN + PANEL_GAP_IN,
+        len(blocks[0][1]) * ROW_HEIGHT_IN,
+        BLOCK_GAP_IN,
+        len(carve.counts) * ROW_HEIGHT_IN,
+        BLOCK_GAP_IN,
+        len(comparison.counts) * ROW_HEIGHT_IN,
+        MARKER_LABEL_IN,
+    ]
+    height = TOP_IN + sum(heights)
+    heat_in = (
+        PRINT_WIDTH_IN
+        - LEFT_IN
+        - RIGHT_IN
+        - SWATCH_IN
+        - SWATCH_GAP_IN
+        - COLORBAR_GAP_IN
+        - COLORBAR_IN
+    )
+    widths = [SWATCH_IN, SWATCH_GAP_IN, heat_in, COLORBAR_GAP_IN, COLORBAR_IN]
+    populations = [_display_name(p) for p in POPULATION_ORDER]
+
+    with print_theme_context():
+        fig = plt.figure(figsize=(PRINT_WIDTH_IN, height))
+        grid = fig.add_gridspec(
+            len(heights),
+            len(widths),
+            height_ratios=heights,
+            width_ratios=widths,
+            left=LEFT_IN / PRINT_WIDTH_IN,
+            right=1 - RIGHT_IN / PRINT_WIDTH_IN,
+            top=1 - TOP_IN / height,
+            bottom=0.0,
+            hspace=0.0,
+            wspace=0.0,
+        )
+
+        # Panel A: one heatmap per partition, population names under the lower.
+        images = []
+        for row, partition, key in ((0, carve, "carve"), (2, comparison, "comparison")):
+            swatch, heat = _row_axes(fig, grid, row, f"composition:{key}")
+            counts = partition.counts.to_numpy()
+            fractions = counts / counts.sum(axis=1, keepdims=True)
+            images.append(_heatmap(heat, fractions))
+            _counts(heat, counts, fractions)
+            _swatches(swatch, partition.colors, sized[partition.block])
+            _column_labels(heat, populations, show=key == "comparison", rotation=45)
+            heat.set_title(partition.title, loc="left")
+            if key == "carve":
+                _letter(swatch, "A")
+        fig.colorbar(
+            images[0], cax=fig.add_subplot(grid[0:3, 4]), label="Fraction of cluster"
+        )
+
+        # Panel B: the gated populations, then both partitions; markers upright.
+        for row, (label, frame, colors), key in zip(
+            (4, 6, 8), blocks, ("gated", "carve", "comparison")
+        ):
+            swatch, heat = _row_axes(fig, grid, row, f"markers:{key}")
+            images.append(_heatmap(heat, frame.to_numpy()))
+            names = list(frame.index) if key == "gated" else sized[label]
+            _swatches(swatch, colors, names)
+            swatch.set_ylabel(label)
+            _column_labels(
+                heat, list(frame.columns), show=key == "comparison", rotation=90
+            )
+            if key == "gated":
+                heat.set_title("Median marker expression", loc="left")
+                _letter(swatch, "B")
+        fig.colorbar(
+            images[-1],
+            cax=fig.add_subplot(grid[4:9, 4]),
+            label="Scaled median expression",
+        )
+
+        if save:
+            save_figure(
+                fig, figure_path(save_name, subdir=CASE_STUDY_DIR, out_dir=out_dir)
+            )
+    return fig

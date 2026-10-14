@@ -13,6 +13,10 @@ labels, and saves alongside the composites it precedes.
 
 _heca_calibration, _heca_carve and _heca_runtime draw the hECA notebook's
 views of a run on Longleaf; _carve_output also draws its CARVE overview.
+
+_levine_composition draws what the Levine clusters are made of: composition by
+gated population and median marker expression. composition_tables and
+marker_table return the numbers it draws.
 """
 
 from ._ablation import figure_ablation, figure_ablation_resampling
@@ -30,6 +34,11 @@ from ._heca_carve import figure_heca_carve
 from ._heca_runtime import figure_heca_runtime
 from ._klein_m3c import figure_klein_m3c
 from ._klein_results import figure_klein_results
+from ._levine_composition import (
+    composition_tables,
+    figure_levine_composition,
+    marker_table,
+)
 from ._levine_results import figure_levine_results
 from ._paths import BENCHMARKING_DIR, CASE_STUDY_DIR, VIS_ROOT, figure_path
 from ._reference_scatter import figure_reference_scatter
@@ -43,6 +52,7 @@ __all__ = [
     "CompositeInputs",
     "VIS_ROOT",
     "composite_figure",
+    "composition_tables",
     "figure_ablation",
     "figure_ablation_resampling",
     "figure_benchmarking_examples",
@@ -56,6 +66,7 @@ __all__ = [
     "figure_heca_runtime",
     "figure_klein_m3c",
     "figure_klein_results",
+    "figure_levine_composition",
     "figure_levine_results",
     "figure_path",
     "figure_reference_scatter",
@@ -63,5 +74,6 @@ __all__ = [
     "figure_scaling_runtime",
     "figure_scenario_dashboard",
     "figure_scenario_overview",
+    "marker_table",
     "prepare_composite",
 ]
