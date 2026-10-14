@@ -273,6 +273,116 @@ class TestFitOrLoadCarveFingerprint:
         assert carve.estimator_results_ is not None
 
 
+class TestFitOrLoadCarveRun:
+    """A cached fit is only valid for the grid and resample count it ran.
+
+    A study's default run carries no run key in its cache filename, so a
+    change to the default grid kept the filename: the Levine cache, fit with
+    KMeans n_init=10, kept loading after the study moved to n_init=100.
+    """
+
+    def test_a_changed_estimator_parameter_raises_and_names_it(self, blobs, tmp_path):
+        X, y = blobs
+        cache = tmp_path / "demo.carve"
+        fit_or_load_carve(
+            X,
+            y,
+            cache_path=cache,
+            model_grids=param_grids(EstimatorSpec(name="kmeans"), (2, 3)),
+            n_resamples=3,
+        )
+        with pytest.raises(
+            ValueError, match=r"KMeans n_init: cached \[10\], requested \[100\]"
+        ) as excinfo:
+            fit_or_load_carve(
+                X,
+                y,
+                cache_path=cache,
+                model_grids=param_grids(EstimatorSpec(name="kmeans_n_init_100"), (2, 3)),
+                n_resamples=3,
+            )
+        assert str(cache) in str(excinfo.value)
+        assert "force=True" in str(excinfo.value)
+
+    def test_a_changed_k_range_raises(self, blobs, tmp_path):
+        X, y = blobs
+        cache = tmp_path / "demo.carve"
+        grids = param_grids(EstimatorSpec(name="kmeans"), (2, 3))
+        fit_or_load_carve(X, y, cache_path=cache, model_grids=grids, n_resamples=3)
+        with pytest.raises(
+            ValueError, match=r"KMeans n_clusters: cached \[2, 3\], requested \[2, 3, 4\]"
+        ):
+            fit_or_load_carve(
+                X,
+                y,
+                cache_path=cache,
+                model_grids=param_grids(EstimatorSpec(name="kmeans"), (2, 3, 4)),
+                n_resamples=3,
+            )
+
+    def test_an_added_estimator_raises(self, blobs, tmp_path):
+        X, y = blobs
+        cache = tmp_path / "demo.carve"
+        grids = param_grids(EstimatorSpec(name="kmeans"), (2, 3))
+        fit_or_load_carve(X, y, cache_path=cache, model_grids=grids, n_resamples=3)
+        with pytest.raises(ValueError, match="estimator count: cached 1, requested 2"):
+            fit_or_load_carve(
+                X,
+                y,
+                cache_path=cache,
+                model_grids=grids + param_grids(EstimatorSpec(name="spectral"), (2, 3)),
+                n_resamples=3,
+            )
+
+    def test_a_changed_resample_count_raises(self, blobs, tmp_path):
+        X, y = blobs
+        cache = tmp_path / "demo.carve"
+        grids = param_grids(EstimatorSpec(name="kmeans"), (2, 3))
+        fit_or_load_carve(X, y, cache_path=cache, model_grids=grids, n_resamples=3)
+        with pytest.raises(ValueError, match="n_resamples: cached 3, requested 4"):
+            fit_or_load_carve(X, y, cache_path=cache, model_grids=grids, n_resamples=4)
+
+    def test_an_equal_grid_built_anew_loads_the_cache(self, blobs, tmp_path):
+        # A second param_grids call builds new lists; equal grids must load,
+        # so the comparison has to be by value, not by identity.
+        X, y = blobs
+        cache = tmp_path / "demo.carve"
+        fit_or_load_carve(
+            X,
+            y,
+            cache_path=cache,
+            model_grids=param_grids(EstimatorSpec(name="kmeans"), (2, 3)),
+            n_resamples=3,
+        )
+        mtime = cache.stat().st_mtime_ns
+        fit_or_load_carve(
+            X,
+            y,
+            cache_path=cache,
+            model_grids=param_grids(EstimatorSpec(name="kmeans"), (2, 3)),
+            n_resamples=3,
+        )
+        assert cache.stat().st_mtime_ns == mtime
+
+    def test_force_refits_a_changed_run_and_caches_it(self, blobs, tmp_path):
+        X, y = blobs
+        cache = tmp_path / "demo.carve"
+        fit_or_load_carve(
+            X,
+            y,
+            cache_path=cache,
+            model_grids=param_grids(EstimatorSpec(name="kmeans"), (2, 3)),
+            n_resamples=3,
+        )
+        wider = param_grids(EstimatorSpec(name="kmeans"), (2, 3, 4))
+        fit_or_load_carve(
+            X, y, cache_path=cache, model_grids=wider, n_resamples=3, force=True
+        )
+        mtime = cache.stat().st_mtime_ns
+        fit_or_load_carve(X, y, cache_path=cache, model_grids=wider, n_resamples=3)
+        assert cache.stat().st_mtime_ns == mtime
+
+
 class TestConsensusAnchorsForwarding:
     def test_fit_or_load_carve_forwards_consensus_anchors(
         self, blobs, tmp_path, monkeypatch

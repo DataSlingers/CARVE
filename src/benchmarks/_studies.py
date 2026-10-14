@@ -222,6 +222,59 @@ def cvi_sweep(
     return returned_curves, best.reset_index(drop=True)
 
 
+def _first_grid_difference(
+    cached: list[tuple[type[ClusterMixin], dict[str, list[Any]]]],
+    requested: list[tuple[type[ClusterMixin], dict[str, list[Any]]]],
+) -> str | None:
+    """The first entry where two estimator grids differ, or None if they match."""
+    if len(cached) != len(requested):
+        return f"estimator count: cached {len(cached)}, requested {len(requested)}"
+    for (cached_cls, cached_grid), (requested_cls, requested_grid) in zip(
+        cached, requested
+    ):
+        name = cached_cls.__name__
+        if cached_cls is not requested_cls:
+            return f"estimator: cached {name}, requested {requested_cls.__name__}"
+        for key in sorted(set(cached_grid) | set(requested_grid)):
+            if key not in cached_grid or key not in requested_grid:
+                side = "requested" if key in requested_grid else "cached"
+                return f"{name} {key}: set only in the {side} grid"
+            if cached_grid[key] != requested_grid[key]:
+                return (
+                    f"{name} {key}: cached {cached_grid[key]!r}, "
+                    f"requested {requested_grid[key]!r}"
+                )
+    return None
+
+
+def _check_cached_run(
+    carve: CARVE,
+    cache_path: Path,
+    *,
+    model_grids: list[tuple[type[ClusterMixin], dict[str, list[Any]]]],
+    n_resamples: int,
+) -> None:
+    """Refuse to serve a cached fit of a different run than the one requested.
+
+    carve_cache_path gives a study's default run no run key, so a change to
+    the default grid keeps the filename. The Levine cache was fit with KMeans
+    n_init=10 and kept loading after the study moved to n_init=100 (eff2915).
+    This compares the grid and the resample count. Preprocessing,
+    random_state, the classifier and consensus_anchors are not checked.
+    """
+    difference = _first_grid_difference(
+        list(carve.estimator_param_grids), list(model_grids)
+    )
+    if difference is None and carve.n_resamples != n_resamples:
+        difference = f"n_resamples: cached {carve.n_resamples}, requested {n_resamples}"
+    if difference is not None:
+        raise ValueError(
+            f"{cache_path} holds a fit of a different run than the one requested "
+            f"({difference}). Serving it would report results for a run that was "
+            "never fit. Pass force=True to refit, or delete the file."
+        )
+
+
 def fit_or_load_carve(
     X: np.ndarray,
     y: np.ndarray | pd.Series | None,
@@ -248,6 +301,11 @@ def fit_or_load_carve(
     The cache is found by path alone. A caller that changes the grid, the
     resample count or the preprocessing must pass the same to
     carve_cache_path, which keys the filename on them.
+
+    Loading compares the cached fit's grid and resample count with the ones
+    passed and raises on a difference (_check_cached_run), because the
+    study's default run carries no run key and a changed default grid keeps
+    its filename.
 
     consensus_anchors : int or None, default=None
         Forwarded to CARVE only when not None, so studies that leave it at
@@ -282,6 +340,9 @@ def fit_or_load_carve(
     if cache_path.is_file() and not force:
         check_fingerprint(cache_path, X)
         carve = CARVE.load(str(cache_path))
+        _check_cached_run(
+            carve, cache_path, model_grids=model_grids, n_resamples=n_resamples
+        )
         carve.X_ = np.asarray(X)
         return carve
 
