@@ -13,6 +13,7 @@ printed page width under print_theme_context, so its 8-point text is its
 printed size.
 """
 
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,7 +30,9 @@ from scipy.cluster.hierarchy import leaves_list, linkage
 
 from .._panels import _order_by_reference
 from .._theme import (
+    FOREGROUND_COLOR,
     PRINT_FONT_SIZES,
+    PRINT_MAX_HEIGHT_IN,
     PRINT_WIDTH_IN,
     SEQUENTIAL_CMAP_NAME,
     print_theme_context,
@@ -79,7 +82,8 @@ SWATCH_GAP_IN = 0.04
 COLORBAR_GAP_IN = 0.12
 COLORBAR_IN = 0.12
 LETTER_OFFSET_PT = -4.0
-# A count is printed in white on cells above this fraction, black below it.
+# A count is printed in white on cells above this fraction, in the foreground
+# color below it.
 TEXT_ON_DARK = 0.6
 
 
@@ -430,7 +434,7 @@ def _counts(ax: Axes, counts: np.ndarray, fractions: np.ndarray) -> None:
                 ha="center",
                 va="center",
                 fontsize=PRINT_FONT_SIZES["tick"],
-                color="white" if fractions[i, j] > TEXT_ON_DARK else "black",
+                color="white" if fractions[i, j] > TEXT_ON_DARK else FOREGROUND_COLOR,
             )
 
 
@@ -480,6 +484,15 @@ def figure_levine_composition(
         MARKER_LABEL_IN,
     ]
     height = TOP_IN + sum(heights)
+    if height > PRINT_MAX_HEIGHT_IN:
+        warnings.warn(
+            f"The figure is {height:.2f} inches tall for {len(carve.counts)} CARVE "
+            f"and {len(comparison.counts)} {comparison.block} clusters, over the "
+            f"{PRINT_MAX_HEIGHT_IN} inch print limit. It will not fit the printed "
+            "page at this size.",
+            UserWarning,
+            stacklevel=2,
+        )
     heat_in = (
         PRINT_WIDTH_IN
         - LEFT_IN

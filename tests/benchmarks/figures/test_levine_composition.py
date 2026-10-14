@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
+from matplotlib.colors import to_rgba
 from matplotlib.text import Text
 
 from benchmarks._estimators import param_grids
@@ -15,6 +16,7 @@ from benchmarks.figures._case_study import (
     CompositeInputs,
     _align_to_reference,
     carve_labels_aligned,
+    composite_color_maps,
 )
 from benchmarks.figures._levine_composition import (
     POPULATION_ORDER,
@@ -88,6 +90,28 @@ def _levine_like_inputs():
     carve_of = np.array([0, 1, 2, 2, 3, 3, 4, 4, 5, 6, 7, 8, 8, 9])
     comparison_of = np.array([0, 0, 0, 1, 2, 2, 3, 3, 4, 5, 6, 6, 6, 6])
     own = (carve_of[codes] * 3) % 10
+    return _inputs(
+        X=X,
+        y=y,
+        carve=_stub(own),
+        carve_labels=_align_to_reference(own, y),
+        comparison_labels=_align_to_reference(comparison_of[codes], y),
+    )
+
+
+def _eleven_cluster_inputs():
+    """Levine's sizes with 11 CARVE clusters and 7 comparison clusters.
+
+    Built as _levine_like_inputs builds its inputs, with a finer CARVE map.
+    The figure is then 8.87 inches tall, over the print limit.
+    """
+    rng = np.random.default_rng(0)
+    codes = np.repeat(np.arange(14), SIZES)
+    y = np.array(POPULATION_ORDER, dtype=object)[codes]
+    X = rng.normal(size=(len(y), 32)) + 3.0 * (codes[:, None] % 5 == np.arange(32) % 5)
+    carve_of = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10])
+    comparison_of = np.array([0, 0, 0, 1, 2, 2, 3, 3, 4, 5, 6, 6, 6, 6])
+    own = (carve_of[codes] * 3) % 11
     return _inputs(
         X=X,
         y=y,
@@ -252,6 +276,21 @@ class TestMarkerMedians:
             atol=1e-12,
         )
 
+    def test_scaling_uses_the_1st_and_99th_percentiles_and_clips(self):
+        # A ramp 0..199 with a top group above the 99th percentile and a
+        # middle group. Min/max scaling would put the middle median at
+        # 50/199 and leave the top median below 1; unclipped percentile
+        # scaling would put the top median above 1.
+        ramp = np.arange(200.0)
+        groups = np.where(ramp >= 198, "top", np.where(np.abs(ramp - 50) <= 1, "mid", "rest"))
+        medians = marker_medians(
+            ramp[:, None], groups, markers=["ramp"], group_order=["top", "mid", "rest"]
+        )
+        low, high = np.percentile(ramp, [1, 99])
+        assert medians.loc["top", "ramp"] == 1.0
+        assert medians.loc["mid", "ramp"] == pytest.approx((50.0 - low) / (high - low))
+        assert abs(medians.loc["mid", "ramp"] - 50.0 / 199.0) > 1e-3
+
     def test_a_constant_marker_is_zero_without_a_warning(self):
         X = np.column_stack([np.full(20, 3.0), np.arange(20.0)])
         medians = marker_medians(
@@ -314,6 +353,47 @@ class TestMarkerTable:
         assert list(table.loc["CARVE"].index) == list(carve.index)
         assert list(table.loc["Silhouette"].index) == list(comparison.index)
 
+    def test_each_row_holds_the_medians_of_the_cells_it_names(self, levine_like):
+        # Expected rows come from the stub's own labels, the reported
+        # populations and the comparison labels, not from the figure's
+        # partitions, so a row cannot carry another row's medians unseen.
+        table = marker_table(levine_like, MARKERS)
+        columns = list(table.columns)
+        X, y = levine_like.X, levine_like.y
+
+        gated = marker_medians(X, y, markers=MARKERS, group_order=list(POPULATION_ORDER))
+        for population in POPULATION_ORDER:
+            np.testing.assert_allclose(
+                table.loc[("Gated", population.replace("_", " "))].to_numpy(),
+                gated.loc[population, columns].to_numpy(),
+            )
+
+        own = np.asarray(levine_like.carve.get_labels()) + 1
+        by_own = marker_medians(
+            X, own, markers=MARKERS, group_order=sorted(set(own.tolist()))
+        )
+        carve_rows = list(table.loc["CARVE"].index)
+        assert sorted(carve_rows) == sorted(f"C{n}" for n in set(own.tolist()))
+        for row in carve_rows:
+            np.testing.assert_allclose(
+                table.loc[("CARVE", row)].to_numpy(),
+                by_own.loc[int(row[1:]), columns].to_numpy(),
+            )
+
+        ids = list(
+            cluster_composition(
+                levine_like.comparison_labels, y, order=POPULATION_ORDER
+            ).index
+        )
+        by_id = marker_medians(
+            X, levine_like.comparison_labels, markers=MARKERS, group_order=sorted(ids)
+        )
+        for position, cluster in enumerate(ids, start=1):
+            np.testing.assert_allclose(
+                table.loc[("Silhouette", f"C{position}")].to_numpy(),
+                by_id.loc[cluster, columns].to_numpy(),
+            )
+
     def test_markers_are_in_the_gated_blocks_clustered_order(self, levine_like):
         table = marker_table(levine_like, MARKERS)
         gated = marker_medians(
@@ -350,6 +430,17 @@ class TestFigurePage:
         width, height = drawn.get_size_inches()
         assert width == pytest.approx(PRINT_WIDTH_IN)
         assert height <= PRINT_MAX_HEIGHT_IN
+
+    def test_warns_when_the_clusters_push_the_figure_past_the_print_height(self):
+        inputs = _eleven_cluster_inputs()
+        with pytest.warns(UserWarning, match=r"8\.87 inches tall for 11 CARVE and 7") as record:
+            fig = figure_levine_composition(inputs, MARKERS, save=False)
+        try:
+            assert fig.get_size_inches()[1] > PRINT_MAX_HEIGHT_IN
+            assert "will not fit the printed page" in str(record[0].message)
+            assert record[0].filename == __file__
+        finally:
+            plt.close(fig)
 
     def test_every_text_is_within_plos_sizes(self, drawn):
         sizes = [
@@ -388,12 +479,44 @@ class TestPanelA:
             np.testing.assert_allclose(np.asarray(image.get_array()), expected)
 
     def test_prints_each_nonzero_count(self, levine_like, drawn):
-        carve, _ = composition_tables(levine_like)
-        printed = sorted(
-            int(text.get_text()) for text in _axes(drawn, "composition:carve").texts
-        )
-        values = carve.to_numpy()
-        assert printed == sorted(values[values > 0].tolist())
+        carve, comparison = composition_tables(levine_like)
+        for key, table in (("carve", carve), ("comparison", comparison)):
+            printed = {
+                (round(text.get_position()[1]), round(text.get_position()[0])): int(
+                    text.get_text()
+                )
+                for text in _axes(drawn, f"composition:{key}").texts
+            }
+            values = table.to_numpy()
+            expected = {
+                (int(i), int(j)): int(values[i, j]) for i, j in np.argwhere(values > 0)
+            }
+            assert printed == expected
+
+    def test_swatches_carry_each_rows_color_in_display_order(self, levine_like, drawn):
+        true_cmap, carve_cmap, comparison_cmap = composite_color_maps(levine_like)
+        for key, cmap, labels in (
+            ("carve", carve_cmap, levine_like.carve_labels),
+            ("comparison", comparison_cmap, levine_like.comparison_labels),
+        ):
+            ids = cluster_composition(labels, levine_like.y, order=POPULATION_ORDER).index
+            expected = np.array([to_rgba(cmap[c]) for c in ids])[:, None, :]
+            for panel in ("composition", "markers"):
+                image = _axes(drawn, f"swatch:{panel}:{key}").get_images()[0]
+                np.testing.assert_allclose(np.asarray(image.get_array()), expected)
+        expected = np.array([to_rgba(true_cmap[p]) for p in POPULATION_ORDER])[:, None, :]
+        image = _axes(drawn, "swatch:markers:gated").get_images()[0]
+        np.testing.assert_allclose(np.asarray(image.get_array()), expected)
+
+    def test_each_swatch_lines_up_with_its_heatmap(self, drawn):
+        for label in (
+            "composition:carve",
+            "composition:comparison",
+            "markers:gated",
+            "markers:carve",
+            "markers:comparison",
+        ):
+            assert _axes(drawn, f"swatch:{label}").get_ylim() == _axes(drawn, label).get_ylim()
 
     def test_rows_carry_the_table_names_and_sizes(self, levine_like, drawn):
         carve, comparison = composition_tables(levine_like)
