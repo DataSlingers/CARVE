@@ -154,6 +154,13 @@ def test_levine_loads_its_data_through_the_study():
     assert "subsample=" not in source
 
 
+def test_levine_draws_the_composition_figure_and_prints_its_tables():
+    source = _code(NOTEBOOKS["levine"])
+    assert 'figure_levine_composition(inputs, meta["markers"])' in source
+    assert "composition_tables(inputs)" in source
+    assert 'marker_table(inputs, meta["markers"])' in source
+
+
 def test_motivation_levine_loader_uses_the_manuscript_subsample():
     assert "subsample=5000" in _code(NOTEBOOKS["motivation"])
 
