@@ -234,7 +234,10 @@ def _first_grid_difference(
     ):
         name = cached_cls.__name__
         if cached_cls is not requested_cls:
-            return f"estimator: cached {name}, requested {requested_cls.__name__}"
+            return (
+                f"estimator: cached {cached_cls.__module__}.{cached_cls.__qualname__}, "
+                f"requested {requested_cls.__module__}.{requested_cls.__qualname__}"
+            )
         for key in sorted(set(cached_grid) | set(requested_grid)):
             if key not in cached_grid or key not in requested_grid:
                 side = "requested" if key in requested_grid else "cached"

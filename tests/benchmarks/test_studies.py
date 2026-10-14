@@ -320,6 +320,47 @@ class TestFitOrLoadCarveRun:
                 n_resamples=3,
             )
 
+    def test_a_different_estimator_class_raises_and_names_both_classes(
+        self, blobs, tmp_path
+    ):
+        # KMeans and MiniBatchKMeans share n_init=10, so only the class differs.
+        X, y = blobs
+        cache = tmp_path / "demo.carve"
+        fit_or_load_carve(
+            X,
+            y,
+            cache_path=cache,
+            model_grids=param_grids(EstimatorSpec(name="kmeans"), (2, 3)),
+            n_resamples=3,
+        )
+        with pytest.raises(ValueError) as excinfo:
+            fit_or_load_carve(
+                X,
+                y,
+                cache_path=cache,
+                model_grids=param_grids(EstimatorSpec(name="minibatch_kmeans"), (2, 3)),
+                n_resamples=3,
+            )
+        assert (
+            "estimator: cached sklearn.cluster._kmeans.KMeans, "
+            "requested sklearn.cluster._kmeans.MiniBatchKMeans"
+        ) in str(excinfo.value)
+
+    @pytest.mark.parametrize("side", ["requested", "cached"])
+    def test_a_parameter_set_on_one_side_only_raises(self, blobs, tmp_path, side):
+        X, y = blobs
+        cache = tmp_path / "demo.carve"
+        grids = param_grids(EstimatorSpec(name="kmeans"), (2, 3))
+        extended = [(cls, {**grid, "max_iter": [50]}) for cls, grid in grids]
+        cached, requested = (grids, extended) if side == "requested" else (extended, grids)
+        fit_or_load_carve(X, y, cache_path=cache, model_grids=cached, n_resamples=3)
+        with pytest.raises(
+            ValueError, match=f"KMeans max_iter: set only in the {side} grid"
+        ):
+            fit_or_load_carve(
+                X, y, cache_path=cache, model_grids=requested, n_resamples=3
+            )
+
     def test_an_added_estimator_raises(self, blobs, tmp_path):
         X, y = blobs
         cache = tmp_path / "demo.carve"
