@@ -17,6 +17,9 @@ from benchmarks.figures._levine_composition import (
     carve_cluster_numbers,
     cluster_composition,
     composition_tables,
+    marker_medians,
+    marker_order,
+    marker_table,
 )
 from carve import CARVE
 from tests.benchmarks._helpers import StubCarve
@@ -24,6 +27,15 @@ from tests.benchmarks._helpers import StubCarve
 # The 5,000-cell subsample's population sizes, in POPULATION_ORDER (the
 # notebook's population table).
 SIZES = [1265, 965, 187, 108, 25, 294, 793, 16, 1013, 59, 58, 44, 158, 15]
+
+# Levine_32dim's 32 type markers, as load_levine32 returns them in
+# meta["markers"] (read from HDCytoData 1.28.0 on 2026-10-14).
+MARKERS = [
+    "CD45RA", "CD133", "CD19", "CD22", "CD11b", "CD4", "CD8", "CD34",
+    "Flt3", "CD20", "CXCR4", "CD235ab", "CD45", "CD123", "CD321", "CD14",
+    "CD33", "CD47", "CD11c", "CD7", "CD15", "CD16", "CD44", "CD38",
+    "CD13", "CD3", "CD61", "CD117", "CD49d", "HLA-DR", "CD64", "CD41",
+]
 
 
 def _inputs(*, X, y, carve, carve_labels, comparison_labels):
@@ -206,3 +218,104 @@ class TestCompositionTables:
             :, ["CD4_T_cells", "CD8_T_cells", "CD16-_NK_cells"]
         ].gt(0).all(axis=1)
         assert pooled.sum() == 1
+
+
+class TestMarkerMedians:
+    def test_a_marker_high_in_one_group_is_one_there_and_zero_elsewhere(self):
+        groups = np.repeat(["a", "b", "c"], 30)
+        rng = np.random.default_rng(0)
+        X = np.column_stack([np.where(groups == "a", 10.0, 0.0), rng.normal(size=90)])
+        medians = marker_medians(
+            X, groups, markers=["high_in_a", "noise"], group_order=["a", "b", "c"]
+        )
+        assert medians.loc["a", "high_in_a"] == 1.0
+        assert medians.loc["b", "high_in_a"] == 0.0
+        assert medians.loc["c", "high_in_a"] == 0.0
+
+    def test_a_positive_affine_map_per_marker_changes_nothing(self):
+        # The loader's RobustScaler is such a map of the arcsinh values, so
+        # this is what makes scaling X equal to scaling the arcsinh input.
+        rng = np.random.default_rng(1)
+        X = rng.normal(size=(200, 4))
+        groups = rng.integers(0, 3, size=200)
+        mapped = X * np.array([0.5, 2.0, 10.0, 3.0]) + np.array([-1.0, 5.0, 0.0, 100.0])
+        kwargs = {"markers": ["m0", "m1", "m2", "m3"], "group_order": [0, 1, 2]}
+        pd.testing.assert_frame_equal(
+            marker_medians(mapped, groups, **kwargs),
+            marker_medians(X, groups, **kwargs),
+            check_exact=False,
+            atol=1e-12,
+        )
+
+    def test_a_constant_marker_is_zero_without_a_warning(self):
+        X = np.column_stack([np.full(20, 3.0), np.arange(20.0)])
+        medians = marker_medians(
+            X, np.repeat([0, 1], 10), markers=["flat", "ramp"], group_order=[0, 1]
+        )
+        assert (medians["flat"] == 0.0).all()
+
+    def test_rows_follow_group_order_and_columns_the_marker_names(self):
+        X = np.arange(12.0).reshape(6, 2)
+        medians = marker_medians(
+            X, np.array([2, 2, 0, 0, 1, 1]), markers=["m0", "m1"], group_order=[1, 2, 0]
+        )
+        assert list(medians.index) == [1, 2, 0]
+        assert list(medians.columns) == ["m0", "m1"]
+
+    def test_group_order_must_list_exactly_the_groups_present(self):
+        with pytest.raises(ValueError, match="group_order"):
+            marker_medians(
+                np.zeros((4, 1)), np.array([0, 0, 1, 1]), markers=["m"], group_order=[0]
+            )
+
+    def test_one_name_per_column(self):
+        with pytest.raises(ValueError, match="2 columns but 1 markers"):
+            marker_medians(
+                np.zeros((4, 2)), np.array([0, 0, 1, 1]), markers=["m"], group_order=[0, 1]
+            )
+
+
+class TestMarkerOrder:
+    def test_markers_with_the_same_profile_sit_next_to_each_other(self):
+        rng = np.random.default_rng(2)
+        values = rng.uniform(size=(14, 8))
+        values[:, 5] = values[:, 0]
+        values[:, 3] = values[:, 1]
+        medians = pd.DataFrame(values, columns=[f"m{i}" for i in range(8)])
+        order = marker_order(medians)
+        assert sorted(order) == sorted(medians.columns)
+        assert abs(order.index("m0") - order.index("m5")) == 1
+        assert abs(order.index("m1") - order.index("m3")) == 1
+
+    def test_the_order_depends_only_on_the_profiles(self):
+        rng = np.random.default_rng(3)
+        medians = pd.DataFrame(
+            rng.uniform(size=(14, 32)), columns=[f"m{i}" for i in range(32)]
+        )
+        first = marker_order(medians)
+        assert marker_order(medians) == first
+        assert marker_order(medians.iloc[rng.permutation(14)]) == first
+
+
+class TestMarkerTable:
+    def test_blocks_are_stacked_with_rows_named_as_drawn(self, levine_like):
+        table = marker_table(levine_like, MARKERS)
+        carve, comparison = composition_tables(levine_like)
+        blocks = list(table.index.get_level_values("block").unique())
+        assert blocks == ["Gated", "CARVE", "Silhouette"]
+        assert list(table.loc["Gated"].index) == [
+            p.replace("_", " ") for p in POPULATION_ORDER
+        ]
+        assert list(table.loc["CARVE"].index) == list(carve.index)
+        assert list(table.loc["Silhouette"].index) == list(comparison.index)
+
+    def test_markers_are_in_the_gated_blocks_clustered_order(self, levine_like):
+        table = marker_table(levine_like, MARKERS)
+        gated = marker_medians(
+            levine_like.X,
+            levine_like.y,
+            markers=MARKERS,
+            group_order=list(POPULATION_ORDER),
+        )
+        assert list(table.columns) == marker_order(gated)
+        assert list(table.columns) != MARKERS

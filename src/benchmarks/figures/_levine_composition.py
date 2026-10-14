@@ -18,6 +18,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+from scipy.cluster.hierarchy import leaves_list, linkage
 
 from .._panels import _order_by_reference
 from ._case_study import CompositeInputs, carve_labels_aligned, composite_color_maps
@@ -176,3 +177,134 @@ def composition_tables(
     """Panel A's counts for CARVE and for the comparison, rows named as drawn."""
     carve, comparison = _partitions(inputs)
     return _named(carve), _named(comparison)
+
+
+def _display_name(population: str) -> str:
+    """A population name as printed, with HDCytoData's underscores as spaces."""
+    return population.replace("_", " ")
+
+
+def _scale_markers(X: np.ndarray) -> np.ndarray:
+    """Each column mapped to [0, 1] by its 1st and 99th percentiles, clipped.
+
+    The scaling of the CyTOF workflow of Nowicka et al. (2017) and CATALYST.
+    A positive affine map of a column leaves the result unchanged, so the
+    loader's RobustScaler output gives the values its arcsinh input would. A
+    column whose two percentiles are equal has no contrast and maps to 0.
+    """
+    X = np.asarray(X, dtype=np.float64)
+    low, high = np.percentile(X, [1, 99], axis=0)
+    span = high - low
+    scaled = np.zeros_like(X)
+    varying = span > 0
+    scaled[:, varying] = np.clip(
+        (X[:, varying] - low[varying]) / span[varying], 0.0, 1.0
+    )
+    return scaled
+
+
+def marker_medians(
+    X: np.ndarray,
+    groups: np.ndarray,
+    *,
+    markers: Sequence[str],
+    group_order: Sequence,
+) -> pd.DataFrame:
+    """Median scaled expression per group, groups by markers.
+
+    Scaling (_scale_markers) is over every cell in X before grouping, so all
+    groups share one scale per marker. group_order must list exactly the
+    groups present.
+    """
+    X = np.asarray(X)
+    groups = np.asarray(groups)
+    if X.shape[1] != len(markers):
+        raise ValueError(
+            f"X has {X.shape[1]} columns but {len(markers)} markers were named."
+        )
+    present = set(groups.tolist())
+    if present != set(group_order):
+        raise ValueError(
+            "group_order must list exactly the groups present; "
+            f"missing {sorted(map(str, present - set(group_order)))}, "
+            f"not present {sorted(map(str, set(group_order) - present))}."
+        )
+    scaled = pd.DataFrame(_scale_markers(X), columns=list(markers))
+    medians = scaled.groupby(groups).median().reindex(index=list(group_order))
+    medians.index.name = "group"
+    medians.columns.name = "marker"
+    return medians
+
+
+def marker_order(medians: pd.DataFrame) -> list[str]:
+    """Markers in the leaf order of an average-linkage tree over their profiles.
+
+    Each marker's profile is its column of medians. Euclidean distance with
+    optimal leaf ordering puts markers expressed together next to each other,
+    and the order depends only on the values.
+    """
+    tree = linkage(
+        medians.to_numpy().T,
+        method="average",
+        metric="euclidean",
+        optimal_ordering=True,
+    )
+    return [str(medians.columns[i]) for i in leaves_list(tree)]
+
+
+def _marker_blocks(
+    inputs: CompositeInputs,
+    markers: Sequence[str],
+    partitions: tuple[_Partition, _Partition],
+) -> list[tuple[str, pd.DataFrame, list[str]]]:
+    """Panel B's blocks as (label, medians, row colors), rows named as drawn.
+
+    The gated block lists the populations present, in lineage order. Each
+    partition's block keeps panel A's row order and names. Every block's
+    markers follow the gated block's marker_order.
+    """
+    y = np.asarray(inputs.y)
+    true_cmap, _, _ = composite_color_maps(inputs)
+    present = set(y.tolist())
+    populations = [p for p in POPULATION_ORDER if p in present]
+    gated = marker_medians(inputs.X, y, markers=markers, group_order=populations)
+    columns = marker_order(gated)
+    blocks = [
+        (
+            "Gated",
+            gated[columns].set_axis(
+                pd.Index([_display_name(p) for p in populations], name="row"),
+                axis=0,
+            ),
+            [true_cmap[p] for p in populations],
+        )
+    ]
+    for partition in partitions:
+        medians = marker_medians(
+            inputs.X,
+            partition.labels,
+            markers=markers,
+            group_order=list(partition.counts.index),
+        )
+        blocks.append(
+            (
+                partition.block,
+                medians[columns].set_axis(
+                    pd.Index(partition.names, name="row"), axis=0
+                ),
+                partition.colors,
+            )
+        )
+    return blocks
+
+
+def marker_table(inputs: CompositeInputs, markers: Sequence[str]) -> pd.DataFrame:
+    """Panel B's medians, the gated, CARVE and comparison blocks stacked.
+
+    Indexed by (block, row), with rows named as the figure names them and
+    markers in the figure's column order.
+    """
+    blocks = _marker_blocks(inputs, markers, _partitions(inputs))
+    return pd.concat(
+        {label: frame for label, frame, _ in blocks}, names=["block", "row"]
+    )
