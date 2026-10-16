@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
+from matplotlib.colors import ListedColormap
 from matplotlib.figure import Figure
 from sklearn.metrics import adjusted_rand_score
 
@@ -165,6 +166,54 @@ def composite_color_maps(
         inputs.y, inputs.carve_labels, inputs.comparison_labels
     )
     return true_cmap, carve_cmap, comparison_cmap
+
+
+def carve_cluster_numbers(inputs: CompositeInputs) -> dict[int, int]:
+    """The number CARVE's own figure prints for each id in inputs.carve_labels.
+
+    carve_output_figure draws CARVE's own labels inside carve_labels_aligned
+    and numbers each cluster by its id plus one. When the selected k differs
+    from the number of reported labels, as on Levine, those ids are CARVE's
+    own and not the aligned ids the composite colors by, so the two
+    labelings are matched through the cells they share.
+    """
+    with carve_labels_aligned(inputs.carve, inputs.y):
+        own = np.asarray(
+            inputs.carve.get_labels(
+                measure=inputs.measure, rule=inputs.rule, not_two=inputs.not_two
+            )
+        )
+    pairs = pd.crosstab(pd.Series(np.asarray(inputs.carve_labels)), pd.Series(own))
+    numbers: dict[int, int] = {}
+    for aligned_id, row in pairs.iterrows():
+        shared = row[row > 0]
+        if len(shared) != 1:
+            break
+        numbers[int(aligned_id)] = int(shared.index[0]) + 1
+    else:
+        if len(set(numbers.values())) == len(numbers):
+            return numbers
+    raise ValueError(
+        "inputs.carve_labels and CARVE's own labels are not the same partition, "
+        "so CARVE's rows cannot carry its own figure's cluster numbers."
+    )
+
+
+def carve_output_cmap(inputs: CompositeInputs) -> ListedColormap:
+    """The composite's CARVE colors, in the order CARVE's own panels use them.
+
+    CARVE's plotting methods color a cluster by its position among CARVE's
+    own ids. Entry j is the composite's color for the cluster CARVE numbers
+    j + 1, so a cluster keeps its color across the composite, the
+    composition figure and carve_output_figure. Where CARVE's ids already
+    are the aligned ones, as on Klein, this is the palette's first k colors.
+    """
+    _, carve_cmap, _ = composite_color_maps(inputs)
+    color_of = {
+        number: carve_cmap[aligned_id]
+        for aligned_id, number in carve_cluster_numbers(inputs).items()
+    }
+    return ListedColormap([color_of[number] for number in sorted(color_of)])
 
 
 _ARI_ROW_COLUMNS: tuple[str, ...] = ("method", "metric", "ari", "k")

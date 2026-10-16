@@ -38,7 +38,7 @@ from .._theme import (
     print_theme_context,
     save_figure,
 )
-from ._case_study import CompositeInputs, carve_labels_aligned, composite_color_maps
+from ._case_study import CompositeInputs, carve_cluster_numbers, composite_color_maps
 from ._paths import CASE_STUDY_DIR, figure_path
 
 #: The 14 gated populations by lineage: T, NK, B, myeloid, progenitor.
@@ -128,37 +128,6 @@ def cluster_composition(
     counts.index.name = "cluster"
     counts.columns.name = "population"
     return counts
-
-
-def carve_cluster_numbers(inputs: CompositeInputs) -> dict[int, int]:
-    """The number S8 Fig prints for each id in inputs.carve_labels.
-
-    S8 Fig draws CARVE's own labels inside carve_labels_aligned and numbers
-    each cluster by its id plus one. When the selected k differs from the
-    number of reported populations, as on Levine, those ids are CARVE's own
-    and not the aligned ids this figure colors by, so the two labelings are
-    matched through the cells they share.
-    """
-    with carve_labels_aligned(inputs.carve, inputs.y):
-        own = np.asarray(
-            inputs.carve.get_labels(
-                measure=inputs.measure, rule=inputs.rule, not_two=inputs.not_two
-            )
-        )
-    pairs = pd.crosstab(pd.Series(np.asarray(inputs.carve_labels)), pd.Series(own))
-    numbers: dict[int, int] = {}
-    for aligned_id, row in pairs.iterrows():
-        shared = row[row > 0]
-        if len(shared) != 1:
-            break
-        numbers[int(aligned_id)] = int(shared.index[0]) + 1
-    else:
-        if len(set(numbers.values())) == len(numbers):
-            return numbers
-    raise ValueError(
-        "inputs.carve_labels and CARVE's own labels are not the same partition, "
-        "so CARVE's rows cannot carry S8 Fig's cluster numbers."
-    )
 
 
 def _carve_title(inputs: CompositeInputs) -> str:

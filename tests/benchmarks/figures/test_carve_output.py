@@ -44,6 +44,7 @@ from benchmarks.figures._case_study import (
     CompositeInputs,
     _align_to_reference,
     carve_labels_aligned,
+    composite_color_maps,
     reference_codes,
 )
 from carve import CARVE
@@ -229,7 +230,11 @@ class TestCarveOutputFigures:
     ):
         # Its dashed-line entry names the selection panels C to F show; at
         # this seed the two measures select different k.
-        inputs = dataclasses.replace(inputs, measure=measure)
+        inputs = dataclasses.replace(
+            inputs,
+            measure=measure,
+            carve_labels=np.asarray(inputs.carve.get_labels(measure=measure, rule="1se")),
+        )
         selected_k = int(inputs.carve.get_k(measure=measure, rule="1se"))
         fig = figure_carve_output_klein(inputs, save=False)
         panels = _panel_by_letter(fig)
@@ -436,19 +441,35 @@ class TestCarveOutputFigures:
     def test_panel_e_reports_gini_stability_not_a_different_source(self, inputs):
         """Mirrors the panel D source guard for plot_cluster_scatter.
 
-        ``source`` selects which per-sample score panel E encodes; a
-        ``source="accuracy"`` regression would still draw one scatter with
-        varying point sizes (the previous test's only check), so it needs
-        its own guard. plot_cluster_scatter's auto-generated legend title
-        names the score source directly. Klein's figure drops that legend, so
-        the guard reads Levine's, which shares the panel E call.
+        ``source`` selects which per-sample score panel E encodes as marker
+        size; a ``source="accuracy"`` regression would still draw one scatter
+        with varying sizes (the previous test's only check). E's sizes must
+        match a gini rendering and differ from an accuracy one.
         """
         fig = figure_carve_output_levine(inputs, save=False)
-        ax_e = _panel_by_letter(fig)["E"]
-        legend = ax_e.get_legend()
-        assert legend is not None
-        assert "Gini Stability" in legend.get_title().get_text()
+        drawn = np.sort(_panel_by_letter(fig)["E"].collections[0].get_sizes())
         plt.close(fig)
+
+        def sizes(source):
+            scratch, ax = plt.subplots()
+            with carve_labels_aligned(inputs.carve, inputs.y):
+                inputs.carve.plot_cluster_scatter(
+                    source=source,
+                    measure="stability",
+                    rule="1se",
+                    X=inputs.X,
+                    embedding=inputs.Z,
+                    ax=ax,
+                    size_range=(6.0, 24.0),  # Levine's marker_size of 8
+                    legend=False,
+                    show=False,
+                )
+            drawn_sizes = np.sort(ax.collections[0].get_sizes())
+            plt.close(scratch)
+            return drawn_sizes
+
+        assert not np.allclose(sizes("accuracy"), sizes("gini"))
+        np.testing.assert_allclose(drawn, sizes("gini"))
 
     def test_klein_panels_e_and_f_carry_no_legend(self, inputs):
         fig = figure_carve_output_klein(inputs, save=False)
@@ -477,17 +498,11 @@ class TestCarveOutputFigures:
         assert fig.get_size_inches()[1] == pytest.approx(14.0 / 3 * (2 + ratio))
         plt.close(fig)
 
-    def test_levine_keeps_e_s_cluster_legend_and_drops_f_s(self, inputs):
+    def test_levine_panels_e_and_f_carry_no_legend(self, inputs):
         fig = figure_carve_output_levine(inputs, save=False)
         panels = _panel_by_letter(fig)
-        assert panels["E"].get_legend() is not None
+        assert panels["E"].get_legend() is None
         assert panels["F"].get_legend() is None
-        plt.close(fig)
-
-    def test_levine_cluster_legend_leaves_the_configuration_note_to_d(self, inputs):
-        fig = figure_carve_output_levine(inputs, save=False)
-        legend = _panel_by_letter(fig)["E"].get_legend()
-        assert legend.get_title().get_text() == "Cluster, Gini Stability"
         plt.close(fig)
 
     @pytest.mark.parametrize(
@@ -637,6 +652,36 @@ class TestClusterIdsAgreeWithTheComposite:
         assert carve.reference_labels is before
 
 
+@pytest.fixture
+def coarser_inputs(inputs):
+    """Four reported labels over the fixture's three blobs, as on Levine.
+
+    With fewer clusters than reported labels, CARVE keeps its own ids inside
+    carve_labels_aligned, while the composite's ids follow the reported
+    codes. The labels are named in reverse so the two sets of ids differ.
+    """
+    y = np.array(["d"] * 15 + ["c"] * 15 + ["b"] * 10 + ["a"] * 5)
+    raw = inputs.carve.get_labels(measure="stability", rule="1se")
+    return dataclasses.replace(inputs, y=y, carve_labels=_align_to_reference(raw, y))
+
+
+class TestClusterColorsMatchTheComposite:
+    def test_e_draws_each_cell_in_its_composite_color(self, coarser_inputs):
+        assert set(np.unique(coarser_inputs.carve_labels).tolist()) != {0, 1, 2}
+        _, carve_cmap, _ = composite_color_maps(coarser_inputs)
+        fig = figure_carve_output_levine(coarser_inputs, save=False)
+        points = _panel_by_letter(fig)["E"].collections[0]
+        # E draws the cells sorted by score; find each one by its position.
+        cell_at = {tuple(xy): i for i, xy in enumerate(coarser_inputs.Z.tolist())}
+        cells = [cell_at[tuple(xy)] for xy in points.get_offsets().tolist()]
+        expected = [
+            mcolors.to_rgb(carve_cmap[int(coarser_inputs.carve_labels[i])])
+            for i in cells
+        ]
+        np.testing.assert_allclose(points.get_facecolors()[:, :3], expected)
+        plt.close(fig)
+
+
 # The Levine study sweeps Leiden resolution, so its S Fig draws the generic
 # six panels from a resolution run: three blobs, three resolutions, a
 # Jaccard-weighted graph as in the study.
@@ -719,20 +764,6 @@ class TestCarveOutputOverResolution:
         panels = _panel_by_letter(fig)
         gap = panels["B"].get_position().x0 - panels["A"].get_position().x1
         assert gap < 0.12
-        plt.close(fig)
-
-    def test_e_s_legend_stays_inside_the_left_column(self, leiden_inputs):
-        fig = figure_carve_output_levine(leiden_inputs, save=False)
-        panels = _panel_by_letter(fig)
-        fig.canvas.draw()
-        box = (
-            panels["E"]
-            .get_legend()
-            .get_window_extent()
-            .transformed(fig.transFigure.inverted())
-        )
-        assert box.x0 > panels["E"].get_position().x1
-        assert box.x1 <= panels["A"].get_position().x1
         plt.close(fig)
 
     def test_legend_names_the_resolution_panels_c_to_f_show(self, leiden_inputs):

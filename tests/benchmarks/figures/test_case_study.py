@@ -2,6 +2,7 @@
 
 import inspect
 
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -15,14 +16,21 @@ from benchmarks.figures import (
     figure_levine_results,
     prepare_composite,
 )
+from benchmarks._estimators import param_grids
+from benchmarks._types import EstimatorSpec
 from benchmarks.figures._case_study import (
     CompositeInputs,
+    _align_to_reference,
     _estimator_spec_from_model_label,
+    carve_cluster_numbers,
+    carve_labels_aligned,
+    carve_output_cmap,
     composite_color_maps,
 )
 from sklearn.base import BaseEstimator, ClusterMixin
 from sklearn.metrics import adjusted_rand_score
 
+from carve import CARVE
 from tests.benchmarks._helpers import StubCarve, resolution_results
 
 RESOLUTIONS = [0.01, 0.043, 0.41, 2.3]
@@ -767,3 +775,93 @@ class TestAriTableExtraRows:
 
         with pytest.raises(ValueError, match="ari"):
             ari_table(inputs, extra_rows=[{"method": "M3C", "k": 2}])
+
+
+def _numbering_inputs(*, X, y, carve, carve_labels):
+    """CompositeInputs for the numbering tests, which read no curves."""
+    return CompositeInputs(
+        X=np.asarray(X),
+        y=np.asarray(y),
+        Z=np.zeros((len(y), 2)),
+        carve=carve,
+        carve_labels=np.asarray(carve_labels),
+        comparison_labels=np.asarray(carve_labels),
+        comparison_name="Silhouette",
+        comparison_k=int(len(np.unique(carve_labels))),
+        curves_df=pd.DataFrame(),
+        best_df=pd.DataFrame(),
+    )
+
+
+@pytest.fixture
+def coarser_fit():
+    """A small real fit whose selected k differs from the reported label count.
+
+    Three blobs carry four reported labels, so inside carve_labels_aligned
+    CARVE keeps its own ids, as it does on Levine (8 clusters against 14
+    populations), while the aligned ids follow the reported codes.
+    """
+    rng = np.random.default_rng(0)
+    X = np.vstack([
+        rng.normal(loc=0.0, scale=0.4, size=(40, 3)),
+        rng.normal(loc=6.0, scale=0.4, size=(40, 3)),
+        rng.normal(loc=(0.0, 6.0, 0.0), scale=0.4, size=(40, 3)),
+    ])
+    y = np.array(["d"] * 40 + ["c"] * 40 + ["b"] * 35 + ["a"] * 5)
+    carve = CARVE(
+        estimator_param_grids=param_grids(EstimatorSpec(name="kmeans"), (2, 3)),
+        n_resamples=3,
+        random_state=0,
+    )
+    carve.fit(X, reference_labels=y)
+    aligned = _align_to_reference(carve.get_labels(measure="stability", rule="1se"), y)
+    return _numbering_inputs(X=X, y=y, carve=carve, carve_labels=aligned)
+
+
+def _own_labels(inputs):
+    with carve_labels_aligned(inputs.carve, inputs.y):
+        return np.asarray(inputs.carve.get_labels(measure="stability", rule="1se"))
+
+
+class TestCarveClusterNumbers:
+    def test_each_cluster_gets_the_number_carve_s_figure_prints(self, coarser_fit):
+        own = _own_labels(coarser_fit)
+        aligned = coarser_fit.carve_labels
+        # Only meaningful while the two labelings differ.
+        assert set(np.unique(aligned).tolist()) != set(np.unique(own).tolist())
+        numbers = carve_cluster_numbers(coarser_fit)
+        assert sorted(numbers) == sorted(np.unique(aligned).tolist())
+        for aligned_id, number in numbers.items():
+            assert set((own[aligned == aligned_id] + 1).tolist()) == {number}
+
+    def test_a_different_partition_raises(self):
+        results = pd.DataFrame(
+            {"method_id": ["m0"], "method_label": ["KMeans"], "n_clusters": [2]}
+        )
+        carve = StubCarve(
+            results,
+            select=lambda measure, not_two: ("m0", 2),
+            labels=np.array([0, 1, 1, 1]),
+        )
+        inputs = _numbering_inputs(
+            X=np.zeros((4, 2)),
+            y=np.array(["a", "a", "b", "b"]),
+            carve=carve,
+            carve_labels=np.array([0, 0, 1, 1]),
+        )
+        with pytest.raises(ValueError, match="same partition"):
+            carve_cluster_numbers(inputs)
+
+
+class TestCarveOutputCmap:
+    def test_entry_j_is_the_composite_color_of_carve_s_own_cluster_j(
+        self, coarser_fit
+    ):
+        own = _own_labels(coarser_fit)
+        _, carve_cmap, _ = composite_color_maps(coarser_fit)
+        cmap = carve_output_cmap(coarser_fit)
+        own_ids = np.unique(own)
+        assert cmap.N == own_ids.size
+        for j, own_id in enumerate(own_ids):
+            aligned_id = int(coarser_fit.carve_labels[own == own_id][0])
+            assert mcolors.to_hex(cmap(j)) == mcolors.to_hex(carve_cmap[aligned_id])

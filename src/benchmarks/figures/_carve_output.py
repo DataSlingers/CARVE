@@ -42,7 +42,12 @@ from .._theme import (
     save_figure,
     theme_context,
 )
-from ._case_study import CompositeInputs, _swept_resolutions, carve_labels_aligned
+from ._case_study import (
+    CompositeInputs,
+    _swept_resolutions,
+    carve_labels_aligned,
+    carve_output_cmap,
+)
 from ._heca_carve import AXIS_LABELS, MARKER_LINEWIDTH, MARKER_SIZE, resolution_axis
 from ._paths import CASE_STUDY_DIR, figure_path
 
@@ -75,28 +80,12 @@ def _six_panel_grid(scatter_row_height: float) -> tuple[Figure, tuple[Axes, ...]
     return fig, axes
 
 
-def _fit_legend_in_column(ax: Axes) -> None:
-    """Narrow ``ax`` so its right-margin legend ends inside the axes' column.
-
-    Called after tight_layout, with the legend left out of it. Left in,
-    tight_layout widens the column's margin for the legend, which narrows
-    every panel in that column and leaves a blank band between the columns.
-    """
-    fig = ax.figure
-    pos = ax.get_position()
-    box = ax.get_legend().get_window_extent().transformed(fig.transFigure.inverted())
-    # The legend is anchored just right of the axes, so it moves left with
-    # the narrowed right edge and ends slightly inside the column.
-    ax.set_position((pos.x0, pos.y0, pos.width - (box.x1 - pos.x1), pos.height))
-
-
 def carve_output_figure(
     inputs: CompositeInputs,
     *,
     marker_size: float,
     axis_labels: Sequence[str],
     save_name: str,
-    cluster_legend: bool = False,
     marker_linewidth: float = 0.2,
     scatter_row_height: float = 1.0,
     save: bool = True,
@@ -111,9 +100,8 @@ def carve_output_figure(
     itself. ``marker_linewidth`` is panel F's outline width, under the same
     name.
 
-    ``cluster_legend=True`` gives panel E its cluster legend, each cluster's
-    mean score included, without the configuration note D already shows.
-    Panel F never carries its marker legend; its colorbar stays.
+    Panels E and F carry no legend: D numbers the clusters in E's colors,
+    and F keeps its colorbar.
 
     ``scatter_row_height`` is the height of the E-F row relative to each of
     the other two rows. The figure grows with it, so panels A to D keep
@@ -126,10 +114,10 @@ def carve_output_figure(
     selected_k = int(carve.get_k(measure=measure, rule=rule, not_two=not_two))
     # Exactly selected_k colors, so CARVE's direct-index panels (D, E) and
     # its imshow-normalized one (C's cluster band) resolve the same cluster
-    # to the same color, and all three agree with the composite figure.
-    # Panels A and B color one line per estimator, not per cluster, so they
-    # take the estimator map instead.
-    cluster_panel_cmap = cluster_cmap(selected_k)
+    # to the same color, the one the composite and the composition figure
+    # give it. Panels A and B color one line per estimator, not per cluster,
+    # so they take the estimator map instead.
+    cluster_panel_cmap = carve_output_cmap(inputs)
     scatter_size_range = (marker_size * 0.75, marker_size * 3.0)
     # A resolution run's curves go on the log axis hECA's figure uses, with
     # one tick per fitted resolution.
@@ -190,8 +178,7 @@ def carve_output_figure(
             ax=ax_e,
             palette=cluster_panel_cmap,
             size_range=scatter_size_range,
-            legend=cluster_legend,
-            annotation=False,
+            legend=False,
             title="Consensus labels",
             xlabel=axis_labels[0],
             ylabel=axis_labels[1],
@@ -225,11 +212,7 @@ def carve_output_figure(
             if short != text.get_text():
                 text.set_text(short.replace(" (resolution =", "\n(resolution ="))
 
-        if cluster_legend:
-            ax_e.get_legend().set_in_layout(False)
         fig.tight_layout()
-        if cluster_legend:
-            _fit_legend_in_column(ax_e)
 
         if save:
             save_figure(
@@ -264,17 +247,15 @@ def figure_carve_output_levine(
 ) -> Figure:
     """Build S4 Fig: CARVE output on the Levine mass cytometry case study.
 
-    Panel E carries its cluster legend. Panel F's outlines are a quarter of
-    CARVE's default width: over 5,000 cells the default black outlines
-    covered the color of the unstable cells. The E-F row is 1.3 times the
-    height of the others.
+    Panel F's outlines are a quarter of CARVE's default width: over 5,000
+    cells the default black outlines covered the color of the unstable
+    cells. The E-F row is 1.3 times the height of the others.
     """
     return carve_output_figure(
         inputs,
         marker_size=8.0,
         axis_labels=("t-SNE 1", "t-SNE 2"),
         save_name="CARVE_output_levine.png",
-        cluster_legend=True,
         marker_linewidth=0.05,
         scatter_row_height=1.3,
         save=save,

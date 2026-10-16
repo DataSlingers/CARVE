@@ -8,21 +8,17 @@ import pytest
 from matplotlib.colors import to_rgba
 from matplotlib.text import Text
 
-from benchmarks._estimators import param_grids
 from benchmarks._theme import PRINT_MAX_HEIGHT_IN, PRINT_WIDTH_IN
-from benchmarks._types import EstimatorSpec
 from benchmarks.datasets._levine import _POPULATION_NAMES
 from benchmarks.figures._case_study import (
     CompositeInputs,
     _align_to_reference,
-    carve_labels_aligned,
     composite_color_maps,
 )
 from benchmarks.figures._levine_composition import (
     POPULATION_ORDER,
     _carve_title,
     _comparison_title,
-    carve_cluster_numbers,
     cluster_composition,
     composition_tables,
     figure_levine_composition,
@@ -30,7 +26,6 @@ from benchmarks.figures._levine_composition import (
     marker_order,
     marker_table,
 )
-from carve import CARVE
 from tests.benchmarks._helpers import StubCarve, resolution_results
 
 # The 5,000-cell subsample's population sizes, in POPULATION_ORDER (the
@@ -128,31 +123,6 @@ def levine_like():
     return _levine_like_inputs()
 
 
-@pytest.fixture
-def fitted():
-    """A small real fit whose selected k differs from the reported label count.
-
-    Three blobs carry four reported labels, so inside carve_labels_aligned
-    CARVE keeps its own ids, as it does on Levine (k=10 against 14
-    populations), while the aligned ids follow the reported codes.
-    """
-    rng = np.random.default_rng(0)
-    X = np.vstack([
-        rng.normal(loc=0.0, scale=0.4, size=(40, 3)),
-        rng.normal(loc=6.0, scale=0.4, size=(40, 3)),
-        rng.normal(loc=(0.0, 6.0, 0.0), scale=0.4, size=(40, 3)),
-    ])
-    y = np.array(["d"] * 40 + ["c"] * 40 + ["b"] * 35 + ["a"] * 5)
-    carve = CARVE(
-        estimator_param_grids=param_grids(EstimatorSpec(name="kmeans"), (2, 3)),
-        n_resamples=3,
-        random_state=0,
-    )
-    carve.fit(X, reference_labels=y)
-    aligned = _align_to_reference(carve.get_labels(measure="stability", rule="1se"), y)
-    return _inputs(X=X, y=y, carve=carve, carve_labels=aligned, comparison_labels=aligned)
-
-
 class TestPopulationOrder:
     def test_lists_every_gated_population_the_loader_names_once(self):
         assert len(POPULATION_ORDER) == 14
@@ -197,32 +167,6 @@ class TestClusterComposition:
             cluster_composition(
                 [0, 1], ["CD4_T_cells", "unassigned"], order=POPULATION_ORDER
             )
-
-
-class TestCarveClusterNumbers:
-    def test_each_cluster_gets_the_number_s8_fig_prints(self, fitted):
-        with carve_labels_aligned(fitted.carve, fitted.y):
-            own = np.asarray(fitted.carve.get_labels(measure="stability", rule="1se"))
-        aligned = fitted.carve_labels
-        # Only meaningful while the two labelings differ.
-        assert set(np.unique(aligned).tolist()) != set(np.unique(own).tolist())
-        numbers = carve_cluster_numbers(fitted)
-        assert sorted(numbers) == sorted(np.unique(aligned).tolist())
-        for aligned_id, number in numbers.items():
-            assert set((own[aligned == aligned_id] + 1).tolist()) == {number}
-
-    def test_a_different_partition_raises(self):
-        y = np.array(["a", "a", "b", "b"])
-        aligned = np.array([0, 0, 1, 1])
-        inputs = _inputs(
-            X=np.zeros((4, 2)),
-            y=y,
-            carve=_stub(np.array([0, 1, 1, 1])),
-            carve_labels=aligned,
-            comparison_labels=aligned,
-        )
-        with pytest.raises(ValueError, match="same partition"):
-            carve_cluster_numbers(inputs)
 
 
 class TestCompositionTables:
