@@ -75,13 +75,29 @@ def _six_panel_grid(scatter_row_height: float) -> tuple[Figure, tuple[Axes, ...]
     return fig, axes
 
 
+def _fit_legend_in_column(ax: Axes) -> None:
+    """Narrow ``ax`` so its right-margin legend ends inside the axes' column.
+
+    Called after tight_layout, with the legend left out of it. Left in,
+    tight_layout widens the column's margin for the legend, which narrows
+    every panel in that column and leaves a blank band between the columns.
+    """
+    fig = ax.figure
+    pos = ax.get_position()
+    box = ax.get_legend().get_window_extent().transformed(fig.transFigure.inverted())
+    # The legend is anchored just right of the axes, so it moves left with
+    # the narrowed right edge and ends slightly inside the column.
+    ax.set_position((pos.x0, pos.y0, pos.width - (box.x1 - pos.x1), pos.height))
+
+
 def carve_output_figure(
     inputs: CompositeInputs,
     *,
     marker_size: float,
     axis_labels: Sequence[str],
     save_name: str,
-    scatter_legends: bool = True,
+    cluster_legend: bool = False,
+    marker_linewidth: float = 0.2,
     scatter_row_height: float = 1.0,
     save: bool = True,
     out_dir: Path | None = None,
@@ -92,11 +108,12 @@ def carve_output_figure(
     parameter's name on ``plot_diagnostic_scatter`` matches this one
     exactly) and panel E's ``size_range`` proportionally, so the two
     datasets' scatters differ only in dot size, not in the score encoding
-    itself.
+    itself. ``marker_linewidth`` is panel F's outline width, under the same
+    name.
 
-    ``scatter_legends=False`` drops the cluster legends of panels E and F,
-    together with the configuration note CARVE writes into them; panel F's
-    colorbar stays.
+    ``cluster_legend=True`` gives panel E its cluster legend, each cluster's
+    mean score included, without the configuration note D already shows.
+    Panel F never carries its marker legend; its colorbar stays.
 
     ``scatter_row_height`` is the height of the E-F row relative to each of
     the other two rows. The figure grows with it, so panels A to D keep
@@ -173,7 +190,8 @@ def carve_output_figure(
             ax=ax_e,
             palette=cluster_panel_cmap,
             size_range=scatter_size_range,
-            legend=scatter_legends,
+            legend=cluster_legend,
+            annotation=False,
             title="Consensus labels",
             xlabel=axis_labels[0],
             ylabel=axis_labels[1],
@@ -188,7 +206,8 @@ def carve_output_figure(
             embedding=inputs.Z,
             ax=ax_f,
             marker_size=marker_size,
-            legend=scatter_legends,
+            marker_linewidth=marker_linewidth,
+            legend=False,
             title="Consensus assignment (diagnostic)",
             xlabel=axis_labels[0],
             ylabel=axis_labels[1],
@@ -198,16 +217,19 @@ def carve_output_figure(
         for letter, ax in zip("ABCDEF", (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f)):
             panel_letter(ax, letter)
 
-        # CARVE writes a graph clusterer's full configuration into B's
-        # legend and the notes of D, E and F, where it runs past the figure.
-        # The notes also break before their resolution: tight_layout sizes
-        # each column for E's and F's notes, and one long line narrows A and B.
+        # CARVE writes a graph clusterer's full configuration into the curve
+        # legend and D's note, where it runs past the figure. The note also
+        # breaks before its resolution, which keeps its box narrow inside D.
         for text in fig.findobj(mtext.Text):
             short = compact_setting(text.get_text())
             if short != text.get_text():
                 text.set_text(short.replace(" (resolution =", "\n(resolution ="))
 
+        if cluster_legend:
+            ax_e.get_legend().set_in_layout(False)
         fig.tight_layout()
+        if cluster_legend:
+            _fit_legend_in_column(ax_e)
 
         if save:
             save_figure(
@@ -231,7 +253,6 @@ def figure_carve_output_klein(
         marker_size=20.0,
         axis_labels=("PC1", "PC2"),
         save_name="CARVE_output_klein.png",
-        scatter_legends=False,
         scatter_row_height=1.2,
         save=save,
         out_dir=out_dir,
@@ -243,16 +264,19 @@ def figure_carve_output_levine(
 ) -> Figure:
     """Build S4 Fig: CARVE output on the Levine mass cytometry case study.
 
-    Panels E and F carry no legend: D numbers the clusters in E's colors,
-    and E's legend widened the left column enough to leave a blank band
-    between the two columns.
+    Panel E carries its cluster legend. Panel F's outlines are a quarter of
+    CARVE's default width: over 5,000 cells the default black outlines
+    covered the color of the unstable cells. The E-F row is 1.3 times the
+    height of the others.
     """
     return carve_output_figure(
         inputs,
         marker_size=8.0,
         axis_labels=("t-SNE 1", "t-SNE 2"),
         save_name="CARVE_output_levine.png",
-        scatter_legends=False,
+        cluster_legend=True,
+        marker_linewidth=0.05,
+        scatter_row_height=1.3,
         save=save,
         out_dir=out_dir,
     )
