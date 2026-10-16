@@ -20,6 +20,8 @@ from benchmarks.figures._case_study import (
 )
 from benchmarks.figures._levine_composition import (
     POPULATION_ORDER,
+    _carve_title,
+    _comparison_title,
     carve_cluster_numbers,
     cluster_composition,
     composition_tables,
@@ -29,7 +31,7 @@ from benchmarks.figures._levine_composition import (
     marker_table,
 )
 from carve import CARVE
-from tests.benchmarks._helpers import StubCarve
+from tests.benchmarks._helpers import StubCarve, resolution_results
 
 # The 5,000-cell subsample's population sizes, in POPULATION_ORDER (the
 # notebook's population table).
@@ -543,6 +545,41 @@ class TestPanelA:
         assert (
             _axes(drawn, "composition:comparison").get_title(loc="left")
             == "Silhouette: KMeans (n_init=100), k=7"
+        )
+
+
+class TestTitlesOverResolution:
+    """A resolution run's partition is named by its resolution; k alone could
+    belong to several resolutions."""
+
+    def _inputs(self):
+        carve = StubCarve(
+            resolution_results([0.23, 0.41], "LeidenClustering, n_neighbors=30"),
+            select=lambda measure, not_two: ("m0", 0.41),
+            sweep_param="resolution",
+        )
+        best = pd.DataFrame(
+            {"metric": ["silhouette"], "model": ["LeidenClustering (n_neighbors=30)"],
+             "resolution": [0.043], "k": [6]}
+        )
+        return CompositeInputs(
+            X=np.zeros((4, 2)), y=np.array(["a", "b", "a", "b"]), Z=np.zeros((4, 2)),
+            carve=carve, carve_labels=np.array([0, 1, 0, 1]),
+            comparison_labels=np.array([0, 1, 0, 1]), comparison_name="Silhouette",
+            comparison_k=6, curves_df=best, best_df=best, comparison_resolution=0.043,
+        )
+
+    def test_carve_title_names_the_selected_resolution(self):
+        assert (
+            _carve_title(self._inputs())
+            == "CARVE (stability, 1-SE): LeidenClustering, n_neighbors=30, "
+            "resolution 0.41, k=8"
+        )
+
+    def test_comparison_title_names_the_cvi_s_resolution(self):
+        assert (
+            _comparison_title(self._inputs())
+            == "Silhouette: LeidenClustering (n_neighbors=30), resolution 0.043, k=6"
         )
 
 

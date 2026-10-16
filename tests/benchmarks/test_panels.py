@@ -738,6 +738,28 @@ class TestCviLines:
         for line in data_lines:
             assert len(line.get_xdata()) == 3
 
+    def test_plots_over_resolution_when_the_curves_carry_it(self, ax):
+        # A resolution sweep's k is an outcome, and two resolutions can give
+        # the same k, so the curve and its selection are placed by resolution.
+        curves = pd.DataFrame(
+            {
+                "metric": ["silhouette"] * 3,
+                "model": ["Leiden"] * 3,
+                "resolution": [0.5, 0.1, 0.2],
+                "k": [6, 4, 4],
+                "score": [0.2, 0.4, 0.35],
+            }
+        )
+        best = pd.DataFrame(
+            {"metric": ["silhouette"], "model": ["Leiden"], "resolution": [0.1], "k": [4]}
+        )
+        cvi_lines(ax, curves, best)
+        (line,) = [ln for ln in ax.lines if ln.get_marker() == "o"]
+        np.testing.assert_allclose(line.get_xdata(), [0.1, 0.2, 0.5])
+        (rule,) = [ln for ln in ax.lines if ln.get_linestyle() == "--"]
+        assert float(rule.get_xdata()[0]) == 0.1
+        assert "resolution" in ax.get_xlabel().lower()
+
     def test_line_x_values_are_monotonic(self, ax):
         # Grouping by metric alone and sorting by k (the interleaving bug)
         # produces k = 3, 3, 4, 4, 5, 5 -- ties, not a strictly increasing

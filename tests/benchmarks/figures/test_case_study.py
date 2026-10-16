@@ -20,7 +20,61 @@ from benchmarks.figures._case_study import (
     _estimator_spec_from_model_label,
     composite_color_maps,
 )
-from tests.benchmarks._helpers import StubCarve
+from sklearn.base import BaseEstimator, ClusterMixin
+from sklearn.metrics import adjusted_rand_score
+
+from tests.benchmarks._helpers import StubCarve, resolution_results
+
+RESOLUTIONS = [0.01, 0.043, 0.41, 2.3]
+
+
+@pytest.fixture
+def resolution_inputs():
+    """Composite inputs for a resolution run, the shape the Levine study has."""
+    rng = np.random.default_rng(1)
+    n = 120
+    curves = pd.DataFrame(
+        {
+            "metric": ["silhouette"] * 4,
+            "model": ["LeidenClustering (n_neighbors=30)"] * 4,
+            "resolution": RESOLUTIONS,
+            "k": [4, 6, 8, 20],
+            "score": [0.30, 0.37, 0.28, 0.13],
+            "ari": [0.60, 0.70, 0.97, 0.55],
+        }
+    )
+    return CompositeInputs(
+        X=rng.normal(size=(n, 5)),
+        y=rng.choice(["a", "b", "c"], size=n),
+        Z=rng.normal(size=(n, 2)),
+        carve=StubCarve(
+            resolution_results(RESOLUTIONS, "LeidenClustering"),
+            select=lambda measure, not_two: ("m0", 0.41),
+            sweep_param="resolution",
+        ),
+        carve_labels=rng.integers(0, 8, size=n),
+        comparison_labels=rng.integers(0, 6, size=n),
+        comparison_name="Silhouette",
+        comparison_k=6,
+        curves_df=curves,
+        best_df=curves.iloc[[1]].reset_index(drop=True),
+        comparison_resolution=0.043,
+    )
+
+
+class _Groups(ClusterMixin, BaseEstimator):
+    """Below resolution 0.1 two groups; from 0.1 n_groups, shuffled by random_state."""
+
+    def __init__(self, resolution=1.0, n_groups=3, random_state=None):
+        self.resolution = resolution
+        self.n_groups = n_groups
+        self.random_state = random_state
+
+    def fit_predict(self, X, y=None):
+        n = len(X)
+        if self.resolution < 0.1:
+            return np.arange(n) % 2
+        return np.random.default_rng(self.random_state).permutation(np.arange(n) % self.n_groups)
 
 
 def _two_method_results(ks):
@@ -247,6 +301,31 @@ class TestLevineFigure:
         assert _row(panels["A"]) < _row(panels["D"])
         plt.close(fig)
 
+    def test_a_resolution_run_titles_its_curves_over_resolution(self, resolution_inputs):
+        fig = figure_levine_results(resolution_inputs, save=False)
+        panels = _lettered(fig)
+        assert panels["D"].get_title() == "CARVE ARI over resolution"
+        assert panels["E"].get_title() == "CVIs over resolution"
+        plt.close(fig)
+
+    def test_a_resolution_run_draws_both_curve_panels_on_a_log_axis(
+        self, resolution_inputs
+    ):
+        # The grid is log-spaced from 0.01 to 2.3; on a linear axis its low
+        # end, where the CVIs select, would crowd into the first tick.
+        fig = figure_levine_results(resolution_inputs, save=False)
+        panels = _lettered(fig)
+        assert panels["D"].get_xscale() == "log"
+        assert panels["E"].get_xscale() == "log"
+        plt.close(fig)
+
+    def test_panel_c_names_the_comparison_resolution_and_its_k(self, resolution_inputs):
+        fig = figure_levine_results(resolution_inputs, save=False)
+        title = _lettered(fig)["C"].get_title()
+        assert "0.043" in title
+        assert "k=6" in title
+        plt.close(fig)
+
     def test_uses_the_smaller_marker_size(self, inputs):
         klein = figure_klein_results(inputs, save=False)
         levine = figure_levine_results(inputs, save=False)
@@ -311,6 +390,65 @@ class TestEstimatorSpecFromModelLabel:
     def test_raises_on_an_unknown_label(self):
         with pytest.raises(ValueError, match="Cannot map model label"):
             _estimator_spec_from_model_label("SomeOtherEstimator")
+
+
+class TestPrepareCompositeOverResolution:
+    """The CVI winner of a resolution sweep is refit from the grid it came from:
+    a Leiden on a non-default graph has no registered spec to rebuild it from."""
+
+    GRIDS = [(_Groups, {"resolution": [0.05, 0.2], "n_groups": [4]})]
+
+    def _best(self, model="_Groups (n_groups=4)"):
+        return pd.DataFrame(
+            {
+                "metric": ["silhouette"],
+                "model": [model],
+                "resolution": [0.2],
+                "k": [4],
+                "score": [0.5],
+                "ari": [0.5],
+            }
+        )
+
+    def _carve(self, n):
+        return StubCarve(
+            resolution_results([0.05, 0.2], "_Groups"),
+            select=lambda measure, not_two: ("m0", 0.2),
+            labels=np.arange(n) % 2,
+            sweep_param="resolution",
+        )
+
+    def test_refits_the_winner_at_its_resolution_with_the_grid_s_parameters(self):
+        n = 40
+        X = np.random.default_rng(0).normal(size=(n, 3))
+        y = np.repeat(["a", "b"], n // 2)
+        result = prepare_composite(
+            X, y, self._carve(n), curves_df=self._best(), best_df=self._best(),
+            model_grids=self.GRIDS, embedding=X[:, :2], random_state=5,
+        )
+        expected = np.random.default_rng(5).permutation(np.arange(n) % 4)
+        assert adjusted_rand_score(expected, result.comparison_labels) == 1.0
+        assert result.comparison_k == 4
+        assert result.comparison_resolution == 0.2
+
+    def test_a_resolution_winner_needs_the_swept_grids(self):
+        n = 40
+        X = np.zeros((n, 3))
+        with pytest.raises(ValueError, match="model_grids"):
+            prepare_composite(
+                X, np.repeat(["a", "b"], n // 2), self._carve(n),
+                curves_df=self._best(), best_df=self._best(), embedding=X[:, :2],
+            )
+
+    def test_refuses_a_winner_that_no_swept_grid_renders(self):
+        n = 40
+        X = np.zeros((n, 3))
+        with pytest.raises(ValueError, match="_Groups \\(n_groups=7\\)"):
+            prepare_composite(
+                X, np.repeat(["a", "b"], n // 2), self._carve(n),
+                curves_df=self._best(), best_df=self._best("_Groups (n_groups=7)"),
+                model_grids=self.GRIDS, embedding=X[:, :2],
+            )
 
 
 class TestPrepareComposite:

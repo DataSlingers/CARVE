@@ -606,6 +606,70 @@ class TestClusterIdsAgreeWithTheComposite:
         assert carve.reference_labels is before
 
 
+# The Levine study sweeps Leiden resolution, so its S Fig draws the generic
+# six panels from a resolution run: three blobs, three resolutions, a
+# Jaccard-weighted graph as in the study.
+LEVINE_RESOLUTIONS = (0.05, 0.2, 1.0)
+
+
+@pytest.fixture(scope="module")
+def leiden_inputs():
+    rng = np.random.default_rng(0)
+    centers = np.array([[0.0, 0.0], [6.0, 0.0], [3.0, 5.0]])
+    y = rng.integers(0, 3, 240)
+    X = centers[y] + rng.normal(0, 0.6, (240, 2))
+    spec = EstimatorSpec(
+        name="leiden", params=(("n_neighbors", 10), ("weighting", "jaccard"))
+    )
+    carve = CARVE(
+        estimator_param_grids=resolution_grids(spec, LEVINE_RESOLUTIONS),
+        n_resamples=3,
+        random_state=0,
+    ).fit(X)
+    curves = pd.DataFrame(
+        {"metric": ["silhouette"], "model": ["Leiden"], "resolution": [0.05],
+         "k": [3], "score": [0.6], "ari": [0.9]}
+    )
+    return CompositeInputs(
+        X=X,
+        y=np.array(["a", "b", "c"])[y],
+        Z=X,
+        carve=carve,
+        carve_labels=np.asarray(carve.get_labels(measure="stability", rule="1se")),
+        comparison_labels=y,
+        comparison_name="Silhouette",
+        comparison_k=3,
+        curves_df=curves,
+        best_df=curves,
+        comparison_resolution=0.05,
+    )
+
+
+class TestCarveOutputOverResolution:
+    def test_titles_its_curves_over_resolution(self, leiden_inputs):
+        fig = figure_carve_output_levine(leiden_inputs, save=False)
+        panels = _panel_by_letter(fig)
+        assert panels["A"].get_title() == "Stability ARI over resolution"
+        assert panels["B"].get_title() == "Generalizability ARI over resolution"
+        plt.close(fig)
+
+    def test_draws_its_curves_on_a_log_axis_with_one_tick_per_resolution(
+        self, leiden_inputs
+    ):
+        fig = figure_carve_output_levine(leiden_inputs, save=False)
+        panels = _panel_by_letter(fig)
+        for letter in ("A", "B"):
+            assert panels[letter].get_xscale() == "log"
+            np.testing.assert_allclose(panels[letter].get_xticks(), LEVINE_RESOLUTIONS)
+        plt.close(fig)
+
+    def test_consensus_panel_names_the_selected_partition_s_k(self, leiden_inputs):
+        fig = figure_carve_output_levine(leiden_inputs, save=False)
+        k = len(np.unique(leiden_inputs.carve_labels))
+        assert f"$k={k}$" in _panel_by_letter(fig)["C"].get_title()
+        plt.close(fig)
+
+
 # hECA's overview draws a pinned resolution rather than the rule's pick, on
 # an anchored fit, with the two scatters on a subsample. The fixture is
 # shaped the same way at toy size: two Leiden settings over three

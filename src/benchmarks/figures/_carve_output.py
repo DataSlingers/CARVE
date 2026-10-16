@@ -2,7 +2,8 @@
 
 Six panels in three rows of two, and every one of them is a plot CARVE
 already ships as a method on the fitted object: (A) stability ARI over k,
-(B) generalizability ARI over k, (C) the consensus matrix for the selected
+(B) generalizability ARI over k (over resolution, on a log axis, for a
+resolution run), (C) the consensus matrix for the selected
 configuration, (D) per-cluster stability as a violin plot, (E) the embedding
 colored by consensus labels with dubious samples emphasized, and (F) the same
 embedding with marker shape per cluster and score-encoded color. This module
@@ -41,7 +42,7 @@ from .._theme import (
     save_figure,
     theme_context,
 )
-from ._case_study import CompositeInputs, carve_labels_aligned
+from ._case_study import CompositeInputs, _swept_resolutions, carve_labels_aligned
 from ._heca_carve import AXIS_LABELS, MARKER_LINEWIDTH, MARKER_SIZE, resolution_axis
 from ._paths import CASE_STUDY_DIR, figure_path
 
@@ -113,6 +114,10 @@ def carve_output_figure(
     # take the estimator map instead.
     cluster_panel_cmap = cluster_cmap(selected_k)
     scatter_size_range = (marker_size * 0.75, marker_size * 3.0)
+    # A resolution run's curves go on the log axis hECA's figure uses, with
+    # one tick per fitted resolution.
+    resolutions = _swept_resolutions(carve)
+    over = "$k$" if resolutions is None else "resolution"
 
     with theme_context(), carve_labels_aligned(carve, inputs.y):
         fig, (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f) = _six_panel_grid(scatter_row_height)
@@ -125,7 +130,7 @@ def carve_output_figure(
             not_two=not_two,
             ax=ax_a,
             palette=ESTIMATOR_CMAP_NAME,
-            title="Stability ARI over $k$",
+            title=f"Stability ARI over {over}",
             legend=False,
             show=False,
         )
@@ -135,10 +140,14 @@ def carve_output_figure(
             not_two=not_two,
             ax=ax_b,
             palette=ESTIMATOR_CMAP_NAME,
-            title="Generalizability ARI over $k$",
+            title=f"Generalizability ARI over {over}",
             legend_loc="lower left",
             show=False,
         )
+        if resolutions is not None:
+            for ax in (ax_a, ax_b):
+                ax.set_xlabel("Resolution")
+                resolution_axis(ax, resolutions)
         carve.plot_consensus_matrix(
             measure=measure,
             rule=rule,

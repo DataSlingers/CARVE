@@ -166,7 +166,15 @@ def _carve_title(inputs: CompositeInputs) -> str:
         measure=inputs.measure, rule=inputs.rule, not_two=inputs.not_two
     )
     rule = RULE_NAMES.get(inputs.rule, inputs.rule)
-    return f"CARVE ({inputs.measure}, {rule}): {row['method_label']}, k={k}"
+    # A resolution run's k is an outcome several resolutions can share, so
+    # the resolution names the partition.
+    sweep = getattr(inputs.carve, "sweep_", None)
+    at = (
+        f"resolution {float(row['sweep_value']):g}, "
+        if sweep is not None and sweep.param == "resolution"
+        else ""
+    )
+    return f"CARVE ({inputs.measure}, {rule}): {row['method_label']}, {at}k={k}"
 
 
 def _comparison_title(inputs: CompositeInputs) -> str:
@@ -174,7 +182,12 @@ def _comparison_title(inputs: CompositeInputs) -> str:
     best = inputs.best_df
     metric = inputs.comparison_name.lower()
     model = best.loc[best["metric"] == metric, "model"].iloc[0]
-    return f"{inputs.comparison_name}: {model}, k={inputs.comparison_k}"
+    at = (
+        ""
+        if inputs.comparison_resolution is None
+        else f"resolution {inputs.comparison_resolution:g}, "
+    )
+    return f"{inputs.comparison_name}: {model}, {at}k={inputs.comparison_k}"
 
 
 def _partitions(inputs: CompositeInputs) -> tuple[_Partition, _Partition]:

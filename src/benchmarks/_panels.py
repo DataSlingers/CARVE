@@ -921,13 +921,18 @@ def cvi_lines(
 
     Indices live on incompatible scales, so they are min-max normalized to a
     common axis by default; the selected k is unaffected by that rescaling.
+
+    Curves from cvi_resolution_sweep carry a resolution column. Their k is an
+    outcome that two resolutions can share, so the lines and the selection
+    are placed by resolution instead.
     """
+    x_col = "resolution" if "resolution" in curves_df.columns else "k"
     for _, best in best_df.iterrows():
         metric = best["metric"]
         model = best["model"]
         sub = curves_df.loc[
             (curves_df["metric"] == metric) & (curves_df["model"] == model)
-        ].sort_values("k")
+        ].sort_values(x_col)
         if sub.empty:
             continue
 
@@ -938,7 +943,7 @@ def cvi_lines(
 
         color = metric_color(str(metric))
         ax.plot(
-            sub["k"].to_numpy(),
+            sub[x_col].to_numpy(),
             values,
             marker="o",
             markersize=4.5,
@@ -952,10 +957,13 @@ def cvi_lines(
         # replaces sat on the curve, so it read as a data point rather than
         # as a selection and was lost wherever two indices crossed.
         ax.axvline(
-            int(best["k"]), color=color, linestyle="--", linewidth=1.0, alpha=0.6
+            float(best[x_col]), color=color, linestyle="--", linewidth=1.0, alpha=0.6
         )
 
-    ax.set_xlabel("Number of clusters $k$", fontsize=FONT_SIZES["axis_label"])
+    ax.set_xlabel(
+        _sweep_axis_label("resolution" if x_col == "resolution" else "n_clusters"),
+        fontsize=FONT_SIZES["axis_label"],
+    )
     ax.set_ylabel(
         "Score (normalized)" if normalize else "Score",
         fontsize=FONT_SIZES["axis_label"],
