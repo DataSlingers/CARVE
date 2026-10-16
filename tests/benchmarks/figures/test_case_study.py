@@ -28,27 +28,36 @@ from tests.benchmarks._helpers import StubCarve, resolution_results
 RESOLUTIONS = [0.01, 0.043, 0.41, 2.3]
 
 
+LEIDEN_LABEL = "LeidenClustering, n_neighbors=30, objective_function=modularity, weighting=jaccard"
+LEIDEN_MODEL = (
+    "LeidenClustering (n_neighbors=30, objective_function=modularity, weighting=jaccard)"
+)
+
+
 @pytest.fixture
 def resolution_inputs():
-    """Composite inputs for a resolution run, the shape the Levine study has."""
+    """Composite inputs for a resolution run, the shape the Levine study has:
+    one Leiden setting, labeled as CARVE and the CVI sweep label it."""
     rng = np.random.default_rng(1)
     n = 120
+    metrics = ["silhouette", "davies_bouldin", "calinski_harabasz"]
     curves = pd.DataFrame(
         {
-            "metric": ["silhouette"] * 4,
-            "model": ["LeidenClustering (n_neighbors=30)"] * 4,
-            "resolution": RESOLUTIONS,
-            "k": [4, 6, 8, 20],
-            "score": [0.30, 0.37, 0.28, 0.13],
-            "ari": [0.60, 0.70, 0.97, 0.55],
+            "metric": np.repeat(metrics, 4),
+            "model": [LEIDEN_MODEL] * 12,
+            "resolution": RESOLUTIONS * 3,
+            "k": [4, 6, 8, 20] * 3,
+            "score": [0.30, 0.37, 0.28, 0.13, 0.40, 0.45, 0.20, 0.10, 9.0, 7.0, 5.0, 3.0],
+            "ari": [0.60, 0.70, 0.97, 0.55] * 3,
         }
     )
+    best = curves.iloc[[1, 5, 8]].reset_index(drop=True)
     return CompositeInputs(
         X=rng.normal(size=(n, 5)),
         y=rng.choice(["a", "b", "c"], size=n),
         Z=rng.normal(size=(n, 2)),
         carve=StubCarve(
-            resolution_results(RESOLUTIONS, "LeidenClustering"),
+            resolution_results(RESOLUTIONS, LEIDEN_LABEL),
             select=lambda measure, not_two: ("m0", 0.41),
             sweep_param="resolution",
         ),
@@ -57,7 +66,7 @@ def resolution_inputs():
         comparison_name="Silhouette",
         comparison_k=6,
         curves_df=curves,
-        best_df=curves.iloc[[1]].reset_index(drop=True),
+        best_df=best,
         comparison_resolution=0.043,
     )
 
@@ -324,6 +333,35 @@ class TestLevineFigure:
         title = _lettered(fig)["C"].get_title()
         assert "0.043" in title
         assert "k=6" in title
+        plt.close(fig)
+
+    def test_legends_name_the_leiden_setting_briefly(self, resolution_inputs):
+        # CARVE's full configuration string ran both legends into each other.
+        fig = figure_levine_results(resolution_inputs, save=False)
+        texts = [
+            text.get_text()
+            for ax in fig.get_axes()
+            if ax.get_legend() is not None
+            for text in ax.get_legend().get_texts()
+        ]
+        assert "Silhouette — Leiden, 30 neighbors, Jaccard" in texts
+        assert not any("objective_function" in text for text in texts)
+        plt.close(fig)
+
+    def test_cvi_legend_stays_clear_of_the_resolution_axis_label(
+        self, resolution_inputs
+    ):
+        # The resolution ticks stand upright and take most of the legend
+        # strip, so a centered three-entry legend reached up into "Resolution".
+        fig = figure_levine_results(resolution_inputs, save=False)
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        panels = _lettered(fig)
+        legends = [ax.get_legend() for ax in fig.get_axes() if ax.get_legend()]
+        for letter in ("D", "E"):
+            label = panels[letter].xaxis.label.get_window_extent(renderer)
+            for legend in legends:
+                assert not label.overlaps(legend.get_window_extent(renderer))
         plt.close(fig)
 
     def test_uses_the_smaller_marker_size(self, inputs):

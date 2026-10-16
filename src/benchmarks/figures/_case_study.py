@@ -23,6 +23,7 @@ from .._panels import (
     ari_lollipop,
     axis_arrows,
     carve_lines,
+    compact_setting,
     cvi_lines,
     panel_letter,
     scatter_clusters,
@@ -378,7 +379,8 @@ def composite_figure(
 
     Panels A, B and C are scatters of the reported labels, the CARVE
     clustering, and the CVI clustering; D and E are the CARVE and CVI curves
-    over k; F is supplied by the caller. With ``curves_first`` the curves
+    over k, or over resolution on a log axis for a resolution run; F is
+    supplied by the caller. With ``curves_first`` the curves
     take the top row as A and B, their legends the strip below them, and
     the scatters the row after that as C, D and E.
 
@@ -388,15 +390,22 @@ def composite_figure(
     nothing the reader does not already have from A.
     """
     true_cmap, carve_cmap, comparison_cmap = composite_color_maps(inputs)
+    carve_resolutions = _swept_resolutions(inputs.carve)
+    cvi_over_resolution = "resolution" in inputs.curves_df.columns
+    # A resolution axis stands its tick labels upright, which takes most of
+    # the legend strip under the curves; the strip grows to hold both.
+    legend_height = (
+        0.55 if carve_resolutions is not None or cvi_over_resolution else 0.3
+    )
 
     with theme_context():
         fig = plt.figure(figsize=(16, 16), constrained_layout=False)
         if curves_first:
             curve_row, legend_row, scatter_row = 0, 1, 2
-            height_ratios = [1.0, 0.3, 1.0, 1.0]
+            height_ratios = [1.0, legend_height, 1.0, 1.0]
         else:
             scatter_row, curve_row, legend_row = 0, 1, 2
-            height_ratios = [1.0, 1.0, 0.3, 1.0]
+            height_ratios = [1.0, 1.0, legend_height, 1.0]
         gs = fig.add_gridspec(4, 6, height_ratios=height_ratios, hspace=0.2, wspace=0.8)
         ax_true = fig.add_subplot(gs[scatter_row, 0:2])
         ax_carve = fig.add_subplot(gs[scatter_row, 2:4])
@@ -441,8 +450,6 @@ def composite_figure(
             ),
         )
 
-        carve_resolutions = _swept_resolutions(inputs.carve)
-        cvi_over_resolution = "resolution" in inputs.curves_df.columns
         carve_lines(
             ax_carve_curves,
             inputs.carve,
@@ -477,11 +484,18 @@ def composite_figure(
             existing = source_ax.get_legend()
             if existing is not None:
                 existing.remove()
+            # A resolution run's upright tick labels and axis label take the
+            # top of the strip, so its legends sit at the bottom.
+            over_resolution = (
+                carve_resolutions is not None
+                if source_ax is ax_carve_curves
+                else cvi_over_resolution
+            )
             target_ax.legend(
                 handles,
-                labels,
+                [compact_setting(label) for label in labels],
                 title=title,
-                loc="center",
+                loc="lower center" if over_resolution else "center",
                 ncol=1,
                 frameon=False,
                 fontsize=FONT_SIZES["legend"],

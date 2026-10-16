@@ -572,14 +572,13 @@ class TestTitlesOverResolution:
     def test_carve_title_names_the_selected_resolution(self):
         assert (
             _carve_title(self._inputs())
-            == "CARVE (stability, 1-SE): LeidenClustering, n_neighbors=30, "
-            "resolution 0.41, k=8"
+            == "CARVE (stability, 1-SE): Leiden, 30 neighbors, resolution 0.41, k=8"
         )
 
     def test_comparison_title_names_the_cvi_s_resolution(self):
         assert (
             _comparison_title(self._inputs())
-            == "Silhouette: LeidenClustering (n_neighbors=30), resolution 0.043, k=6"
+            == "Silhouette: Leiden, 30 neighbors, resolution 0.043, k=6"
         )
 
 

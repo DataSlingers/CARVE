@@ -663,6 +663,14 @@ class TestCarveOutputOverResolution:
             np.testing.assert_allclose(panels[letter].get_xticks(), LEVINE_RESOLUTIONS)
         plt.close(fig)
 
+    def test_no_text_carries_the_full_leiden_configuration(self, leiden_inputs):
+        # B's legend and D's note ran past the figure edge with it.
+        fig = figure_carve_output_levine(leiden_inputs, save=False)
+        texts = [text.get_text() for text in fig.findobj(mtext.Text)]
+        assert not any("objective_function" in text for text in texts)
+        assert any("Leiden, 10 neighbors, Jaccard" in text for text in texts)
+        plt.close(fig)
+
     def test_consensus_panel_names_the_selected_partition_s_k(self, leiden_inputs):
         fig = figure_carve_output_levine(leiden_inputs, save=False)
         k = len(np.unique(leiden_inputs.carve_labels))

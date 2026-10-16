@@ -4,6 +4,7 @@ Nothing here creates a figure, calls plt.show, or saves anything. Composition
 is the job of the figures package; these only draw.
 """
 
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -727,6 +728,39 @@ def runtime_lines(
     if show_legend:
         ax.legend(fontsize=FONT_SIZES["legend"], frameon=False)
     return style_axes(ax)
+
+
+# A Leiden or Louvain configuration as CARVE renders it ("LeidenClustering,
+# n_neighbors=30, ..."), as the CVI sweep does ("LeidenClustering
+# (n_neighbors=30, ...)") or one parameter per line, as in CARVE's notes.
+_GRAPH_SETTING = re.compile(
+    r"(Leiden|Louvain)Clustering(?:[,\s]+|\s*\()"
+    r"(\w+=[^,()\s]+(?:[,\s]+\w+=[^,()\s]+)*)\)?"
+)
+
+
+def compact_setting(text: str) -> str:
+    """Shorten every graph-clusterer configuration in text for a legend or title.
+
+    "LeidenClustering, n_neighbors=30, objective_function=modularity,
+    weighting=jaccard" reads "Leiden, 30 neighbors, Jaccard". Modularity, the
+    registered objective, is left unsaid; another objective is named, since it
+    changes the resolution scale. Text without such a configuration is
+    returned unchanged.
+    """
+
+    def shorten(match: re.Match) -> str:
+        params = dict(re.findall(r"(\w+)=([^,()\s]+)", match.group(2)))
+        parts = [match.group(1)]
+        if "n_neighbors" in params:
+            parts.append(f"{params['n_neighbors']} neighbors")
+        if params.get("weighting") == "jaccard":
+            parts.append("Jaccard")
+        if params.get("objective_function", "modularity") != "modularity":
+            parts.append(params["objective_function"])
+        return ", ".join(parts)
+
+    return _GRAPH_SETTING.sub(shorten, text)
 
 
 def _sweep_axis_label(param: str) -> str:

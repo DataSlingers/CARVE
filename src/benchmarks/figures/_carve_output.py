@@ -19,12 +19,12 @@ configuration through CARVE's _select_row, as the methods do, and calls the
 plotting functions behind them.
 """
 
-import re
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import matplotlib.pyplot as plt
+import matplotlib.text as mtext
 import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
@@ -32,7 +32,7 @@ from matplotlib.figure import Figure
 from carve._plotting import plot_cluster_scatter as _plot_cluster_scatter
 from carve._plotting import plot_diagnostic_scatter as _plot_diagnostic_scatter
 
-from .._panels import panel_letter
+from .._panels import compact_setting, panel_letter
 from .._theme import (
     ESTIMATOR_CMAP_NAME,
     FONT_SIZES,
@@ -202,6 +202,13 @@ def carve_output_figure(
         for letter, ax in zip("ABCDEF", (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f)):
             panel_letter(ax, letter)
 
+        # CARVE writes a graph clusterer's full configuration into B's
+        # legend and the notes of D, E and F, where it runs past the figure.
+        for text in fig.findobj(mtext.Text):
+            short = compact_setting(text.get_text())
+            if short != text.get_text():
+                text.set_text(short)
+
         fig.tight_layout()
 
         if save:
@@ -255,20 +262,6 @@ _GINI_SCORES_NAME = "Gini Stability"
 # the colorbar, so the E-F row is 1.4 of the other rows' height; the figure
 # grows with it and panels A to D keep their size.
 _HECA_SCATTER_ROW_HEIGHT = 1.4
-
-
-def _setting_label(text: str) -> str:
-    """A curve's legend text without the estimator repr's long tail.
-
-    "LeidenClustering, n_neighbors=15, objective_function=modularity" reads
-    "Leiden, 15 neighbors". Text without a neighbor count, such as the
-    selection lines', is returned unchanged.
-    """
-    match = re.search(r"n_neighbors=(\d+)", text)
-    if match is None:
-        return text
-    name = text.partition(",")[0].removesuffix("Clustering")
-    return f"{name}, {match.group(1)} neighbors"
 
 
 def figure_carve_output_heca(
@@ -364,7 +357,7 @@ def figure_carve_output_heca(
         handles, texts = ax_b.get_legend_handles_labels()
         ax_b.legend(
             handles,
-            [_setting_label(text) for text in texts],
+            [compact_setting(text) for text in texts],
             loc="upper right",
             frameon=False,
             fontsize=FONT_SIZES["legend"],

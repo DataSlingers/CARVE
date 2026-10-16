@@ -421,8 +421,8 @@ def fit_or_load_carve(
 ) -> CARVE:
     """Fit CARVE on a case study, caching the fitted state to disk.
 
-    A Levine fit takes hours, so the cache is what makes regenerating a figure
-    practical. The saved state does not carry the data matrix, so X_ is
+    A case-study fit can take hours, so the cache is what makes regenerating
+    a figure practical. The saved state does not carry the data matrix, so X_ is
     restored after loading, matching the notebook this replaces.
 
     The cache is found by path alone. A caller that changes the grid, the
@@ -807,10 +807,9 @@ def study_model_grids(
 ) -> list[tuple[type[ClusterMixin], dict[str, list[Any]]]]:
     """The study's own estimator plus its declared partners, over candidate_k.
 
-    Klein sweeps Ward agglomerative and spectral; Levine sweeps KMeans and
-    spectral. Each study declares this on Study.partners. Cusanovich and
-    hECA sweep resolution only, so neither has a k-based grid and this
-    raises for both.
+    Klein sweeps Ward agglomerative and spectral. Each study declares this
+    on Study.partners. Levine, Cusanovich and hECA sweep resolution only, so
+    none has a k-based grid and this raises for each.
     """
     if study.estimator.name in RESOLUTION_ESTIMATORS:
         raise ValueError(
@@ -829,8 +828,9 @@ def study_resolution_grids(
 ) -> list[tuple[type[ClusterMixin], dict[str, list[Any]]]]:
     """The study's resolution sweep: its own estimator, then every partner.
 
-    Cusanovich sweeps Louvain alone; hECA sweeps Leiden at two neighbor
-    counts, declared as its estimator and one partner. A separate CARVE run
+    Levine sweeps Leiden on PhenoGraph's graph alone; Cusanovich sweeps
+    Louvain alone; hECA sweeps Leiden at two neighbor counts, declared as
+    its estimator and one partner. A separate CARVE run
     from study_model_grids: SweepSpec is frozen, so a k-based and a
     resolution-based sweep cannot share one run.
     """

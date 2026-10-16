@@ -28,7 +28,7 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.image import AxesImage
 from scipy.cluster.hierarchy import leaves_list, linkage
 
-from .._panels import _order_by_reference
+from .._panels import _order_by_reference, compact_setting
 from .._theme import (
     FOREGROUND_COLOR,
     PRINT_FONT_SIZES,
@@ -67,7 +67,8 @@ RULE_NAMES: dict[str, str] = {"1se": "1-SE"}
 # Layout in inches at the printed size. A row fits one 8-point label. The
 # label bands fit the longest population name at 45 degrees and the longest
 # marker name (CD235ab) upright. With Levine's 14 populations and 10 and 7
-# clusters the figure is 8.62 inches tall, under PRINT_MAX_HEIGHT_IN.
+# clusters, the KMeans partitions this figure was laid out for, it is 8.62
+# inches tall, under PRINT_MAX_HEIGHT_IN; fewer clusters make it shorter.
 ROW_HEIGHT_IN = 0.125
 TOP_IN = 0.25
 TITLE_GAP_IN = 0.3
@@ -174,7 +175,8 @@ def _carve_title(inputs: CompositeInputs) -> str:
         if sweep is not None and sweep.param == "resolution"
         else ""
     )
-    return f"CARVE ({inputs.measure}, {rule}): {row['method_label']}, {at}k={k}"
+    label = compact_setting(str(row["method_label"]))
+    return f"CARVE ({inputs.measure}, {rule}): {label}, {at}k={k}"
 
 
 def _comparison_title(inputs: CompositeInputs) -> str:
@@ -187,6 +189,7 @@ def _comparison_title(inputs: CompositeInputs) -> str:
         if inputs.comparison_resolution is None
         else f"resolution {inputs.comparison_resolution:g}, "
     )
+    model = compact_setting(str(model))
     return f"{inputs.comparison_name}: {model}, {at}k={inputs.comparison_k}"
 
 
