@@ -2,8 +2,10 @@
 
 The loader reads through R on every call. The R round trip is skipped unless
 CARVE_ALLOW_R=1, so the suite runs on a machine without HDCytoData; everything
-after the R step (the install gate, subsampling, labels, metadata) is tested
-with _hdcytodata_is_installed and _load_from_r stubbed, which needs no R.
+after the R step (the install gate, the transform and optional scaler, the
+unassigned drop, subsampling, labels, metadata) is tested with
+_hdcytodata_is_installed and _load_from_r stubbed, which needs no R. The stub
+stands in for the raw type-marker matrix of every cell, unassigned included.
 """
 
 import os
@@ -13,6 +15,7 @@ import pytest
 from sklearn.model_selection import StratifiedShuffleSplit
 
 import benchmarks.datasets._levine as levine_module
+from benchmarks._artifacts import fingerprint
 from benchmarks.datasets import load_levine32
 from benchmarks.datasets._levine import _POPULATION_LEVELS, _check_levels
 
@@ -98,16 +101,25 @@ class TestLoad:
         load_levine32()
         assert loads == [1, 1]
 
-    def test_returns_the_matrix_r_produced(self, stub_r):
+    def test_returns_arcsinh_of_the_raw_markers_unscaled_by_default(self, stub_r):
         rng = np.random.default_rng(0)
-        X = rng.normal(size=(200, 4))
+        X = rng.gamma(2.0, 20.0, size=(200, 4))
         codes = rng.choice(["1", "2", "3"], size=200)
         stub_r(X, codes)
 
         loaded_X, loaded_y, _ = load_levine32()
-        np.testing.assert_array_equal(loaded_X, X)
+        np.testing.assert_allclose(loaded_X, np.arcsinh(X / 5.0))
         names = {"1": "Basophils", "2": "CD16-_NK_cells", "3": "CD16+_NK_cells"}
         np.testing.assert_array_equal(np.asarray(loaded_y), [names[c] for c in codes])
+
+    def test_drops_the_unassigned_cells(self, stub_r):
+        X = np.array([[0.0], [5.0], [10.0], [50.0], [500.0]])
+        stub_r(X, ["1", "15", "2", "15", "1"])
+
+        loaded_X, loaded_y, meta = load_levine32()
+        np.testing.assert_allclose(loaded_X, np.arcsinh(np.array([[0.0], [2.0], [100.0]])))
+        assert list(loaded_y) == ["Basophils", "CD16-_NK_cells", "Basophils"]
+        assert meta["n_cells_full"] == 3
 
     def test_subsampling_is_honored_and_deterministic(self, stub_r):
         rng = np.random.default_rng(0)
@@ -118,11 +130,17 @@ class TestLoad:
         assert first.shape[0] == 100
         np.testing.assert_array_equal(first, second)
 
-    def test_metadata_records_the_scaler_ordering_quirk(self, stub_r):
+    def test_metadata_records_the_scaler_ordering_quirk_when_scaling(self, stub_r):
+        rng = np.random.default_rng(0)
+        stub_r(rng.normal(size=(50, 3)), rng.choice(["1", "2"], 50))
+        _, _, meta = load_levine32(scale=True)
+        assert any("population 15" in step for step in meta["preprocessing"])
+
+    def test_metadata_records_no_scaler_by_default(self, stub_r):
         rng = np.random.default_rng(0)
         stub_r(rng.normal(size=(50, 3)), rng.choice(["1", "2"], 50))
         _, _, meta = load_levine32()
-        assert any("population 15" in step for step in meta["preprocessing"])
+        assert not any("RobustScaler" in step for step in meta["preprocessing"])
 
     def test_metadata_records_the_r_side_versions(self, stub_r):
         stub_r(np.zeros((4, 2)), ["1", "2", "1", "2"])
@@ -140,10 +158,10 @@ class TestLabels:
         _, loaded_y, _ = load_levine32()
         assert list(loaded_y) == ["Basophils", "Monocytes", "Pro_B_cells", "Monocytes"]
 
-    def test_refuses_a_code_with_no_gated_population(self, stub_r):
-        # 15 is the unassigned level, which the R step drops.
-        stub_r(np.zeros((2, 2)), ["1", "15"])
-        with pytest.raises(ValueError, match=r"\['15'\]"):
+    def test_refuses_a_code_with_no_population_level(self, stub_r):
+        # 15 is the unassigned level, which the loader drops; 16 names nothing.
+        stub_r(np.zeros((2, 2)), ["1", "16"])
+        with pytest.raises(ValueError, match=r"\['16'\]"):
             load_levine32()
 
     def test_subsample_is_stratified_on_the_codes(self, stub_r):
@@ -160,7 +178,31 @@ class TestLabels:
 
         splitter = StratifiedShuffleSplit(n_splits=1, test_size=60 / 400, random_state=3)
         _, idx = next(splitter.split(X, codes))
-        np.testing.assert_array_equal(loaded_X, X[idx])
+        np.testing.assert_allclose(loaded_X, np.arcsinh(X[idx] / 5.0))
+
+
+class TestScale:
+    """scale=True reproduces the submitted preprocessing: RobustScaler(10, 90)
+    fit on every cell, unassigned included, before the unassigned are dropped."""
+
+    def test_fits_the_scaler_on_every_cell_including_the_unassigned(self, stub_r):
+        raw = np.array([0.0, 5.0, 10.0, 50.0, 500.0, 1000.0, 2000.0])
+        codes = ["1", "1", "2", "2", "15", "15", "15"]
+        X = np.column_stack([raw, 2 * raw])
+        stub_r(X, codes)
+
+        loaded_X, _, _ = load_levine32(scale=True)
+
+        transformed = np.arcsinh(X / 5.0)
+        center = np.median(transformed, axis=0)
+        low, high = np.percentile(transformed, [10, 90], axis=0)
+        expected = (transformed[:4] - center) / (high - low)
+        np.testing.assert_allclose(loaded_X, expected)
+
+    def test_records_the_scaler_in_the_metadata(self, stub_r):
+        stub_r(np.ones((4, 2)), ["1", "2", "1", "2"])
+        _, _, meta = load_levine32(scale=True)
+        assert any("RobustScaler" in step for step in meta["preprocessing"])
 
 
 class TestCheckLevels:
@@ -189,3 +231,15 @@ class TestLoadFromR:
         assert X.shape == (500, 32)
         assert meta["hdcytodata_version"]
         assert meta["r_version"].startswith("R version")
+
+    def test_scaled_subsample_is_the_matrix_behind_the_submitted_results(self):
+        # The digest of the 5,000-cell matrix the KMeans fit of 2026-10-15
+        # was cached against, the preprocessing of the submitted manuscript.
+        X, _, _ = load_levine32(subsample=5000, scale=True)
+        assert fingerprint(X) == "71ec99b815236d4374a80da50959c2d0e2bfc7d8"
+
+    def test_default_subsample_is_the_arcsinh_only_matrix(self):
+        # The digest of the 5,000-cell matrix the arcsinh-only Leiden and
+        # KMeans fits of 2026-10-16 were cached against.
+        X, _, _ = load_levine32(subsample=5000)
+        assert fingerprint(X) == "95708dfee6c528bf0809fa6efcb373f161f06032"
