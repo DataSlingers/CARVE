@@ -123,27 +123,23 @@ def carve_output_figure(
         fig, (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f) = _six_panel_grid(scatter_row_height)
 
         # A and B draw the same estimators in the same colors, so one
-        # legend, in B, names them for both.
-        carve.plot_metric_over_n_clusters(
-            measure=_MEASURE_STABILITY,
-            rule=rule,
-            not_two=not_two,
-            ax=ax_a,
-            palette=ESTIMATOR_CMAP_NAME,
-            title=f"Stability ARI over {over}",
-            legend=False,
-            show=False,
-        )
-        carve.plot_metric_over_n_clusters(
-            measure=_MEASURE_GENERALIZABILITY,
-            rule=rule,
-            not_two=not_two,
-            ax=ax_b,
-            palette=ESTIMATOR_CMAP_NAME,
-            title=f"Generalizability ARI over {over}",
-            legend_loc="lower left",
-            show=False,
-        )
+        # legend names them for both. It goes on the curve of the measure
+        # panels C to F show, whose selection its dashed-line entry names.
+        for ax, curve_measure, title in (
+            (ax_a, _MEASURE_STABILITY, f"Stability ARI over {over}"),
+            (ax_b, _MEASURE_GENERALIZABILITY, f"Generalizability ARI over {over}"),
+        ):
+            carve.plot_metric_over_n_clusters(
+                measure=curve_measure,
+                rule=rule,
+                not_two=not_two,
+                ax=ax,
+                palette=ESTIMATOR_CMAP_NAME,
+                title=title,
+                legend=curve_measure == measure,
+                legend_loc="lower left",
+                show=False,
+            )
         if resolutions is not None:
             for ax in (ax_a, ax_b):
                 ax.set_xlabel("Resolution")
@@ -245,12 +241,18 @@ def figure_carve_output_klein(
 def figure_carve_output_levine(
     inputs: CompositeInputs, *, save: bool = True, out_dir: Path | None = None
 ) -> Figure:
-    """Build S4 Fig: CARVE output on the Levine mass cytometry case study."""
+    """Build S4 Fig: CARVE output on the Levine mass cytometry case study.
+
+    Panels E and F carry no legend: D numbers the clusters in E's colors,
+    and E's legend widened the left column enough to leave a blank band
+    between the two columns.
+    """
     return carve_output_figure(
         inputs,
         marker_size=8.0,
         axis_labels=("t-SNE 1", "t-SNE 2"),
         save_name="CARVE_output_levine.png",
+        scatter_legends=False,
         save=save,
         out_dir=out_dir,
     )

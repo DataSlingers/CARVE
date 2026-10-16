@@ -19,6 +19,8 @@ guard against the restructure's most likely regression: swapping the two
 measures between those panels.
 """
 
+import dataclasses
+
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import matplotlib.text as mtext
@@ -38,6 +40,7 @@ from benchmarks.figures import (
     figure_carve_output_klein,
     figure_carve_output_levine,
 )
+from benchmarks.figures._carve_output import carve_output_figure
 from benchmarks.figures._case_study import (
     CompositeInputs,
     _align_to_reference,
@@ -218,17 +221,27 @@ class TestCarveOutputFigures:
         assert drawn == {color.lower() for color in ESTIMATOR_COLORS}
         plt.close(fig)
 
-    def test_only_panel_b_carries_the_estimator_legend_in_its_lower_left(
-        self, inputs
+    @pytest.mark.parametrize(
+        ("measure", "letter", "other"),
+        [("stability", "A", "B"), ("generalizability", "B", "A")],
+    )
+    def test_the_estimator_legend_sits_on_the_curve_of_the_measure_shown(
+        self, inputs, measure, letter, other
     ):
+        # Its dashed-line entry names the selection panels C to F show; at
+        # this seed the two measures select different k.
+        inputs = dataclasses.replace(inputs, measure=measure)
+        selected_k = int(inputs.carve.get_k(measure=measure, rule="1se"))
         fig = figure_carve_output_klein(inputs, save=False)
         panels = _panel_by_letter(fig)
-        assert panels["A"].get_legend() is None
-        legend = panels["B"].get_legend()
+        assert panels[other].get_legend() is None
+        legend = panels[letter].get_legend()
         assert legend is not None
+        texts = [text.get_text() for text in legend.get_texts()]
+        assert f"Selected k (1-SE rule): {selected_k}" in texts
         fig.canvas.draw()
         box = legend.get_window_extent().transformed(
-            panels["B"].transAxes.inverted()
+            panels[letter].transAxes.inverted()
         )
         assert box.x0 < 0.1 and box.y0 < 0.1
         assert box.x1 < 1.0 and box.y1 < 1.0
@@ -428,10 +441,17 @@ class TestCarveOutputFigures:
         ``source="accuracy"`` regression would still draw one scatter with
         varying point sizes (the previous test's only check), so it needs
         its own guard. plot_cluster_scatter's auto-generated legend title
-        names the score source directly. Klein's figure drops that legend, so
-        the guard reads Levine's, which shares the panel E call.
+        names the score source directly. Both case-study figures drop that
+        legend, so the guard draws the shared function with it.
         """
-        fig = figure_carve_output_levine(inputs, save=False)
+        fig = carve_output_figure(
+            inputs,
+            marker_size=8.0,
+            axis_labels=("t-SNE 1", "t-SNE 2"),
+            save_name="unused.png",
+            scatter_legends=True,
+            save=False,
+        )
         ax_e = _panel_by_letter(fig)["E"]
         legend = ax_e.get_legend()
         assert legend is not None
@@ -464,11 +484,12 @@ class TestCarveOutputFigures:
         plt.close(klein)
         plt.close(levine)
 
-    def test_levine_panels_e_and_f_keep_their_legends(self, inputs):
+    def test_levine_panels_e_and_f_carry_no_legend(self, inputs):
+        # D numbers the clusters in E's colors.
         fig = figure_carve_output_levine(inputs, save=False)
         panels = _panel_by_letter(fig)
-        assert panels["E"].get_legend() is not None
-        assert panels["F"].get_legend() is not None
+        assert panels["E"].get_legend() is None
+        assert panels["F"].get_legend() is None
         plt.close(fig)
 
     def test_panel_f_reports_gini_stability_not_a_different_source(self, inputs):
@@ -679,6 +700,23 @@ class TestCarveOutputOverResolution:
         panels = _panel_by_letter(fig)
         for letter in ("A", "B"):
             assert panels[letter].get_position().width > 0.28
+        plt.close(fig)
+
+    def test_columns_meet_without_a_legend_gap(self, leiden_inputs):
+        # E's cluster legend once widened the left column's margin, leaving
+        # a fifth of the figure blank between A and B.
+        fig = figure_carve_output_levine(leiden_inputs, save=False)
+        panels = _panel_by_letter(fig)
+        gap = panels["B"].get_position().x0 - panels["A"].get_position().x1
+        assert gap < 0.12
+        plt.close(fig)
+
+    def test_legend_names_the_resolution_panels_c_to_f_show(self, leiden_inputs):
+        fig = figure_carve_output_levine(leiden_inputs, save=False)
+        resolution = leiden_inputs.carve.get_sweep_value(measure="stability", rule="1se")
+        legend = _panel_by_letter(fig)["A"].get_legend()
+        texts = [text.get_text() for text in legend.get_texts()]
+        assert f"Selected resolution (1-SE rule): {resolution:g}" in texts
         plt.close(fig)
 
     def test_consensus_panel_names_the_selected_partition_s_k(self, leiden_inputs):

@@ -44,9 +44,9 @@ class CompositeInputs:
     measure, rule and not_two are the caller's own selection -- whatever was
     passed to prepare_composite, defaulting to the same ("stability", "1se",
     False) that prepare_composite itself defaults to. carve_output_figure
-    reads them to decide which measure drives its detail panels (B, D, E, F)
-    and which not_two setting its fixed-measure overview panels (A and C)
-    honor; composite_figure reads not_two to place carve_lines' selected-k
+    reads them to decide which measure drives its detail panels (C to F),
+    which of its curve panels (A, B) carries the legend, and which not_two
+    setting both curves honor; composite_figure reads not_two to place carve_lines' selected-k
     markers consistently with the same call.
 
     comparison_resolution is the resolution the CVI winner was fit at when
