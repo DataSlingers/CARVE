@@ -671,6 +671,16 @@ class TestCarveOutputOverResolution:
         assert any("Leiden, 10 neighbors, Jaccard" in text for text in texts)
         plt.close(fig)
 
+    def test_curve_panels_keep_a_third_of_the_figure_width(self, leiden_inputs):
+        # tight_layout sizes each column for E's and F's notes; a one-line
+        # "Leiden, ..., (resolution = ..., k ≈ ...)" halved A and B and piled
+        # up their resolution labels. The k-based figure gives them a third.
+        fig = figure_carve_output_levine(leiden_inputs, save=False)
+        panels = _panel_by_letter(fig)
+        for letter in ("A", "B"):
+            assert panels[letter].get_position().width > 0.28
+        plt.close(fig)
+
     def test_consensus_panel_names_the_selected_partition_s_k(self, leiden_inputs):
         fig = figure_carve_output_levine(leiden_inputs, save=False)
         k = len(np.unique(leiden_inputs.carve_labels))

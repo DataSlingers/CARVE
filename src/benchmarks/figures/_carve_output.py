@@ -204,10 +204,12 @@ def carve_output_figure(
 
         # CARVE writes a graph clusterer's full configuration into B's
         # legend and the notes of D, E and F, where it runs past the figure.
+        # The notes also break before their resolution: tight_layout sizes
+        # each column for E's and F's notes, and one long line narrows A and B.
         for text in fig.findobj(mtext.Text):
             short = compact_setting(text.get_text())
             if short != text.get_text():
-                text.set_text(short)
+                text.set_text(short.replace(" (resolution =", "\n(resolution ="))
 
         fig.tight_layout()
 
