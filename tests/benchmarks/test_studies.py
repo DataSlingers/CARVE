@@ -5,8 +5,10 @@ from collections import Counter
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.base import BaseEstimator, ClusterMixin
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import adjusted_rand_score, calinski_harabasz_score, silhouette_score
 
 from benchmarks._estimators import param_grids, resolution_grids
 from benchmarks._preprocessing import PREPROCESSOR_DEFAULTS, resolve_preprocessing
@@ -18,6 +20,7 @@ from benchmarks._studies import (
     _klein_loader,
     _levine_loader,
     carve_cache_path,
+    cvi_resolution_sweep,
     cvi_sweep,
     fit_or_load_carve,
     load_study,
@@ -175,6 +178,92 @@ class TestCviSweep:
         first, _ = cvi_sweep(X, y, model_grids=grids, candidate_k=(2, 3), random_state=1)
         second, _ = cvi_sweep(X, y, model_grids=grids, candidate_k=(2, 3), random_state=1)
         pd.testing.assert_frame_equal(first, second)
+
+
+class _ByResolution(ClusterMixin, BaseEstimator):
+    """A resolution clusterer for the blobs fixture with a known partition.
+
+    Below 0.05 one cluster; below 0.5 the three blobs; from 0.5 each blob is
+    split at random into n_split parts, drawn from random_state.
+    """
+
+    def __init__(self, resolution=1.0, n_split=2, random_state=None):
+        self.resolution = resolution
+        self.n_split = n_split
+        self.random_state = random_state
+
+    def fit_predict(self, X, y=None):
+        blob = np.repeat([0, 1, 2], 40)
+        if self.resolution < 0.05:
+            return np.zeros(len(X), dtype=int)
+        if self.resolution < 0.5:
+            return blob
+        part = np.random.default_rng(self.random_state).integers(self.n_split, size=len(X))
+        return blob * self.n_split + part
+
+
+def _by_resolution_grid(resolutions, n_split=2):
+    return [(_ByResolution, {"resolution": list(resolutions), "n_split": [n_split]})]
+
+
+class TestCviResolutionSweep:
+    def test_scores_each_resolution_on_the_partition_it_produces(self, blobs):
+        X, y = blobs
+        curves, _ = cvi_resolution_sweep(
+            X, y, model_grids=_by_resolution_grid([0.1, 1.0], n_split=3), random_state=7
+        )
+        split = np.repeat([0, 1, 2], 40) * 3 + np.random.default_rng(7).integers(3, size=120)
+        at_one = curves[(curves["resolution"] == 1.0) & (curves["metric"] == "silhouette")]
+        assert at_one["k"].iloc[0] == 9
+        assert at_one["score"].iloc[0] == pytest.approx(silhouette_score(X, split))
+        assert at_one["ari"].iloc[0] == pytest.approx(adjusted_rand_score(y, split))
+        at_low = curves[(curves["resolution"] == 0.1) & (curves["metric"] == "calinski_harabasz")]
+        assert at_low["k"].iloc[0] == 3
+        assert at_low["score"].iloc[0] == pytest.approx(
+            calinski_harabasz_score(X, np.repeat([0, 1, 2], 40))
+        )
+
+    def test_every_index_selects_the_blobs_over_their_random_halves(self, blobs):
+        # Davies-Bouldin is lower for the blobs, so a selection by its raw
+        # value instead of its minimum would pick the halves at 1.0.
+        X, y = blobs
+        _, best = cvi_resolution_sweep(X, y, model_grids=_by_resolution_grid([0.1, 1.0]))
+        assert dict(zip(best["metric"], best["resolution"])) == {
+            "silhouette": 0.1,
+            "davies_bouldin": 0.1,
+            "calinski_harabasz": 0.1,
+        }
+        assert set(best["k"]) == {3}
+
+    def test_ties_go_to_the_lowest_resolution(self, blobs):
+        X, y = blobs
+        _, best = cvi_resolution_sweep(
+            X, y, model_grids=_by_resolution_grid([0.2, 0.1, 1.0])
+        )
+        assert set(best["resolution"]) == {0.1}
+
+    def test_a_single_cluster_scores_nan_and_is_never_selected(self, blobs):
+        X, y = blobs
+        curves, best = cvi_resolution_sweep(
+            X, y, model_grids=_by_resolution_grid([0.01, 1.0])
+        )
+        assert curves.loc[curves["resolution"] == 0.01, "score"].isna().all()
+        assert set(best["resolution"]) == {1.0}
+
+    def test_leaves_out_the_gap_statistic(self, blobs):
+        # The gap statistic refits reference data with a k-based estimator
+        # at the observed k, which a resolution sweep has no counterpart for.
+        X, y = blobs
+        curves, best = cvi_resolution_sweep(X, y, model_grids=_by_resolution_grid([0.1]))
+        assert set(curves["metric"]) == {"silhouette", "davies_bouldin", "calinski_harabasz"}
+        assert set(best["metric"]) == set(curves["metric"])
+
+    def test_refuses_a_k_based_grid(self, blobs):
+        X, y = blobs
+        with pytest.raises(ValueError, match="cvi_sweep"):
+            cvi_resolution_sweep(
+                X, y, model_grids=param_grids(EstimatorSpec(name="kmeans"), (2, 3))
+            )
 
 
 class TestFitOrLoadCarve:
@@ -685,16 +774,20 @@ class TestStudies:
         # rather than restating it as a literal.
         assert STUDIES["klein"].reported_k == 4
 
-    def test_levine_sweeps_k_seven_through_seventeen(self):
-        assert STUDIES["levine32"].candidate_k == tuple(range(7, 18))
+    def test_levine_sweeps_resolution_only(self):
+        study = STUDIES["levine32"]
+        assert study.candidate_k == ()
+        assert study.partners == ()
+        with pytest.raises(ValueError, match="study_resolution_grids"):
+            study_model_grids(study)
 
 
 class TestStudyModelGrids:
     """Pins the case-study estimators to the manuscript.
 
     Manuscript line 624/1501: Klein sweeps Ward agglomerative clustering and
-    spectral clustering with self-tuning affinity. Manuscript line 1523:
-    Levine sweeps KMeans and spectral.
+    spectral clustering with self-tuning affinity. Levine sweeps Leiden
+    resolution (TestNewStudies), not k.
     """
 
     def test_klein_grid_is_ward_agglomerative_and_spectral_not_kmeans(self):
@@ -707,20 +800,6 @@ class TestStudyModelGrids:
             next(params for cls, params in grid if cls is AgglomerativeClustering)
         )
         assert agglo_params["linkage"] == ["ward"]
-
-    def test_levine_grid_is_kmeans_and_spectral_not_agglomerative(self):
-        grid = study_model_grids(STUDIES["levine32"])
-        classes = {estimator_cls for estimator_cls, _ in grid}
-        assert classes == {KMeans, SpectralClustering}
-        assert AgglomerativeClustering not in classes
-
-    def test_levine_kmeans_runs_a_hundred_restarts(self):
-        # With 10 restarts, KMeans at k=7 on Levine's 5,000 cells stops at one
-        # of two solutions depending on the seed (ARI 0.625 or 0.849); with
-        # 100 it finds the lower-inertia one (0.625) from every seed tried.
-        grid = study_model_grids(STUDIES["levine32"])
-        kmeans_params = dict(next(params for cls, params in grid if cls is KMeans))
-        assert kmeans_params["n_init"] == [100]
 
     def test_grid_reads_partners_from_the_study(self):
         # The partner estimators are declared on the Study, not chosen by a
@@ -911,15 +990,27 @@ class TestCarveCachePath:
         assert a == b
 
     def test_default_runs_keep_their_existing_filenames(self, tmp_path):
-        # The Levine cache is hours of compute and was written before run
-        # keys existed, so its default run must resolve to the same name as
-        # before, byte for byte. Klein's publication scale is every cell, so
-        # its name carries that size's hash: Klein's half-subsample cache
-        # (1b390cd5) is never served for it.
+        # A study's default k-based run was written before run keys existed,
+        # so it must resolve to the same name as before, byte for byte.
+        # Klein's publication scale is every cell, so its name carries that
+        # size's hash: Klein's half-subsample cache (1b390cd5) is never
+        # served for it.
         klein = carve_cache_path(STUDIES["klein"], root=tmp_path)
-        levine = carve_cache_path(STUDIES["levine32"], root=tmp_path)
         assert klein.name == "carve_klein_publication_6eef6648.carve"
-        assert levine.name == "carve_levine32_publication_f8237d89.carve"
+
+    def test_levine_resolution_run_never_takes_the_kmeans_cache_name(self, tmp_path):
+        # carve_levine32_publication_f8237d89.carve holds the submitted
+        # KMeans and spectral fit on the scaled input. The Leiden run must
+        # carry a run key so that file is never served for it.
+        study = STUDIES["levine32"]
+        path = carve_cache_path(
+            study,
+            root=tmp_path,
+            model_grids=study_resolution_grids(study),
+            n_resamples=study.n_resamples,
+        )
+        assert path.name.startswith("carve_levine32_publication_f8237d89_")
+        assert path.name != "carve_levine32_publication_f8237d89.carve"
 
     def test_heca_cache_name_carries_a_resolution_run_key(self, tmp_path):
         # hECA has no k-based grid, so its fit names its grids, and the file
@@ -1107,6 +1198,28 @@ class TestNewStudies:
         )
         assert path.name.startswith("carve_cusanovich_atlas_6eef6648_")
         assert path.name != "carve_cusanovich_dev_7841fb1f.carve"
+
+    def test_levine_sweeps_leiden_on_phenograph_s_graph(self):
+        # PhenoGraph, which Levine et al. 2015 introduced on this data, runs
+        # Louvain on a Jaccard-weighted 30-neighbor graph; Leiden on the same
+        # graph optimizes the same modularity.
+        ((cls, grid),) = study_resolution_grids(STUDIES["levine32"])
+        assert cls is LeidenClustering
+        assert grid["n_neighbors"] == [30]
+        assert grid["weighting"] == ["jaccard"]
+        assert grid["objective_function"] == ["modularity"]
+
+    def test_levine_grid_runs_from_0_01_to_2_3_on_a_log_step(self):
+        # 0.1 * 30 ** (i / 12) for i = -8..11, two significant figures: room
+        # below the 4-cluster floor and well above the 14 gated populations.
+        ((_, grid),) = study_resolution_grids(STUDIES["levine32"])
+        assert grid["resolution"] == pytest.approx(
+            [0.01, 0.014, 0.018, 0.024, 0.032, 0.043, 0.057, 0.075, 0.1, 0.13,
+             0.18, 0.23, 0.31, 0.41, 0.55, 0.73, 0.97, 1.3, 1.7, 2.3]
+        )
+
+    def test_levine_runs_one_hundred_resamples(self):
+        assert STUDIES["levine32"].n_resamples == 100
 
     def test_heca_sweeps_leiden_resolution_at_two_neighbor_counts(self):
         study = STUDIES["heca"]

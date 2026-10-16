@@ -96,15 +96,22 @@ def calculate_cvi(
     labels: np.ndarray,
     metric: str,
     *,
-    spec: EstimatorSpec,
+    spec: EstimatorSpec | None,
     random_state: int = 0,
 ) -> tuple[float, float]:
     """Evaluate one classical index, returning (value, standard_error).
 
     Only the gap statistic has a meaningful standard error; the others
-    report 0.0 so callers can treat every index uniformly.
+    report 0.0 so callers can treat every index uniformly. Only the gap
+    statistic reads spec, the k-based estimator it refits its reference
+    datasets with; the others take None.
     """
     if metric == "gap":
+        if spec is None:
+            raise ValueError(
+                "The gap statistic needs the k-based estimator to refit its "
+                "reference datasets with; spec is None."
+            )
         return gap_statistic(X, labels, spec=spec, random_state=random_state)
     if metric == "silhouette":
         return float(silhouette_score(X, labels, random_state=random_state)), 0.0

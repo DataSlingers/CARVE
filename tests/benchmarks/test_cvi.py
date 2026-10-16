@@ -107,6 +107,19 @@ class TestCalculateCvi:
         with pytest.raises(ValueError, match="nonsense"):
             calculate_cvi(X, y, "nonsense", spec=SPEC)
 
+    def test_indices_other_than_gap_need_no_estimator(self, separated_blobs):
+        # A resolution sweep has no k-based estimator to hand over.
+        X, y = separated_blobs
+        for metric in ("silhouette", "davies_bouldin", "calinski_harabasz"):
+            assert calculate_cvi(X, y, metric, spec=None) == calculate_cvi(
+                X, y, metric, spec=SPEC
+            )
+
+    def test_gap_refuses_to_run_without_an_estimator(self, separated_blobs):
+        X, y = separated_blobs
+        with pytest.raises(ValueError, match="k-based estimator"):
+            calculate_cvi(X, y, "gap", spec=None)
+
 
 class TestSelectK:
     def test_non_gap_metrics_take_the_argmax(self):
