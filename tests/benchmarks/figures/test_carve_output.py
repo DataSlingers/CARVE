@@ -766,6 +766,29 @@ class TestCarveOutputOverResolution:
         assert gap < 0.12
         plt.close(fig)
 
+    def test_consensus_matrix_and_its_letter_line_up_with_panel_a(
+        self, leiden_inputs
+    ):
+        # The square matrix sat centered in its wider cell, its left edge and
+        # letter right of A's and E's.
+        fig = figure_carve_output_levine(leiden_inputs, save=False)
+        fig.draw_without_rendering()
+        panels = _panel_by_letter(fig)
+        a, c = panels["A"], panels["C"]
+        to_figure = fig.transFigure.inverted()
+
+        def letter_right_edge(ax, letter):
+            text = next(t for t in ax.texts if t.get_text() == letter)
+            return text.get_window_extent().transformed(to_figure).x1
+
+        assert c.get_position().x0 == pytest.approx(a.get_position().x0, abs=1e-3)
+        assert letter_right_edge(c, "C") == pytest.approx(
+            letter_right_edge(a, "A"), abs=1e-3
+        )
+        colorbar = c.images[0].colorbar.ax.get_position()
+        assert 0 < colorbar.x0 - c.get_position().x1 < 0.03
+        plt.close(fig)
+
     def test_legend_names_the_resolution_panels_c_to_f_show(self, leiden_inputs):
         fig = figure_carve_output_levine(leiden_inputs, save=False)
         resolution = leiden_inputs.carve.get_sweep_value(measure="stability", rule="1se")

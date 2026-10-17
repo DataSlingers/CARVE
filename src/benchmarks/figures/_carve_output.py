@@ -32,7 +32,7 @@ from matplotlib.figure import Figure
 from carve._plotting import plot_cluster_scatter as _plot_cluster_scatter
 from carve._plotting import plot_diagnostic_scatter as _plot_diagnostic_scatter
 
-from .._panels import compact_setting, panel_letter
+from .._panels import PANEL_LETTER_X, compact_setting, panel_letter
 from .._theme import (
     ESTIMATOR_CMAP_NAME,
     FONT_SIZES,
@@ -78,6 +78,32 @@ def _six_panel_grid(scatter_row_height: float) -> tuple[Figure, tuple[Axes, ...]
     gs = fig.add_gridspec(3, 2, height_ratios=(1.0, 1.0, scatter_row_height))
     axes = tuple(fig.add_subplot(gs[row, col]) for row in range(3) for col in range(2))
     return fig, axes
+
+
+def _left_align_consensus(ax_c: Axes, ax_above: Axes) -> None:
+    """Move panel C's matrix and colorbar flush left under ``ax_above``.
+
+    The matrix keeps an equal aspect, so in a cell wider than it is tall it
+    sits centered, its left edge and letter right of the other panels in its
+    column. Called after tight_layout, before C has its letter. The cluster
+    band follows the matrix, and the colorbar keeps its gap to it.
+    """
+    fig = ax_c.figure
+    fig.draw_without_rendering()  # sizes the aspect-locked matrix
+    matrix = ax_c.get_position()
+    cell = ax_c.get_position(original=True)
+    colorbar_ax = ax_c.images[0].colorbar.ax
+    colorbar = colorbar_ax.get_position()
+    left = ax_above.get_position().x0
+    ax_c.set_position((left, cell.y0, matrix.width, cell.height))
+    colorbar_ax.set_position(
+        (
+            left + matrix.width + colorbar.x0 - cell.x1,
+            colorbar.y0,
+            colorbar.width,
+            colorbar.height,
+        )
+    )
 
 
 def carve_output_figure(
@@ -201,7 +227,7 @@ def carve_output_figure(
             show=False,
         )
 
-        for letter, ax in zip("ABCDEF", (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f)):
+        for letter, ax in zip("ABDEF", (ax_a, ax_b, ax_d, ax_e, ax_f)):
             panel_letter(ax, letter)
 
         # CARVE writes a graph clusterer's full configuration into the curve
@@ -213,6 +239,11 @@ def carve_output_figure(
                 text.set_text(short.replace(" (resolution =", "\n(resolution ="))
 
         fig.tight_layout()
+        _left_align_consensus(ax_c, ax_a)
+        # panel_letter's x is a fraction of the axes width; this puts C's
+        # letter where A's is.
+        a_width = ax_a.get_position().width
+        panel_letter(ax_c, "C", x=PANEL_LETTER_X * a_width / ax_c.get_position().width)
 
         if save:
             save_figure(

@@ -1625,7 +1625,13 @@ def metric_legend(
     )
 
 
-def panel_letter(ax: Axes, letter: str, *, x: float = -0.08, y: float = 1.1) -> None:
+# Fraction of the axes width left of the axes where a panel letter ends.
+PANEL_LETTER_X = -0.08
+
+
+def panel_letter(
+    ax: Axes, letter: str, *, x: float = PANEL_LETTER_X, y: float = 1.1
+) -> None:
     """Place a bold panel letter in axes coordinates."""
     ax.text(
         x,
