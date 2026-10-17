@@ -2,6 +2,7 @@
 
 import dataclasses
 import json
+import re
 
 import numpy as np
 import pandas as pd
@@ -17,6 +18,7 @@ from benchmarks._ablation import (
     dataset_rows,
     run_ablation,
     similarity_rows,
+    unit_label,
 )
 from benchmarks._ablation_cells import (
     REFERENCE_RATIO,
@@ -343,6 +345,59 @@ class TestAblationHash:
 
     def test_is_twelve_hex_characters(self):
         assert len(ablation_hash(TINY_ABLATION, "dev")) == 12
+
+
+class TestProgress:
+    """What an ablation run prints while it runs, as run_scenario does."""
+
+    @pytest.mark.parametrize(
+        "kind, expected",
+        [
+            ("dataset", "tiny easy dataset 3, truth and oracle"),
+            ("similarity", "tiny easy dataset 3, similarity at rho=0.5"),
+            ("cell", "tiny easy dataset 3, rho=0.5 B=8 replicate 1"),
+        ],
+    )
+    def test_a_unit_is_named_by_its_dataset_and_what_it_varies(self, kind, expected):
+        assert unit_label(Unit(kind, Cell("tiny", "easy", 3, 0.5, 8, 1))) == expected
+
+    def test_a_study_unit_is_named_by_its_study(self):
+        cell = Cell("probe", STUDY_DIFFICULTY, STUDY_DATASET, 0.618, 12, 0)
+        assert unit_label(Unit("cell", cell)) == "probe, rho=0.618 B=12 replicate 0"
+
+    def test_each_unit_is_reported_before_the_next_one_starts(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        units = [
+            u
+            for u in enumerate_units(TINY_ABLATION, "dev")
+            if u.kind == "dataset" and u.cell.study == "tiny"
+        ]
+        assert len(units) == 2
+        printed, reported = [], []
+        original = ablation_module.run_unit
+
+        def observing(unit, **kwargs):
+            printed.append(capsys.readouterr().out)
+            reported.append(len(re.findall(r"\[\d/2\]", "".join(printed))))
+            return original(unit, **kwargs)
+
+        monkeypatch.setattr(ablation_module, "run_unit", observing)
+        rd = run_ablation(TINY_ABLATION, scale="dev", root=tmp_path, n_jobs=1, units=units)
+        printed.append(capsys.readouterr().out)
+        lines = "".join(printed).splitlines()
+
+        assert reported == [0, 1]
+        assert len(lines) == 5
+        assert re.fullmatch(
+            r"ablation tiny \(dev\): 2 units to run, 0 already done; 1 worker, "
+            r"\d+ threads? per fit",
+            lines[0],
+        )
+        assert lines[1] == f"  run directory: {rd}"
+        assert re.fullmatch(r"  \[1/2\] tiny easy dataset 0, truth and oracle  \d+ s", lines[2])
+        assert re.fullmatch(r"  \[2/2\] tiny easy dataset 1, truth and oracle  \d+ s", lines[3])
+        assert re.fullmatch(r"ablation tiny \(dev\): complete, 2 units in \d+ s", lines[4])
 
 
 class TestRunAblation:

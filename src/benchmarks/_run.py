@@ -54,6 +54,7 @@ from ._estimators import build_classifier, build_estimator, param_grids
 from ._registry import (
     CARVE_METRICS_ALL,
     CVI_METRICS,
+    DIFFICULTY_AXIS,
     PUBLISHED_RANDOM_STATE,
     metric_measure,
     metric_rule,
@@ -122,6 +123,50 @@ def scenario_n_jobs(scenario: Scenario, requested: int | None) -> int:
     if requested is not None:
         return int(requested)
     return 1 if scenario.name in TIMED_SCENARIOS else -1
+
+
+def format_duration(seconds: float) -> str:
+    """A wall-clock duration the way the progress lines print it."""
+    total = int(round(seconds))
+    if total < 60:
+        return f"{total} s"
+    minutes, secs = divmod(total, 60)
+    if minutes < 60:
+        return f"{minutes} min {secs:02d} s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours} h {minutes:02d} min"
+
+
+def plural(count: int, noun: str) -> str:
+    """A count with its noun: 1 cell, 2 cells."""
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
+def report_progress(finished, *, total: int, desc: str, unit: str) -> None:
+    """Drain a pool's results, one line and one bar step per finished item.
+
+    finished yields (label, seconds) as items finish, which is why the pools
+    return generator_unordered. A bar over the submitted items instead runs
+    ahead of the work by everything joblib has already dispatched: 33 of 60
+    cells when the first of 11 workers finishes.
+    """
+    width = len(str(total))
+    with tqdm(total=total, desc=desc, unit=unit) as bar:
+        for count, (label, seconds) in enumerate(finished, start=1):
+            bar.write(
+                f"  [{count:>{width}}/{total}] {label}  {format_duration(seconds)}"
+            )
+            bar.update()
+
+
+def cell_label(scenario: Scenario, axis_value: Any, axis_label: str, seed: int) -> str:
+    """How a progress line names a cell: its difficulty level, or the value a
+    scaling axis sweeps, since start, middle and end do not say it."""
+    if scenario.axis.name == DIFFICULTY_AXIS.name:
+        point = axis_label
+    else:
+        point = f"{scenario.axis.name}={axis_value}"
+    return f"{point} seed {seed}"
 
 
 @dataclass(frozen=True)
@@ -455,7 +500,6 @@ def run_scenario(
     n_resamples: int = 100,
     resume: bool = True,
     allow_code_change: bool = False,
-    verbose: int = 0,
     timing_fits: bool | None = None,
 ) -> Path:
     """Run every cell of a scenario, checkpointing as it goes.
@@ -514,6 +558,10 @@ def run_scenario(
     n_jobs left at its default of None is likewise resolved per scenario
     class by scenario_n_jobs: every core for a difficulty scenario, one
     worker for a scenario whose fits are timed.
+
+    Progress goes to the terminal: a header with the cells to run, one line
+    per finished cell with its wall clock, a bar over the finished cells,
+    and a closing line with this invocation's total.
     """
     n_jobs = scenario_n_jobs(scenario, n_jobs)
 
@@ -563,10 +611,16 @@ def run_scenario(
         if (axis_label, seed) not in done
     ]
 
-    if verbose:
-        print(
-            f"{scenario.name}: {len(pending)} cells to run, {len(done)} already done."
-        )
+    workers, thread_cap = thread_cap_for(n_jobs)
+    n_total = scenario.shared.get("n_total")
+    print(
+        f"{scenario.name}: {plural(len(pending), 'cell')} to run, {len(done)} "
+        f"already done; {plural(workers, 'worker')}, "
+        f"{plural(thread_cap, 'thread')} per fit; "
+        f"{'n on the axis' if n_total is None else f'n={n_total}'}, "
+        f"classifier {scenario.classifier}"
+    )
+    print(f"  run directory: {rd}")
 
     run_id = previous_manifest["run_id"] if previous_manifest else uuid.uuid4().hex[:12]
     carried = (
@@ -574,7 +628,6 @@ def run_scenario(
         if previous_manifest is not None
         else 0.0
     )
-    _, thread_cap = thread_cap_for(n_jobs)
 
     def _manifest(status: str, wall_clock_s: float):
         return build_manifest(
@@ -596,6 +649,7 @@ def run_scenario(
     started = time.perf_counter()
 
     def _one(axis_idx, axis_value, axis_label, seed):
+        cell_started = time.perf_counter()
         rows, runtime_row = run_cell(
             scenario,
             axis_idx=axis_idx,
@@ -610,13 +664,19 @@ def run_scenario(
         )
         write_checkpoint(rd, axis_label, seed, rows)
         write_runtime_checkpoint(rd, axis_label, seed, [runtime_row])
+        label = cell_label(scenario, axis_value, axis_label, seed)
+        return label, time.perf_counter() - cell_started
 
     if pending:
-        Parallel(n_jobs=n_jobs)(
-            delayed(_one)(*cell)
-            for cell in tqdm(pending, desc=scenario.name, leave=False)
+        finished = Parallel(n_jobs=n_jobs, return_as="generator_unordered")(
+            delayed(_one)(*cell) for cell in pending
         )
+        report_progress(finished, total=len(pending), desc=scenario.name, unit="cell")
 
-    elapsed = carried + (time.perf_counter() - started)
-    write_manifest(rd, _manifest("complete", elapsed))
+    this_run = time.perf_counter() - started
+    write_manifest(rd, _manifest("complete", carried + this_run))
+    print(
+        f"{scenario.name}: complete, {plural(len(pending), 'cell')} in "
+        f"{format_duration(this_run)}"
+    )
     return rd

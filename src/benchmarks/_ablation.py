@@ -22,7 +22,6 @@ from typing import Any
 import numpy as np
 from joblib import Parallel, cpu_count, delayed
 from sklearn.metrics import adjusted_rand_score
-from tqdm.auto import tqdm
 
 from carve import CARVE
 from carve._selection import select_best_row_by_rule
@@ -30,6 +29,7 @@ from carve._utils import split_subsample_indices
 
 from ._ablation_cells import (
     REFERENCE_RATIO,
+    STUDY_DIFFICULTY,
     Cell,
     Unit,
     carve_seed,
@@ -66,7 +66,10 @@ from ._registry import (
 )
 from ._run import (
     fit_carve,
+    format_duration,
     labels_by_mode,
+    plural,
+    report_progress,
     smallest_cluster,
     thread_cap_for,
 )
@@ -409,17 +412,36 @@ def run_unit(
     raise ValueError(f"Unknown unit kind {unit.kind!r}.")
 
 
-def _run_and_write(unit, rd, ablation, scale, data, thread_cap) -> None:
+def unit_label(unit: Unit) -> str:
+    """How a progress line names a unit: its dataset, then what it varies."""
+    cell = unit.cell
+    if cell.difficulty == STUDY_DIFFICULTY:
+        data = cell.study
+    else:
+        data = f"{cell.study} {cell.difficulty} dataset {cell.dataset}"
+    if unit.kind == "dataset":
+        return f"{data}, truth and oracle"
+    if unit.kind == "similarity":
+        return f"{data}, similarity at rho={cell.subsample_ratio:g}"
+    return (
+        f"{data}, rho={cell.subsample_ratio:g} B={cell.n_resamples} "
+        f"replicate {cell.replicate}"
+    )
+
+
+def _run_and_write(unit, rd, ablation, scale, data, thread_cap) -> tuple[str, float]:
     # Module level, not a closure: joblib decides whether to memmap an
     # array argument by its size (max_nbytes), not by whether the callable
     # wrapping it is a closure. This stays at module scope so it pickles by
     # qualified name for any joblib backend, and so run_unit is a global
     # tests can monkeypatch (see test_ablation.py's resume test).
+    started = time.perf_counter()
     frames = run_unit(
         unit, ablation=ablation, scale=scale, data=data, thread_cap=thread_cap
     )
     for name, path in unit_paths(rd, unit).items():
         write_frame(path, frames[name], ABLATION_SCHEMAS[name])
+    return unit_label(unit), time.perf_counter() - started
 
 
 # --- Runner -------------------------------------------------------------------
@@ -430,7 +452,6 @@ def run_ablation(
     root: Path,
     n_jobs: int = -1,
     resume: bool = True,
-    verbose: int = 0,
     units: list[Unit] | None = None,
 ) -> Path:
     """Run every unit of an ablation at a scale, checkpointing as it goes.
@@ -447,6 +468,8 @@ def run_ablation(
     a run by it, and the publication cost is derived from its wall clock --
     and a resume reads run_id and the previous wall clock from whichever
     of the two it finds.
+
+    Progress goes to the terminal as run_scenario prints it, per unit.
     """
     scale = ablation.default_scale if scale is None else scale
     if scale not in ablation.scales:
@@ -479,12 +502,12 @@ def run_ablation(
         X, y, _ = load_study(STUDIES[ablation.study], scale=sc.study_scale)
         study_data = (np.asarray(X), np.asarray(y))
 
-    if verbose:
-        print(
-            f"ablation {ablation.name} ({scale}): {len(pending)} units to run, "
-            f"{len(all_units) - len(pending)} already done; {workers} workers, "
-            f"{thread_cap} threads per fit."
-        )
+    print(
+        f"ablation {ablation.name} ({scale}): {plural(len(pending), 'unit')} to run, "
+        f"{len(all_units) - len(pending)} already done; {plural(workers, 'worker')}, "
+        f"{plural(thread_cap, 'thread')} per fit"
+    )
+    print(f"  run directory: {rd}")
 
     run_id = previous["run_id"] if previous else uuid.uuid4().hex[:12]
     carried = float(previous["wall_clock_s"]) if previous is not None else 0.0
@@ -510,7 +533,7 @@ def run_ablation(
     write_manifest(rd, _manifest("running", carried))
     started = time.perf_counter()
     if pending:
-        Parallel(n_jobs=n_jobs)(
+        finished = Parallel(n_jobs=n_jobs, return_as="generator_unordered")(
             delayed(_run_and_write)(
                 unit,
                 rd,
@@ -519,8 +542,15 @@ def run_ablation(
                 study_data if unit.cell.study == ablation.study else None,
                 thread_cap,
             )
-            for unit in tqdm(pending, desc=f"ablation {ablation.name}", leave=False)
+            for unit in pending
         )
-    elapsed = carried + (time.perf_counter() - started)
-    write_manifest(rd, _manifest("complete", elapsed))
+        report_progress(
+            finished, total=len(pending), desc=f"ablation {ablation.name}", unit="unit"
+        )
+    this_run = time.perf_counter() - started
+    write_manifest(rd, _manifest("complete", carried + this_run))
+    print(
+        f"ablation {ablation.name} ({scale}): complete, "
+        f"{plural(len(pending), 'unit')} in {format_duration(this_run)}"
+    )
     return rd

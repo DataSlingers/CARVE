@@ -24,8 +24,10 @@ from benchmarks._registry import CARVE_METRICS_ALL, CVI_METRICS, SCENARIOS
 from benchmarks._run import (
     CLUSTER_COUNT_WARNING,
     benchmark_seed,
+    cell_label,
     cpu_cap,
     fit_carve,
+    format_duration,
     labels_by_mode,
     rare_cluster_recall,
     run_cell,
@@ -454,6 +456,68 @@ class TestRunScenario:
             tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1, resume=False
         )
         assert again == rd
+
+
+class TestProgress:
+    """What a run prints while it runs: a header, one line per finished cell
+    with its wall clock, a bar over finished cells and a closing line."""
+
+    @pytest.mark.parametrize(
+        "seconds, expected",
+        [
+            (0.4, "0 s"),
+            (12.4, "12 s"),
+            (161.0, "2 min 41 s"),
+            (2460.0, "41 min 00 s"),
+            (4980.0, "1 h 23 min"),
+        ],
+    )
+    def test_format_duration(self, seconds, expected):
+        assert format_duration(seconds) == expected
+
+    def test_a_difficulty_cell_is_named_by_its_level(self, tiny_scenario):
+        assert cell_label(tiny_scenario, 1, "hard", 3) == "hard seed 3"
+
+    def test_a_scaling_cell_is_named_by_its_axis_value(self):
+        """start, middle and end say nothing about the size of the problem."""
+        scenario = SCENARIOS["gaussians_dimensionality"]
+        assert cell_label(scenario, 525, "middle", 3) == "p=525 seed 3"
+
+    def test_each_cell_is_reported_before_the_next_one_starts(
+        self, tiny_scenario, tmp_path, capsys, monkeypatch
+    ):
+        """A bar over the submitted cells runs ahead of the work by
+        everything joblib has dispatched (33 of 60 cells when the first of 11
+        workers finishes), and a pool that returns a list reports nothing
+        until the last cell. One worker runs the cells in this process, one
+        at a time, so each cell's line must be out before the next starts."""
+        printed, reported = [], []
+
+        def observing(*args, **kwargs):
+            printed.append(capsys.readouterr().out)
+            reported.append(len(re.findall(r"\[\d/2\]", "".join(printed))))
+            return run_cell(*args, **kwargs)
+
+        monkeypatch.setattr("benchmarks._run.run_cell", observing)
+        run_serial(tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1)
+        assert reported == [0, 1]
+
+    def test_a_resumed_run_reports_what_it_skips_and_what_it_runs(
+        self, tiny_scenario, run_copy, capsys
+    ):
+        root, rd = run_copy
+        (rd / "cell__easy__0000.parquet").unlink()
+        run_serial(tiny_scenario, root=root, n_resamples=20, resume=True)
+        lines = capsys.readouterr().out.splitlines()
+        assert len(lines) == 4
+        assert re.fullmatch(
+            r"tiny: 1 cell to run, 3 already done; 1 worker, \d+ threads? per fit; "
+            r"n=120, classifier random_forest",
+            lines[0],
+        )
+        assert lines[1] == f"  run directory: {rd}"
+        assert re.fullmatch(r"  \[1/1\] easy seed 0  \d+ s", lines[2])
+        assert re.fullmatch(r"tiny: complete, 1 cell in \d+ s", lines[3])
 
 
 def test_compute_modules_do_not_import_matplotlib_directly():

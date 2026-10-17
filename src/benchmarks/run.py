@@ -75,7 +75,6 @@ def _parser() -> argparse.ArgumentParser:
         help="Resume into a run directory recorded at a different git_sha. Off by "
         "default, because resuming across code versions mixes their checkpoints.",
     )
-    parser.add_argument("--verbose", action="count", default=0)
     return parser
 
 
@@ -117,7 +116,6 @@ def main(argv: list[str] | None = None) -> int:
             root=Path(args.root),
             n_jobs=_resolve_n_jobs(args),
             resume=(not args.no_resume) and not args.timing_batch,
-            verbose=args.verbose,
             units=units,
         )
         print(f"{args.ablation} ({scale}): {rd}")
@@ -164,7 +162,6 @@ def main(argv: list[str] | None = None) -> int:
             random_state=args.random_state,
             resume=not args.no_resume,
             allow_code_change=args.allow_code_change,
-            verbose=args.verbose,
         )
         print(f"{name}: {rd}")
 
