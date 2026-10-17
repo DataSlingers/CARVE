@@ -522,6 +522,16 @@ CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
     "gaussians_samples": PUBLISHED_ANCHORS["gaussians_samples"],
 }
 
+# The sample size of every scenario that does not sweep n. Generalizability
+# clusters the held-out complement of each subsample, (1 - rho) * n rows, on
+# its own: 573 rows at the published n = 1500. On circles, moons and swiss
+# rolls, spectral clustering of those 573 rows agreed with the full-data fit
+# 0.15 to 0.32 ARI less than a clustering of 927 rows did, and the loss
+# changed with k enough to move generalizability's selection. At the same
+# anchors it fell to 0.05 to 0.17 at n = 3000 (measured 2026-10-16). k-means
+# and Ward lost 0.03 to 0.05 at n = 1500.
+BENCHMARK_N_TOTAL: int = 3000
+
 # other_settings_* from the same notebook cells. For the two scaling
 # scenarios the notebook's other_settings carries none of n_total, p, or
 # embed_dim — parse_range_and_simulate (benchmarking_simulation_helpers.py)
@@ -530,11 +540,13 @@ CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
 # "embed_dim": 64}. The swept parameter itself (p for
 # gaussians_dimensionality, n_total for gaussians_samples) is set by
 # Scenario.sim_kwargs from the axis value and must not also appear here.
+# gaussians_dimensionality departs from SCALING_CONSTANTS on n: it runs at
+# BENCHMARK_N_TOTAL, like the difficulty scenarios.
 _SHARED: dict[str, dict[str, Any]] = {
-    "gaussians": {"n_total": 1500, "p": 50},
-    "t_dist": {"n_total": 1500, "p": 50, "distribution": "t"},
+    "gaussians": {"n_total": BENCHMARK_N_TOTAL, "p": 50},
+    "t_dist": {"n_total": BENCHMARK_N_TOTAL, "p": 50, "distribution": "t"},
     "t_dist_noise": {
-        "n_total": 1500,
+        "n_total": BENCHMARK_N_TOTAL,
         "p": 50,
         "corr_type": "ar1",
         "distribution": "t",
@@ -542,7 +554,7 @@ _SHARED: dict[str, dict[str, Any]] = {
     "circles": {
         "distribution": "circles",
         "nonlinear": True,
-        "n_total": 1500,
+        "n_total": BENCHMARK_N_TOTAL,
         "p": 50,
         "corr_type": "ar1",
         "embed_dim": 64,
@@ -550,7 +562,7 @@ _SHARED: dict[str, dict[str, Any]] = {
     "moons": {
         "distribution": "moons",
         "nonlinear": True,
-        "n_total": 1500,
+        "n_total": BENCHMARK_N_TOTAL,
         "p": 50,
         "corr_type": "ar1",
         "embed_dim": 64,
@@ -563,7 +575,7 @@ _SHARED: dict[str, dict[str, Any]] = {
     "swiss_rolls": {
         "distribution": "interleaved_spirals",
         "nonlinear": True,
-        "n_total": 1500,
+        "n_total": BENCHMARK_N_TOTAL,
         "p": 50,
         "corr_type": "ar1",
         "embed_dim": 64,
@@ -573,7 +585,7 @@ _SHARED: dict[str, dict[str, Any]] = {
         "corr_type": "ar1",
         "corr_strength": 0.5,
         "cluster_size_dirichlet_alpha": 0.5,
-        "n_total": 1500,
+        "n_total": BENCHMARK_N_TOTAL,
         "embed_dim": 64,
     },
     # Axis is "n_total" — p and embed_dim are the SCALING_CONSTANTS values.

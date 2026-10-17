@@ -9,6 +9,7 @@ from benchmarks._registry import (
     ACTIVE_ANCHOR_SET_NAME,
     ACTIVE_ANCHORS,
     BASELINE_METRIC,
+    BENCHMARK_N_TOTAL,
     CALIBRATED_ANCHORS,
     CARVE_METRICS_ALL,
     CVI_METRICS,
@@ -119,7 +120,7 @@ class TestScalingScenarioAxes:
     @pytest.mark.parametrize(
         ("name", "swept_key", "fixed"),
         [
-            ("gaussians_dimensionality", "p", {"n_total": 1500, "embed_dim": 64}),
+            ("gaussians_dimensionality", "p", {"n_total": BENCHMARK_N_TOTAL, "embed_dim": 64}),
             ("gaussians_samples", "n_total", {"p": 50, "embed_dim": 64}),
         ],
     )
@@ -133,6 +134,26 @@ class TestScalingScenarioAxes:
             assert kwargs[swept_key] == value
             for key, expected in fixed.items():
                 assert kwargs[key] == expected
+
+
+class TestSampleSize:
+    """Every scenario that does not sweep n runs at one sample size."""
+
+    def test_the_benchmark_sample_size_is_3000(self):
+        """Generalizability clusters the held-out (1 - rho) * n rows on their
+        own. At n=1500 that is 573 rows, and spectral clustering of 573 rows
+        on circles, moons and swiss rolls agreed with the full-data fit 0.15
+        to 0.32 ARI less than a clustering of 927 rows; at n=3000 the loss
+        was 0.05 to 0.17 at the same anchors (measured 2026-10-16)."""
+        assert BENCHMARK_N_TOTAL == 3000
+
+    @pytest.mark.parametrize("name", (*DIFFICULTY_SCENARIOS, "gaussians_dimensionality"))
+    def test_every_scenario_with_a_fixed_n_reads_the_constant(self, name):
+        assert SCENARIOS[name].shared["n_total"] == BENCHMARK_N_TOTAL
+
+    def test_the_sample_size_scenario_takes_n_from_its_axis(self):
+        """gaussians_samples sweeps n itself (1,000 / 5,500 / 10,000)."""
+        assert "n_total" not in SCENARIOS["gaussians_samples"].shared
 
 
 class TestAnchors:
