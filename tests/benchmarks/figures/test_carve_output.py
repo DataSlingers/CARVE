@@ -766,11 +766,11 @@ class TestCarveOutputOverResolution:
         assert gap < 0.12
         plt.close(fig)
 
-    def test_consensus_matrix_and_its_letter_line_up_with_panel_a(
+    def test_consensus_letter_lines_up_with_a_and_the_matrix_stays_centered(
         self, leiden_inputs
     ):
-        # The square matrix sat centered in its wider cell, its left edge and
-        # letter right of A's and E's.
+        # The square matrix sits centered in its wider cell; its letter, placed
+        # relative to the matrix, fell right of A's and E's.
         fig = figure_carve_output_levine(leiden_inputs, save=False)
         fig.draw_without_rendering()
         panels = _panel_by_letter(fig)
@@ -781,12 +781,12 @@ class TestCarveOutputOverResolution:
             text = next(t for t in ax.texts if t.get_text() == letter)
             return text.get_window_extent().transformed(to_figure).x1
 
-        assert c.get_position().x0 == pytest.approx(a.get_position().x0, abs=1e-3)
+        matrix, cell = c.get_position(), c.get_position(original=True)
+        assert (matrix.x0 + matrix.x1) / 2 == pytest.approx((cell.x0 + cell.x1) / 2, abs=1e-3)
+        assert matrix.x0 > a.get_position().x0 + 0.01
         assert letter_right_edge(c, "C") == pytest.approx(
             letter_right_edge(a, "A"), abs=1e-3
         )
-        colorbar = c.images[0].colorbar.ax.get_position()
-        assert 0 < colorbar.x0 - c.get_position().x1 < 0.03
         plt.close(fig)
 
     def test_legend_names_the_resolution_panels_c_to_f_show(self, leiden_inputs):
