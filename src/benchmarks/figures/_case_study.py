@@ -441,10 +441,10 @@ def composite_figure(
     true_cmap, carve_cmap, comparison_cmap = composite_color_maps(inputs)
     carve_resolutions = _swept_resolutions(inputs.carve)
     cvi_over_resolution = "resolution" in inputs.curves_df.columns
-    # A resolution axis stands its tick labels upright, which takes most of
+    # A resolution axis stands its tick labels upright, and they hang into
     # the legend strip under the curves; the strip grows to hold both.
     legend_height = (
-        0.55 if carve_resolutions is not None or cvi_over_resolution else 0.3
+        0.35 if carve_resolutions is not None or cvi_over_resolution else 0.3
     )
 
     with theme_context():
@@ -533,21 +533,31 @@ def composite_figure(
             existing = source_ax.get_legend()
             if existing is not None:
                 existing.remove()
-            # A resolution run's upright tick labels and axis label take the
-            # top of the strip, so its legends sit at the bottom.
+            # A resolution run's upright tick labels and axis label hang into
+            # the strip, so its legends start just below them.
             over_resolution = (
                 carve_resolutions is not None
                 if source_ax is ax_carve_curves
                 else cvi_over_resolution
             )
+            placement: dict[str, Any] = {"loc": "center"}
+            if over_resolution:
+                labels_bottom = (
+                    source_ax.get_tightbbox().transformed(fig.transFigure.inverted()).y0
+                )
+                strip = target_ax.get_position()
+                placement = {
+                    "loc": "upper center",
+                    "bbox_to_anchor": (0.5, (labels_bottom - strip.y0) / strip.height),
+                }
             target_ax.legend(
                 handles,
                 [compact_setting(label) for label in labels],
                 title=title,
-                loc="lower center" if over_resolution else "center",
                 ncol=1,
                 frameon=False,
                 fontsize=FONT_SIZES["legend"],
+                **placement,
             )
 
         scatters = (ax_true, ax_carve, ax_cvi)

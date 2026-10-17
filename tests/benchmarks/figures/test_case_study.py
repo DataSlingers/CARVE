@@ -372,6 +372,32 @@ class TestLevineFigure:
                 assert not label.overlaps(legend.get_window_extent(renderer))
         plt.close(fig)
 
+    def test_curve_legends_start_right_under_the_resolution_labels(
+        self, resolution_inputs
+    ):
+        # Bottom-aligned in a strip 0.55 rows tall, the legends left most of
+        # an inch blank under "Resolution".
+        fig = figure_levine_results(resolution_inputs, save=False)
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        panels = _lettered(fig)
+        legends = [
+            ax.get_legend().get_window_extent(renderer)
+            for ax in fig.get_axes()
+            if ax.get_legend() is not None and not ax.axison
+        ]
+        f_top = panels["F"].get_tightbbox(renderer).y1
+        for letter in ("D", "E"):
+            curves = panels[letter].get_tightbbox(renderer)
+            (legend,) = [
+                box for box in legends if curves.x0 < (box.x0 + box.x1) / 2 < curves.x1
+            ]
+            assert 0 <= (curves.y0 - legend.y1) / fig.dpi < 0.2
+        # The strip ends a short way below the taller legend, clear of F.
+        lowest = min(box.y0 for box in legends)
+        assert 0 < (lowest - f_top) / fig.dpi < 0.45
+        plt.close(fig)
+
     def test_uses_the_smaller_marker_size(self, inputs):
         klein = figure_klein_results(inputs, save=False)
         levine = figure_levine_results(inputs, save=False)
