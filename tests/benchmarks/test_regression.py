@@ -1,7 +1,8 @@
 """Regression: the rebuilt pipeline must reproduce the committed results.
 
-Skipped unless CARVE_RUN_REGRESSION=1, because each scenario is a full 3 x 20
-benchmark. Run one with:
+The comparison is skipped unless CARVE_RUN_REGRESSION=1, because each
+scenario is a full 3 x 20 benchmark; the check that the oracle pins the
+submitted configuration always runs. Run one comparison with:
 
     CARVE_RUN_REGRESSION=1 .venv/bin/pytest \
         tests/benchmarks/test_regression.py -k gaussians -v
@@ -22,6 +23,7 @@ from benchmarks._registry import (
     SCENARIOS,
 )
 from benchmarks._run import run_scenario
+from benchmarks._types import Scenario
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RESULTS = REPO_ROOT / "results"
@@ -78,7 +80,28 @@ UNAFFECTED = {
 # to n_trees or ACTIVE_ANCHORS.
 _PUBLISHED_N_TREES: int = 100
 
-pytestmark = pytest.mark.skipif(
+# The same CSVs were produced at this sample size and with the forest, before
+# the registry moved to BENCHMARK_N_TOTAL = 3000 and to shrinkage LDA on the
+# Gaussian mixtures (2026-10-16). Pinned for the same reason as the tree
+# count.
+_PUBLISHED_N_TOTAL: int = 1500
+_PUBLISHED_CLASSIFIER: str = "random_forest"
+
+
+def _published_scenario(scenario_name: str) -> Scenario:
+    """The registered scenario with every setting the committed CSVs were
+    produced under put back: anchors, tree count, sample size, classifier."""
+    live = SCENARIOS[scenario_name]
+    return dataclasses.replace(
+        live,
+        anchors=PUBLISHED_ANCHORS[scenario_name],
+        n_trees=_PUBLISHED_N_TREES,
+        shared={**live.shared, "n_total": _PUBLISHED_N_TOTAL},
+        classifier=_PUBLISHED_CLASSIFIER,
+    )
+
+
+requires_regression = pytest.mark.skipif(
     os.environ.get("CARVE_RUN_REGRESSION") != "1",
     reason="set CARVE_RUN_REGRESSION=1 to run the full-scenario regression",
 )
@@ -113,22 +136,18 @@ def scenario_run(tmp_path_factory):
     base seed simulates entirely different data and cannot match the
     committed CSVs.
 
-    Each run also uses dataclasses.replace to pin anchors and n_trees to
-    PUBLISHED_ANCHORS and _PUBLISHED_N_TREES rather than reading them off
-    SCENARIOS[scenario_name] directly, so this oracle keeps comparing
-    against the configuration that produced the committed CSVs even as
-    later changes move ACTIVE_ANCHORS or _N_TREES in the live registry.
+    Each run goes through _published_scenario, which pins anchors, n_trees,
+    n_total and the classifier to the values that produced the committed
+    CSVs rather than reading them off SCENARIOS[scenario_name], so this
+    oracle keeps comparing against that configuration as the live registry
+    moves.
     """
     roots: dict[str, Path] = {}
 
     def _run(scenario_name: str) -> Path:
         if scenario_name not in roots:
             roots[scenario_name] = tmp_path_factory.mktemp(scenario_name)
-        scenario = dataclasses.replace(
-            SCENARIOS[scenario_name],
-            anchors=PUBLISHED_ANCHORS[scenario_name],
-            n_trees=_PUBLISHED_N_TREES,
-        )
+        scenario = _published_scenario(scenario_name)
         return run_scenario(
             scenario,
             root=roots[scenario_name],
@@ -139,6 +158,7 @@ def scenario_run(tmp_path_factory):
     return _run
 
 
+@requires_regression
 @pytest.mark.parametrize(("scenario_name", "stem"), sorted(UNAFFECTED.items()))
 def test_rebuilt_pipeline_reproduces_committed_results(scenario_name, stem, scenario_run):
     rd = scenario_run(scenario_name)
@@ -218,3 +238,21 @@ def test_rebuilt_pipeline_reproduces_committed_results(scenario_name, stem, scen
         rtol=1e-6,
         atol=1e-8,
     )
+
+
+@pytest.mark.parametrize("scenario_name", sorted(UNAFFECTED))
+def test_the_oracle_simulates_the_submitted_configuration(scenario_name):
+    """The committed CSVs came from n=1500 and the forest. The live registry
+    has since moved to BENCHMARK_N_TOTAL=3000 and to LDA on the Gaussian
+    mixtures, so the oracle has to pin both, or it compares a different
+    experiment against them and fails only when someone sets
+    CARVE_RUN_REGRESSION=1."""
+    scenario = _published_scenario(scenario_name)
+    assert scenario.shared["n_total"] == 1500
+    assert scenario.classifier == "random_forest"
+    assert scenario.n_trees == 100
+    assert scenario.anchors == PUBLISHED_ANCHORS[scenario_name]
+    live = SCENARIOS[scenario_name]
+    assert {k: v for k, v in scenario.shared.items() if k != "n_total"} == {
+        k: v for k, v in live.shared.items() if k != "n_total"
+    }
