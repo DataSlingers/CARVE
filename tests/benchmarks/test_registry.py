@@ -142,9 +142,11 @@ class TestSampleSize:
     def test_the_benchmark_sample_size_is_3000(self):
         """Generalizability clusters the held-out (1 - rho) * n rows on their
         own. At n=1500 that is 573 rows, and spectral clustering of 573 rows
-        on circles, moons and swiss rolls agreed with the full-data fit 0.15
+        on circles, moons and swiss rolls agreed with the full-data fit 0.17
         to 0.32 ARI less than a clustering of 927 rows; at n=3000 the loss
-        was 0.05 to 0.17 at the same anchors (measured 2026-10-16)."""
+        was 0.05 to 0.17 at the same anchors (measured 2026-10-16), but
+        those anchors were also easier then (oracle ARI 1.0 on all three),
+        which is why they were recalibrated."""
         assert BENCHMARK_N_TOTAL == 3000
 
     @pytest.mark.parametrize("name", (*DIFFICULTY_SCENARIOS, "gaussians_dimensionality"))

@@ -474,7 +474,8 @@ CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
     # Knob: multiplier on SPIRAL_REFERENCE, applied to arm length, arm
     # thickness and twist together. Dirichlet alpha and AR(1) strength keep
     # the published per-level values; embed_param is 5.0 at every level.
-    # Recalibrated 2026-09-30 when the scenario moved to interleaved spirals.
+    # Recalibrated 2026-09-30 when the scenario moved to interleaved spirals,
+    # and again at n = 3000 on 2026-10-16.
     "swiss_rolls": {
         # multiplier 1.0, ARI 1.000 +/- 0.000
         "easy": {
@@ -514,10 +515,12 @@ CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
 # clusters the held-out complement of each subsample, (1 - rho) * n rows, on
 # its own: 573 rows at the published n = 1500. On circles, moons and swiss
 # rolls, spectral clustering of those 573 rows agreed with the full-data fit
-# 0.15 to 0.32 ARI less than a clustering of 927 rows did, and the loss
+# 0.17 to 0.32 ARI less than a clustering of 927 rows did, and the loss
 # changed with k enough to move generalizability's selection. At the same
-# anchors it fell to 0.05 to 0.17 at n = 3000 (measured 2026-10-16). k-means
-# and Ward lost 0.03 to 0.05 at n = 1500.
+# anchors it fell to 0.05 to 0.17 at n = 3000 (measured 2026-10-16), but
+# those anchors were also easier at n = 3000 (oracle ARI 1.0 on all three),
+# which is why they were recalibrated. k-means and Ward lost 0.03 to 0.05 at
+# n = 1500.
 BENCHMARK_N_TOTAL: int = 3000
 
 # other_settings_* from the same notebook cells. For the two scaling
@@ -568,7 +571,8 @@ _SHARED: dict[str, dict[str, Any]] = {
         "corr_type": "ar1",
         "embed_dim": 64,
     },
-    # Axis is "p". n_total is BENCHMARK_N_TOTAL; embed_dim is the SCALING_CONSTANTS value.
+    # Axis is "p". n_total is BENCHMARK_N_TOTAL; embed_dim is the
+    # SCALING_CONSTANTS value.
     "gaussians_dimensionality": {
         "corr_type": "ar1",
         "corr_strength": 0.5,
@@ -630,8 +634,9 @@ _N_TREES: dict[str, int] = dict.fromkeys(_ESTIMATORS, 500)
 # worse, and LDA lifted the ARI at generalizability's selected k from 0.797
 # to 0.866 (measured 2026-10-16). At p=1000 the forest scored 0.25 at 500
 # trees and 0.28 at 2,000, LDA 0.95, and a CARVE fit took 428 s instead of
-# 3,581 s. For Ward and spectral clustering the forest's loss was 0.00 to
-# 0.03 and LDA did no better.
+# 3,581 s. On the sample-size axis LDA also scored higher at every n. For
+# Ward and spectral clustering the forest's loss was 0.00 to 0.03 and LDA did
+# no better.
 _CLASSIFIERS: dict[str, str] = {
     **dict.fromkeys(_ESTIMATORS, "random_forest"),
     "gaussians": "lda",
