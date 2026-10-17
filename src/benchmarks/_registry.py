@@ -580,7 +580,7 @@ _SHARED: dict[str, dict[str, Any]] = {
         "corr_type": "ar1",
         "embed_dim": 64,
     },
-    # Axis is "p" — n_total and embed_dim are the SCALING_CONSTANTS values.
+    # Axis is "p". n_total is BENCHMARK_N_TOTAL; embed_dim is the SCALING_CONSTANTS value.
     "gaussians_dimensionality": {
         "corr_type": "ar1",
         "corr_strength": 0.5,
