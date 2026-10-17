@@ -133,6 +133,19 @@ class CarveFit:
     n_cluster_count_warnings: int
 
 
+def _classifier_kwargs(
+    classifier: ClassifierMixin | None, n_trees: int
+) -> dict[str, Any]:
+    """CARVE arguments for the generalizability classifier.
+
+    n_trees sizes CARVE's default forest only. Passed beside a custom
+    classifier it makes CARVE warn that it is ignored, so it is omitted then.
+    """
+    if classifier is None:
+        return {"n_trees": n_trees}
+    return {"classifier": classifier}
+
+
 def fit_carve(
     X: np.ndarray,
     *,
@@ -158,10 +171,9 @@ def fit_carve(
     carve = CARVE(
         estimator_param_grids=grids,
         n_resamples=n_resamples,
-        n_trees=n_trees,
-        classifier=classifier,
         n_jobs=1,
         random_state=random_state,
+        **_classifier_kwargs(classifier, n_trees),
         **optional,
     )
     with warnings.catch_warnings(record=True) as caught, cpu_cap(thread_cap):
@@ -397,10 +409,9 @@ def run_cell(
                 timer = CARVE(
                     estimator_param_grids=grids,
                     n_resamples=n_resamples,
-                    n_trees=scenario.n_trees,
-                    classifier=classifier,
                     n_jobs=1,
                     random_state=cell_seed,
+                    **_classifier_kwargs(classifier, scenario.n_trees),
                 )
                 with cpu_cap(thread_cap):
                     t0 = time.perf_counter()

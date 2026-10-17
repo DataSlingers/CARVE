@@ -19,7 +19,7 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.metrics import adjusted_rand_score
 
 from benchmarks._artifacts import SCHEMA, read_run
-from benchmarks._estimators import build_estimator, param_grids
+from benchmarks._estimators import build_classifier, build_estimator, param_grids
 from benchmarks._registry import CARVE_METRICS_ALL, CVI_METRICS, SCENARIOS
 from benchmarks._run import (
     CLUSTER_COUNT_WARNING,
@@ -593,6 +593,16 @@ class TestRuntimeCapture:
             for k in recording_carve.init_kwargs
         ] == [True, True, True]
 
+    def test_timed_lda_fits_at_n_trees_500_do_not_warn(self, tiny_scenario):
+        """The timer site builds CARVE beside the scenario's classifier. With
+        n_trees=500 and LDA, passing n_trees makes CARVE warn that it is
+        ignored, which filterwarnings=error turns into a failure."""
+        scenario = dataclasses.replace(tiny_scenario, classifier="lda", n_trees=500)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _cell(scenario, timing_fits=True)
+        assert not [w for w in caught if "n_trees is ignored" in str(w.message)]
+
     def test_per_k_runtimes_divide_by_the_candidate_count(self, tiny_scenario, cell10_timed):
         _, runtime = cell10_timed
         n_k = len(tiny_scenario.candidate_k)
@@ -756,6 +766,24 @@ class TestScenarioNJobs:
 
 
 class TestFitCarve:
+    def test_lda_at_n_trees_500_fits_without_the_ignored_warning(self):
+        """fit_carve with the scenario's LDA classifier and the published
+        n_trees=500 must not pass n_trees beside the classifier, or CARVE
+        warns that n_trees is ignored."""
+        X = np.random.default_rng(0).normal(size=(60, 3))
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            fit = fit_carve(
+                X,
+                grids=param_grids(EstimatorSpec(name="kmeans"), (2, 3)),
+                n_resamples=4,
+                n_trees=500,
+                random_state=0,
+                classifier=build_classifier("lda"),
+            )
+        assert not [w for w in caught if "n_trees is ignored" in str(w.message)]
+        assert fit.carve.estimator_results_ is not None
+
     def test_regex_matches_carves_own_message(self):
         # The literal format string lives in carve/_runner.py:
         # f"labels_1 has {k_1} clusters, expected {expected}".
