@@ -333,38 +333,38 @@ SPIRAL_REFERENCE: dict[str, float] = {
     "spiral_twist": 0.2,
 }
 
-# Regenerated 2026-09-23 by _calibrate.calibrate_scenario, against the
-# documented bands in TARGET_ARI_BANDS, with the shift-invert eigensolver
-# and each scenario's final estimator in place. Run with the calibration
-# module's defaults: n_seeds=20, random_state=PUBLISHED_RANDOM_STATE (42),
-# max_iter=25. The achieved mean oracle ARI and its spread over the 20
-# calibration datasets are recorded per anchor; the full comparison against
-# PUBLISHED_ANCHORS is in
-# docs/superpowers/notes/2026-09-22-calibration-comparison.md.
+# Regenerated 2026-10-16 at n_total = BENCHMARK_N_TOTAL (3000), against the
+# documented bands in TARGET_ARI_BANDS, by _calibrate.calibrate_anchor run
+# for each difficulty label with calibrate_scenario's defaults: n_seeds=20,
+# random_state=PUBLISHED_RANDOM_STATE (42), max_iter=25. Each knob was applied
+# to the same reference as in the n = 1500 calibrations of 2026-09-23 and
+# 2026-09-30: the published cluster_scale vector, the absolute embed_param,
+# and SPIRAL_REFERENCE. The achieved mean oracle ARI and its spread over the
+# 20 calibration datasets are recorded per anchor; the comparison with the
+# n = 1500 anchors is in docs/superpowers/notes/2026-10-16-calibration-n3000.md.
 #
-# Two knobs, because no single parameter controls difficulty on every
-# scenario -- see _calibrate.CALIBRATION_KNOBS. The four scale-driven
-# scenarios carry their published cluster_scale vector times a multiplier,
-# so the unequal per-cluster scales survive; circles and moons carry an
-# absolute embed_param. All eighteen anchors landed in their target band on
-# the first calibration run -- no band needed widening. swiss_rolls was
-# recalibrated on 2026-09-30, on a third knob, when it moved to interleaved
-# spirals; its three anchors also landed in band on the first run.
+# Three knobs, because no single parameter controls difficulty on every
+# scenario -- see _calibrate.CALIBRATION_KNOBS. gaussians, t_dist and
+# t_dist_noise carry their published cluster_scale vector times a
+# multiplier, so the unequal per-cluster scales survive; circles and moons
+# carry an absolute embed_param; swiss_rolls multiplies arm length, arm
+# thickness and twist together. All eighteen anchors landed in their target
+# band on the first run at n = 3000; no knob range or band was widened.
 CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
     # Knob: cluster_scale multiplier. The published vector was [4.0] * 5 at
     # easy, [4.5] * 5 at medium and [4.6] * 5 at hard.
     "gaussians": {
-        # multiplier 0.8250000000000001, ARI 0.984 +/- 0.004
+        # multiplier 0.8250000000000001, ARI 0.984 +/- 0.006
         "easy": {
             "cluster_scale": [3.3000000000000003] * 5,
             "cluster_size_dirichlet_alpha": 0.9,
         },
-        # multiplier 1.00625, ARI 0.862 +/- 0.022
+        # multiplier 1.00625, ARI 0.867 +/- 0.022
         "medium": {
             "cluster_scale": [4.528125] * 5,
             "cluster_size_dirichlet_alpha": 0.5,
         },
-        # multiplier 1.00625, ARI 0.740 +/- 0.163
+        # multiplier 1.00625, ARI 0.784 +/- 0.139
         "hard": {
             "cluster_scale": [4.62875] * 5,
             "cluster_size_dirichlet_alpha": 0.1,
@@ -374,19 +374,19 @@ CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
     # [3.5, 1.0, 1.0, 1.0, 1.0] at easy, [3.0, 1.5, 1.0, 1.0, 1.0] at
     # medium and [4.0, 3.0, 2.0, 1.0, 1.0] at hard.
     "t_dist": {
-        # multiplier 1.55, ARI 0.935 +/- 0.034
+        # multiplier 1.55, ARI 0.938 +/- 0.045
         "easy": {
             "cluster_scale": [5.425, 1.55, 1.55, 1.55, 1.55],
             "cluster_size_dirichlet_alpha": 0.9,
             "t_df": 5,
         },
-        # multiplier 1.1875, ARI 0.811 +/- 0.114
+        # multiplier 1.1875, ARI 0.831 +/- 0.114
         "medium": {
             "cluster_scale": [3.5625, 1.78125, 1.1875, 1.1875, 1.1875],
             "cluster_size_dirichlet_alpha": 0.3,
             "t_df": 3,
         },
-        # multiplier 1.00625, ARI 0.726 +/- 0.137
+        # multiplier 1.00625, ARI 0.766 +/- 0.114
         "hard": {
             "cluster_scale": [4.025, 3.0187500000000003, 2.0125, 1.00625, 1.00625],
             "cluster_size_dirichlet_alpha": 0.1,
@@ -396,7 +396,7 @@ CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
     # Knob: cluster_scale multiplier. The published vector was [1.0] * 5 at
     # easy, [1.1, 1.0, 1.0, 1.0, 1.0] at medium and hard.
     "t_dist_noise": {
-        # multiplier 0.8250000000000001, ARI 0.995 +/- 0.003
+        # multiplier 0.8250000000000001, ARI 0.995 +/- 0.002
         "easy": {
             "cluster_scale": [0.8250000000000001] * 5,
             "cluster_size_dirichlet_alpha": 0.9,
@@ -404,29 +404,17 @@ CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
             "corr_strength": 0.1,
             "noise_dims": 512,
         },
-        # multiplier 1.00625, ARI 0.846 +/- 0.037
+        # multiplier 1.00625, ARI 0.861 +/- 0.034
         "medium": {
-            "cluster_scale": [
-                1.1068750000000003,
-                1.00625,
-                1.00625,
-                1.00625,
-                1.00625,
-            ],
+            "cluster_scale": [1.1068750000000003, 1.00625, 1.00625, 1.00625, 1.00625],
             "cluster_size_dirichlet_alpha": 0.3,
             "t_df": 4,
             "corr_strength": 0.3,
             "noise_dims": 1280,
         },
-        # multiplier 1.00625, ARI 0.711 +/- 0.090
+        # multiplier 1.00625, ARI 0.747 +/- 0.073
         "hard": {
-            "cluster_scale": [
-                1.1068750000000003,
-                1.00625,
-                1.00625,
-                1.00625,
-                1.00625,
-            ],
+            "cluster_scale": [1.1068750000000003, 1.00625, 1.00625, 1.00625, 1.00625],
             "cluster_size_dirichlet_alpha": 0.1,
             "t_df": 3,
             "corr_strength": 0.5,
@@ -436,51 +424,51 @@ CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
     # Knob: embed_param, absolute. The published values were 12.0, 7.3 and
     # 6.0, all past the 4.0 saturation point the shift-invert solver exposed.
     "circles": {
-        # embed_param 3.5, ARI 0.981 +/- 0.084
+        # embed_param 3.0, ARI 0.965 +/- 0.107
         "easy": {
             "cluster_scale": [4.08, 4.08, 3.0, 3.0, 3.0],
             "cluster_size_dirichlet_alpha": 0.9,
             "corr_strength": 0.1,
-            "embed_param": 3.5,
+            "embed_param": 3.0,
         },
-        # embed_param 3.0, ARI 0.800 +/- 0.186
+        # embed_param 2.5, ARI 0.853 +/- 0.209
         "medium": {
             "cluster_scale": [4.08, 4.08, 3.0, 3.0, 3.0],
             "cluster_size_dirichlet_alpha": 0.61,
             "corr_strength": 0.23,
-            "embed_param": 3.0,
+            "embed_param": 2.5,
         },
-        # embed_param 3.25, ARI 0.724 +/- 0.282
+        # embed_param 2.5, ARI 0.775 +/- 0.221
         "hard": {
             "cluster_scale": [4.38, 4.08, 4.08, 4.08, 4.08],
             "cluster_size_dirichlet_alpha": 0.35,
-            "corr_strength": 0.20,
-            "embed_param": 3.25,
+            "corr_strength": 0.2,
+            "embed_param": 2.5,
         },
     },
     # Knob: embed_param, absolute. The published values were 10.7, 5.7 and
     # 14.5, all past or straddling the saturation point.
     "moons": {
-        # embed_param 3.5, ARI 0.967 +/- 0.102
+        # embed_param 3.0, ARI 1.000 +/- 0.000
         "easy": {
             "cluster_scale": [5.5, 3.97, 3.97, 3.97, 3.97],
             "cluster_size_dirichlet_alpha": 0.67,
             "corr_strength": 0.39,
-            "embed_param": 3.5,
+            "embed_param": 3.0,
         },
-        # embed_param 3.0, ARI 0.842 +/- 0.168
+        # embed_param 2.3125, ARI 0.880 +/- 0.153
         "medium": {
             "cluster_scale": [4.8, 4.06, 4.06, 4.06, 4.06],
             "cluster_size_dirichlet_alpha": 0.57,
-            "corr_strength": 0.30,
-            "embed_param": 3.0,
+            "corr_strength": 0.3,
+            "embed_param": 2.3125,
         },
-        # embed_param 3.5, ARI 0.766 +/- 0.204
+        # embed_param 2.5625, ARI 0.721 +/- 0.210
         "hard": {
             "cluster_scale": [4.06, 2.65, 2.65, 2.65, 2.65],
-            "cluster_size_dirichlet_alpha": 0.10,
+            "cluster_size_dirichlet_alpha": 0.1,
             "corr_strength": 0.16,
-            "embed_param": 3.5,
+            "embed_param": 2.5625,
         },
     },
     # Knob: multiplier on SPIRAL_REFERENCE, applied to arm length, arm
@@ -488,29 +476,29 @@ CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
     # the published per-level values; embed_param is 5.0 at every level.
     # Recalibrated 2026-09-30 when the scenario moved to interleaved spirals.
     "swiss_rolls": {
-        # multiplier 0.75, ARI 0.998 +/- 0.007
+        # multiplier 1.0, ARI 1.000 +/- 0.000
         "easy": {
-            "spiral_turns": 0.375,
-            "spiral_band": 0.0375,
-            "spiral_twist": 0.15,
+            "spiral_turns": 0.5,
+            "spiral_band": 0.05,
+            "spiral_twist": 0.2,
             "cluster_size_dirichlet_alpha": 0.9,
             "corr_strength": 0.1,
             "embed_param": 5.0,
         },
-        # multiplier 1.0, ARI 0.824 +/- 0.155
+        # multiplier 1.25, ARI 0.875 +/- 0.141
         "medium": {
-            "spiral_turns": 0.5,
-            "spiral_band": 0.05,
-            "spiral_twist": 0.2,
+            "spiral_turns": 0.625,
+            "spiral_band": 0.0625,
+            "spiral_twist": 0.25,
             "cluster_size_dirichlet_alpha": 0.7,
             "corr_strength": 0.1,
             "embed_param": 5.0,
         },
-        # multiplier 1.0625, ARI 0.735 +/- 0.142
+        # multiplier 1.3125, ARI 0.755 +/- 0.138
         "hard": {
-            "spiral_turns": 0.53125,
-            "spiral_band": 0.053125,
-            "spiral_twist": 0.2125,
+            "spiral_turns": 0.65625,
+            "spiral_band": 0.065625,
+            "spiral_twist": 0.2625,
             "cluster_size_dirichlet_alpha": 0.5,
             "corr_strength": 0.3,
             "embed_param": 5.0,
