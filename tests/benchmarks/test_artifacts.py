@@ -124,7 +124,7 @@ class TestConfigHash:
         )
 
     def test_changes_when_the_classifier_changes(self):
-        s = SCENARIOS["gaussians"]
+        s = dataclasses.replace(SCENARIOS["gaussians"], classifier="random_forest")
         changed = dataclasses.replace(s, classifier="lda")
         assert config_hash(s, n_seeds=20, n_resamples=100, random_state=42) != config_hash(
             changed, n_seeds=20, n_resamples=100, random_state=42
@@ -134,7 +134,7 @@ class TestConfigHash:
         """Every run made before Scenario had a classifier used the forest.
         Leaving the default out keeps those runs' hashes, and the directories
         named by them, where they were."""
-        s = SCENARIOS["gaussians"]
+        s = dataclasses.replace(SCENARIOS["gaussians"], classifier="random_forest")
         assert "classifier" not in scenario_identity(s)
         lda = dataclasses.replace(s, classifier="lda")
         assert scenario_identity(lda)["classifier"] == "lda"
@@ -645,7 +645,7 @@ class TestProvenance:
         assert record["peak_rss_unit"] == "bytes"
 
     def test_scenario_identity_is_the_config_hash_input_minus_run_parameters(self):
-        scenario = SCENARIOS["gaussians"]
+        scenario = dataclasses.replace(SCENARIOS["gaussians"], classifier="random_forest")
         identity = scenario_identity(scenario)
         assert set(identity) == {
             "name", "axis_name", "axis_values", "axis_labels", "anchors",

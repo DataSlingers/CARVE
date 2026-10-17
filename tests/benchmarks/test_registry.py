@@ -247,17 +247,18 @@ class TestScenarios:
         """
         assert SCENARIOS[name].n_trees == 500
 
-    @pytest.mark.parametrize("name", SCALING_SCENARIOS)
-    def test_scaling_scenarios_score_generalizability_with_lda(self, name):
-        """k-means draws hyperplane boundaries. At p=1000 the forest
-        reproduced a held-out k-means partition with ARI 0.25 at 500 trees
-        and 0.28 at 2,000; shrinkage LDA reproduced it with 0.95. On the
-        sample-size axis LDA also scored higher at every n."""
-        assert SCENARIOS[name].classifier == "lda"
-
-    @pytest.mark.parametrize("name", DIFFICULTY_SCENARIOS)
-    def test_difficulty_scenarios_keep_the_forest(self, name):
-        assert SCENARIOS[name].classifier == "random_forest"
+    @pytest.mark.parametrize("name", sorted(SCENARIOS))
+    def test_lda_scores_exactly_the_k_means_scenarios(self, name):
+        """The classifier has to be able to draw the boundaries the
+        clustering draws. k-means partitions are linear: at p=50 the forest
+        reproduced a held-out k-means partition 0.18 ARI worse than the
+        training clustering agreed with the full-data fit, shrinkage LDA 0.01
+        worse, and at p=1000 the forest scored 0.25 against LDA's 0.95. For
+        Ward and spectral clustering the forest's loss was 0.00 to 0.03 and
+        LDA did no better (measured 2026-10-16)."""
+        scenario = SCENARIOS[name]
+        expected = "lda" if scenario.estimator.name == "kmeans" else "random_forest"
+        assert scenario.classifier == expected
 
     def test_swiss_rolls_does_not_restate_the_simulator_default(self):
         """center_box=3.0 is simulate_clusters's own default.

@@ -633,14 +633,20 @@ _ESTIMATORS: dict[str, str] = {
 # not the bottleneck.
 _N_TREES: dict[str, int] = dict.fromkeys(_ESTIMATORS, 500)
 
-# The generalizability classifier. The forest everywhere except the two
-# scaling scenarios, which cluster Gaussian mixtures with k-means across a
-# range of p and n; there n_trees is carried but unused. At p=1000 the forest
-# reproduced a held-out k-means partition with ARI 0.25 at 500 trees and 0.28
-# at 2,000, shrinkage LDA with 0.95, and a CARVE fit took 428 s instead of
-# 3,581 s. On the sample-size axis LDA also scored higher at every n.
+# The generalizability classifier has to be able to draw the boundaries the
+# clustering draws, so shrinkage LDA scores the three scenarios clustered with
+# k-means, whose partitions are linear, and the forest scores the rest; where
+# LDA is used, n_trees is carried but unused. On the Gaussian difficulty
+# benchmark (p=50) the forest reproduced a held-out k-means partition 0.18 ARI
+# worse than the training clustering agreed with the full-data fit, LDA 0.01
+# worse, and LDA lifted the ARI at generalizability's selected k from 0.797
+# to 0.866 (measured 2026-10-16). At p=1000 the forest scored 0.25 at 500
+# trees and 0.28 at 2,000, LDA 0.95, and a CARVE fit took 428 s instead of
+# 3,581 s. For Ward and spectral clustering the forest's loss was 0.00 to
+# 0.03 and LDA did no better.
 _CLASSIFIERS: dict[str, str] = {
     **dict.fromkeys(_ESTIMATORS, "random_forest"),
+    "gaussians": "lda",
     "gaussians_dimensionality": "lda",
     "gaussians_samples": "lda",
 }
