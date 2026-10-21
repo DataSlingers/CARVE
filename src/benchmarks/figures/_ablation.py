@@ -244,12 +244,15 @@ def _simulations(
     ax: Axes, view: Mapping[str, pd.DataFrame], *, x: str, study: str
 ) -> None:
     """One scenario: its seed lines, its selectors and, under them, its
-    oracle averaged over the datasets this arm ran."""
+    oracle averaged over the datasets this arm ran, left out while the
+    scenario has no cell yet."""
     selection, at_k = view["selection"], view["at_k"]
     _seed_lines(ax, seed_summary(selection, at_k, x=x), x=x, study=study)
     _selectors(ax, ari_summary(selection, at_k, x=x), x=x, study=study)
     oracle = oracle_summary(view)
-    _oracle(ax, float(oracle.loc[oracle["study"] == study, "oracle_ari"].iloc[0]))
+    value = oracle.loc[oracle["study"] == study, "oracle_ari"]
+    if not value.empty:
+        _oracle(ax, float(value.iloc[0]))
     ax.set_ylabel("ARI to true labels")
 
 

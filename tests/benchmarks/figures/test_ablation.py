@@ -358,6 +358,27 @@ class TestFigureAblation:
             assert oracle.get_ydata()[0] == pytest.approx(value), letter
         plt.close(fig)
 
+    def test_a_scenario_with_no_cells_yet_draws_no_oracle(self, without_study):
+        # The notebook can be opened during a run, before any circles cell
+        # has finished. Every table that carries a study column loses its
+        # circles rows, as a run directory without circles units would.
+        ablation, frames = without_study
+        partial = {
+            name: frame[frame["study"] != CIRCLES] if "study" in frame else frame
+            for name, frame in frames.items()
+        }
+        assert all(CIRCLES not in set(f["study"]) for f in partial.values() if "study" in f)
+        fig = figure_ablation(partial, ablation=ablation, scale="test", save=False)
+        panels = _panels(fig)
+        assert list(panels) == list("ABCD")
+        for letter, n_oracle in {"A": 1, "B": 1, "C": 0, "D": 0}.items():
+            lines = [
+                line for line in panels[letter].lines
+                if to_hex(line.get_color()) == to_hex(metric_color("baseline_oracle"))
+            ]
+            assert len(lines) == n_oracle, letter
+        plt.close(fig)
+
     def test_each_row_reads_its_own_scenarios_oracle(self, without_study):
         ablation, frames = without_study
         datasets = frames["datasets"].copy()
