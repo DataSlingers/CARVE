@@ -1,8 +1,10 @@
 """Per-setting summaries of the ablation frames.
 
-Pure pandas over the frames read_frames returns, so the figures, the table
-and the notebook compute nothing themselves. x names the swept column,
-"subsample_ratio" for the rho arm and "n_resamples" for the B arm. Rows
+Pure pandas over the frames read_frames returns, so the figures, the SI
+tables and the notebook compute nothing themselves. The SI tables take their
+numbers from _tables.ablation_table_frame; table_rows serves the notebook
+only. x names the swept column, "subsample_ratio" for the rho arm and
+"n_resamples" for the B arm. Rows
 with study == POOLED pool the simulated studies; the case study has
 difficulty "" and is never pooled with them.
 """
@@ -417,10 +419,11 @@ def table_rows(
     study: str | None,
     metrics: Sequence[str] = HEADLINE_METRICS,
 ) -> pd.DataFrame:
-    """One row per (setting, metric) for the SI table: pooled ARI of the
+    """One row per (setting, metric) for the notebook: pooled ARI of the
     selected labels, pooled replicate agreement, and the study's modal
     selection with its share of replicates. With study=None (an ablation
-    without a case study) the modal columns are left empty.
+    without a case study) the modal columns are left empty. The SI tables do
+    not use it; they read _tables.ablation_table_frame.
 
     A partial run (an empty selection frame, or one with no rows for the
     named study) leaves modal empty; declaring the merge frame's columns

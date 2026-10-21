@@ -186,9 +186,10 @@ class TestSimilarityRows:
 
     @staticmethod
     def _spectral_calls(monkeypatch, rho):
-        """(rows, n_neighbors) of every spectral fit one similarity unit makes
-        on the 120-row tiny data. The fit is replaced by a spy that records
-        and returns one cluster, so no clustering runs."""
+        """(rows, calls, n_k) for one similarity unit on the 120-row tiny
+        data: the unit's rows, one (rows, n_neighbors) pair per spectral fit,
+        and the number of candidate k. The fit is replaced by a spy that
+        records and returns one cluster, so no clustering runs."""
         from carve.cluster import SpectralClustering
 
         spectral = dataclasses.replace(
