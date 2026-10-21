@@ -1,5 +1,7 @@
 """Tests for the unified summarizer."""
 
+import re
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -7,8 +9,10 @@ import pytest
 from benchmarks._artifacts import SCHEMA
 from benchmarks._registry import METRIC_DISPLAY_NAMES, TABLE_ROW_GROUPS
 from benchmarks._tables import (
+    ABLATION_BLOCK_TITLES,
     _table_display_name,
     _tex_escape,
+    ablation_table_frame,
     render_ablation_tex,
     render_grouped_tex,
     render_paired_tex,
@@ -563,209 +567,132 @@ class TestPairedTex:
         assert r"\underline{0.930}" not in left
 
 
-class TestAblationTable:
+def _block_row(tex, study, name):
+    """The cells of one row of one scenario's block, markup stripped."""
+    block = tex.split(f"{{{ABLATION_BLOCK_TITLES[study]}}}")[1].split(r"\multicolumn")[0]
+    (line,) = [row for row in block.splitlines() if row.startswith(f"{name} &")]
+    cells = line.removesuffix(r" \\").split(" & ")[1:]
+    return [re.sub(r"\\(?:textbf|underline)\{([^}]*)\}", r"\1", cell) for cell in cells]
+
+
+class TestAblationTables:
     @pytest.fixture(scope="class")
     @classmethod
-    def frames(cls, tmp_path_factory):
-        from benchmarks._registry import ABLATIONS
-        from tests.benchmarks._helpers import small_ablation, synthetic_ablation_frames
-
-        ablation = small_ablation(ABLATIONS["rho_b"], study="klein")
-        return ablation, synthetic_ablation_frames(
-            ablation, "test", seed=2,
-            tmp_path=tmp_path_factory.mktemp("ablation_frames"),
-        )
-
-    def test_renders_two_sub_tables_with_every_setting(self, frames):
-        ablation, data = frames
-        from benchmarks._ablation_cells import arm_view
-        from benchmarks._ablation_summary import table_rows
-
-        rows = {
-            "rho": table_rows(arm_view(data, ablation=ablation, scale="test", arm="rho"),
-                              x="subsample_ratio", study="klein"),
-            "b": table_rows(arm_view(data, ablation=ablation, scale="test", arm="b"),
-                            x="n_resamples", study="klein"),
-        }
-        tex = render_ablation_tex(rows, caption="Sensitivity", label="tab:ablation",
-                                  study_title="Klein")
-        assert tex.count(r"\begin{tabular}") == 2
-        for rho in ablation.rho_grid:
-            assert f"\n{rho:g} &" in tex
-        for b in ablation.b_grid:
-            assert f"\n{b} &" in tex
-        assert "Ward" in tex or "Spectral" in tex
-        assert r"\caption{Sensitivity}" in tex
-        assert "nan" not in tex
-        # ARI is the headline; k* recovery is no longer reported.
-        assert "rec" not in tex
-
-    def test_write_ablation_table_writes_the_fragment(self, frames, tmp_path):
-        ablation, data = frames
-        path = write_ablation_table(data, ablation=ablation, scale="test", out_dir=tmp_path)
-        assert path == tmp_path / "si_table_ablation.tex"
-        assert r"\begin{table}" in path.read_text()
-
-    def test_without_a_case_study_the_modal_column_is_dropped(self, tmp_path):
-        from benchmarks._ablation_summary import HEADLINE_METRICS
+    def run(cls, tmp_path_factory):
         from benchmarks._registry import ABLATIONS
         from tests.benchmarks._helpers import small_ablation, synthetic_ablation_frames
 
         ablation = small_ablation(ABLATIONS["rho_b"])
-        data = synthetic_ablation_frames(ablation, "test", seed=4)
-        tex = write_ablation_table(
-            data, ablation=ablation, scale="test", out_dir=tmp_path
-        ).read_text()
-        assert "modal" not in tex
-        # Per headline selector: ARI, plus agreement in the B arm.
-        n_metrics = len(HEADLINE_METRICS)
-        assert f"\\begin{{tabular}}{{l{'c' * 1 * n_metrics}}}" in tex
-        assert f"\\begin{{tabular}}{{l{'c' * 2 * n_metrics}}}" in tex
-        for rho in ablation.rho_grid:
-            assert f"\n{rho:g} &" in tex
-        assert "nan" not in tex
-
-    def test_renders_nan_and_missing_cells_empty(self):
-        """Verify NaN and missing-row rendering paths are covered.
-
-        Builds rows_by_arm by hand with: one row with NaN ari_mean; one row
-        with NaN study_share; one (setting, metric)
-        pair absent entirely (match.empty fires); and defined rows with
-        study_modal "AgglomerativeClustering, k=4" and "SpectralClustering, k=3".
-        """
-        # Build rows_by_arm with both headline metrics for each arm
-        rho_rows = pd.DataFrame(
-            [
-                {
-                    "setting": 0.5,
-                    "metric_name": "ari_stability_1se",
-                    "ari_mean": float("nan"),
-                    "agreement": 0.75,
-                    "study_modal": "AgglomerativeClustering, k=4",
-                    "study_share": 0.50,
-                },
-                {
-                    "setting": 0.5,
-                    "metric_name": "ari_generalizability_1se",
-                    "ari_mean": 0.45,
-                    "agreement": 0.60,
-                    "study_modal": "SpectralClustering, k=3",
-                    "study_share": float("nan"),
-                },
-                {
-                    "setting": 0.7,
-                    "metric_name": "ari_stability_1se",
-                    "ari_mean": 0.50,
-                    "agreement": 0.42,
-                    "study_modal": "Ward, k=2",
-                    "study_share": 0.75,
-                },
-                {
-                    "setting": 0.9,
-                    "metric_name": "ari_stability_1se",
-                    "ari_mean": 0.52,
-                    "agreement": 0.50,
-                    "study_modal": "SpectralClustering, k=3",
-                    "study_share": 0.80,
-                },
-                # 0.7 + ari_generalizability_1se intentionally omitted (match.empty)
-            ]
+        frames = synthetic_ablation_frames(
+            ablation, "test", seed=2, tmp_path=tmp_path_factory.mktemp("ablation_frames")
         )
+        return ablation, frames
 
-        b_rows = pd.DataFrame(
-            [
-                {
-                    "setting": 50,
-                    "metric_name": "ari_stability_1se",
-                    "ari_mean": float("nan"),
-                    "agreement": 0.33,
-                    "study_modal": "AgglomerativeClustering, k=4",
-                    "study_share": 0.50,
-                },
-                {
-                    "setting": 50,
-                    "metric_name": "ari_generalizability_1se",
-                    "ari_mean": 0.55,
-                    "agreement": 0.67,
-                    "study_modal": "SpectralClustering, k=3",
-                    "study_share": float("nan"),
-                },
-                {
-                    "setting": 100,
-                    "metric_name": "ari_stability_1se",
-                    "ari_mean": 0.48,
-                    "agreement": 0.25,
-                    "study_modal": "Ward, k=5",
-                    "study_share": 0.60,
-                },
-                {
-                    "setting": 150,
-                    "metric_name": "ari_stability_1se",
-                    "ari_mean": 0.56,
-                    "agreement": 0.58,
-                    "study_modal": "SpectralClustering, k=3",
-                    "study_share": 0.75,
-                },
-                # 100 + ari_generalizability_1se intentionally omitted (match.empty)
-            ]
+    @pytest.fixture(scope="class")
+    @classmethod
+    def tables(cls, run, tmp_path_factory):
+        ablation, frames = run
+        out = tmp_path_factory.mktemp("ablation_tables")
+        paths = write_ablation_table(frames, ablation=ablation, scale="test", out_dir=out)
+        return out, paths
+
+    def test_writes_s8_s9_and_s10_under_the_manuscript_labels(self, tables):
+        out, paths = tables
+        assert [p.name for p in paths] == [
+            "si_table_ablation_rho.tex",
+            "si_table_ablation_b.tex",
+            "si_table_ablation_agreement.tex",
+        ]
+        assert sorted(p.name for p in out.iterdir()) == sorted(p.name for p in paths)
+
+    def test_one_block_per_scenario_in_registry_order(self, run, tables):
+        ablation, _ = run
+        for path in tables[1]:
+            tex = path.read_text()
+            positions = [tex.index(f"{{{ABLATION_BLOCK_TITLES[s]}}}") for s in ablation.scenarios]
+            assert positions == sorted(positions), path.name
+            assert tex.count(r"\multicolumn") == len(ablation.scenarios), path.name
+            assert r"\scalebox{0.911}{%" in tex
+            assert "nan" not in tex
+
+    def test_the_oracle_heads_s8_and_s9_only(self, run, tables):
+        ablation, _ = run
+        rho, b, agreement = (p.read_text() for p in tables[1])
+        n = len(ablation.scenarios)
+        assert rho.count("Baseline (Oracle)") == n
+        assert b.count("Baseline (Oracle)") == n
+        assert "Baseline (Oracle)" not in agreement
+
+    def test_columns_are_the_swept_values(self, run, tables):
+        ablation, _ = run
+        rho, b, agreement = (p.read_text() for p in tables[1])
+        assert "Metric & " + " & ".join(f"{v:g}" for v in ablation.rho_grid) + r" \\" in rho
+        b_header = "Metric & " + " & ".join(f"{v:g}" for v in ablation.b_grid) + r" \\"
+        assert b_header in b and b_header in agreement
+
+    @pytest.mark.parametrize("study", ["gaussians", "circles"])
+    def test_ari_cells_are_each_scenarios_summary(self, run, tables, study):
+        # The synthetic scenarios' values are drawn independently, so a
+        # table that pooled them or swapped blocks would miss these.
+        from benchmarks._ablation_cells import arm_view
+        from benchmarks._ablation_summary import ari_summary
+
+        ablation, frames = run
+        view = arm_view(frames, ablation=ablation, scale="test", arm="rho")
+        ari = ari_summary(view["selection"], view["at_k"], x="subsample_ratio")
+        rows = ari[(ari["study"] == study) & (ari["metric_name"] == "ari_stability_1se")]
+        expected = [f"{v:.3f}" for v in rows.sort_values("subsample_ratio")["ari_mean"]]
+        name = _table_display_name("ari_stability_1se")
+        assert _block_row(tables[1][0].read_text(), study, name) == expected
+
+    @pytest.mark.parametrize("study", ["gaussians", "circles"])
+    def test_agreement_cells_are_each_scenarios_replicate_agreement(self, run, tables, study):
+        from benchmarks._ablation_cells import arm_view
+        from benchmarks._ablation_summary import agreement_summary
+
+        ablation, frames = run
+        view = arm_view(frames, ablation=ablation, scale="test", arm="b")
+        agreement = agreement_summary(view["selection"], x="n_resamples")
+        rows = agreement[(agreement["study"] == study) & (agreement["metric_name"] == "ari_stability_1se")]
+        expected = [f"{v:.3f}" for v in rows.sort_values("n_resamples")["agreement"]]
+        name = _table_display_name("ari_stability_1se")
+        assert _block_row(tables[1][2].read_text(), study, name) == expected
+
+    def test_ranking_is_within_a_block(self):
+        # Gaussians' best is 0.900 and circles' 0.600: ranked across the
+        # whole table, 0.600 would not be bold. The oracle is not ranked.
+        rows = [
+            ("gaussians", "baseline_oracle", 0.95), ("gaussians", "ari_stability_1se", 0.90),
+            ("gaussians", "ari_generalizability_1se", 0.80),
+            ("circles", "baseline_oracle", 0.70), ("circles", "ari_stability_1se", 0.50),
+            ("circles", "ari_generalizability_1se", 0.60),
+        ]
+        summary = pd.DataFrame(
+            [{"study": s, "axis_label": 0.5, "metric": m, "ari_mean": v, "agreement": np.nan}
+             for s, m, v in rows]
         )
-
-        rows_by_arm = {"rho": rho_rows, "b": b_rows}
         tex = render_ablation_tex(
-            rows_by_arm,
-            metrics=("ari_stability_1se", "ari_generalizability_1se"),
-            caption="Test",
-            label="tab:test",
-            study_title="Test",
+            summary, column="ari_mean", studies=("gaussians", "circles"), caption="c", label="l"
         )
+        gaussians, circles = tex.split(r"\multicolumn")[1:]
+        assert r"\textbf{0.900}" in gaussians and r"\underline{0.800}" in gaussians
+        assert r"\textbf{0.600}" in circles and r"\underline{0.500}" in circles
+        assert "0.950" in gaussians and r"\textbf{0.950}" not in gaussians
 
-        # Assert no "nan" literal appears
-        assert "nan" not in tex
+    def test_frame_holds_each_scenario_and_its_oracle_only(self, tmp_path):
+        from benchmarks._ablation_cells import arm_view
+        from benchmarks._registry import ABLATIONS
+        from tests.benchmarks._helpers import small_ablation, synthetic_ablation_frames
 
-        # Verify short names render correctly (these have defined study_share)
-        assert "Ward, $k=2$" in tex
-        assert "Ward, $k=5$" in tex
-        assert "Ward, $k=4$" in tex
-        assert "Spectral, $k=3$" in tex
-
-        # Extract rho data lines: 0.5, 0.7, 0.9
-        rho_section = tex.split(r"\begin{tabular}{lcccc}")[1].split(r"\end{tabular}")[0]
-        rho_data_lines = [
-            line
-            for line in rho_section.split("\n")
-            if line.strip() and "0." in line and not line.startswith("\\")
-        ]
-        assert len(rho_data_lines) == 3, f"Expected 3 rho data rows, got {len(rho_data_lines)}"
-
-        # Extract B data lines: 50, 100, 150
-        b_section = tex.split(r"\begin{tabular}{lcccccc}")[1].split(r"\end{tabular}")[0]
-        b_data_lines = [
-            line
-            for line in b_section.split("\n")
-            if line.strip()
-            and (line.startswith("50 ") or line.startswith("100 ") or line.startswith("150 "))
-        ]
-        assert len(b_data_lines) == 3, f"Expected 3 b data rows, got {len(b_data_lines)}"
-
-        # Verify cell counts: rho sub-table has 5 cells per row (1 setting + 2 * 2 metrics)
-        for line in rho_data_lines:
-            assert "nan" not in line.lower(), f"Line should not contain nan: {line}"
-            # Strip the LaTeX row-end marker (space-backslash-backslash)
-            line_content = line[:-3] if line.endswith(r" \\") else line
-            cells = line_content.split(" & ")
-            assert (
-                len(cells) == 5
-            ), f"Rho row should have 5 cells, got {len(cells)}: {line}"
-
-        # Verify cell counts: B sub-table has 7 cells per row (1 setting + 3 * 2 metrics)
-        for line in b_data_lines:
-            assert "nan" not in line.lower(), f"Line should not contain nan: {line}"
-            # Strip the LaTeX row-end marker (space-backslash-backslash)
-            line_content = line[:-3] if line.endswith(r" \\") else line
-            cells = line_content.split(" & ")
-            assert (
-                len(cells) == 7
-            ), f"B row should have 7 cells, got {len(cells)}: {line}"
+        ablation = small_ablation(ABLATIONS["rho_b"], study="klein")
+        frames = synthetic_ablation_frames(ablation, "test", seed=6, tmp_path=tmp_path)
+        view = arm_view(frames, ablation=ablation, scale="test", arm="rho")
+        frame = ablation_table_frame(view, x="subsample_ratio")
+        assert list(frame.columns) == ["study", "axis_label", "metric", "ari_mean", "agreement"]
+        assert set(frame["study"]) == set(ablation.scenarios)
+        oracle = frame[frame["metric"] == "baseline_oracle"]
+        assert len(oracle) == len(ablation.scenarios) * len(ablation.rho_grid)
+        assert oracle["agreement"].isna().all()
 
 
 class TestRenderM3CTex:

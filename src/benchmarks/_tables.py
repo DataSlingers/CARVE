@@ -17,7 +17,12 @@ import numpy as np
 import pandas as pd
 
 from ._ablation_cells import arm_view
-from ._ablation_summary import HEADLINE_METRICS, table_rows
+from ._ablation_summary import (
+    POOLED,
+    agreement_summary,
+    ari_summary,
+    oracle_summary,
+)
 from ._registry import BASELINE_METRIC, METRIC_DISPLAY_NAMES, TABLE_ROW_GROUPS
 
 _QUANTILES = (0.05, 0.25, 0.50, 0.75, 0.95)
@@ -320,6 +325,60 @@ def _table_display_name(metric: str) -> str:
     return _TABLE_EN_DASH_NAMES.get(metric, METRIC_DISPLAY_NAMES.get(metric, metric))
 
 
+def _metric_rows(
+    summary: pd.DataFrame,
+    groups: Sequence[Sequence[str]],
+    axis_labels: Sequence[Any],
+    column: str,
+    decimals: int,
+) -> list[str]:
+    """The body of a table: one row per metric in groups, in that order,
+    with a \\midrule between groups, bold for the best value in a column and
+    underline for the second.
+
+    Ranking is per column, over the rows this call actually renders -- the
+    metrics in `groups`, i.e. the declared groups intersected with what is
+    present in `summary` -- and excludes the oracle, which is the reference
+    the rest are measured against rather than a competitor. summary can
+    carry metrics outside the groups (metrics= wasn't restricted to the
+    published set), and ranking over those too let an unrendered value
+    outscore every rendered one, which then rendered as unmarked instead of
+    bold.
+    """
+    rendered_metrics = {metric for group in groups for metric in group}
+    ranks: dict[Any, tuple[float | None, float | None]] = {}
+    for axis_label in axis_labels:
+        candidates = summary[
+            (summary["axis_label"] == axis_label)
+            & (summary["metric"] != BASELINE_METRIC)
+            & (summary["metric"].isin(rendered_metrics))
+        ][column]
+        ranks[axis_label] = _ranked(candidates.tolist())
+
+    lines: list[str] = []
+    for index, group in enumerate(groups):
+        if index:
+            lines.append(r"\midrule")
+        for metric in group:
+            match = summary[summary["metric"] == metric]
+            if match.empty:
+                continue
+            cells = [_tex_escape(_table_display_name(metric))]
+            for axis_label in axis_labels:
+                row = match[match["axis_label"] == axis_label]
+                if row.empty:
+                    cells.append("")
+                    continue
+                value = row.iloc[0][column]
+                if metric == BASELINE_METRIC:
+                    cells.append("" if pd.isna(value) else f"{value:.{decimals}f}")
+                else:
+                    best, second = ranks[axis_label]
+                    cells.append(_marked(value, best, second, decimals))
+            lines.append(" & ".join(cells) + r" \\")
+    return lines
+
+
 def _sub_table(
     summary: pd.DataFrame,
     groups: Sequence[Sequence[str]],
@@ -347,46 +406,7 @@ def _sub_table(
         "Metric & " + " & ".join(_tex_escape(str(h)) for h in headers) + r" \\",
         r"\midrule",
     ]
-
-    # Ranking is per column, over the rows this call actually renders --
-    # the metrics in `groups`, i.e. the declared groups intersected with
-    # what is present in `summary` -- and excludes the oracle, which is the
-    # reference the rest are measured against rather than a competitor.
-    # summary can carry metrics outside the groups (metrics= wasn't
-    # restricted to the published set), and ranking over those too let an
-    # unrendered value outscore every rendered one, which then rendered as
-    # unmarked instead of bold.
-    rendered_metrics = {metric for group in groups for metric in group}
-    ranks: dict[str, tuple[float | None, float | None]] = {}
-    for axis_label in axis_labels:
-        candidates = summary[
-            (summary["axis_label"] == axis_label)
-            & (summary["metric"] != BASELINE_METRIC)
-            & (summary["metric"].isin(rendered_metrics))
-        ][column]
-        ranks[axis_label] = _ranked(candidates.tolist())
-
-    for index, group in enumerate(groups):
-        if index:
-            lines.append(r"\midrule")
-        for metric in group:
-            match = summary[summary["metric"] == metric]
-            if match.empty:
-                continue
-            cells = [_tex_escape(_table_display_name(metric))]
-            for axis_label in axis_labels:
-                row = match[match["axis_label"] == axis_label]
-                if row.empty:
-                    cells.append("")
-                    continue
-                value = row.iloc[0][column]
-                if metric == BASELINE_METRIC:
-                    cells.append("" if pd.isna(value) else f"{value:.{decimals}f}")
-                else:
-                    best, second = ranks[axis_label]
-                    cells.append(_marked(value, best, second, decimals))
-            lines.append(" & ".join(cells) + r" \\")
-
+    lines += _metric_rows(summary, groups, axis_labels, column, decimals)
     end_tabular = r"\end{tabular}%" if trailing_percent else r"\end{tabular}"
     lines.extend([r"\bottomrule", end_tabular])
     return lines
@@ -501,94 +521,141 @@ def write_tables(
     return path
 
 
-# --- The rho/B ablation table -----------------------------------------------
-ESTIMATOR_SHORT_NAMES: dict[str, str] = {
-    "AgglomerativeClustering": "Ward",
-    "SpectralClustering": "Spectral",
-    "KMeans": "KMeans",
-}
-
-_ARM_HEADINGS: dict[str, str] = {"rho": r"$\rho$", "b": "$B$"}
-
-
+# --- The rho/B ablation tables ----------------------------------------------
 def _fmt(value: float, decimals: int) -> str:
     return "" if pd.isna(value) else f"{value:.{decimals}f}"
 
 
-def _modal(text: object, share: float) -> str:
-    if pd.isna(share) or not isinstance(text, str):
-        return ""
-    estimator, k = text.split(", ")
-    return f"{ESTIMATOR_SHORT_NAMES.get(estimator, estimator)}, ${k}$ ({share:.2f})"
+#: Block headings, in the words the benchmark tables' captions use for each
+#: scenario. A scenario without one is headed by its registry name.
+ABLATION_BLOCK_TITLES: dict[str, str] = {
+    "gaussians": "Gaussian mixtures",
+    "circles": "RFF-embedded circles",
+}
+
+#: Every selector the benchmark tables report, in their order. The classical
+#: indices have no rows in an ablation run, so their group drops out.
+_ABLATION_METRICS: tuple[str, ...] = tuple(
+    metric
+    for group in TABLE_ROW_GROUPS
+    for metric in group
+    if metric != BASELINE_METRIC
+)
+
+#: (file name, arm, value column, caption) of S8, S9 and S10. The file names
+#: follow the manuscript's labels, which survive a renumbering of the SI.
+ABLATION_TABLES: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "si_table_ablation_rho",
+        "rho",
+        "ari_mean",
+        "Mean ARI of the selected labels to the true labels; columns are rho at the default B.",
+    ),
+    (
+        "si_table_ablation_b",
+        "b",
+        "ari_mean",
+        "Mean ARI of the selected labels to the true labels; columns are B at the default rho.",
+    ),
+    (
+        "si_table_ablation_agreement",
+        "b",
+        "agreement",
+        "Fraction of pairs of runs on the same data set that select the same k; columns are B at the default rho.",
+    ),
+)
+
+_ARM_COLUMNS: dict[str, str] = {"rho": "subsample_ratio", "b": "n_resamples"}
+
+
+def ablation_table_frame(
+    view: Mapping[str, pd.DataFrame],
+    *,
+    x: str,
+    metrics: Sequence[str] = _ABLATION_METRICS,
+) -> pd.DataFrame:
+    """One arm's numbers in the shape _metric_rows reads: study, axis_label
+    (the swept value), metric, ari_mean and agreement.
+
+    Per simulated study, setting and selector, the mean ARI of the selected
+    labels and the replicate agreement, from the summaries the figures draw.
+    Each study also gets a Baseline (Oracle) row per setting, the mean
+    oracle ARI over the datasets the arm ran, with no agreement. Pooled rows
+    and a case study (which has no true labels) are left out. Built from
+    records: concatenating frames with an all-NaN agreement column warns.
+    """
+    selection = view["selection"]
+    keys = [x, "study", "metric_name"]
+    ari = ari_summary(selection, view["at_k"], x=x, metrics=metrics)
+    agreement = agreement_summary(selection, x=x, metrics=metrics)
+    rows = ari[ari["study"] != POOLED][[*keys, "ari_mean"]].merge(
+        agreement[[*keys, "agreement"]], on=keys, how="left"
+    )
+    oracle = oracle_summary(view)
+    settings = sorted(rows[x].unique())
+    records = [
+        {
+            x: setting,
+            "study": study,
+            "metric_name": BASELINE_METRIC,
+            "ari_mean": float(value),
+            "agreement": np.nan,
+        }
+        for study, value in zip(oracle["study"], oracle["oracle_ari"])
+        for setting in settings
+    ]
+    records += rows.to_dict("records")
+    frame = pd.DataFrame(records, columns=[*keys, "ari_mean", "agreement"])
+    frame = frame.rename(columns={x: "axis_label", "metric_name": "metric"})
+    return frame[["study", "axis_label", "metric", "ari_mean", "agreement"]]
 
 
 def render_ablation_tex(
-    rows_by_arm: Mapping[str, pd.DataFrame],
+    summary: pd.DataFrame,
     *,
-    metrics: Sequence[str] | None = None,
+    column: str,
+    studies: Sequence[str],
     caption: str,
     label: str,
-    study_title: str | None,
     decimals: int = 3,
+    groups: Sequence[Sequence[str]] = TABLE_ROW_GROUPS,
 ) -> str:
-    """Two sub-tables, one row per rho value and one per B value.
+    """One SI table of the ablation: the swept values as columns, a block of
+    selector rows per simulated study, in the order of studies.
 
-    Per headline selector: the pooled mean ARI of the selected labels, in
-    the B sub-table the pooled replicate agreement, and the study's modal
-    selection with its share. Metrics default to the headline selectors.
-    study_title=None (an ablation without a case study) drops the modal
-    column.
+    Rows, names and marking follow the benchmark tables (_metric_rows),
+    ranked within a study's block, with the oracle unranked. A block is
+    headed by the study's ABLATION_BLOCK_TITLES entry. Rows whose column is
+    NaN are left out, so the oracle, which has no agreement, drops out of
+    S10. As in render_paired_tex the fragment is the float only, with
+    caption and label as a leading comment, at the manuscript's scale.
     """
-    if metrics is None:
-        metrics = HEADLINE_METRICS
+    axis_labels = sorted(summary["axis_label"].unique())
+    width = len(axis_labels) + 1
     lines = [
-        r"\begin{table}[ht]",
+        f"% {label}: {_comment_safe(caption)}",
+        r"\begin{table}[H]",
         r"\centering",
-        f"\\caption{{{_tex_escape(caption)}}}",
-        f"\\label{{{label}}}",
+        r"\scriptsize",
+        r"\setlength{\tabcolsep}{3pt}",
+        r"\scalebox{0.911}{%",
+        f"\\begin{{tabular}}{{l{'c' * len(axis_labels)}}}",
+        r"\toprule",
+        "Metric & " + " & ".join(f"{a:g}" for a in axis_labels) + r" \\",
     ]
-    for arm in ("rho", "b"):
-        rows = rows_by_arm[arm]
-        with_agreement = arm == "b"
-        with_study = study_title is not None
-        per_metric = 1 + with_agreement + with_study
+    for study in studies:
+        block = summary[(summary["study"] == study) & summary[column].notna()]
+        present = set(block["metric"])
+        block_groups = [[m for m in group if m in present] for group in groups]
+        block_groups = [group for group in block_groups if group]
+        title = _tex_escape(ABLATION_BLOCK_TITLES.get(study, study))
         lines += [
-            f"\\begin{{tabular}}{{l{'c' * per_metric * len(metrics)}}}",
-            r"\hline",
+            r"\midrule",
+            f"\\multicolumn{{{width}}}{{l}}{{{title}}} \\\\",
+            r"\midrule",
         ]
-        head = [""] + [
-            f"\\multicolumn{{{per_metric}}}{{c}}{{{_tex_escape(METRIC_DISPLAY_NAMES.get(m, m))}}}"
-            for m in metrics
-        ]
-        lines.append(" & ".join(head) + r" \\")
-        sub = [_ARM_HEADINGS[arm]]
-        for _ in metrics:
-            sub.append("ARI")
-            if with_agreement:
-                sub.append("Agreement")
-            if with_study:
-                sub.append(f"{_tex_escape(study_title)} modal (share)")
-        lines += [" & ".join(sub) + r" \\", r"\hline"]
-        for setting in sorted(rows["setting"].unique()):
-            cells = [f"{setting:g}"]
-            for metric in metrics:
-                match = rows[
-                    (rows["setting"] == setting) & (rows["metric_name"] == metric)
-                ]
-                if match.empty:
-                    cells += [""] * per_metric
-                    continue
-                row = match.iloc[0]
-                cells.append(_fmt(row["ari_mean"], decimals))
-                if with_agreement:
-                    cells.append(_fmt(row["agreement"], 2))
-                if with_study:
-                    cells.append(_modal(row["study_modal"], row["study_share"]))
-            lines.append(" & ".join(cells) + r" \\")
-        lines += [r"\hline", r"\end{tabular}"]
-        if arm == "rho":
-            lines.append(r"\vspace{1em}")
-    lines.append(r"\end{table}")
+        lines += _metric_rows(block, block_groups, axis_labels, column, decimals)
+    lines += [r"\bottomrule", r"\end{tabular}%", "}", r"\end{table}"]
     return "\n".join(lines) + "\n"
 
 
@@ -598,35 +665,27 @@ def write_ablation_table(
     ablation,
     scale: str,
     out_dir: Path,
-    name: str = "si_table_ablation",
-    caption: str = "Sensitivity of CARVE's selections to the subsampling proportion and the resample count.",
-    label: str = "tab:ablation_rho_b",
-) -> Path:
-    """Summarize a run's two arms and write the .tex fragment."""
-    rows = {
-        "rho": table_rows(
-            arm_view(frames, ablation=ablation, scale=scale, arm="rho"),
-            x="subsample_ratio",
-            study=ablation.study,
-        ),
-        "b": table_rows(
-            arm_view(frames, ablation=ablation, scale=scale, arm="b"),
-            x="n_resamples",
-            study=ablation.study,
-        ),
-    }
+) -> list[Path]:
+    """Write S8, S9 and S10 (ABLATION_TABLES) for a run, a block per
+    simulated scenario, and return their paths in that order. The name
+    stays singular because the notebook calls it by that name."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{name}.tex"
-    path.write_text(
-        render_ablation_tex(
-            rows,
-            caption=caption,
-            label=label,
-            study_title=None if ablation.study is None else ablation.study.capitalize(),
+    paths = []
+    for name, arm, column, caption in ABLATION_TABLES:
+        view = arm_view(frames, ablation=ablation, scale=scale, arm=arm)
+        path = out_dir / f"{name}.tex"
+        path.write_text(
+            render_ablation_tex(
+                ablation_table_frame(view, x=_ARM_COLUMNS[arm]),
+                column=column,
+                studies=ablation.scenarios,
+                caption=caption,
+                label=name,
+            )
         )
-    )
-    return path
+        paths.append(path)
+    return paths
 
 
 # --- The Klein M3C comparison table -----------------------------------------------
