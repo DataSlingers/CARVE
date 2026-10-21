@@ -15,8 +15,9 @@ only.
 
 Both are laid out at the PLOS page width under print_theme_context, so
 their text prints at the sizes set in _theme. Color carries the selector,
-stability 1SE and generalizability 1SE in their metric colors; panels draw
-the pooled simulations, which with one scenario are that scenario. Shaded
+stability 1SE and generalizability 1SE in their metric colors. Each simulated
+scenario gets its own row of panels, and on the ARI figure a thin line per
+seed shows how far rerunning with another seed moves the result. Shaded
 bands are the mean plus or minus Z_95 standard errors over datasets, and a
 dotted line marks the package default. Every number comes from
 _ablation_summary.
@@ -36,12 +37,13 @@ from matplotlib.ticker import NullLocator
 
 from .._ablation_cells import REFERENCE_RATIO, arm_view
 from .._ablation_summary import (
-    DATASET_KEY,
     HEADLINE_METRICS,
     POOLED,
     ari_summary,
     bias_summary,
+    oracle_summary,
     rare_recall_summary,
+    seed_summary,
     similarity_at_k_star,
     study_ari_summary,
 )
@@ -82,6 +84,13 @@ ROW_HEIGHT_IN = 2.6
 RESAMPLING_HEIGHT_IN = 2.2
 LEGEND_HEIGHT_IN = 0.35
 BAND_ALPHA = 0.18
+# A seed's line: thin and light, above the band and below the seed-averaged
+# line it belongs to (fill_between draws at zorder 1, lines at 2). The gid
+# marks it, so it is never mistaken for the mean line.
+SEED_LINEWIDTH = 0.6
+SEED_ALPHA = 0.55
+SEED_ZORDER = 1.5
+SEED_GID = "seed"
 RHO_TICKS: tuple[float, ...] = (0.2, 0.4, 0.6, 0.8, 1.0)
 # The panel letter sits outside the axes, left of the spine by this many
 # points, on the title's baseline; the title starts at the spine, so the two
@@ -187,6 +196,27 @@ def _selectors(
         _band(ax, rows[x], rows[y], rows[sem], color)
 
 
+def _seed_lines(ax: Axes, seeds: pd.DataFrame, *, x: str, study: str) -> None:
+    """One thin line per seed and headline selector, in the selector's
+    color: that seed's mean over the datasets. An arm that ran one seed
+    draws none, since its line would be the mean line itself."""
+    rows = seeds[seeds["study"] == study]
+    if rows["replicate"].nunique() < 2:
+        return
+    for metric in HEADLINE_METRICS:
+        for _, part in rows[rows["metric_name"] == metric].groupby("replicate"):
+            part = part.sort_values(x)
+            ax.plot(
+                part[x],
+                part["ari_mean"],
+                color=metric_color(metric),
+                linewidth=SEED_LINEWIDTH,
+                alpha=SEED_ALPHA,
+                zorder=SEED_ZORDER,
+                gid=SEED_GID,
+            )
+
+
 def _oracle(ax: Axes, value: float) -> None:
     """The oracle's ARI as a dashed line, labeled at its left end, which
     keeps the label off the default's reference line: both grids place the
@@ -210,13 +240,16 @@ def _oracle(ax: Axes, value: float) -> None:
     )
 
 
-def _simulations(ax: Axes, view: Mapping[str, pd.DataFrame], *, x: str) -> None:
-    """The pooled selectors and, under them, the oracle averaged over the
-    datasets this arm ran (datasets passes through arm_view whole)."""
-    _selectors(ax, ari_summary(view["selection"], view["at_k"], x=x), x=x)
-    ran = view["cells"][list(DATASET_KEY)].drop_duplicates()
-    oracle = view["datasets"].merge(ran, on=list(DATASET_KEY))["oracle_ari"]
-    _oracle(ax, float(oracle.mean()))
+def _simulations(
+    ax: Axes, view: Mapping[str, pd.DataFrame], *, x: str, study: str
+) -> None:
+    """One scenario: its seed lines, its selectors and, under them, its
+    oracle averaged over the datasets this arm ran."""
+    selection, at_k = view["selection"], view["at_k"]
+    _seed_lines(ax, seed_summary(selection, at_k, x=x), x=x, study=study)
+    _selectors(ax, ari_summary(selection, at_k, x=x), x=x, study=study)
+    oracle = oracle_summary(view)
+    _oracle(ax, float(oracle.loc[oracle["study"] == study, "oracle_ari"].iloc[0]))
     ax.set_ylabel("ARI to true labels")
 
 
@@ -230,8 +263,10 @@ def _study(ax: Axes, view: Mapping[str, pd.DataFrame], *, x: str, study: str) ->
     ax.set_ylabel("ARI to reference labels")
 
 
-def _legend(fig: Figure, default_label: str) -> None:
-    """The figure's one shared legend, above the panels."""
+def _legend(fig: Figure, default_label: str, *, seeds: bool = False) -> None:
+    """The figure's one shared legend, above the panels. With seeds it keys
+    the seed lines too and wraps onto two rows: five entries in one row do
+    not fit the page width in every font the theme falls back to."""
     handles = [
         Line2D(
             [],
@@ -244,6 +279,17 @@ def _legend(fig: Figure, default_label: str) -> None:
         )
         for metric in HEADLINE_METRICS
     ]
+    if seeds:
+        handles.append(
+            Line2D(
+                [],
+                [],
+                color=FALLBACK_COLOR,
+                linewidth=SEED_LINEWIDTH,
+                alpha=SEED_ALPHA,
+                label="Single seed",
+            )
+        )
     handles.append(Patch(facecolor=FALLBACK_COLOR, alpha=0.35, label="95% CI"))
     handles.append(
         Line2D(
@@ -255,7 +301,11 @@ def _legend(fig: Figure, default_label: str) -> None:
             label=default_label,
         )
     )
-    fig.legend(handles=handles, loc="outside upper center", ncol=len(handles))
+    fig.legend(
+        handles=handles,
+        loc="outside upper center",
+        ncol=3 if seeds else len(handles),
+    )
 
 
 def figure_ablation(
@@ -266,33 +316,48 @@ def figure_ablation(
     save: bool = True,
     out_dir: Path | None = None,
 ) -> Figure:
-    """ARI of the selected labels against rho (left) and B (right)."""
+    """ARI of the selected labels against rho (left) and B (right), one row
+    per simulated scenario, and a row for the case study when the ablation
+    has one."""
     rho_view = arm_view(frames, ablation=ablation, scale=scale, arm="rho")
     b_view = arm_view(frames, ablation=ablation, scale=scale, arm="b")
     rho_default, b_default = ablation.rho_default, ablation.b_default
+    arms = ablation.scales[scale]
+    seeds = max(arms.rho_arm.replicates, arms.b_arm.replicates) > 1
     study = ablation.study
-    n_rows = 1 if study is None else 2
+    n_rows = len(ablation.scenarios) + (study is not None)
+    legend_height = LEGEND_HEIGHT_IN * (2 if seeds else 1)
 
     with print_theme_context():
         fig, axes = plt.subplots(
             n_rows,
             2,
-            figsize=(PRINT_WIDTH_IN, n_rows * ROW_HEIGHT_IN + LEGEND_HEIGHT_IN),
+            figsize=(PRINT_WIDTH_IN, n_rows * ROW_HEIGHT_IN + legend_height),
             layout="constrained",
             squeeze=False,
         )
-
-        _simulations(axes[0, 0], rho_view, x=RHO)
-        _label(axes[0, 0], "A", rf"Varying $\rho$, $B$ = {b_default:g}")
-        _simulations(axes[0, 1], b_view, x=B)
-        _label(axes[0, 1], "B", rf"Varying $B$, $\rho$ = {rho_default:g}")
+        letters = iter("ABCDEFGH")
+        for row, name in enumerate(ablation.scenarios):
+            title = STUDY_TITLES.get(name, name)
+            _simulations(axes[row, 0], rho_view, x=RHO, study=name)
+            _label(
+                axes[row, 0],
+                next(letters),
+                rf"{title}: varying $\rho$, $B$ = {b_default:g}",
+            )
+            _simulations(axes[row, 1], b_view, x=B, study=name)
+            _label(
+                axes[row, 1],
+                next(letters),
+                rf"{title}: varying $B$, $\rho$ = {rho_default:g}",
+            )
 
         if study is not None:
             title = STUDY_TITLES.get(study, study)
-            _study(axes[1, 0], rho_view, x=RHO, study=study)
-            _label(axes[1, 0], "C", rf"{title}: varying $\rho$")
-            _study(axes[1, 1], b_view, x=B, study=study)
-            _label(axes[1, 1], "D", rf"{title}: varying $B$")
+            _study(axes[-1, 0], rho_view, x=RHO, study=study)
+            _label(axes[-1, 0], next(letters), rf"{title}: varying $\rho$")
+            _study(axes[-1, 1], b_view, x=B, study=study)
+            _label(axes[-1, 1], next(letters), rf"{title}: varying $B$")
 
         for ax in axes[:, 0]:
             _reference(ax, rho_default)
@@ -306,7 +371,11 @@ def figure_ablation(
             ax.set_ylim(ARI_LIMITS)
             ax.set_yticks(ARI_TICKS)
             style_axes(ax)
-        _legend(fig, rf"Default ($\rho$ = {rho_default:g}, $B$ = {b_default:g})")
+        _legend(
+            fig,
+            rf"Default ($\rho$ = {rho_default:g}, $B$ = {b_default:g})",
+            seeds=seeds,
+        )
         if save:
             save_figure(
                 fig,

@@ -21,6 +21,7 @@ from benchmarks._ablation_summary import (
     ari_summary,
     bias_summary,
     rare_recall_summary,
+    seed_summary,
     similarity_at_k_star,
 )
 from benchmarks._registry import ABLATIONS, METRIC_DISPLAY_NAMES
@@ -35,16 +36,27 @@ from benchmarks.figures._ablation import (
     ARI_LIMITS,
     KEY_HEADROOM_TOP,
     PROPORTION_LIMITS,
+    SEED_GID,
+    STUDY_TITLES,
     Z_95,
 )
 from tests.benchmarks._helpers import small_ablation, synthetic_ablation_frames
 
 RHO_B = small_ablation(ABLATIONS["rho_b"], study="klein")
-# The registry's ablation runs no case study (gaussians at medium only).
-NO_STUDY = small_ablation(ABLATIONS["rho_b"])
 STAB, GEN = HEADLINE_METRICS
 SELECTOR_COLORS = {to_hex(metric_color(STAB)), to_hex(metric_color(GEN))}
 RHO, B = "subsample_ratio", "n_resamples"
+# The registry's ablation runs no case study (gaussians and circles at
+# medium).
+NO_STUDY = small_ablation(ABLATIONS["rho_b"])
+GAUSSIANS, CIRCLES = NO_STUDY.scenarios
+# figure_ablation's panels: letter to (scenario, arm, swept column).
+ARI_PANELS = {
+    "A": (GAUSSIANS, "rho", RHO),
+    "B": (GAUSSIANS, "b", B),
+    "C": (CIRCLES, "rho", RHO),
+    "D": (CIRCLES, "b", B),
+}
 FIGURES = [
     (figure_ablation, "si_fig_ablation.png"),
     (figure_ablation_resampling, "si_fig_ablation_resampling.png"),
@@ -117,9 +129,24 @@ def _has_default_line(ax, default):
 def _selector_line(ax, metric):
     (line,) = [
         line for line in ax.lines
-        if len(line.get_xdata()) > 2 and to_hex(line.get_color()) == to_hex(metric_color(metric))
+        if len(line.get_xdata()) > 2
+        and line.get_gid() != SEED_GID
+        and to_hex(line.get_color()) == to_hex(metric_color(metric))
     ]
     return line
+
+
+def _seed_lines(ax, metric):
+    return [
+        line for line in ax.lines
+        if line.get_gid() == SEED_GID
+        and to_hex(line.get_color()) == to_hex(metric_color(metric))
+    ]
+
+
+def _per_study(summary, study, metric, x):
+    rows = summary[(summary["study"] == study) & (summary["metric_name"] == metric)]
+    return rows.sort_values(x)
 
 
 def _band(ax, color):
@@ -130,11 +157,9 @@ def _band(ax, color):
     return band.get_paths()[0].vertices
 
 
-def _pooled(frames, ablation, arm, x, metric):
+def _ari(frames, ablation, arm, x, study, metric):
     view = arm_view(frames, ablation=ablation, scale="test", arm=arm)
-    summary = ari_summary(view["selection"], view["at_k"], x=x)
-    rows = summary[(summary["study"] == POOLED) & (summary["metric_name"] == metric)]
-    return rows.sort_values(x)
+    return _per_study(ari_summary(view["selection"], view["at_k"], x=x), study, metric, x)
 
 
 class TestPrintSize:
@@ -193,14 +218,14 @@ class TestPanelLabels:
 
 
 class TestFigureAblation:
-    def test_returns_two_panels_without_a_study(self, figure):
+    def test_one_row_per_scenario_without_a_study(self, figure):
         assert isinstance(figure, Figure)
-        assert list(_panels(figure)) == list("AB")
+        assert list(_panels(figure)) == list("ABCD")
 
     def test_a_study_adds_a_row(self, with_study, figure):
         ablation, frames = with_study
         fig = figure_ablation(frames, ablation=ablation, scale="test", save=False)
-        assert list(_panels(fig)) == list("ABCD")
+        assert list(_panels(fig)) == list("ABCDEF")
         assert fig.get_size_inches()[1] > figure.get_size_inches()[1]
         plt.close(fig)
 
@@ -222,11 +247,11 @@ class TestFigureAblation:
         ablation, frames = with_study
         fig = figure_ablation(frames, ablation=ablation, scale="test", save=False)
         panels = _panels(fig)
-        for letter in "AC":
+        for letter in "ACE":
             ax = panels[letter]
             assert ax.get_xscale() == "linear"
             assert _has_default_line(ax, ablation.rho_default)
-        for letter in "BD":
+        for letter in "BDF":
             ax = panels[letter]
             assert ax.get_xscale() == "log"
             assert list(ax.get_xticks()) == list(ablation.b_grid)
@@ -243,29 +268,59 @@ class TestFigureAblation:
             assert colors == SELECTOR_COLORS, letter
         plt.close(fig)
 
-    @pytest.mark.parametrize(("letter", "arm", "x"), [("A", "rho", RHO), ("B", "b", B)])
-    def test_lines_are_the_stability_consensus_ari_at_the_selected_k(
-        self, without_study, figure, letter, arm, x
+    @pytest.mark.parametrize("letter", sorted(ARI_PANELS))
+    def test_lines_are_each_scenarios_stability_consensus_ari_at_the_selected_k(
+        self, without_study, figure, letter
     ):
-        # The synthetic frames draw ari_selected and at_k independently, so
-        # a figure that plotted the stored ari_selected would miss these.
+        # The synthetic frames draw the two scenarios' values independently,
+        # so a figure that pooled them or swapped rows would miss these. They
+        # also draw ari_selected and at_k independently, so a figure that
+        # plotted the stored ari_selected would miss them too.
         ablation, frames = without_study
+        study, arm, x = ARI_PANELS[letter]
         ax = _panels(figure)[letter]
         for metric in HEADLINE_METRICS:
-            pooled = _pooled(frames, ablation, arm, x, metric)
+            expected = _ari(frames, ablation, arm, x, study, metric)
             line = _selector_line(ax, metric)
-            assert list(line.get_xdata()) == pytest.approx(list(pooled[x]))
-            assert list(line.get_ydata()) == pytest.approx(list(pooled["ari_mean"]))
+            assert list(line.get_xdata()) == pytest.approx(list(expected[x]))
+            assert list(line.get_ydata()) == pytest.approx(list(expected["ari_mean"]))
         stored = arm_view(frames, ablation=ablation, scale="test", arm=arm)["selection"]
-        stored = stored[stored["metric_name"] == STAB].groupby(x)["ari_selected"].mean()
+        stored = stored[(stored["study"] == study) & (stored["metric_name"] == STAB)]
+        stored = stored.groupby(x)["ari_selected"].mean()
         assert list(_selector_line(ax, STAB).get_ydata()) != pytest.approx(list(stored))
 
     def test_band_is_the_95_percent_interval_over_datasets(self, without_study, figure):
         ablation, frames = without_study
-        pooled = _pooled(frames, ablation, "b", B, STAB)
+        expected = _ari(frames, ablation, "b", B, GAUSSIANS, STAB)
         ys = _band(_panels(figure)["B"], metric_color(STAB))[:, 1]
-        assert ys.max() == pytest.approx((pooled["ari_mean"] + Z_95 * pooled["ari_sem"]).max())
-        assert ys.min() == pytest.approx((pooled["ari_mean"] - Z_95 * pooled["ari_sem"]).min())
+        assert ys.max() == pytest.approx((expected["ari_mean"] + Z_95 * expected["ari_sem"]).max())
+        assert ys.min() == pytest.approx((expected["ari_mean"] - Z_95 * expected["ari_sem"]).min())
+
+    def test_seed_lines_where_an_arm_ran_more_than_one_seed(self, without_study, figure):
+        # The test scale runs one seed on the rho arm and two on the B arm:
+        # no seed lines on the rho panels, two per selector on the B panels,
+        # each that seed's mean over the datasets, thinner than the mean.
+        ablation, frames = without_study
+        assert ablation.scales["test"].rho_arm.replicates == 1
+        assert ablation.scales["test"].b_arm.replicates == 2
+        panels = _panels(figure)
+        for letter in "AC":
+            assert not [line for line in panels[letter].lines if line.get_gid() == SEED_GID], letter
+        b_view = arm_view(frames, ablation=ablation, scale="test", arm="b")
+        seeds = seed_summary(b_view["selection"], b_view["at_k"], x=B)
+        for letter, study in (("B", GAUSSIANS), ("D", CIRCLES)):
+            ax = panels[letter]
+            for metric in HEADLINE_METRICS:
+                expected = sorted(
+                    list(part.sort_values(B)["ari_mean"])
+                    for _, part in _per_study(seeds, study, metric, B).groupby("replicate")
+                )
+                lines = _seed_lines(ax, metric)
+                drawn = sorted(list(line.get_ydata()) for line in lines)
+                assert len(drawn) == 2, (letter, metric)
+                assert drawn == [pytest.approx(e) for e in expected], (letter, metric)
+                mean_width = _selector_line(ax, metric).get_linewidth()
+                assert all(line.get_linewidth() < mean_width for line in lines)
 
     def test_ari_is_drawn_on_the_full_scale(self, with_study):
         # A fixed 0 to 1 axis, so a difference of a few hundredths reads as
@@ -296,7 +351,7 @@ class TestFigureAblation:
         fig = figure_ablation(
             {**frames, "datasets": datasets}, ablation=ablation, scale="test", save=False
         )
-        for letter, value in {"A": 0.45, "B": 0.9}.items():
+        for letter, value in {"A": 0.45, "B": 0.9, "C": 0.45, "D": 0.9}.items():
             (oracle,) = [
                 line for line in _panels(fig)[letter].lines
                 if to_hex(line.get_color()) == to_hex(metric_color("baseline_oracle"))
@@ -304,25 +359,44 @@ class TestFigureAblation:
             assert oracle.get_ydata()[0] == pytest.approx(value), letter
         plt.close(fig)
 
-    def test_one_legend_names_the_selectors_the_interval_and_the_defaults(self, figure):
+    def test_each_row_reads_its_own_scenarios_oracle(self, without_study):
+        ablation, frames = without_study
+        datasets = frames["datasets"].copy()
+        datasets["oracle_ari"] = datasets["study"].map({GAUSSIANS: 0.9, CIRCLES: 0.3})
+        fig = figure_ablation(
+            {**frames, "datasets": datasets}, ablation=ablation, scale="test", save=False
+        )
+        for letter, value in {"A": 0.9, "B": 0.9, "C": 0.3, "D": 0.3}.items():
+            (oracle,) = [
+                line for line in _panels(fig)[letter].lines
+                if to_hex(line.get_color()) == to_hex(metric_color("baseline_oracle"))
+            ]
+            assert oracle.get_ydata()[0] == pytest.approx(value), letter
+        plt.close(fig)
+
+    def test_one_legend_names_the_selectors_the_seeds_the_interval_and_the_defaults(self, figure):
         (legend,) = figure.legends
         assert [t.get_text() for t in legend.get_texts()] == [
             METRIC_DISPLAY_NAMES[STAB],
             METRIC_DISPLAY_NAMES[GEN],
+            "Single seed",
             "95% CI",
             f"Default ($\\rho$ = {NO_STUDY.rho_default:g}, $B$ = {NO_STUDY.b_default:g})",
         ]
 
-    def test_titles_name_the_parameter_held_fixed(self, figure):
+    def test_titles_name_the_scenario_and_the_parameter_held_fixed(self, figure):
         panels = _panels(figure)
-        assert f"{NO_STUDY.b_default:g}" in panels["A"].get_title(loc="left")
-        assert f"{NO_STUDY.rho_default:g}" in panels["B"].get_title(loc="left")
+        for letter, (study, arm, _) in ARI_PANELS.items():
+            title = panels[letter].get_title(loc="left")
+            assert STUDY_TITLES[study] in title, letter
+            held = NO_STUDY.b_default if arm == "rho" else NO_STUDY.rho_default
+            assert f"{held:g}" in title, letter
 
     def test_no_scenario_name_reaches_the_legend(self, figure):
-        # A single scenario is the pooled simulations; the figure names the
-        # selectors, not the scenario.
+        # The titles name the scenarios; the legend names the selectors.
         labels = [t.get_text() for t in figure.legends[0].get_texts()]
-        assert "Gaussian Mixtures" not in labels
+        for study in (GAUSSIANS, CIRCLES):
+            assert STUDY_TITLES[study] not in labels
         assert "Pooled (simulations)" not in labels
 
 
