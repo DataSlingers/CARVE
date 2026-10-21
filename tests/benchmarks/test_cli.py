@@ -227,4 +227,5 @@ class TestAblationCli:
         kwargs = calls[0]
         assert kwargs["resume"] is False
         assert kwargs["n_jobs"] == 5
-        assert len(kwargs["units"]) == 3
+        # Three timed cells per scenario.
+        assert len(kwargs["units"]) == 3 * len(ABLATIONS["rho_b"].scenarios)

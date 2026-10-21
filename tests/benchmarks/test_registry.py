@@ -321,18 +321,27 @@ class TestAblationRegistry:
         assert ABLATIONS["rho_b"].rho_default == defaults["subsample_ratio"]
         assert ABLATIONS["rho_b"].b_default == defaults["n_resamples"]
 
-    def test_runs_gaussians_only_and_no_case_study(self):
-        # Slimmed on 2026-09-26 from six scenarios at every difficulty plus
-        # Klein to the medium gaussians setting alone.
+    def test_runs_gaussians_and_circles_and_no_case_study(self):
+        # gaussians alone from 2026-09-26; circles joined on 2026-10-20.
         ablation = ABLATIONS["rho_b"]
-        assert ablation.scenarios == ("gaussians",)
+        assert ablation.scenarios == ("gaussians", "circles")
         assert ablation.study is None
 
-    def test_publication_scale_is_medium_gaussians_at_twenty_and_ten_datasets(self):
-        # Twenty datasets are the main benchmark's twenty medium gaussians
-        # datasets, so the rho arm's default column reproduces those fits.
+    def test_circles_mirrors_gaussians(self):
+        # Same truth, candidate k, difficulty axis and dataset count, so
+        # every cell of one scenario has its twin in the other.
+        gaussians, circles = SCENARIOS["gaussians"], SCENARIOS["circles"]
+        assert circles.k_star == gaussians.k_star == 5
+        assert circles.candidate_k == gaussians.candidate_k
+        assert circles.axis.labels == gaussians.axis.labels
+        assert circles.n_seeds == gaussians.n_seeds
+
+    def test_publication_scale_runs_three_seeds_on_both_arms(self):
+        # Twenty datasets are the main benchmark's twenty medium datasets of
+        # each scenario, so the rho arm's default column reproduces those
+        # fits. The rho arm ran one seed until 2026-10-20.
         scale = ABLATIONS["rho_b"].scales["publication"]
-        assert scale.rho_arm == ArmScale(("medium",), tuple(range(20)), 1, 0)
+        assert scale.rho_arm == ArmScale(("medium",), tuple(range(20)), 3, 0)
         assert scale.b_arm == ArmScale(("medium",), tuple(range(10)), 3, 0)
         assert scale.similarity_draws == 20
         assert scale.n_total is None
@@ -340,7 +349,8 @@ class TestAblationRegistry:
 
     def test_rho_arm_datasets_match_the_main_benchmark(self):
         scale = ABLATIONS["rho_b"].scales["publication"]
-        assert len(scale.rho_arm.datasets) == SCENARIOS["gaussians"].n_seeds
+        for name in ABLATIONS["rho_b"].scenarios:
+            assert len(scale.rho_arm.datasets) == SCENARIOS[name].n_seeds, name
 
     def test_publication_is_the_only_scale(self):
         # A second scale is a way to run the ablation at a size that is not
