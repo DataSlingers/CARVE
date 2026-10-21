@@ -41,13 +41,15 @@ from benchmarks.figures._ablation import (
 )
 from tests.benchmarks._helpers import small_ablation, synthetic_ablation_frames
 
-RHO_B = small_ablation(ABLATIONS["rho_b"], study="klein")
+# The registry's ablation runs gaussians at medium and no case study. The
+# tests run circles beside it, so the one-row-per-scenario layout and the
+# separation of the scenarios stay covered.
+TWO_SCENARIOS = ("gaussians", "circles")
+RHO_B = small_ablation(ABLATIONS["rho_b"], study="klein", scenarios=TWO_SCENARIOS)
 STAB, GEN = HEADLINE_METRICS
 SELECTOR_COLORS = {to_hex(metric_color(STAB)), to_hex(metric_color(GEN))}
 RHO, B = "subsample_ratio", "n_resamples"
-# The registry's ablation runs no case study (gaussians and circles at
-# medium).
-NO_STUDY = small_ablation(ABLATIONS["rho_b"])
+NO_STUDY = small_ablation(ABLATIONS["rho_b"], scenarios=TWO_SCENARIOS)
 GAUSSIANS, CIRCLES = NO_STUDY.scenarios
 # figure_ablation's panels: letter to (scenario, arm, swept column).
 ARI_PANELS = {
@@ -75,6 +77,15 @@ def frames(tmp_path_factory):
 def frames_without_study(tmp_path_factory):
     return synthetic_ablation_frames(
         NO_STUDY, "test", seed=3, tmp_path=tmp_path_factory.mktemp("no_study_frames")
+    )
+
+
+@pytest.fixture(scope="module")
+def registry_scenarios(tmp_path_factory):
+    # The registry's own scenarios, at the test scale.
+    ablation = small_ablation(ABLATIONS["rho_b"])
+    return ablation, synthetic_ablation_frames(
+        ablation, "test", seed=5, tmp_path=tmp_path_factory.mktemp("registry_frames")
     )
 
 
@@ -220,6 +231,14 @@ class TestFigureAblation:
     def test_one_row_per_scenario_without_a_study(self, figure):
         assert isinstance(figure, Figure)
         assert list(_panels(figure)) == list("ABCD")
+
+    def test_the_registrys_gaussians_alone_is_one_row(self, registry_scenarios, figure):
+        ablation, frames = registry_scenarios
+        assert ablation.scenarios == ("gaussians",)
+        fig = figure_ablation(frames, ablation=ablation, scale="test", save=False)
+        assert list(_panels(fig)) == list("AB")
+        assert fig.get_size_inches()[1] < figure.get_size_inches()[1]
+        plt.close(fig)
 
     def test_a_study_adds_a_row(self, with_study, figure):
         ablation, frames = with_study
@@ -441,6 +460,12 @@ class TestFigureAblationResampling:
     def test_one_row_of_three_panels_per_scenario(self, resampling):
         assert isinstance(resampling, Figure)
         assert list(_panels(resampling)) == list("ABCDEF")
+
+    def test_the_registrys_gaussians_alone_is_one_row(self, registry_scenarios):
+        ablation, frames = registry_scenarios
+        fig = figure_ablation_resampling(frames, ablation=ablation, scale="test", save=False)
+        assert list(_panels(fig)) == list("ABC")
+        plt.close(fig)
 
     def test_a_study_adds_no_panel(self, with_study):
         # Bias and rare-cluster recall need a true k, and the subsample

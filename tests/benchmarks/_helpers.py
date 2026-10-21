@@ -277,14 +277,16 @@ def make_carve_spy() -> type:
     return SpyCARVE
 
 
-def small_ablation(ablation, *, study=None):
+def small_ablation(ablation, *, study=None, scenarios=None):
     """The ablation with a single small "test" scale in place of its own.
 
     Figure and table tests render synthetic frames at this scale, since a
     publication run's units make every such test slow. The registry
     declares no small scale, so no real run can use it. study adds a case
     study (two replicates per setting) so the study panels and columns,
-    which the registry's ablation no longer runs, stay covered.
+    which the registry's ablation no longer runs, stay covered. scenarios
+    replaces the ablation's own, so the one-block-per-scenario layout stays
+    covered while the registry runs a single scenario.
     """
     import dataclasses
 
@@ -299,7 +301,11 @@ def small_ablation(ablation, *, study=None):
         n_total=500,
     )
     return dataclasses.replace(
-        ablation, study=study, scales={"test": scale}, default_scale="test"
+        ablation,
+        scenarios=ablation.scenarios if scenarios is None else tuple(scenarios),
+        study=study,
+        scales={"test": scale},
+        default_scale="test",
     )
 
 

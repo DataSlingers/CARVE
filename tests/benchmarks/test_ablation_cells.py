@@ -106,16 +106,13 @@ class TestEnumerateCells:
         assert all(c.subsample_ratio == ablation.rho_default for c in b)
 
     def test_publication_counts_match_the_spec(self):
-        # Per scenario: rho arm 20 datasets x 3 replicates x 8 rho; B arm 10
-        # datasets x 3 replicates x 5 B; the 30 cells at both defaults are
-        # shared. Two scenarios, no study cells.
+        # rho arm 20 datasets x 10 replicates x 8 rho; B arm 10 datasets x
+        # 10 replicates x 5 B; the 100 cells at both defaults are shared.
+        # gaussians only, no study cells.
         cells = enumerate_cells(RHO_B, "publication")
         assert {c.difficulty for c in cells} == {"medium"}
-        per_scenario = 20 * 3 * 8 + 10 * 3 * 5 - 10 * 3
-        assert per_scenario == 600
-        for name in ("gaussians", "circles"):
-            assert sum(c.study == name for c in cells) == per_scenario
-        assert len(cells) == 1200
+        assert {c.study for c in cells} == {"gaussians"}
+        assert len(cells) == 20 * 10 * 8 + 10 * 10 * 5 - 10 * 10 == 2000
 
     def test_rejects_an_unknown_arm(self):
         with pytest.raises(ValueError, match="arm"):
@@ -143,11 +140,11 @@ class TestEnumerateUnits:
 
     def test_publication_units_match_the_spec(self):
         kinds = [u.kind for u in enumerate_units(RHO_B, "publication")]
-        assert kinds.count("cell") == 1200
-        assert kinds.count("dataset") == 2 * 20
-        # Per scenario and rho-arm dataset: the rho grid plus the refit.
-        assert kinds.count("similarity") == 2 * 20 * (8 + 1)
-        assert len(kinds) == 1600
+        assert kinds.count("cell") == 2000
+        assert kinds.count("dataset") == 20
+        # Per rho-arm dataset: the rho grid plus the refit.
+        assert kinds.count("similarity") == 20 * (8 + 1)
+        assert len(kinds) == 2200
 
 
 class TestTimingUnits:
@@ -158,7 +155,7 @@ class TestTimingUnits:
         assert {u.kind for u in units} == {"cell"}
         rhos = (RHO_B.rho_default, RHO_B.rho_grid[0], RHO_B.rho_grid[-1])
         assert [(u.cell.study, u.cell.difficulty, u.cell.subsample_ratio) for u in units] == [
-            (name, "medium", rho) for name in ("gaussians", "circles") for rho in rhos
+            (name, "medium", rho) for name in RHO_B.scenarios for rho in rhos
         ]
         assert all(u.cell.n_resamples == RHO_B.b_default for u in units)
 

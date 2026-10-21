@@ -321,28 +321,21 @@ class TestAblationRegistry:
         assert ABLATIONS["rho_b"].rho_default == defaults["subsample_ratio"]
         assert ABLATIONS["rho_b"].b_default == defaults["n_resamples"]
 
-    def test_runs_gaussians_and_circles_and_no_case_study(self):
-        # gaussians alone from 2026-09-26; circles joined on 2026-10-20.
+    def test_runs_gaussians_only_and_no_case_study(self):
+        # gaussians alone from 2026-09-26; circles ran beside it from
+        # 2026-10-20 to 2026-10-21.
         ablation = ABLATIONS["rho_b"]
-        assert ablation.scenarios == ("gaussians", "circles")
+        assert ablation.scenarios == ("gaussians",)
         assert ablation.study is None
 
-    def test_circles_mirrors_gaussians(self):
-        # Same truth, candidate k, difficulty axis and dataset count, so
-        # every cell of one scenario has its twin in the other.
-        gaussians, circles = SCENARIOS["gaussians"], SCENARIOS["circles"]
-        assert circles.k_star == gaussians.k_star == 5
-        assert circles.candidate_k == gaussians.candidate_k
-        assert circles.axis.labels == gaussians.axis.labels
-        assert circles.n_seeds == gaussians.n_seeds
-
-    def test_publication_scale_runs_three_seeds_on_both_arms(self):
-        # Twenty datasets are the main benchmark's twenty medium datasets of
-        # each scenario, so the rho arm's default column reproduces those
-        # fits. The rho arm ran one seed until 2026-10-20.
+    def test_publication_scale_runs_ten_seeds_on_both_arms(self):
+        # Twenty datasets are the main benchmark's twenty medium gaussians
+        # datasets, so the rho arm's default column reproduces those fits.
+        # The rho arm ran one seed until 2026-10-20, both arms three until
+        # 2026-10-21.
         scale = ABLATIONS["rho_b"].scales["publication"]
-        assert scale.rho_arm == ArmScale(("medium",), tuple(range(20)), 3, 0)
-        assert scale.b_arm == ArmScale(("medium",), tuple(range(10)), 3, 0)
+        assert scale.rho_arm == ArmScale(("medium",), tuple(range(20)), 10, 0)
+        assert scale.b_arm == ArmScale(("medium",), tuple(range(10)), 10, 0)
         assert scale.similarity_draws == 20
         assert scale.n_total is None
         assert scale.study_scale is None

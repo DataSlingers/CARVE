@@ -722,27 +722,27 @@ def package_defaults() -> tuple[float, int]:
 
 _RHO_DEFAULT, _B_DEFAULT = package_defaults()
 
-# The medium setting of gaussians and circles, with no case study. gaussians
-# alone was the author's decision on 2026-09-26 (the ablation previously ran
-# six scenarios at every difficulty plus Klein); circles joined on 2026-10-20
-# so the result is not read off k-means alone, and mirrors gaussians in every
-# setting. Both arms run three seeds per dataset: with one seed on the rho
-# arm, two near-ties at rho = 0.618 read as a dip that two more seeds at the
-# same rho did not reproduce. The rho arm's twenty datasets are the main
-# benchmark's twenty medium datasets of each scenario, so its default column
-# (rho_default, b_default, replicate 0) reproduces those fits.
+# The medium gaussians setting alone, with no case study (the author's
+# decision on 2026-09-26; the ablation previously ran six scenarios at every
+# difficulty plus Klein). circles ran beside it from 2026-10-20 to 2026-10-21
+# and was dropped for its runtime. Both arms run ten seeds per dataset: with
+# one seed on the rho arm, two near-ties at rho = 0.618 read as a dip that
+# two more seeds at the same rho did not reproduce, and ten put the seed
+# noise in a twenty-dataset mean near 0.002 ARI. The rho arm's twenty
+# datasets are the main benchmark's twenty medium gaussians datasets, so its
+# default column (rho_default, b_default, replicate 0) reproduces those fits.
 ABLATION_SCALES: dict[str, AblationScale] = {
     "publication": AblationScale(
         rho_arm=ArmScale(
             difficulties=("medium",),
             datasets=tuple(range(20)),
-            replicates=3,
+            replicates=10,
             study_replicates=0,
         ),
         b_arm=ArmScale(
             difficulties=("medium",),
             datasets=tuple(range(10)),
-            replicates=3,
+            replicates=10,
             study_replicates=0,
         ),
         similarity_draws=20,
@@ -752,7 +752,7 @@ ABLATION_SCALES: dict[str, AblationScale] = {
 ABLATIONS: dict[str, Ablation] = {
     "rho_b": Ablation(
         name="rho_b",
-        scenarios=("gaussians", "circles"),
+        scenarios=("gaussians",),
         study=None,
         # 0.5 and 0.8 are proportions used elsewhere in the resampling
         # literature, so the default can be placed against them.

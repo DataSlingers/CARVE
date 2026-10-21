@@ -582,7 +582,9 @@ class TestAblationTables:
         from benchmarks._registry import ABLATIONS
         from tests.benchmarks._helpers import small_ablation, synthetic_ablation_frames
 
-        ablation = small_ablation(ABLATIONS["rho_b"])
+        # The registry runs gaussians alone; circles beside it keeps the
+        # one-block-per-scenario layout covered.
+        ablation = small_ablation(ABLATIONS["rho_b"], scenarios=("gaussians", "circles"))
         frames = synthetic_ablation_frames(
             ablation, "test", seed=2, tmp_path=tmp_path_factory.mktemp("ablation_frames")
         )
@@ -614,6 +616,21 @@ class TestAblationTables:
             assert tex.count(r"\multicolumn") == len(ablation.scenarios), path.name
             assert r"\scalebox{0.911}{%" in tex
             assert "nan" not in tex
+
+    def test_the_registrys_gaussians_alone_is_one_block(self, tmp_path):
+        from benchmarks._registry import ABLATIONS
+        from tests.benchmarks._helpers import small_ablation, synthetic_ablation_frames
+
+        ablation = small_ablation(ABLATIONS["rho_b"])
+        frames = synthetic_ablation_frames(ablation, "test", seed=7, tmp_path=tmp_path)
+        paths = write_ablation_table(
+            frames, ablation=ablation, scale="test", out_dir=tmp_path / "tables"
+        )
+        for path in paths:
+            tex = path.read_text()
+            assert tex.count(r"\multicolumn") == 1, path.name
+            assert f"{{{ABLATION_BLOCK_TITLES['gaussians']}}}" in tex, path.name
+            assert ABLATION_BLOCK_TITLES["circles"] not in tex, path.name
 
     def test_the_oracle_heads_s8_and_s9_only(self, run, tables):
         ablation, _ = run
@@ -688,7 +705,7 @@ class TestAblationTables:
         from benchmarks._registry import ABLATIONS
         from tests.benchmarks._helpers import small_ablation, synthetic_ablation_frames
 
-        ablation = small_ablation(ABLATIONS["rho_b"])
+        ablation = small_ablation(ABLATIONS["rho_b"], scenarios=("gaussians", "circles"))
         scale = ablation.scales["test"]
         ablation = dataclasses.replace(
             ablation,
