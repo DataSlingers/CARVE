@@ -386,16 +386,21 @@ def figure_ablation(
     return fig
 
 
-def _bias(ax: Axes, view: Mapping[str, pd.DataFrame]) -> None:
+def _bias(ax: Axes, view: Mapping[str, pd.DataFrame], *, study: str) -> None:
     _selectors(
-        ax, bias_summary(view["selection"], x=RHO), x=RHO, y="bias_mean", sem="bias_sem"
+        ax,
+        bias_summary(view["selection"], x=RHO),
+        x=RHO,
+        y="bias_mean",
+        sem="bias_sem",
+        study=study,
     )
     ax.axhline(0.0, color=FALLBACK_COLOR, linewidth=PRINT_REFERENCE_LINEWIDTH)
     ax.set_ylabel(r"Mean $\hat{k} - k^*$")
 
 
 def _rare_recall(
-    ax: Axes, view: Mapping[str, pd.DataFrame], *, difficulty: str
+    ax: Axes, view: Mapping[str, pd.DataFrame], *, difficulty: str, study: str
 ) -> None:
     """Recall of the smallest true cluster in the labels at the selected k
     (solid, one line per rule) and at k* (dashed). Every rule returns the
@@ -404,9 +409,16 @@ def _rare_recall(
     summary = rare_recall_summary(
         view["at_k"], view["selection"], x=RHO, difficulty=difficulty
     )
-    _selectors(ax, summary, x=RHO, y="recall_selected", sem="recall_selected_sem")
+    _selectors(
+        ax,
+        summary,
+        x=RHO,
+        y="recall_selected",
+        sem="recall_selected_sem",
+        study=study,
+    )
     at_star = summary[
-        (summary["study"] == POOLED) & (summary["metric_name"] == HEADLINE_METRICS[0])
+        (summary["study"] == study) & (summary["metric_name"] == HEADLINE_METRICS[0])
     ].sort_values(RHO)
     _line(ax, at_star[RHO], at_star["recall_k_star"], FOREGROUND_COLOR, linestyle="--")
     _band(
@@ -430,14 +442,14 @@ def _rare_recall(
     ax.set_ylabel("Recall of the smallest cluster")
 
 
-def _similarity(ax: Axes, frames: Mapping[str, pd.DataFrame]) -> None:
+def _similarity(ax: Axes, frames: Mapping[str, pd.DataFrame], *, study: str) -> None:
     """Subsample versus full data at k*, over the swept rho, and the refit
     reference at REFERENCE_RATIO as its own open marker: the full data
     clustered again with another seed, not a subsample."""
     summary = similarity_at_k_star(frames["similarity"], frames["datasets"])
-    pooled = summary[summary["study"] == POOLED].sort_values(RHO)
-    swept = pooled[pooled[RHO] < REFERENCE_RATIO]
-    refit = pooled[pooled[RHO] == REFERENCE_RATIO]
+    rows = summary[summary["study"] == study].sort_values(RHO)
+    swept = rows[rows[RHO] < REFERENCE_RATIO]
+    refit = rows[rows[RHO] == REFERENCE_RATIO]
     _line(ax, swept[RHO], swept["ari_mean"], FOREGROUND_COLOR)
     _band(ax, swept[RHO], swept["ari_mean"], swept["ari_sem"], FOREGROUND_COLOR)
     marker = {
@@ -467,24 +479,29 @@ def figure_ablation_resampling(
     out_dir: Path | None = None,
 ) -> Figure:
     """Bias of the selected k, rare-cluster recall and subsample-versus-full
-    agreement against rho."""
+    agreement against rho, one row per simulated scenario."""
     view = arm_view(frames, ablation=ablation, scale=scale, arm="rho")
     difficulty = ablation.scales[scale].rho_arm.difficulties[-1]
+    n_rows = len(ablation.scenarios)
 
     with print_theme_context():
         fig, axes = plt.subplots(
-            1,
+            n_rows,
             3,
-            figsize=(PRINT_WIDTH_IN, RESAMPLING_HEIGHT_IN + LEGEND_HEIGHT_IN),
+            figsize=(PRINT_WIDTH_IN, n_rows * RESAMPLING_HEIGHT_IN + LEGEND_HEIGHT_IN),
             layout="constrained",
+            squeeze=False,
         )
-        _bias(axes[0], view)
-        _label(axes[0], "A", "Bias of the selected $k$")
-        _rare_recall(axes[1], view, difficulty=difficulty)
-        _label(axes[1], "B", f"Rare-cluster recall, {difficulty}")
-        _similarity(axes[2], frames)
-        _label(axes[2], "C", "Subsample vs. full at $k^*$")
-        for ax in axes:
+        letters = iter("ABCDEFGHIJKL")
+        for row, name in enumerate(ablation.scenarios):
+            title = STUDY_TITLES.get(name, name)
+            _bias(axes[row, 0], view, study=name)
+            _label(axes[row, 0], next(letters), rf"{title}: bias of $\hat{{k}}$")
+            _rare_recall(axes[row, 1], view, difficulty=difficulty, study=name)
+            _label(axes[row, 1], next(letters), f"Rare-cluster recall, {difficulty}")
+            _similarity(axes[row, 2], frames, study=name)
+            _label(axes[row, 2], next(letters), "Subsample vs. full at $k^*$")
+        for ax in axes.flat:
             _reference(ax, ablation.rho_default)
             _rho_axis(ax)
             ax.set_xlabel(RHO_LABEL)

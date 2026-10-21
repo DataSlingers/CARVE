@@ -17,7 +17,6 @@ from matplotlib.text import Text
 from benchmarks._ablation_cells import REFERENCE_RATIO, arm_view
 from benchmarks._ablation_summary import (
     HEADLINE_METRICS,
-    POOLED,
     ari_summary,
     bias_summary,
     rare_recall_summary,
@@ -412,17 +411,22 @@ def _rho_view(frames, ablation):
     return arm_view(frames, ablation=ablation, scale="test", arm="rho")
 
 
+# figure_ablation_resampling's rows: scenario to its (bias, recall,
+# similarity) panel letters.
+RESAMPLING_PANELS = {GAUSSIANS: "ABC", CIRCLES: "DEF"}
+
+
 class TestFigureAblationResampling:
-    def test_returns_three_panels(self, resampling):
+    def test_one_row_of_three_panels_per_scenario(self, resampling):
         assert isinstance(resampling, Figure)
-        assert list(_panels(resampling)) == list("ABC")
+        assert list(_panels(resampling)) == list("ABCDEF")
 
     def test_a_study_adds_no_panel(self, with_study):
         # Bias and rare-cluster recall need a true k, and the subsample
         # comparison is read at k*, so the study has nothing to draw here.
         ablation, frames = with_study
         fig = figure_ablation_resampling(frames, ablation=ablation, scale="test", save=False)
-        assert list(_panels(fig)) == list("ABC")
+        assert list(_panels(fig)) == list("ABCDEF")
         plt.close(fig)
 
     def test_saves_under_its_si_name(self, without_study, tmp_path):
@@ -444,63 +448,72 @@ class TestFigureAblationResampling:
             assert ax.get_xscale() == "linear", letter
             assert _has_default_line(ax, NO_STUDY.rho_default), letter
 
-    def test_bias_lines_and_bands_over_datasets(self, without_study, resampling):
+    def test_the_first_panel_of_a_row_names_its_scenario(self, resampling):
+        panels = _panels(resampling)
+        for study, letters in RESAMPLING_PANELS.items():
+            assert STUDY_TITLES[study] in panels[letters[0]].get_title(loc="left"), study
+
+    @pytest.mark.parametrize("study", [GAUSSIANS, CIRCLES])
+    def test_bias_lines_and_bands_over_datasets(self, without_study, resampling, study):
         ablation, frames = without_study
         summary = bias_summary(_rho_view(frames, ablation)["selection"], x=RHO)
-        ax = _panels(resampling)["A"]
+        ax = _panels(resampling)[RESAMPLING_PANELS[study][0]]
         for metric in HEADLINE_METRICS:
-            pooled = summary[(summary["study"] == POOLED) & (summary["metric_name"] == metric)]
-            pooled = pooled.sort_values(RHO)
-            assert list(_selector_line(ax, metric).get_ydata()) == pytest.approx(list(pooled["bias_mean"]))
+            rows = _per_study(summary, study, metric, RHO)
+            assert list(_selector_line(ax, metric).get_ydata()) == pytest.approx(list(rows["bias_mean"]))
             ys = _band(ax, metric_color(metric))[:, 1]
-            assert ys.max() == pytest.approx((pooled["bias_mean"] + Z_95 * pooled["bias_sem"]).max())
-            assert ys.min() == pytest.approx((pooled["bias_mean"] - Z_95 * pooled["bias_sem"]).min())
+            assert ys.max() == pytest.approx((rows["bias_mean"] + Z_95 * rows["bias_sem"]).max())
+            assert ys.min() == pytest.approx((rows["bias_mean"] - Z_95 * rows["bias_sem"]).min())
         zero = [line for line in ax.lines if list(line.get_ydata()) == [0.0, 0.0]]
         assert len(zero) == 1
 
+    @pytest.mark.parametrize("study", [GAUSSIANS, CIRCLES])
     def test_rare_recall_draws_each_rule_at_k_hat_and_one_line_at_k_star(
-        self, without_study, resampling
+        self, without_study, resampling, study
     ):
         ablation, frames = without_study
         view = _rho_view(frames, ablation)
         difficulty = ablation.scales["test"].rho_arm.difficulties[-1]
         summary = rare_recall_summary(view["at_k"], view["selection"], x=RHO, difficulty=difficulty)
-        pooled = summary[summary["study"] == POOLED]
-        ax = _panels(resampling)["B"]
+        ax = _panels(resampling)[RESAMPLING_PANELS[study][1]]
         lines = [line for line in ax.lines if len(line.get_xdata()) > 2]
         solid = [line for line in lines if line.get_linestyle() == "-"]
         dashed = [line for line in lines if line.get_linestyle() == "--"]
         assert len(solid) == 2 and len(dashed) == 1
         for metric in HEADLINE_METRICS:
-            rows = pooled[pooled["metric_name"] == metric].sort_values(RHO)
+            rows = _per_study(summary, study, metric, RHO)
             assert list(_selector_line(ax, metric).get_ydata()) == pytest.approx(list(rows["recall_selected"]))
         # Recall at k* reads the same labels for both rules, so the two
         # rules' values agree and the one dashed line in the neutral color
         # carries them.
-        stab = pooled[pooled["metric_name"] == STAB].sort_values(RHO)["recall_k_star"]
-        gen = pooled[pooled["metric_name"] == GEN].sort_values(RHO)["recall_k_star"]
+        stab = _per_study(summary, study, STAB, RHO)["recall_k_star"]
+        gen = _per_study(summary, study, GEN, RHO)["recall_k_star"]
         assert list(stab) == pytest.approx(list(gen))
         assert list(dashed[0].get_ydata()) == pytest.approx(list(stab))
         assert to_hex(dashed[0].get_color()) not in SELECTOR_COLORS
         assert difficulty in ax.get_title(loc="left")
 
     def test_rare_recall_is_a_proportion_with_room_for_its_key(self, resampling):
-        ax = _panels(resampling)["B"]
-        assert ax.get_ylim() == pytest.approx((PROPORTION_LIMITS[0], KEY_HEADROOM_TOP))
-        assert list(ax.get_yticks()) == pytest.approx([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
+        for letter in (letters[1] for letters in RESAMPLING_PANELS.values()):
+            ax = _panels(resampling)[letter]
+            assert ax.get_ylim() == pytest.approx((PROPORTION_LIMITS[0], KEY_HEADROOM_TOP))
+            assert list(ax.get_yticks()) == pytest.approx([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
 
-    def test_similarity_line_stops_before_the_refit_reference(self, without_study, resampling):
+    @pytest.mark.parametrize("study", [GAUSSIANS, CIRCLES])
+    def test_similarity_line_stops_before_the_refit_reference(
+        self, without_study, resampling, study
+    ):
         ablation, frames = without_study
         summary = similarity_at_k_star(frames["similarity"], frames["datasets"])
-        pooled = summary[summary["study"] == POOLED].sort_values(RHO)
-        swept = pooled[pooled[RHO] < REFERENCE_RATIO]
-        ax = _panels(resampling)["C"]
+        rows = summary[summary["study"] == study].sort_values(RHO)
+        swept = rows[rows[RHO] < REFERENCE_RATIO]
+        ax = _panels(resampling)[RESAMPLING_PANELS[study][2]]
         (line,) = [line for line in ax.lines if len(line.get_xdata()) > 2]
         assert list(line.get_xdata()) == pytest.approx(list(swept[RHO]))
         assert list(line.get_ydata()) == pytest.approx(list(swept["ari_mean"]))
         (refit,) = [line for line in ax.lines if list(line.get_xdata()) == [REFERENCE_RATIO]]
         assert refit.get_ydata()[0] == pytest.approx(
-            float(pooled[pooled[RHO] == REFERENCE_RATIO]["ari_mean"].iloc[0])
+            float(rows[rows[RHO] == REFERENCE_RATIO]["ari_mean"].iloc[0])
         )
         assert [t.get_text() for t in ax.get_xticklabels()][-1] == "1.0"
         assert ax.get_ylim() == pytest.approx(ARI_LIMITS)
