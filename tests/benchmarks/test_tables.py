@@ -679,6 +679,43 @@ class TestAblationTables:
         assert r"\textbf{0.600}" in circles and r"\underline{0.500}" in circles
         assert "0.950" in gaussians and r"\textbf{0.950}" not in gaussians
 
+    def test_oracle_row_is_each_scenarios_mean_over_the_datasets_the_arm_ran(self, tmp_path):
+        # The B arm runs dataset 0 only. Distinct oracles per (study, dataset)
+        # separate a per-scenario mean from a pooled one and from a mean over
+        # every dataset.
+        import dataclasses
+
+        from benchmarks._registry import ABLATIONS
+        from tests.benchmarks._helpers import small_ablation, synthetic_ablation_frames
+
+        ablation = small_ablation(ABLATIONS["rho_b"])
+        scale = ablation.scales["test"]
+        ablation = dataclasses.replace(
+            ablation,
+            scales={"test": dataclasses.replace(
+                scale, b_arm=dataclasses.replace(scale.b_arm, datasets=(0,))
+            )},
+        )
+        frames = synthetic_ablation_frames(ablation, "test", seed=4, tmp_path=tmp_path)
+        datasets = frames["datasets"].copy()
+        values = {("gaussians", 0): 0.9, ("gaussians", 1): 0.5,
+                  ("circles", 0): 0.4, ("circles", 1): 0.2}
+        datasets["oracle_ari"] = [
+            values[(s, d)] for s, d in zip(datasets["study"], datasets["dataset"])
+        ]
+        out = tmp_path / "tables"
+        rho, b, _ = write_ablation_table(
+            {**frames, "datasets": datasets}, ablation=ablation, scale="test", out_dir=out
+        )
+        for path, expected in (
+            (rho, {"gaussians": 0.7, "circles": 0.3}),
+            (b, {"gaussians": 0.9, "circles": 0.4}),
+        ):
+            tex = path.read_text()
+            for study, value in expected.items():
+                cells = _block_row(tex, study, "Baseline (Oracle)")
+                assert cells and set(cells) == {f"{value:.3f}"}, (path.name, study)
+
     def test_frame_holds_each_scenario_and_its_oracle_only(self, tmp_path):
         from benchmarks._ablation_cells import arm_view
         from benchmarks._registry import ABLATIONS
