@@ -7,7 +7,7 @@ with study == POOLED pool the simulated studies; the case study has
 difficulty "" and is never pooled with them.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -35,6 +35,23 @@ def _with_pooled(
     return pd.concat([per, pooled], ignore_index=True)
 
 
+def _selected_ari(
+    selection: pd.DataFrame, at_k: pd.DataFrame, metrics: Sequence[str]
+) -> pd.DataFrame:
+    """Per cell and selector, the stability-consensus ARI at the selected k:
+    the CELL_KEY columns, metric_name and ari_at_k. Undefined selections are
+    dropped (see ari_summary)."""
+    key = list(CELL_KEY)
+    rows = selection[
+        selection["k_star"].notna()
+        & selection["selected_k"].notna()
+        & selection["metric_name"].isin(metrics)
+    ][key + ["metric_name", "selected_k"]].copy()
+    rows["selected_k"] = rows["selected_k"].astype(int)
+    at = at_k[at_k["mode"] == "default"][key + ["k", "ari_at_k"]]
+    return rows.merge(at, left_on=key + ["selected_k"], right_on=key + ["k"])
+
+
 def ari_summary(
     selection: pd.DataFrame,
     at_k: pd.DataFrame,
@@ -56,15 +73,7 @@ def ari_summary(
     column is NaN for every configuration of a cell) is missing data: it is
     dropped, and a group left with no defined selection emits no row.
     """
-    key = list(CELL_KEY)
-    rows = selection[
-        selection["k_star"].notna()
-        & selection["selected_k"].notna()
-        & selection["metric_name"].isin(metrics)
-    ][key + ["metric_name", "selected_k"]].copy()
-    rows["selected_k"] = rows["selected_k"].astype(int)
-    at = at_k[at_k["mode"] == "default"][key + ["k", "ari_at_k"]]
-    merged = rows.merge(at, left_on=key + ["selected_k"], right_on=key + ["k"])
+    merged = _selected_ari(selection, at_k, metrics)
     group = [x, *DATASET_KEY, "metric_name"]
     per_dataset = merged.groupby(group, as_index=False)["ari_at_k"].mean()
     return _with_pooled(
@@ -76,6 +85,44 @@ def ari_summary(
             "n_datasets": ("ari_at_k", "size"),
         },
         x=x,
+    )
+
+
+def seed_summary(
+    selection: pd.DataFrame,
+    at_k: pd.DataFrame,
+    *,
+    x: str,
+    metrics: Sequence[str] = HEADLINE_METRICS,
+) -> pd.DataFrame:
+    """Mean over datasets of each replicate's ARI at its selected k, one row
+    per (x, study, replicate, metric).
+
+    The figure's seed lines. ari_summary averages the replicates within a
+    dataset first; this keeps them apart, so the spread between seeds can be
+    read against the spread over x. Replicate r is the same seed offset on
+    every dataset (carve_seed). There are no pooled rows, since a seed line
+    belongs to one scenario. Simulations only, as in ari_summary.
+    """
+    merged = _selected_ari(selection, at_k, metrics)
+    return merged.groupby([x, "study", "replicate", "metric_name"], as_index=False).agg(
+        ari_mean=("ari_at_k", "mean"), n_datasets=("ari_at_k", "size")
+    )
+
+
+def oracle_summary(view: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """Mean oracle ARI per simulated study over the datasets the view ran.
+
+    datasets passes through arm_view whole, so it is first restricted to the
+    datasets with a cell in the view: the B arm runs a subset of the rho
+    arm's datasets. A study has no oracle and is left out.
+    """
+    key = list(DATASET_KEY)
+    ran = view["cells"][key].drop_duplicates()
+    rows = view["datasets"].merge(ran, on=key)
+    rows = rows[_is_simulation(rows)]
+    return rows.groupby("study", as_index=False).agg(
+        oracle_ari=("oracle_ari", "mean"), n_datasets=("oracle_ari", "size")
     )
 
 
@@ -212,6 +259,8 @@ def rare_recall_summary(
     Every metric reads the stability-consensus at_k rows, the labels CARVE
     returns whichever measure selected k. difficulty restricts to one axis
     label (the hard setting is where rare clusters are smallest).
+    Replicates are averaged within a dataset first, so the standard error is
+    over datasets, the independent unit.
     """
     key = list(CELL_KEY)
     parts = []
@@ -237,8 +286,11 @@ def rare_recall_summary(
     rows = pd.concat(parts, ignore_index=True)
     if difficulty is not None:
         rows = rows[rows["difficulty"] == difficulty]
+    per_dataset = rows.groupby([x, *DATASET_KEY, "metric_name"], as_index=False)[
+        ["recall_selected", "recall_k_star"]
+    ].mean()
     return _with_pooled(
-        rows,
+        per_dataset,
         [x, "study", "metric_name"],
         {
             "recall_selected": ("recall_selected", "mean"),

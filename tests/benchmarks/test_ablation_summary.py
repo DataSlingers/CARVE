@@ -12,7 +12,9 @@ from benchmarks._ablation_summary import (
     bias_summary,
     curve_at_k_star,
     diagnostics_summary,
+    oracle_summary,
     rare_recall_summary,
+    seed_summary,
     similarity_at_k_star,
     similarity_summary,
     spread_summary,
@@ -141,6 +143,63 @@ class TestAriSummary:
     def test_columns(self):
         selection = _selection()
         assert list(ari_summary(selection, _at_k(selection), x=X).columns) == ARI_COLUMNS
+
+
+SEED_COLUMNS = [X, "study", "replicate", "metric_name", "ari_mean", "n_datasets"]
+
+
+class TestSeedSummary:
+    def test_keeps_replicates_apart_and_averages_over_datasets(self):
+        # Stability at 0.2 selects k=3 on replicate 0 (0.30 and 0.32 on the
+        # two datasets) and k=4 on replicate 1 (0.40 and 0.42).
+        selection = _selection()
+        out = seed_summary(selection, _at_k(selection), x=X)
+        stab = out[(out["study"] == "gaussians") & (out["metric_name"] == STAB) & (out[X] == 0.2)]
+        assert stab.set_index("replicate")["ari_mean"].to_dict() == pytest.approx({0: 0.31, 1: 0.41})
+        assert set(stab["n_datasets"]) == {2}
+
+    def test_seed_means_average_to_ari_summary(self):
+        # Every dataset has every replicate here, so the mean over seeds of
+        # the mean over datasets equals ari_summary's mean over datasets of
+        # the mean over seeds.
+        selection = _selection()
+        at_k = _at_k(selection)
+        seeds = seed_summary(selection, at_k, x=X)
+        per_setting = seeds.groupby([X, "study", "metric_name"])["ari_mean"].mean()
+        ari = ari_summary(selection, at_k, x=X)
+        ari = ari[ari["study"] != POOLED].set_index([X, "study", "metric_name"])["ari_mean"]
+        assert per_setting.sort_index().to_dict() == pytest.approx(ari.sort_index().to_dict())
+
+    def test_has_no_pooled_rows_and_no_study(self):
+        selection = _selection()
+        out = seed_summary(selection, _at_k(selection), x=X)
+        assert set(out["study"]) == {"gaussians"}
+
+    def test_columns(self):
+        selection = _selection()
+        assert list(seed_summary(selection, _at_k(selection), x=X).columns) == SEED_COLUMNS
+
+
+class TestOracleSummary:
+    def test_averages_over_the_datasets_the_view_ran_per_study(self):
+        # Dataset 2 has a record but no cell in the view (as the B arm runs
+        # a subset of the rho arm's datasets), so its 0.0 must not count.
+        datasets = pd.DataFrame([
+            {"study": "gaussians", "difficulty": "medium", "dataset": 0, "oracle_ari": 0.9},
+            {"study": "gaussians", "difficulty": "medium", "dataset": 1, "oracle_ari": 0.7},
+            {"study": "gaussians", "difficulty": "medium", "dataset": 2, "oracle_ari": 0.0},
+            {"study": "circles", "difficulty": "medium", "dataset": 0, "oracle_ari": 0.5},
+            {"study": "klein", "difficulty": "", "dataset": 0, "oracle_ari": np.nan},
+        ])
+        cells = pd.DataFrame([
+            _key(dataset=0), _key(dataset=1), _key(dataset=1, rep=1),
+            _key(study="circles", dataset=0),
+            _key(study="klein", difficulty="", dataset=0),
+        ])
+        out = oracle_summary({"datasets": datasets, "cells": cells}).set_index("study")
+        assert out["oracle_ari"].to_dict() == pytest.approx({"gaussians": 0.8, "circles": 0.5})
+        assert out.loc["gaussians", "n_datasets"] == 2
+        assert list(out.reset_index().columns) == ["study", "oracle_ari", "n_datasets"]
 
 
 BIAS_COLUMNS = [X, "study", "metric_name", "bias_mean", "bias_sem", "n_datasets"]
@@ -375,6 +434,27 @@ class TestRareRecallSummary:
         pooled = out[out["study"] == POOLED].iloc[0]
         assert pooled["recall_selected_sem"] == pytest.approx(np.std([0.0, 1.0], ddof=1) / np.sqrt(2))
         assert pooled["recall_k_star_sem"] == 0.0
+
+    def test_replicates_are_averaged_within_a_dataset_first(self):
+        # Two datasets with two replicates each. Dataset 0 selects k=4 on
+        # both replicates (recall 0) and dataset 1 k=5 (recall 1), so the
+        # dataset means are 0 and 1: the standard error over datasets is
+        # 0.5, while over the four fits it would be about 0.29.
+        selection = pd.DataFrame([
+            {**_key(dataset=d, rep=r), "metric_name": STAB, "selected_estimator": "KMeans",
+             "selected_k": 4 if d == 0 else 5, "k_star": 5.0, "ari_selected": 0.8}
+            for d in (0, 1) for r in (0, 1)
+        ])
+        at_k = pd.DataFrame([
+            {**_key(dataset=d, rep=r), "mode": "default", "k": k, "ari_at_k": 0.5,
+             "rare_recall_at_k": {4: 0.0, 5: 1.0}[k]}
+            for d in (0, 1) for r in (0, 1) for k in (4, 5)
+        ])
+        out = rare_recall_summary(at_k, selection, x=X, metrics=(STAB,))
+        row = out[out["study"] == "gaussians"].iloc[0]
+        assert row["recall_selected"] == pytest.approx(0.5)
+        assert row["recall_selected_sem"] == pytest.approx(np.std([0.0, 1.0], ddof=1) / np.sqrt(2))
+        assert row["recall_selected_sem"] != pytest.approx(np.std([0.0, 0.0, 1.0, 1.0], ddof=1) / 2)
 
     def test_difficulty_filter(self):
         selection = pd.DataFrame([
