@@ -184,6 +184,48 @@ class TestSimilarityRows:
         assert idx.size + rest.size == 90
 
 
+    @staticmethod
+    def _spectral_calls(monkeypatch, rho):
+        """(rows, n_neighbors) of every spectral fit one similarity unit makes
+        on the 120-row tiny data. The fit is replaced by a spy that records
+        and returns one cluster, so no clustering runs."""
+        from carve.cluster import SpectralClustering
+
+        spectral = dataclasses.replace(
+            TINY_SCENARIO, name="tiny_spectral", estimator=EstimatorSpec(name="spectral")
+        )
+        monkeypatch.setitem(cells_module.SCENARIOS, "tiny_spectral", spectral)
+        monkeypatch.setitem(ablation_module.SCENARIOS, "tiny_spectral", spectral)
+        calls = []
+
+        def spy(self, X, y=None):
+            calls.append((X.shape[0], self.n_neighbors))
+            return np.zeros(X.shape[0], dtype=int)
+
+        monkeypatch.setattr(SpectralClustering, "fit_predict", spy)
+        unit = Unit("similarity", Cell("tiny_spectral", "easy", 0, rho, 0, 0))
+        rows = similarity_rows(unit, ablation=TINY_ABLATION, scale="dev", data=None)
+        return rows, calls, len(spectral.candidate_k)
+
+    @pytest.mark.parametrize(("rho", "draw_call"), [(0.618, (74, 4)), (0.2, (24, 2))])
+    def test_a_spectral_draw_scales_its_neighbors_like_carve(self, monkeypatch, rho, draw_call):
+        # 7 neighbors on the 120 full rows. A draw of 74 rows gets
+        # round(7 * 74 / 120) = 4 and one of 24 rows the floor of 2, which is
+        # what carve._runner's fit_labels gives a subsample of that size. The
+        # full-data fit keeps 7. Unscaled, the draws would record 7.
+        rows, calls, n_k = self._spectral_calls(monkeypatch, rho)
+        draws = TINY_SCALE.similarity_draws
+        assert len(rows) == n_k * draws
+        assert calls.count((120, 7)) == n_k
+        assert calls.count(draw_call) == n_k * draws
+        assert len(calls) == n_k * (1 + draws)
+
+    def test_the_spectral_refit_reference_keeps_the_full_neighbor_count(self, monkeypatch):
+        rows, calls, n_k = self._spectral_calls(monkeypatch, REFERENCE_RATIO)
+        assert set(calls) == {(120, 7)}
+        assert len(calls) == n_k * (1 + TINY_SCALE.similarity_draws)
+
+
 class TestCellRows:
     @pytest.fixture(scope="class")
     @classmethod

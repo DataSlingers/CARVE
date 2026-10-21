@@ -25,7 +25,7 @@ from sklearn.metrics import adjusted_rand_score
 
 from carve import CARVE
 from carve._selection import select_best_row_by_rule
-from carve._utils import split_subsample_indices
+from carve._utils import scale_neighbor_count, split_subsample_indices
 
 from ._ablation_cells import (
     REFERENCE_RATIO,
@@ -188,9 +188,11 @@ def similarity_rows(
 
     F is the full-data fit with the base seed (for a simulation, exactly
     run_cell's labels_by_k). Draw m subsamples with similarity_seed(base, m)
-    and clusters it with the same estimator, k and seed; its ARI is taken
-    against F restricted to the draw. At REFERENCE_RATIO the full data is
-    refit with the draw's seed instead and scored against F.
+    and cluster each with the same estimator, k and seed, its neighbor count
+    scaled to the draw's rows as CARVE scales a subsample's (fit_labels in
+    carve._runner; estimators without a neighbor count are unchanged); its
+    ARI is taken against F restricted to the draw. At REFERENCE_RATIO the
+    full data is refit with the draw's seed instead and scored against F.
     """
     cell = unit.cell
     sc = ablation.scales[scale]
@@ -219,6 +221,14 @@ def similarity_rows(
                 else:
                     idx, _ = split_subsample_indices(
                         n, subsample_ratio=cell.subsample_ratio, random_state=seed
+                    )
+                    estimator.set_params(
+                        **scale_neighbor_count(
+                            type(estimator),
+                            estimator.get_params(),
+                            n_fit=idx.size,
+                            n_full=n,
+                        )
                     )
                     ari = adjusted_rand_score(full[idx], estimator.fit_predict(X[idx]))
                 rows.append(
