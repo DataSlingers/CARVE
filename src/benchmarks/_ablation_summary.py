@@ -100,7 +100,7 @@ def seed_summary(
     """Mean over datasets of each replicate's ARI at its selected k, one row
     per (x, study, replicate, metric).
 
-    The figure's seed lines. ari_summary averages the replicates within a
+    The notebook's seed lines. ari_summary averages the replicates within a
     dataset first; this keeps them apart, so the spread between seeds can be
     read against the spread over x. Replicate r is the same seed offset on
     every dataset (carve_seed). There are no pooled rows, since a seed line

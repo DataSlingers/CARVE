@@ -8,8 +8,8 @@ matplotlib.use("Agg")
 
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
+import numpy as np
 import pytest
-from matplotlib.collections import PolyCollection
 from matplotlib.colors import to_hex
 from matplotlib.figure import Figure
 from matplotlib.text import Text
@@ -20,7 +20,6 @@ from benchmarks._ablation_summary import (
     ari_summary,
     bias_summary,
     rare_recall_summary,
-    seed_summary,
     similarity_at_k_star,
 )
 from benchmarks._registry import ABLATIONS, METRIC_DISPLAY_NAMES
@@ -32,12 +31,13 @@ from benchmarks._theme import (
 )
 from benchmarks.figures import figure_ablation, figure_ablation_resampling
 from benchmarks.figures._ablation import (
-    ARI_LIMITS,
-    KEY_HEADROOM_TOP,
-    PROPORTION_LIMITS,
-    SEED_GID,
+    DODGE_PT,
+    MIN_Y_SPAN,
+    NEUTRAL_COLOR,
     STUDY_TITLES,
+    Y_PAD,
     Z_95,
+    fitted_limits,
 )
 from tests.benchmarks._helpers import small_ablation, synthetic_ablation_frames
 
@@ -136,35 +136,38 @@ def _has_default_line(ax, default):
     )
 
 
-def _selector_line(ax, metric):
-    (line,) = [
-        line for line in ax.lines
-        if len(line.get_xdata()) > 2
-        and line.get_gid() != SEED_GID
-        and to_hex(line.get_color()) == to_hex(metric_color(metric))
+def _selector_bars(ax, metric):
+    """The selector's error-bar container: lines[0] is its mean line and
+    lines[2] its bars."""
+    (container,) = [
+        c for c in ax.containers
+        if to_hex(c.lines[0].get_color()) == to_hex(metric_color(metric))
     ]
-    return line
+    return container
 
 
-def _seed_lines(ax, metric):
+def _selector_line(ax, metric):
+    return _selector_bars(ax, metric).lines[0]
+
+
+def _bar_ends(container):
+    """The lower and upper end of each error bar, in x order."""
+    (bars,) = container.lines[2]
+    segments = bars.get_segments()
+    return np.array([s[0][1] for s in segments]), np.array([s[1][1] for s in segments])
+
+
+def _drawn_lines(ax):
+    """Lines with more than two points that draw a line, not caps alone."""
     return [
         line for line in ax.lines
-        if line.get_gid() == SEED_GID
-        and to_hex(line.get_color()) == to_hex(metric_color(metric))
+        if len(line.get_xdata()) > 2 and line.get_linestyle() != "None"
     ]
 
 
 def _per_study(summary, study, metric, x):
     rows = summary[(summary["study"] == study) & (summary["metric_name"] == metric)]
     return rows.sort_values(x)
-
-
-def _band(ax, color):
-    (band,) = [
-        c for c in ax.collections
-        if isinstance(c, PolyCollection) and to_hex(c.get_facecolor()[0]) == to_hex(color)
-    ]
-    return band.get_paths()[0].vertices
 
 
 def _ari(frames, ablation, arm, x, study, metric):
@@ -236,8 +239,12 @@ class TestFigureAblation:
         ablation, frames = registry_scenarios
         assert ablation.scenarios == ("gaussians",)
         fig = figure_ablation(frames, ablation=ablation, scale="test", save=False)
-        assert list(_panels(fig)) == list("AB")
+        panels = _panels(fig)
+        assert list(panels) == list("AB")
         assert fig.get_size_inches()[1] < figure.get_size_inches()[1]
+        # One scenario needs no name in the titles; the caption gives it.
+        for ax in panels.values():
+            assert STUDY_TITLES["gaussians"] not in ax.get_title(loc="left")
         plt.close(fig)
 
     def test_a_study_adds_a_row(self, with_study, figure):
@@ -307,47 +314,47 @@ class TestFigureAblation:
         stored = stored.groupby(x)["ari_selected"].mean()
         assert list(_selector_line(ax, STAB).get_ydata()) != pytest.approx(list(stored))
 
-    def test_band_is_the_95_percent_interval_over_datasets(self, without_study, figure):
+    def test_error_bars_are_the_95_percent_interval_over_datasets(self, without_study, figure):
         ablation, frames = without_study
         expected = _ari(frames, ablation, "b", B, GAUSSIANS, STAB)
-        ys = _band(_panels(figure)["B"], metric_color(STAB))[:, 1]
-        assert ys.max() == pytest.approx((expected["ari_mean"] + Z_95 * expected["ari_sem"]).max())
-        assert ys.min() == pytest.approx((expected["ari_mean"] - Z_95 * expected["ari_sem"]).min())
+        lower, upper = _bar_ends(_selector_bars(_panels(figure)["B"], STAB))
+        mean, sem = expected["ari_mean"], expected["ari_sem"]
+        assert list(lower) == pytest.approx(list(mean - Z_95 * sem))
+        assert list(upper) == pytest.approx(list(mean + Z_95 * sem))
 
-    def test_seed_lines_where_an_arm_ran_more_than_one_seed(self, without_study, figure):
-        # The test scale runs one seed on the rho arm and two on the B arm:
-        # no seed lines on the rho panels, two per selector on the B panels,
-        # each that seed's mean over the datasets, thinner than the mean.
-        ablation, frames = without_study
-        assert ablation.scales["test"].rho_arm.replicates == 1
-        assert ablation.scales["test"].b_arm.replicates == 2
-        panels = _panels(figure)
-        for letter in "AC":
-            assert not [line for line in panels[letter].lines if line.get_gid() == SEED_GID], letter
-        b_view = arm_view(frames, ablation=ablation, scale="test", arm="b")
-        seeds = seed_summary(b_view["selection"], b_view["at_k"], x=B)
-        for letter, study in (("B", GAUSSIANS), ("D", CIRCLES)):
-            ax = panels[letter]
-            for metric in HEADLINE_METRICS:
-                expected = sorted(
-                    list(part.sort_values(B)["ari_mean"])
-                    for _, part in _per_study(seeds, study, metric, B).groupby("replicate")
-                )
-                lines = _seed_lines(ax, metric)
-                drawn = sorted(list(line.get_ydata()) for line in lines)
-                assert len(drawn) == 2, (letter, metric)
-                assert drawn == [pytest.approx(e) for e in expected], (letter, metric)
-                mean_width = _selector_line(ax, metric).get_linewidth()
-                assert all(line.get_linewidth() < mean_width for line in lines)
+    def test_one_line_per_selector_and_no_seed_lines(self, figure):
+        # The B arm of the test scale runs two seeds; a line per seed would
+        # add two more lines per selector.
+        for letter, ax in _panels(figure).items():
+            colors = [to_hex(line.get_color()) for line in _drawn_lines(ax)]
+            assert sorted(colors) == sorted(SELECTOR_COLORS), letter
 
-    def test_ari_is_drawn_on_the_full_scale(self, with_study):
-        # A fixed 0 to 1 axis, so a difference of a few hundredths reads as
-        # what it is; autoscaling zoomed the old panels to 0.60-0.85.
-        assert ARI_LIMITS == (0.0, 1.0)
+    def test_the_selectors_are_nudged_apart_by_the_same_points_on_both_axes(self, figure):
+        # Stability sits DODGE_PT points left of generalizability, on the
+        # linear rho axis and the log B axis alike.
+        figure.canvas.draw()
+        expected = DODGE_PT * figure.dpi / 72
+        for letter in "AB":
+            ax = _panels(figure)[letter]
+            stab, gen = (_selector_line(ax, metric) for metric in (STAB, GEN))
+            assert list(stab.get_xdata()) == list(gen.get_xdata())
+            point = (stab.get_xdata()[0], stab.get_ydata()[0])
+            shift = gen.get_transform().transform(point)[0] - stab.get_transform().transform(point)[0]
+            assert shift == pytest.approx(expected), letter
+
+    def test_every_ari_panel_shares_one_fitted_axis(self, with_study):
         ablation, frames = with_study
         fig = figure_ablation(frames, ablation=ablation, scale="test", save=False)
-        for letter, ax in _panels(fig).items():
-            assert ax.get_ylim() == pytest.approx(ARI_LIMITS), letter
+        panels = _panels(fig)
+        limits = {ax.get_ylim() for ax in panels.values()}
+        assert len(limits) == 1
+        (lo, hi) = limits.pop()
+        assert hi - lo >= MIN_Y_SPAN
+        assert (lo, hi) != pytest.approx((0.0, 1.0))
+        for letter, ax in panels.items():
+            for metric in HEADLINE_METRICS:
+                lower, upper = _bar_ends(_selector_bars(ax, metric))
+                assert lo <= lower.min() and upper.max() <= hi, (letter, metric)
         plt.close(fig)
 
     def test_oracle_reads_only_the_datasets_the_arm_ran(self, tmp_path):
@@ -413,12 +420,12 @@ class TestFigureAblation:
             assert oracle.get_ydata()[0] == pytest.approx(value), letter
         plt.close(fig)
 
-    def test_one_legend_names_the_selectors_the_seeds_the_interval_and_the_defaults(self, figure):
+    def test_one_legend_names_the_selectors_the_oracle_the_interval_and_the_defaults(self, figure):
         (legend,) = figure.legends
         assert [t.get_text() for t in legend.get_texts()] == [
             METRIC_DISPLAY_NAMES[STAB],
             METRIC_DISPLAY_NAMES[GEN],
-            "Single seed",
+            "Oracle $k^*$",
             "95% CI",
             f"Default ($\\rho$ = {NO_STUDY.rho_default:g}, $B$ = {NO_STUDY.b_default:g})",
         ]
@@ -507,9 +514,9 @@ class TestFigureAblationResampling:
         for metric in HEADLINE_METRICS:
             rows = _per_study(summary, study, metric, RHO)
             assert list(_selector_line(ax, metric).get_ydata()) == pytest.approx(list(rows["bias_mean"]))
-            ys = _band(ax, metric_color(metric))[:, 1]
-            assert ys.max() == pytest.approx((rows["bias_mean"] + Z_95 * rows["bias_sem"]).max())
-            assert ys.min() == pytest.approx((rows["bias_mean"] - Z_95 * rows["bias_sem"]).min())
+            lower, upper = _bar_ends(_selector_bars(ax, metric))
+            assert list(lower) == pytest.approx(list(rows["bias_mean"] - Z_95 * rows["bias_sem"]))
+            assert list(upper) == pytest.approx(list(rows["bias_mean"] + Z_95 * rows["bias_sem"]))
         zero = [line for line in ax.lines if list(line.get_ydata()) == [0.0, 0.0]]
         assert len(zero) == 1
 
@@ -536,14 +543,21 @@ class TestFigureAblationResampling:
         gen = _per_study(summary, study, GEN, RHO)["recall_k_star"]
         assert list(stab) == pytest.approx(list(gen))
         assert list(dashed[0].get_ydata()) == pytest.approx(list(stab))
-        assert to_hex(dashed[0].get_color()) not in SELECTOR_COLORS
-        assert difficulty in ax.get_title(loc="left")
+        assert to_hex(dashed[0].get_color()) == to_hex(NEUTRAL_COLOR)
 
-    def test_rare_recall_is_a_proportion_with_room_for_its_key(self, resampling):
-        for letter in (letters[1] for letters in RESAMPLING_PANELS.values()):
-            ax = _panels(resampling)[letter]
-            assert ax.get_ylim() == pytest.approx((PROPORTION_LIMITS[0], KEY_HEADROOM_TOP))
-            assert list(ax.get_yticks()) == pytest.approx([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
+    def test_proportion_panels_are_fitted_to_what_they_draw(self, resampling):
+        # Recall and subsample-versus-full ARI, each on its own axis fitted
+        # to its error bars and reference line; the old recall panel ran to
+        # 1.32 to hold an in-panel key.
+        for letters in RESAMPLING_PANELS.values():
+            for letter in letters[1:]:
+                ax = _panels(resampling)[letter]
+                ends = [np.concatenate(_bar_ends(c)) for c in ax.containers if c.has_yerr]
+                lines = [line.get_ydata() for line in _drawn_lines(ax)]
+                lo, hi = fitted_limits(np.concatenate([*ends, *lines]))
+                pad = Y_PAD * (hi - lo)
+                assert ax.get_ylim() == pytest.approx((lo - pad, hi + pad)), letter
+                assert hi - lo >= MIN_Y_SPAN, letter
 
     @pytest.mark.parametrize("study", [GAUSSIANS, CIRCLES])
     def test_similarity_line_stops_before_the_refit_reference(
@@ -554,21 +568,49 @@ class TestFigureAblationResampling:
         rows = summary[summary["study"] == study].sort_values(RHO)
         swept = rows[rows[RHO] < REFERENCE_RATIO]
         ax = _panels(resampling)[RESAMPLING_PANELS[study][2]]
-        (line,) = [line for line in ax.lines if len(line.get_xdata()) > 2]
+        (line,) = _drawn_lines(ax)
         assert list(line.get_xdata()) == pytest.approx(list(swept[RHO]))
         assert list(line.get_ydata()) == pytest.approx(list(swept["ari_mean"]))
-        (refit,) = [line for line in ax.lines if list(line.get_xdata()) == [REFERENCE_RATIO]]
+        assert to_hex(line.get_color()) == to_hex(NEUTRAL_COLOR)
+        (refit,) = [
+            line for line in ax.lines
+            if list(line.get_xdata()) == [REFERENCE_RATIO] and line.get_marker() == "o"
+        ]
         assert refit.get_ydata()[0] == pytest.approx(
             float(rows[rows[RHO] == REFERENCE_RATIO]["ari_mean"].iloc[0])
         )
         assert [t.get_text() for t in ax.get_xticklabels()][-1] == "1.0"
-        assert ax.get_ylim() == pytest.approx(ARI_LIMITS)
 
-    def test_one_legend_names_the_selectors_the_interval_and_the_default(self, resampling):
+    def test_one_legend_names_the_selectors_the_references_the_interval_and_the_default(
+        self, resampling
+    ):
         (legend,) = resampling.legends
         assert [t.get_text() for t in legend.get_texts()] == [
             METRIC_DISPLAY_NAMES[STAB],
             METRIC_DISPLAY_NAMES[GEN],
+            "Recall at $k^*$",
+            "Full-data refit",
             "95% CI",
             f"Default $\\rho$ = {NO_STUDY.rho_default:g}",
         ]
+
+
+class TestFittedLimits:
+    def test_rounds_out_to_whole_steps_and_widens_to_the_minimum_span(self):
+        assert fitted_limits([0.83, 0.86]) == pytest.approx((0.75, 0.95))
+
+    def test_a_range_wider_than_the_minimum_is_only_rounded_out(self):
+        assert fitted_limits([0.12, 0.88]) == pytest.approx((0.1, 0.9))
+
+    def test_widening_stays_inside_the_bounds(self):
+        assert fitted_limits([0.95, 0.99]) == pytest.approx((0.8, 1.0))
+        assert fitted_limits([0.01, 0.04]) == pytest.approx((0.0, 0.2))
+
+    def test_values_outside_the_bounds_are_kept(self):
+        # An error bar that crosses 0 or 1 is drawn whole.
+        assert fitted_limits([0.52, 1.03]) == pytest.approx((0.5, 1.05))
+        assert fitted_limits([-0.37, 0.4]) == pytest.approx((-0.4, 0.4))
+        assert fitted_limits([-0.02, 0.06]) == pytest.approx((-0.05, 0.15))
+
+    def test_no_finite_value_gives_the_bounds(self):
+        assert fitted_limits([np.nan]) == (0.0, 1.0)
