@@ -28,6 +28,7 @@ from benchmarks._panels import (
     axis_arrows,
     carve_lines,
     cluster_color_map,
+    compact_setting,
     criterion_curves,
     cvi_lines,
     grouped_legend,
@@ -737,6 +738,28 @@ class TestCviLines:
         assert len(data_lines) == 2
         for line in data_lines:
             assert len(line.get_xdata()) == 3
+
+    def test_plots_over_resolution_when_the_curves_carry_it(self, ax):
+        # A resolution sweep's k is an outcome, and two resolutions can give
+        # the same k, so the curve and its selection are placed by resolution.
+        curves = pd.DataFrame(
+            {
+                "metric": ["silhouette"] * 3,
+                "model": ["Leiden"] * 3,
+                "resolution": [0.5, 0.1, 0.2],
+                "k": [6, 4, 4],
+                "score": [0.2, 0.4, 0.35],
+            }
+        )
+        best = pd.DataFrame(
+            {"metric": ["silhouette"], "model": ["Leiden"], "resolution": [0.1], "k": [4]}
+        )
+        cvi_lines(ax, curves, best)
+        (line,) = [ln for ln in ax.lines if ln.get_marker() == "o"]
+        np.testing.assert_allclose(line.get_xdata(), [0.1, 0.2, 0.5])
+        (rule,) = [ln for ln in ax.lines if ln.get_linestyle() == "--"]
+        assert float(rule.get_xdata()[0]) == 0.1
+        assert "resolution" in ax.get_xlabel().lower()
 
     def test_line_x_values_are_monotonic(self, ax):
         # Grouping by metric alone and sorting by k (the interleaving bug)
@@ -1869,3 +1892,57 @@ class TestCriterionCurves:
         reference = _criterion_reference(ax).lines[0]
         np.testing.assert_allclose(reference.get_ydata(), [0.5] * 5)
         plt.close(fig)
+
+
+class TestCompactSetting:
+    """A graph clusterer's configuration, as CARVE and the CVI sweep render it,
+    shortened so a legend or title fits its panel."""
+
+    @pytest.mark.parametrize(
+        "text, expected",
+        [
+            # CARVE's method_label, inside a carve_lines legend entry.
+            (
+                "CARVE Stability (1SE) — LeidenClustering, n_neighbors=30, "
+                "objective_function=modularity, weighting=jaccard",
+                "CARVE Stability (1SE) — Leiden, 30 neighbors, Jaccard",
+            ),
+            # The CVI sweep's model label.
+            (
+                "Silhouette — LeidenClustering (n_neighbors=30, "
+                "objective_function=modularity, weighting=jaccard)",
+                "Silhouette — Leiden, 30 neighbors, Jaccard",
+            ),
+            # CARVE's scatter note, one parameter per line.
+            (
+                "LeidenClustering\nn_neighbors=30\nobjective_function=modularity\n"
+                "weighting=jaccard (resolution = 0.41, k ≈ 8)\nStability, 1-SE rule",
+                "Leiden, 30 neighbors, Jaccard (resolution = 0.41, k ≈ 8)\n"
+                "Stability, 1-SE rule",
+            ),
+            # hECA's two settings, as its overview legend has always read.
+            (
+                "LeidenClustering, n_neighbors=15, objective_function=modularity",
+                "Leiden, 15 neighbors",
+            ),
+            ("LouvainClustering (n_neighbors=15)", "Louvain, 15 neighbors"),
+            # An objective other than modularity changes the resolution scale.
+            (
+                "LeidenClustering, n_neighbors=15, objective_function=CPM",
+                "Leiden, 15 neighbors, CPM",
+            ),
+        ],
+    )
+    def test_shortens_a_graph_clusterer_configuration(self, text, expected):
+        assert compact_setting(text) == expected
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "CARVE Stability (1SE) — AgglomerativeClustering, linkage=ward",
+            "Silhouette — KMeans (n_init=100)",
+            "Selected resolution (1-SE rule): 0.31",
+        ],
+    )
+    def test_leaves_other_text_alone(self, text):
+        assert compact_setting(text) == text

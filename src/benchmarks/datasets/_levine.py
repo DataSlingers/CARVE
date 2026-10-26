@@ -9,15 +9,24 @@ is the only step between the two.
 HDCytoData's Levine_32dim_SE holds 265,627 cells from two healthy donors on
 39 channels. Manual gating assigned 104,184 of them to 14 populations; the
 other 161,443 carry the population "unassigned". The loader keeps the 32 type
-markers (marker_class "type"), arcsinh transforms with cofactor 5, robust
-scales, and then drops the unassigned cells.
+markers (marker_class "type"), arcsinh transforms with cofactor 5, and drops
+the unassigned cells.
 
-The ordering of the last two steps is deliberate and is preserved from the
-code that produced the published results: RobustScaler is fit on all 265,627
-cells, the unassigned ones included, and the unassigned cells are dropped from
-the already-scaled matrix afterwards. The scaler's quantiles therefore reflect
-cells that are not in the returned data. Do not "correct" this without
-re-running the case study; it changes the numbers.
+By default nothing is scaled. arcsinh with cofactor 5 puts every marker on
+the common intensity scale cytometry workflows cluster on (R FlowSOM's default
+input, scale=FALSE). Per-marker robust scaling stretches the markers that are
+mostly negative and compresses the high-variance ones; on the 5,000-cell
+subsample it merged CD4 and CD8 T cells under FlowSOM at every k below 19, and
+Leiden, KMeans and FlowSOM all recover the gated populations better without it
+(measured 2026-10-16).
+
+scale=True reproduces the preprocessing of the submitted manuscript, which
+adds RobustScaler(quantile_range=(10, 90)) between the transform and the drop.
+That ordering is deliberate and preserved from the code that produced the
+submitted results: the scaler is fit on all 265,627 cells, the unassigned ones
+included, and the unassigned cells are dropped from the already-scaled matrix
+afterwards. The scaler's quantiles therefore reflect cells that are not in the
+returned data. Do not "correct" this; it changes the submitted numbers.
 
 Labels come from R as the factor's integer codes, are subsampled as codes, and
 are returned as population names. The unassigned level is code 15, which is
@@ -101,19 +110,37 @@ def _population_names(codes: pd.Series) -> pd.Series:
     if unknown:
         raise ValueError(
             f"Levine population codes {unknown} name no gated population; the "
-            "unassigned cells (15) should have been dropped in R."
+            "unassigned cells (15) should have been dropped before naming."
         )
     return codes.map(_POPULATION_NAMES).rename("population")
 
 
-def _load_from_r() -> tuple[np.ndarray, np.ndarray, list[str], dict[str, str]]:
-    """Fetch and preprocess the dataset through rpy2.
+def _preprocess(
+    X_raw: np.ndarray, codes: np.ndarray, *, scale: bool
+) -> tuple[np.ndarray, np.ndarray]:
+    """arcsinh(x / 5), RobustScaler when scale is set, then drop the unassigned.
 
-    Returns the scaled matrix, the population codes, the marker names and the
-    HDCytoData and R versions the data were read with.
+    X_raw holds the type markers of every cell, unassigned included, so the
+    scaler is fit on all of them, as for the submitted results (see the module
+    docstring).
+    """
+    from sklearn.preprocessing import RobustScaler
+
+    X = np.arcsinh(np.asarray(X_raw, dtype=np.float64) / _COFACTOR)
+    if scale:
+        X = RobustScaler(quantile_range=_QUANTILE_RANGE).fit_transform(X)
+    keep = codes != _UNASSIGNED_CODE
+    return X[keep], codes[keep]
+
+
+def _load_from_r() -> tuple[np.ndarray, np.ndarray, list[str], dict[str, str]]:
+    """Fetch the dataset through rpy2.
+
+    Returns the raw type-marker matrix and the population codes of every cell,
+    the unassigned ones included, the marker names, and the HDCytoData and R
+    versions the data were read with.
     """
     import rpy2.robjects as ro
-    from sklearn.preprocessing import RobustScaler
 
     ro.r(
         "suppressPackageStartupMessages({"
@@ -135,10 +162,6 @@ def _load_from_r() -> tuple[np.ndarray, np.ndarray, list[str], dict[str, str]]:
     channels = [str(name) for name in ro.r("rownames(colData(sce))")]
     markers = [name for name, keep in zip(channels, type_markers) if keep]
 
-    # The scaler is fit on every cell, unassigned included. See module docstring.
-    X_transformed = np.arcsinh(X_all[:, type_markers].astype(np.float64) / _COFACTOR)
-    X_scaled = RobustScaler(quantile_range=_QUANTILE_RANGE).fit_transform(X_transformed)
-
     versions = {
         "hdcytodata_version": str(
             ro.r('as.character(packageVersion("HDCytoData"))')[0]
@@ -146,8 +169,7 @@ def _load_from_r() -> tuple[np.ndarray, np.ndarray, list[str], dict[str, str]]:
         "r_version": str(ro.r("R.version.string")[0]),
     }
 
-    keep = codes != _UNASSIGNED_CODE
-    return X_scaled[keep], codes[keep], markers, versions
+    return X_all[:, type_markers], codes, markers, versions
 
 
 def load_levine32(
@@ -155,6 +177,7 @@ def load_levine32(
     allow_install: bool = False,
     subsample: int | float | None = None,
     random_state: int = 42,
+    scale: bool = False,
 ) -> tuple[np.ndarray, pd.Series, dict]:
     """Load and preprocess the Levine 32-dimension dataset through R.
 
@@ -162,6 +185,10 @@ def load_levine32(
     an R package is a side effect on the user's machine, so a missing
     HDCytoData is installed only with allow_install=True; `make levine-setup`
     installs it ahead of time.
+
+    scale=True adds the submitted manuscript's RobustScaler(10, 90), fit on
+    every cell before the unassigned are dropped; the default leaves the
+    arcsinh-transformed markers unscaled (see the module docstring).
 
     Returns
     -------
@@ -181,8 +208,9 @@ def load_levine32(
             )
         _install_hdcytodata()
 
-    X, codes_arr, markers, versions = _load_from_r()
-    codes = pd.Series(np.asarray(codes_arr).astype(str))
+    X_raw, codes_raw, markers, versions = _load_from_r()
+    X, codes_arr = _preprocess(X_raw, np.asarray(codes_raw).astype(str), scale=scale)
+    codes = pd.Series(codes_arr)
 
     n_full = X.shape[0]
     if subsample is not None:
@@ -212,8 +240,15 @@ def load_levine32(
         "preprocessing": [
             "keep the 32 type markers (marker_class == 'type')",
             f"arcsinh(x / {_COFACTOR})",
-            f"RobustScaler(quantile_range={_QUANTILE_RANGE}) fit on all cells, "
-            "the unassigned ones (population 15) included, deliberately",
+            *(
+                [
+                    f"RobustScaler(quantile_range={_QUANTILE_RANGE}) fit on all "
+                    "cells, the unassigned ones (population 15) included, "
+                    "deliberately"
+                ]
+                if scale
+                else []
+            ),
             "drop the unassigned cells (population 15)",
         ],
         "subsample": subsample,

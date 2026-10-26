@@ -222,6 +222,130 @@ def cvi_sweep(
     return returned_curves, best.reset_index(drop=True)
 
 
+#: The classical indices a resolution sweep scores. The gap statistic is left
+#: out: it refits its reference datasets with a k-based estimator at the
+#: observed k, which a resolution sweep has no counterpart for.
+CVI_RESOLUTION_METRICS: tuple[str, ...] = (
+    "silhouette",
+    "davies_bouldin",
+    "calinski_harabasz",
+)
+
+_RESOLUTION_CURVE_COLUMNS = ["metric", "model", "resolution", "k", "score", "ari"]
+
+
+def _resolution_cell(
+    X: np.ndarray,
+    y: np.ndarray | None,
+    estimator_cls: type[ClusterMixin],
+    fixed_params: dict[str, Any],
+    resolution: float,
+    random_state: int,
+) -> list[dict[str, Any]]:
+    """Fit one estimator at one resolution and score every index on it."""
+    params = dict(fixed_params)
+    params["resolution"] = float(resolution)
+    apply_random_state(estimator_cls, params, random_state)
+
+    labels = np.asarray(estimator_cls(**params).fit_predict(X), dtype=np.int32)
+    k = int(np.unique(labels).size)
+    ari = float(adjusted_rand_score(y, labels)) if y is not None else float("nan")
+
+    rows = []
+    for metric in CVI_RESOLUTION_METRICS:
+        # No index is defined on a single cluster.
+        score = (
+            calculate_cvi(X, labels, metric, spec=None, random_state=random_state)[0]
+            if k > 1
+            else float("nan")
+        )
+        rows.append(
+            {
+                "metric": metric,
+                "model": _model_label(estimator_cls, fixed_params),
+                "resolution": float(resolution),
+                "k": k,
+                "score": float(score),
+                "ari": ari,
+            }
+        )
+    return rows
+
+
+def cvi_resolution_sweep(
+    X: np.ndarray,
+    y: np.ndarray | None,
+    *,
+    model_grids: list[tuple[type[ClusterMixin], dict[str, list[Any]]]],
+    random_state: int = 0,
+    n_jobs: int = 1,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Sweep Silhouette, Davies-Bouldin and CH over every (model, resolution).
+
+    The resolution counterpart of cvi_sweep, for grids from resolution_grids.
+    Each index scores one fit of every sample at each resolution, and k is
+    the number of clusters that fit produced. Every index selects its best
+    score (Davies-Bouldin through 1 / (1 + DB), as calculate_cvi returns it);
+    ties go to the lowest resolution, and a resolution that leaves a single
+    cluster is never selected.
+
+    Returns
+    -------
+    curves_df : one row per (metric, model, resolution) with columns
+        (metric, model, resolution, k, score, ari)
+    best_df : one row per metric, the selected (model, resolution), with
+        the same columns.
+    """
+    X = np.asarray(X)
+    y_arr = None if y is None else np.asarray(y)
+    _check_dense_fit(X.shape[0], model_grids)
+
+    jobs = []
+    for estimator_cls, grid in model_grids:
+        if "resolution" not in grid:
+            raise ValueError(
+                f"The {estimator_cls.__name__} grid sweeps no resolution; use "
+                "cvi_sweep for k-based grids."
+            )
+        other_keys = [key for key in grid if key != "resolution"]
+        other_values = [
+            grid[key]
+            if isinstance(grid[key], list | tuple | np.ndarray)
+            else [grid[key]]
+            for key in other_keys
+        ]
+        for combo in product(*other_values):
+            fixed = dict(zip(other_keys, combo))
+            for resolution in grid["resolution"]:
+                jobs.append(
+                    delayed(_resolution_cell)(
+                        X, y_arr, estimator_cls, fixed, resolution, random_state
+                    )
+                )
+
+    raw = Parallel(n_jobs=n_jobs)(jobs)
+    curves = pd.DataFrame([row for batch in raw for row in batch])
+    curves = curves.sort_values(["metric", "model", "resolution"], ignore_index=True)
+
+    best_rows = []
+    for metric in CVI_RESOLUTION_METRICS:
+        candidates = []
+        by_metric = curves[curves["metric"] == metric]
+        for _, by_model in by_metric.groupby("model", sort=False):
+            scored = by_model.dropna(subset=["score"])
+            if not scored.empty:
+                # idxmax returns the first maximum, the lowest resolution.
+                candidates.append(scored.loc[scored["score"].idxmax()])
+        if not candidates:
+            raise ValueError(
+                f"No resolution gives two or more clusters, so {metric} selects nothing."
+            )
+        best_rows.append(max(candidates, key=lambda row: row["score"]).to_dict())
+
+    best = pd.DataFrame(best_rows)[_RESOLUTION_CURVE_COLUMNS]
+    return curves[_RESOLUTION_CURVE_COLUMNS], best.reset_index(drop=True)
+
+
 def _first_grid_difference(
     cached: list[tuple[type[ClusterMixin], dict[str, list[Any]]]],
     requested: list[tuple[type[ClusterMixin], dict[str, list[Any]]]],
@@ -297,8 +421,8 @@ def fit_or_load_carve(
 ) -> CARVE:
     """Fit CARVE on a case study, caching the fitted state to disk.
 
-    A Levine fit takes hours, so the cache is what makes regenerating a figure
-    practical. The saved state does not carry the data matrix, so X_ is
+    A case-study fit can take hours, so the cache is what makes regenerating
+    a figure practical. The saved state does not carry the data matrix, so X_ is
     restored after loading, matching the notebook this replaces.
 
     The cache is found by path alone. A caller that changes the grid, the
@@ -581,15 +705,23 @@ STUDIES: dict[str, Study] = {
     "levine32": Study(
         name="levine32",
         loader=_levine_loader,
-        # With 10 restarts, KMeans at k=7 on the 5,000 cells stops at one of
-        # two solutions depending on the seed (ARI 0.625 or 0.849); with 100
-        # it finds the lower-inertia one from every seed tried (measured
-        # 2026-09-30). The CVI sweep and CARVE's fits share this grid.
-        estimator=EstimatorSpec(name="kmeans_n_init_100"),
-        candidate_k=tuple(range(7, 18)),
+        # Leiden on PhenoGraph's graph: PhenoGraph, which Levine et al. 2015
+        # introduced on this data, runs Louvain on a Jaccard-weighted
+        # 30-neighbor graph. The submitted manuscript swept KMeans and
+        # spectral over k = 7 to 17 on the robust-scaled input instead.
+        estimator=EstimatorSpec(
+            name="leiden", params=(("n_neighbors", 30), ("weighting", "jaccard"))
+        ),
+        candidate_k=(),
         scales={"publication": 5000},
         default_scale="publication",
-        partners=(EstimatorSpec(name="spectral"),),
+        partners=(),
+        # 0.1 * 30 ** (i / 12) for i = -8..11, two significant figures. On the
+        # 5,000 cells it runs from 4 clusters to 20, so the grid has room below
+        # the coarsest stable partition and well above the 14 gated
+        # populations. The CVI sweep and CARVE's fit share this grid.
+        resolutions=tuple(float(f"{0.1 * 30 ** (i / 12):.2g}") for i in range(-8, 12)),
+        n_resamples=100,
     ),
     "cusanovich": Study(
         name="cusanovich",
@@ -712,10 +844,9 @@ def study_model_grids(
 ) -> list[tuple[type[ClusterMixin], dict[str, list[Any]]]]:
     """The study's own estimator plus its declared partners, over candidate_k.
 
-    Klein sweeps Ward agglomerative and spectral; Levine sweeps KMeans and
-    spectral. Each study declares this on Study.partners. Cusanovich and
-    hECA sweep resolution only, so neither has a k-based grid and this
-    raises for both.
+    Klein sweeps Ward agglomerative and spectral. Each study declares this
+    on Study.partners. Levine, Cusanovich and hECA sweep resolution only, so
+    none has a k-based grid and this raises for each.
     """
     if study.estimator.name in RESOLUTION_ESTIMATORS:
         raise ValueError(
@@ -734,8 +865,9 @@ def study_resolution_grids(
 ) -> list[tuple[type[ClusterMixin], dict[str, list[Any]]]]:
     """The study's resolution sweep: its own estimator, then every partner.
 
-    Cusanovich sweeps Louvain alone; hECA sweeps Leiden at two neighbor
-    counts, declared as its estimator and one partner. A separate CARVE run
+    Levine sweeps Leiden on PhenoGraph's graph alone; Cusanovich sweeps
+    Louvain alone; hECA sweeps Leiden at two neighbor counts, declared as
+    its estimator and one partner. A separate CARVE run
     from study_model_grids: SweepSpec is frozen, so a k-based and a
     resolution-based sweep cannot share one run.
     """

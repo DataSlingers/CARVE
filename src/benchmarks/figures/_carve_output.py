@@ -2,7 +2,8 @@
 
 Six panels in three rows of two, and every one of them is a plot CARVE
 already ships as a method on the fitted object: (A) stability ARI over k,
-(B) generalizability ARI over k, (C) the consensus matrix for the selected
+(B) generalizability ARI over k (over resolution, on a log axis, for a
+resolution run), (C) the consensus matrix for the selected
 configuration, (D) per-cluster stability as a violin plot, (E) the embedding
 colored by consensus labels with dubious samples emphasized, and (F) the same
 embedding with marker shape per cluster and score-encoded color. This module
@@ -18,12 +19,12 @@ configuration through CARVE's _select_row, as the methods do, and calls the
 plotting functions behind them.
 """
 
-import re
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import matplotlib.pyplot as plt
+import matplotlib.text as mtext
 import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
@@ -31,7 +32,7 @@ from matplotlib.figure import Figure
 from carve._plotting import plot_cluster_scatter as _plot_cluster_scatter
 from carve._plotting import plot_diagnostic_scatter as _plot_diagnostic_scatter
 
-from .._panels import panel_letter
+from .._panels import PANEL_LETTER_X, compact_setting, panel_letter
 from .._theme import (
     ESTIMATOR_CMAP_NAME,
     FONT_SIZES,
@@ -41,7 +42,12 @@ from .._theme import (
     save_figure,
     theme_context,
 )
-from ._case_study import CompositeInputs, carve_labels_aligned
+from ._case_study import (
+    CompositeInputs,
+    _swept_resolutions,
+    carve_labels_aligned,
+    carve_output_cmap,
+)
 from ._heca_carve import AXIS_LABELS, MARKER_LINEWIDTH, MARKER_SIZE, resolution_axis
 from ._paths import CASE_STUDY_DIR, figure_path
 
@@ -80,7 +86,7 @@ def carve_output_figure(
     marker_size: float,
     axis_labels: Sequence[str],
     save_name: str,
-    scatter_legends: bool = True,
+    marker_linewidth: float = 0.2,
     scatter_row_height: float = 1.0,
     save: bool = True,
     out_dir: Path | None = None,
@@ -91,11 +97,11 @@ def carve_output_figure(
     parameter's name on ``plot_diagnostic_scatter`` matches this one
     exactly) and panel E's ``size_range`` proportionally, so the two
     datasets' scatters differ only in dot size, not in the score encoding
-    itself.
+    itself. ``marker_linewidth`` is panel F's outline width, under the same
+    name.
 
-    ``scatter_legends=False`` drops the cluster legends of panels E and F,
-    together with the configuration note CARVE writes into them; panel F's
-    colorbar stays.
+    Panels E and F carry no legend: D numbers the clusters in E's colors,
+    and F keeps its colorbar.
 
     ``scatter_row_height`` is the height of the E-F row relative to each of
     the other two rows. The figure grows with it, so panels A to D keep
@@ -108,37 +114,41 @@ def carve_output_figure(
     selected_k = int(carve.get_k(measure=measure, rule=rule, not_two=not_two))
     # Exactly selected_k colors, so CARVE's direct-index panels (D, E) and
     # its imshow-normalized one (C's cluster band) resolve the same cluster
-    # to the same color, and all three agree with the composite figure.
-    # Panels A and B color one line per estimator, not per cluster, so they
-    # take the estimator map instead.
-    cluster_panel_cmap = cluster_cmap(selected_k)
+    # to the same color, the one the composite and the composition figure
+    # give it. Panels A and B color one line per estimator, not per cluster,
+    # so they take the estimator map instead.
+    cluster_panel_cmap = carve_output_cmap(inputs)
     scatter_size_range = (marker_size * 0.75, marker_size * 3.0)
+    # A resolution run's curves go on the log axis hECA's figure uses, with
+    # one tick per fitted resolution.
+    resolutions = _swept_resolutions(carve)
+    over = "$k$" if resolutions is None else "resolution"
 
     with theme_context(), carve_labels_aligned(carve, inputs.y):
         fig, (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f) = _six_panel_grid(scatter_row_height)
 
         # A and B draw the same estimators in the same colors, so one
-        # legend, in B, names them for both.
-        carve.plot_metric_over_n_clusters(
-            measure=_MEASURE_STABILITY,
-            rule=rule,
-            not_two=not_two,
-            ax=ax_a,
-            palette=ESTIMATOR_CMAP_NAME,
-            title="Stability ARI over $k$",
-            legend=False,
-            show=False,
-        )
-        carve.plot_metric_over_n_clusters(
-            measure=_MEASURE_GENERALIZABILITY,
-            rule=rule,
-            not_two=not_two,
-            ax=ax_b,
-            palette=ESTIMATOR_CMAP_NAME,
-            title="Generalizability ARI over $k$",
-            legend_loc="lower left",
-            show=False,
-        )
+        # legend names them for both. It goes on the curve of the measure
+        # panels C to F show, whose selection its dashed-line entry names.
+        for ax, curve_measure, title in (
+            (ax_a, _MEASURE_STABILITY, f"Stability ARI over {over}"),
+            (ax_b, _MEASURE_GENERALIZABILITY, f"Generalizability ARI over {over}"),
+        ):
+            carve.plot_metric_over_n_clusters(
+                measure=curve_measure,
+                rule=rule,
+                not_two=not_two,
+                ax=ax,
+                palette=ESTIMATOR_CMAP_NAME,
+                title=title,
+                legend=curve_measure == measure,
+                legend_loc="lower left",
+                show=False,
+            )
+        if resolutions is not None:
+            for ax in (ax_a, ax_b):
+                ax.set_xlabel("Resolution")
+                resolution_axis(ax, resolutions)
         carve.plot_consensus_matrix(
             measure=measure,
             rule=rule,
@@ -168,7 +178,7 @@ def carve_output_figure(
             ax=ax_e,
             palette=cluster_panel_cmap,
             size_range=scatter_size_range,
-            legend=scatter_legends,
+            legend=False,
             title="Consensus labels",
             xlabel=axis_labels[0],
             ylabel=axis_labels[1],
@@ -183,17 +193,33 @@ def carve_output_figure(
             embedding=inputs.Z,
             ax=ax_f,
             marker_size=marker_size,
-            legend=scatter_legends,
+            marker_linewidth=marker_linewidth,
+            legend=False,
             title="Consensus assignment (diagnostic)",
             xlabel=axis_labels[0],
             ylabel=axis_labels[1],
             show=False,
         )
 
-        for letter, ax in zip("ABCDEF", (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f)):
+        for letter, ax in zip("ABDEF", (ax_a, ax_b, ax_d, ax_e, ax_f)):
             panel_letter(ax, letter)
 
+        # CARVE writes a graph clusterer's full configuration into the curve
+        # legend and D's note, where it runs past the figure. The note also
+        # breaks before its resolution, which keeps its box narrow inside D.
+        for text in fig.findobj(mtext.Text):
+            short = compact_setting(text.get_text())
+            if short != text.get_text():
+                text.set_text(short.replace(" (resolution =", "\n(resolution ="))
+
         fig.tight_layout()
+        # C's square matrix sits centered in its wider cell, and panel_letter
+        # places a letter relative to the axes it labels. Once the draw has
+        # sized the matrix, C's letter goes where A's is.
+        fig.draw_without_rendering()
+        above, matrix = ax_a.get_position(), ax_c.get_position()
+        letter_x = above.x0 + PANEL_LETTER_X * above.width
+        panel_letter(ax_c, "C", x=(letter_x - matrix.x0) / matrix.width)
 
         if save:
             save_figure(
@@ -217,7 +243,6 @@ def figure_carve_output_klein(
         marker_size=20.0,
         axis_labels=("PC1", "PC2"),
         save_name="CARVE_output_klein.png",
-        scatter_legends=False,
         scatter_row_height=1.2,
         save=save,
         out_dir=out_dir,
@@ -227,12 +252,19 @@ def figure_carve_output_klein(
 def figure_carve_output_levine(
     inputs: CompositeInputs, *, save: bool = True, out_dir: Path | None = None
 ) -> Figure:
-    """Build S4 Fig: CARVE output on the Levine mass cytometry case study."""
+    """Build S4 Fig: CARVE output on the Levine mass cytometry case study.
+
+    Panel F's outlines are a quarter of CARVE's default width: over 5,000
+    cells the default black outlines covered the color of the unstable
+    cells. The E-F row is 1.3 times the height of the others.
+    """
     return carve_output_figure(
         inputs,
         marker_size=8.0,
         axis_labels=("t-SNE 1", "t-SNE 2"),
         save_name="CARVE_output_levine.png",
+        marker_linewidth=0.05,
+        scatter_row_height=1.3,
         save=save,
         out_dir=out_dir,
     )
@@ -246,20 +278,6 @@ _GINI_SCORES_NAME = "Gini Stability"
 # the colorbar, so the E-F row is 1.4 of the other rows' height; the figure
 # grows with it and panels A to D keep their size.
 _HECA_SCATTER_ROW_HEIGHT = 1.4
-
-
-def _setting_label(text: str) -> str:
-    """A curve's legend text without the estimator repr's long tail.
-
-    "LeidenClustering, n_neighbors=15, objective_function=modularity" reads
-    "Leiden, 15 neighbors". Text without a neighbor count, such as the
-    selection lines', is returned unchanged.
-    """
-    match = re.search(r"n_neighbors=(\d+)", text)
-    if match is None:
-        return text
-    name = text.partition(",")[0].removesuffix("Clustering")
-    return f"{name}, {match.group(1)} neighbors"
 
 
 def figure_carve_output_heca(
@@ -355,7 +373,7 @@ def figure_carve_output_heca(
         handles, texts = ax_b.get_legend_handles_labels()
         ax_b.legend(
             handles,
-            [_setting_label(text) for text in texts],
+            [compact_setting(text) for text in texts],
             loc="upper right",
             frameon=False,
             fontsize=FONT_SIZES["legend"],

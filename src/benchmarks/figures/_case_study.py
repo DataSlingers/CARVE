@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
+from matplotlib.colors import ListedColormap
 from matplotlib.figure import Figure
 from sklearn.metrics import adjusted_rand_score
 
@@ -23,12 +24,14 @@ from .._panels import (
     ari_lollipop,
     axis_arrows,
     carve_lines,
+    compact_setting,
     cvi_lines,
     panel_letter,
     scatter_clusters,
 )
 from .._theme import FONT_SIZES, save_figure, theme_context
 from .._types import EstimatorSpec
+from ._heca_carve import resolution_axis
 from ._paths import CASE_STUDY_DIR, figure_path
 
 
@@ -42,10 +45,13 @@ class CompositeInputs:
     measure, rule and not_two are the caller's own selection -- whatever was
     passed to prepare_composite, defaulting to the same ("stability", "1se",
     False) that prepare_composite itself defaults to. carve_output_figure
-    reads them to decide which measure drives its detail panels (B, D, E, F)
-    and which not_two setting its fixed-measure overview panels (A and C)
-    honor; composite_figure reads not_two to place carve_lines' selected-k
+    reads them to decide which measure drives its detail panels (C to F),
+    which of its curve panels (A, B) carries the legend, and which not_two
+    setting both curves honor; composite_figure reads not_two to place carve_lines' selected-k
     markers consistently with the same call.
+
+    comparison_resolution is the resolution the CVI winner was fit at when
+    the CVIs swept resolution (cvi_resolution_sweep), and None for a k sweep.
     """
 
     X: np.ndarray
@@ -61,6 +67,7 @@ class CompositeInputs:
     measure: str = "stability"
     rule: str = "1se"
     not_two: bool = False
+    comparison_resolution: float | None = None
 
 
 def _estimator_spec_from_model_label(model: str) -> EstimatorSpec:
@@ -161,6 +168,54 @@ def composite_color_maps(
     return true_cmap, carve_cmap, comparison_cmap
 
 
+def carve_cluster_numbers(inputs: CompositeInputs) -> dict[int, int]:
+    """The number CARVE's own figure prints for each id in inputs.carve_labels.
+
+    carve_output_figure draws CARVE's own labels inside carve_labels_aligned
+    and numbers each cluster by its id plus one. When the selected k differs
+    from the number of reported labels, as on Levine, those ids are CARVE's
+    own and not the aligned ids the composite colors by, so the two
+    labelings are matched through the cells they share.
+    """
+    with carve_labels_aligned(inputs.carve, inputs.y):
+        own = np.asarray(
+            inputs.carve.get_labels(
+                measure=inputs.measure, rule=inputs.rule, not_two=inputs.not_two
+            )
+        )
+    pairs = pd.crosstab(pd.Series(np.asarray(inputs.carve_labels)), pd.Series(own))
+    numbers: dict[int, int] = {}
+    for aligned_id, row in pairs.iterrows():
+        shared = row[row > 0]
+        if len(shared) != 1:
+            break
+        numbers[int(aligned_id)] = int(shared.index[0]) + 1
+    else:
+        if len(set(numbers.values())) == len(numbers):
+            return numbers
+    raise ValueError(
+        "inputs.carve_labels and CARVE's own labels are not the same partition, "
+        "so CARVE's rows cannot carry its own figure's cluster numbers."
+    )
+
+
+def carve_output_cmap(inputs: CompositeInputs) -> ListedColormap:
+    """The composite's CARVE colors, in the order CARVE's own panels use them.
+
+    CARVE's plotting methods color a cluster by its position among CARVE's
+    own ids. Entry j is the composite's color for the cluster CARVE numbers
+    j + 1, so a cluster keeps its color across the composite, the
+    composition figure and carve_output_figure. Where CARVE's ids already
+    are the aligned ones, as on Klein, this is the palette's first k colors.
+    """
+    _, carve_cmap, _ = composite_color_maps(inputs)
+    color_of = {
+        number: carve_cmap[aligned_id]
+        for aligned_id, number in carve_cluster_numbers(inputs).items()
+    }
+    return ListedColormap([color_of[number] for number in sorted(color_of)])
+
+
 _ARI_ROW_COLUMNS: tuple[str, ...] = ("method", "metric", "ari", "k")
 
 
@@ -229,6 +284,7 @@ def prepare_composite(
     rule: str = "1se",
     not_two: bool = False,
     random_state: int = 42,
+    model_grids: list[tuple[type, dict[str, list[Any]]]] | None = None,
 ) -> CompositeInputs:
     """Assemble the composite's inputs, computing a PCA embedding if needed.
 
@@ -237,6 +293,12 @@ def prepare_composite(
     fixed choice) at that row's k. This is compute, not reporting -- call it
     once per study and reuse the returned CompositeInputs across both of that
     study's figures, rather than calling it again inside a render loop.
+
+    When best_df comes from cvi_resolution_sweep (it has a resolution
+    column), the winner is refit at its resolution from model_grids, the
+    grids the CVIs swept: its model label is matched against each grid's
+    estimator and fixed parameters. A Leiden on a non-default graph has no
+    registered spec to rebuild it from by label alone.
 
     Both clusterings come back relabeled onto the reported labels' own codes,
     so cluster *i* means "the cluster best matching reported label *i*" in
@@ -265,14 +327,28 @@ def prepare_composite(
             f"No row for {comparison_metric!r} in best_df; "
             f"available metrics are {sorted(best_df['metric'].unique())}."
         )
-    comparison_k = int(best_row["k"].iloc[0])
-    comparison_spec = _estimator_spec_from_model_label(str(best_row["model"].iloc[0]))
-    estimator = build_estimator(
-        comparison_spec,
-        n_clusters=comparison_k,
-        random_state=random_state,
-    )
-    comparison_labels = np.asarray(estimator.fit_predict(X))
+    comparison_resolution = None
+    if "resolution" in best_df.columns:
+        comparison_resolution = float(best_row["resolution"].iloc[0])
+        estimator = _estimator_from_swept_grids(
+            str(best_row["model"].iloc[0]),
+            comparison_resolution,
+            model_grids,
+            random_state=random_state,
+        )
+        comparison_labels = np.asarray(estimator.fit_predict(X))
+        comparison_k = int(np.unique(comparison_labels).size)
+    else:
+        comparison_k = int(best_row["k"].iloc[0])
+        comparison_spec = _estimator_spec_from_model_label(
+            str(best_row["model"].iloc[0])
+        )
+        estimator = build_estimator(
+            comparison_spec,
+            n_clusters=comparison_k,
+            random_state=random_state,
+        )
+        comparison_labels = np.asarray(estimator.fit_predict(X))
 
     carve_labels = _align_to_reference(carve_labels, y)
     comparison_labels = _align_to_reference(comparison_labels, y)
@@ -291,6 +367,49 @@ def prepare_composite(
         measure=measure,
         rule=rule,
         not_two=not_two,
+        comparison_resolution=comparison_resolution,
+    )
+
+
+def _swept_resolutions(carve: Any) -> list[float] | None:
+    """The resolutions a CARVE fit swept, or None when it swept k."""
+    sweep = getattr(carve, "sweep_", None)
+    if sweep is None or sweep.param != "resolution":
+        return None
+    return sorted(float(r) for r in carve.estimator_results_["sweep_value"].unique())
+
+
+def _estimator_from_swept_grids(
+    model: str,
+    resolution: float,
+    model_grids: list[tuple[type, dict[str, list[Any]]]] | None,
+    *,
+    random_state: int,
+) -> Any:
+    """The estimator a cvi_resolution_sweep model label names, at one resolution."""
+    from itertools import product
+
+    from .._estimators import apply_random_state
+    from .._studies import _model_label
+
+    if model_grids is None:
+        raise ValueError(
+            "best_df comes from a resolution sweep; pass the model_grids it "
+            "swept so the winner can be refit at its resolution."
+        )
+    rendered = []
+    for estimator_cls, grid in model_grids:
+        keys = [key for key in grid if key != "resolution"]
+        for combo in product(*(grid[key] for key in keys)):
+            fixed = dict(zip(keys, combo))
+            label = _model_label(estimator_cls, fixed)
+            if label == model:
+                params = {**fixed, "resolution": float(resolution)}
+                apply_random_state(estimator_cls, params, random_state)
+                return estimator_cls(**params)
+            rendered.append(label)
+    raise ValueError(
+        f"No swept grid renders the model label {model!r}; the grids render {rendered}."
     )
 
 
@@ -309,7 +428,8 @@ def composite_figure(
 
     Panels A, B and C are scatters of the reported labels, the CARVE
     clustering, and the CVI clustering; D and E are the CARVE and CVI curves
-    over k; F is supplied by the caller. With ``curves_first`` the curves
+    over k, or over resolution on a log axis for a resolution run; F is
+    supplied by the caller. With ``curves_first`` the curves
     take the top row as A and B, their legends the strip below them, and
     the scatters the row after that as C, D and E.
 
@@ -319,15 +439,22 @@ def composite_figure(
     nothing the reader does not already have from A.
     """
     true_cmap, carve_cmap, comparison_cmap = composite_color_maps(inputs)
+    carve_resolutions = _swept_resolutions(inputs.carve)
+    cvi_over_resolution = "resolution" in inputs.curves_df.columns
+    # A resolution axis stands its tick labels upright, and they hang into
+    # the legend strip under the curves; the strip grows to hold both.
+    legend_height = (
+        0.35 if carve_resolutions is not None or cvi_over_resolution else 0.3
+    )
 
     with theme_context():
         fig = plt.figure(figsize=(16, 16), constrained_layout=False)
         if curves_first:
             curve_row, legend_row, scatter_row = 0, 1, 2
-            height_ratios = [1.0, 0.3, 1.0, 1.0]
+            height_ratios = [1.0, legend_height, 1.0, 1.0]
         else:
             scatter_row, curve_row, legend_row = 0, 1, 2
-            height_ratios = [1.0, 1.0, 0.3, 1.0]
+            height_ratios = [1.0, 1.0, legend_height, 1.0]
         gs = fig.add_gridspec(4, 6, height_ratios=height_ratios, hspace=0.2, wspace=0.8)
         ax_true = fig.add_subplot(gs[scatter_row, 0:2])
         ax_carve = fig.add_subplot(gs[scatter_row, 2:4])
@@ -364,16 +491,34 @@ def composite_figure(
             inputs.comparison_labels,
             color_map=comparison_cmap,
             s=marker_size,
-            title=f"CVI ({inputs.comparison_name}, k={inputs.comparison_k})",
+            title=(
+                f"CVI ({inputs.comparison_name}, k={inputs.comparison_k})"
+                if inputs.comparison_resolution is None
+                else f"CVI ({inputs.comparison_name}, resolution "
+                f"{inputs.comparison_resolution:g}, k={inputs.comparison_k})"
+            ),
         )
 
         carve_lines(
             ax_carve_curves,
             inputs.carve,
             not_two=inputs.not_two,
-            title="CARVE ARI over k",
+            title=f"CARVE ARI over {'k' if carve_resolutions is None else 'resolution'}",
         )
-        cvi_lines(ax_cvi_curves, inputs.curves_df, inputs.best_df, title="CVIs over k")
+        cvi_lines(
+            ax_cvi_curves,
+            inputs.curves_df,
+            inputs.best_df,
+            title=f"CVIs over {'resolution' if cvi_over_resolution else 'k'}",
+        )
+        # A log-spaced resolution grid crowds its low end into one tick on a
+        # linear axis, and that is where the coarse selections sit.
+        if carve_resolutions is not None:
+            resolution_axis(ax_carve_curves, carve_resolutions)
+        if cvi_over_resolution:
+            resolution_axis(
+                ax_cvi_curves, sorted(inputs.curves_df["resolution"].unique())
+            )
 
         bottom_panel(ax_bottom, inputs)
 
@@ -388,14 +533,31 @@ def composite_figure(
             existing = source_ax.get_legend()
             if existing is not None:
                 existing.remove()
+            # A resolution run's upright tick labels and axis label hang into
+            # the strip, so its legends start just below them.
+            over_resolution = (
+                carve_resolutions is not None
+                if source_ax is ax_carve_curves
+                else cvi_over_resolution
+            )
+            placement: dict[str, Any] = {"loc": "center"}
+            if over_resolution:
+                labels_bottom = (
+                    source_ax.get_tightbbox().transformed(fig.transFigure.inverted()).y0
+                )
+                strip = target_ax.get_position()
+                placement = {
+                    "loc": "upper center",
+                    "bbox_to_anchor": (0.5, (labels_bottom - strip.y0) / strip.height),
+                }
             target_ax.legend(
                 handles,
-                labels,
+                [compact_setting(label) for label in labels],
                 title=title,
-                loc="center",
                 ncol=1,
                 frameon=False,
                 fontsize=FONT_SIZES["legend"],
+                **placement,
             )
 
         scatters = (ax_true, ax_carve, ax_cvi)

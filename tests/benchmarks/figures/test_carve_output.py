@@ -19,6 +19,8 @@ guard against the restructure's most likely regression: swapping the two
 measures between those panels.
 """
 
+import dataclasses
+
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import matplotlib.text as mtext
@@ -42,6 +44,7 @@ from benchmarks.figures._case_study import (
     CompositeInputs,
     _align_to_reference,
     carve_labels_aligned,
+    composite_color_maps,
     reference_codes,
 )
 from carve import CARVE
@@ -218,17 +221,31 @@ class TestCarveOutputFigures:
         assert drawn == {color.lower() for color in ESTIMATOR_COLORS}
         plt.close(fig)
 
-    def test_only_panel_b_carries_the_estimator_legend_in_its_lower_left(
-        self, inputs
+    @pytest.mark.parametrize(
+        ("measure", "letter", "other"),
+        [("stability", "A", "B"), ("generalizability", "B", "A")],
+    )
+    def test_the_estimator_legend_sits_on_the_curve_of_the_measure_shown(
+        self, inputs, measure, letter, other
     ):
+        # Its dashed-line entry names the selection panels C to F show; at
+        # this seed the two measures select different k.
+        inputs = dataclasses.replace(
+            inputs,
+            measure=measure,
+            carve_labels=np.asarray(inputs.carve.get_labels(measure=measure, rule="1se")),
+        )
+        selected_k = int(inputs.carve.get_k(measure=measure, rule="1se"))
         fig = figure_carve_output_klein(inputs, save=False)
         panels = _panel_by_letter(fig)
-        assert panels["A"].get_legend() is None
-        legend = panels["B"].get_legend()
+        assert panels[other].get_legend() is None
+        legend = panels[letter].get_legend()
         assert legend is not None
+        texts = [text.get_text() for text in legend.get_texts()]
+        assert f"Selected k (1-SE rule): {selected_k}" in texts
         fig.canvas.draw()
         box = legend.get_window_extent().transformed(
-            panels["B"].transAxes.inverted()
+            panels[letter].transAxes.inverted()
         )
         assert box.x0 < 0.1 and box.y0 < 0.1
         assert box.x1 < 1.0 and box.y1 < 1.0
@@ -424,19 +441,35 @@ class TestCarveOutputFigures:
     def test_panel_e_reports_gini_stability_not_a_different_source(self, inputs):
         """Mirrors the panel D source guard for plot_cluster_scatter.
 
-        ``source`` selects which per-sample score panel E encodes; a
-        ``source="accuracy"`` regression would still draw one scatter with
-        varying point sizes (the previous test's only check), so it needs
-        its own guard. plot_cluster_scatter's auto-generated legend title
-        names the score source directly. Klein's figure drops that legend, so
-        the guard reads Levine's, which shares the panel E call.
+        ``source`` selects which per-sample score panel E encodes as marker
+        size; a ``source="accuracy"`` regression would still draw one scatter
+        with varying sizes (the previous test's only check). E's sizes must
+        match a gini rendering and differ from an accuracy one.
         """
         fig = figure_carve_output_levine(inputs, save=False)
-        ax_e = _panel_by_letter(fig)["E"]
-        legend = ax_e.get_legend()
-        assert legend is not None
-        assert "Gini Stability" in legend.get_title().get_text()
+        drawn = np.sort(_panel_by_letter(fig)["E"].collections[0].get_sizes())
         plt.close(fig)
+
+        def sizes(source):
+            scratch, ax = plt.subplots()
+            with carve_labels_aligned(inputs.carve, inputs.y):
+                inputs.carve.plot_cluster_scatter(
+                    source=source,
+                    measure="stability",
+                    rule="1se",
+                    X=inputs.X,
+                    embedding=inputs.Z,
+                    ax=ax,
+                    size_range=(6.0, 24.0),  # Levine's marker_size of 8
+                    legend=False,
+                    show=False,
+                )
+            drawn_sizes = np.sort(ax.collections[0].get_sizes())
+            plt.close(scratch)
+            return drawn_sizes
+
+        assert not np.allclose(sizes("accuracy"), sizes("gini"))
+        np.testing.assert_allclose(drawn, sizes("gini"))
 
     def test_klein_panels_e_and_f_carry_no_legend(self, inputs):
         fig = figure_carve_output_klein(inputs, save=False)
@@ -445,30 +478,43 @@ class TestCarveOutputFigures:
         assert panels["F"].get_legend() is None
         plt.close(fig)
 
-    def test_klein_scatter_row_is_taller_and_rows_a_to_d_keep_their_size(
-        self, inputs
+    @pytest.mark.parametrize(
+        ("draw", "ratio"),
+        [(figure_carve_output_klein, 1.2), (figure_carve_output_levine, 1.3)],
+    )
+    def test_scatter_row_is_taller_and_rows_a_to_d_keep_their_size(
+        self, inputs, draw, ratio
     ):
-        klein = figure_carve_output_klein(inputs, save=False)
-        levine = figure_carve_output_levine(inputs, save=False)
-        klein_gs = (
-            _panel_by_letter(klein)["E"]
+        fig = draw(inputs, save=False)
+        gs = (
+            _panel_by_letter(fig)["E"]
             .get_subplotspec()
             .get_topmost_subplotspec()
             .get_gridspec()
         )
-        assert tuple(klein_gs.get_height_ratios()) == (1.0, 1.0, 1.2)
-        # The extra height goes to row E-F alone: Klein is taller than Levine
-        # by exactly 0.2 of one Levine row.
-        levine_height = levine.get_size_inches()[1]
-        assert klein.get_size_inches()[1] == pytest.approx(levine_height * 3.2 / 3)
-        plt.close(klein)
-        plt.close(levine)
+        assert tuple(gs.get_height_ratios()) == (1.0, 1.0, ratio)
+        # The extra height goes to row E-F alone; rows A-B and C-D keep 14/3
+        # inches each.
+        assert fig.get_size_inches()[1] == pytest.approx(14.0 / 3 * (2 + ratio))
+        plt.close(fig)
 
-    def test_levine_panels_e_and_f_keep_their_legends(self, inputs):
+    def test_levine_panels_e_and_f_carry_no_legend(self, inputs):
         fig = figure_carve_output_levine(inputs, save=False)
         panels = _panel_by_letter(fig)
-        assert panels["E"].get_legend() is not None
-        assert panels["F"].get_legend() is not None
+        assert panels["E"].get_legend() is None
+        assert panels["F"].get_legend() is None
+        plt.close(fig)
+
+    @pytest.mark.parametrize(
+        ("draw", "width"),
+        [(figure_carve_output_klein, 0.2), (figure_carve_output_levine, 0.05)],
+    )
+    def test_diagnostic_outlines_thin_for_levine_only(self, inputs, draw, width):
+        # Over 5,000 cells, 0.2 pt black outlines hid the unstable cells' color.
+        fig = draw(inputs, save=False)
+        collections = _panel_by_letter(fig)["F"].collections
+        widths = np.concatenate([points.get_linewidths() for points in collections])
+        np.testing.assert_allclose(widths, width)
         plt.close(fig)
 
     def test_panel_f_reports_gini_stability_not_a_different_source(self, inputs):
@@ -604,6 +650,158 @@ class TestClusterIdsAgreeWithTheComposite:
         fig = figure_carve_output_klein(inputs, save=False)
         plt.close(fig)
         assert carve.reference_labels is before
+
+
+@pytest.fixture
+def coarser_inputs(inputs):
+    """Four reported labels over the fixture's three blobs, as on Levine.
+
+    With fewer clusters than reported labels, CARVE keeps its own ids inside
+    carve_labels_aligned, while the composite's ids follow the reported
+    codes. The labels are named in reverse so the two sets of ids differ.
+    """
+    y = np.array(["d"] * 15 + ["c"] * 15 + ["b"] * 10 + ["a"] * 5)
+    raw = inputs.carve.get_labels(measure="stability", rule="1se")
+    return dataclasses.replace(inputs, y=y, carve_labels=_align_to_reference(raw, y))
+
+
+class TestClusterColorsMatchTheComposite:
+    def test_e_draws_each_cell_in_its_composite_color(self, coarser_inputs):
+        assert set(np.unique(coarser_inputs.carve_labels).tolist()) != {0, 1, 2}
+        _, carve_cmap, _ = composite_color_maps(coarser_inputs)
+        fig = figure_carve_output_levine(coarser_inputs, save=False)
+        points = _panel_by_letter(fig)["E"].collections[0]
+        # E draws the cells sorted by score; find each one by its position.
+        cell_at = {tuple(xy): i for i, xy in enumerate(coarser_inputs.Z.tolist())}
+        cells = [cell_at[tuple(xy)] for xy in points.get_offsets().tolist()]
+        expected = [
+            mcolors.to_rgb(carve_cmap[int(coarser_inputs.carve_labels[i])])
+            for i in cells
+        ]
+        np.testing.assert_allclose(points.get_facecolors()[:, :3], expected)
+        plt.close(fig)
+
+
+# The Levine study sweeps Leiden resolution, so its S Fig draws the generic
+# six panels from a resolution run: three blobs, three resolutions, a
+# Jaccard-weighted graph as in the study.
+LEVINE_RESOLUTIONS = (0.05, 0.2, 1.0)
+
+
+@pytest.fixture(scope="module")
+def leiden_inputs():
+    rng = np.random.default_rng(0)
+    centers = np.array([[0.0, 0.0], [6.0, 0.0], [3.0, 5.0]])
+    y = rng.integers(0, 3, 240)
+    X = centers[y] + rng.normal(0, 0.6, (240, 2))
+    spec = EstimatorSpec(
+        name="leiden", params=(("n_neighbors", 10), ("weighting", "jaccard"))
+    )
+    carve = CARVE(
+        estimator_param_grids=resolution_grids(spec, LEVINE_RESOLUTIONS),
+        n_resamples=3,
+        random_state=0,
+    ).fit(X)
+    curves = pd.DataFrame(
+        {"metric": ["silhouette"], "model": ["Leiden"], "resolution": [0.05],
+         "k": [3], "score": [0.6], "ari": [0.9]}
+    )
+    return CompositeInputs(
+        X=X,
+        y=np.array(["a", "b", "c"])[y],
+        Z=X,
+        carve=carve,
+        carve_labels=np.asarray(carve.get_labels(measure="stability", rule="1se")),
+        comparison_labels=y,
+        comparison_name="Silhouette",
+        comparison_k=3,
+        curves_df=curves,
+        best_df=curves,
+        comparison_resolution=0.05,
+    )
+
+
+class TestCarveOutputOverResolution:
+    def test_titles_its_curves_over_resolution(self, leiden_inputs):
+        fig = figure_carve_output_levine(leiden_inputs, save=False)
+        panels = _panel_by_letter(fig)
+        assert panels["A"].get_title() == "Stability ARI over resolution"
+        assert panels["B"].get_title() == "Generalizability ARI over resolution"
+        plt.close(fig)
+
+    def test_draws_its_curves_on_a_log_axis_with_one_tick_per_resolution(
+        self, leiden_inputs
+    ):
+        fig = figure_carve_output_levine(leiden_inputs, save=False)
+        panels = _panel_by_letter(fig)
+        for letter in ("A", "B"):
+            assert panels[letter].get_xscale() == "log"
+            np.testing.assert_allclose(panels[letter].get_xticks(), LEVINE_RESOLUTIONS)
+        plt.close(fig)
+
+    def test_no_text_carries_the_full_leiden_configuration(self, leiden_inputs):
+        # B's legend and D's note ran past the figure edge with it.
+        fig = figure_carve_output_levine(leiden_inputs, save=False)
+        texts = [text.get_text() for text in fig.findobj(mtext.Text)]
+        assert not any("objective_function" in text for text in texts)
+        assert any("Leiden, 10 neighbors, Jaccard" in text for text in texts)
+        plt.close(fig)
+
+    def test_curve_panels_keep_a_third_of_the_figure_width(self, leiden_inputs):
+        # tight_layout sizes each column for E's and F's notes; a one-line
+        # "Leiden, ..., (resolution = ..., k ≈ ...)" halved A and B and piled
+        # up their resolution labels. The k-based figure gives them a third.
+        fig = figure_carve_output_levine(leiden_inputs, save=False)
+        panels = _panel_by_letter(fig)
+        for letter in ("A", "B"):
+            assert panels[letter].get_position().width > 0.28
+        plt.close(fig)
+
+    def test_columns_meet_without_a_legend_gap(self, leiden_inputs):
+        # E's cluster legend once widened the left column's margin, leaving
+        # a fifth of the figure blank between A and B.
+        fig = figure_carve_output_levine(leiden_inputs, save=False)
+        panels = _panel_by_letter(fig)
+        gap = panels["B"].get_position().x0 - panels["A"].get_position().x1
+        assert gap < 0.12
+        plt.close(fig)
+
+    def test_consensus_letter_lines_up_with_a_and_the_matrix_stays_centered(
+        self, leiden_inputs
+    ):
+        # The square matrix sits centered in its wider cell; its letter, placed
+        # relative to the matrix, fell right of A's and E's.
+        fig = figure_carve_output_levine(leiden_inputs, save=False)
+        fig.draw_without_rendering()
+        panels = _panel_by_letter(fig)
+        a, c = panels["A"], panels["C"]
+        to_figure = fig.transFigure.inverted()
+
+        def letter_right_edge(ax, letter):
+            text = next(t for t in ax.texts if t.get_text() == letter)
+            return text.get_window_extent().transformed(to_figure).x1
+
+        matrix, cell = c.get_position(), c.get_position(original=True)
+        assert (matrix.x0 + matrix.x1) / 2 == pytest.approx((cell.x0 + cell.x1) / 2, abs=1e-3)
+        assert matrix.x0 > a.get_position().x0 + 0.01
+        assert letter_right_edge(c, "C") == pytest.approx(
+            letter_right_edge(a, "A"), abs=1e-3
+        )
+        plt.close(fig)
+
+    def test_legend_names_the_resolution_panels_c_to_f_show(self, leiden_inputs):
+        fig = figure_carve_output_levine(leiden_inputs, save=False)
+        resolution = leiden_inputs.carve.get_sweep_value(measure="stability", rule="1se")
+        legend = _panel_by_letter(fig)["A"].get_legend()
+        texts = [text.get_text() for text in legend.get_texts()]
+        assert f"Selected resolution (1-SE rule): {resolution:g}" in texts
+        plt.close(fig)
+
+    def test_consensus_panel_names_the_selected_partition_s_k(self, leiden_inputs):
+        fig = figure_carve_output_levine(leiden_inputs, save=False)
+        k = len(np.unique(leiden_inputs.carve_labels))
+        assert f"$k={k}$" in _panel_by_letter(fig)["C"].get_title()
+        plt.close(fig)
 
 
 # hECA's overview draws a pinned resolution rather than the rule's pick, on

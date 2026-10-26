@@ -28,7 +28,7 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.image import AxesImage
 from scipy.cluster.hierarchy import leaves_list, linkage
 
-from .._panels import _order_by_reference
+from .._panels import _order_by_reference, compact_setting
 from .._theme import (
     FOREGROUND_COLOR,
     PRINT_FONT_SIZES,
@@ -38,7 +38,7 @@ from .._theme import (
     print_theme_context,
     save_figure,
 )
-from ._case_study import CompositeInputs, carve_labels_aligned, composite_color_maps
+from ._case_study import CompositeInputs, carve_cluster_numbers, composite_color_maps
 from ._paths import CASE_STUDY_DIR, figure_path
 
 #: The 14 gated populations by lineage: T, NK, B, myeloid, progenitor.
@@ -67,7 +67,8 @@ RULE_NAMES: dict[str, str] = {"1se": "1-SE"}
 # Layout in inches at the printed size. A row fits one 8-point label. The
 # label bands fit the longest population name at 45 degrees and the longest
 # marker name (CD235ab) upright. With Levine's 14 populations and 10 and 7
-# clusters the figure is 8.62 inches tall, under PRINT_MAX_HEIGHT_IN.
+# clusters, the KMeans partitions this figure was laid out for, it is 8.62
+# inches tall, under PRINT_MAX_HEIGHT_IN; fewer clusters make it shorter.
 ROW_HEIGHT_IN = 0.125
 TOP_IN = 0.25
 TITLE_GAP_IN = 0.3
@@ -129,44 +130,22 @@ def cluster_composition(
     return counts
 
 
-def carve_cluster_numbers(inputs: CompositeInputs) -> dict[int, int]:
-    """The number S8 Fig prints for each id in inputs.carve_labels.
-
-    S8 Fig draws CARVE's own labels inside carve_labels_aligned and numbers
-    each cluster by its id plus one. When the selected k differs from the
-    number of reported populations, as on Levine, those ids are CARVE's own
-    and not the aligned ids this figure colors by, so the two labelings are
-    matched through the cells they share.
-    """
-    with carve_labels_aligned(inputs.carve, inputs.y):
-        own = np.asarray(
-            inputs.carve.get_labels(
-                measure=inputs.measure, rule=inputs.rule, not_two=inputs.not_two
-            )
-        )
-    pairs = pd.crosstab(pd.Series(np.asarray(inputs.carve_labels)), pd.Series(own))
-    numbers: dict[int, int] = {}
-    for aligned_id, row in pairs.iterrows():
-        shared = row[row > 0]
-        if len(shared) != 1:
-            break
-        numbers[int(aligned_id)] = int(shared.index[0]) + 1
-    else:
-        if len(set(numbers.values())) == len(numbers):
-            return numbers
-    raise ValueError(
-        "inputs.carve_labels and CARVE's own labels are not the same partition, "
-        "so CARVE's rows cannot carry S8 Fig's cluster numbers."
-    )
-
-
 def _carve_title(inputs: CompositeInputs) -> str:
     """Panel A's title for CARVE: the selection and the selected estimator."""
     row, _, k, _ = inputs.carve._select_row(
         measure=inputs.measure, rule=inputs.rule, not_two=inputs.not_two
     )
     rule = RULE_NAMES.get(inputs.rule, inputs.rule)
-    return f"CARVE ({inputs.measure}, {rule}): {row['method_label']}, k={k}"
+    # A resolution run's k is an outcome several resolutions can share, so
+    # the resolution names the partition.
+    sweep = getattr(inputs.carve, "sweep_", None)
+    at = (
+        f"resolution {float(row['sweep_value']):g}, "
+        if sweep is not None and sweep.param == "resolution"
+        else ""
+    )
+    label = compact_setting(str(row["method_label"]))
+    return f"CARVE ({inputs.measure}, {rule}): {label}, {at}k={k}"
 
 
 def _comparison_title(inputs: CompositeInputs) -> str:
@@ -174,7 +153,13 @@ def _comparison_title(inputs: CompositeInputs) -> str:
     best = inputs.best_df
     metric = inputs.comparison_name.lower()
     model = best.loc[best["metric"] == metric, "model"].iloc[0]
-    return f"{inputs.comparison_name}: {model}, k={inputs.comparison_k}"
+    at = (
+        ""
+        if inputs.comparison_resolution is None
+        else f"resolution {inputs.comparison_resolution:g}, "
+    )
+    model = compact_setting(str(model))
+    return f"{inputs.comparison_name}: {model}, {at}k={inputs.comparison_k}"
 
 
 def _partitions(inputs: CompositeInputs) -> tuple[_Partition, _Partition]:

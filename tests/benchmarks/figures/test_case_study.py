@@ -2,6 +2,7 @@
 
 import inspect
 
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -15,12 +16,82 @@ from benchmarks.figures import (
     figure_levine_results,
     prepare_composite,
 )
+from benchmarks._estimators import param_grids
+from benchmarks._types import EstimatorSpec
 from benchmarks.figures._case_study import (
     CompositeInputs,
+    _align_to_reference,
     _estimator_spec_from_model_label,
+    carve_cluster_numbers,
+    carve_labels_aligned,
+    carve_output_cmap,
     composite_color_maps,
 )
-from tests.benchmarks._helpers import StubCarve
+from sklearn.base import BaseEstimator, ClusterMixin
+from sklearn.metrics import adjusted_rand_score
+
+from carve import CARVE
+from tests.benchmarks._helpers import StubCarve, resolution_results
+
+RESOLUTIONS = [0.01, 0.043, 0.41, 2.3]
+
+
+LEIDEN_LABEL = "LeidenClustering, n_neighbors=30, objective_function=modularity, weighting=jaccard"
+LEIDEN_MODEL = (
+    "LeidenClustering (n_neighbors=30, objective_function=modularity, weighting=jaccard)"
+)
+
+
+@pytest.fixture
+def resolution_inputs():
+    """Composite inputs for a resolution run, the shape the Levine study has:
+    one Leiden setting, labeled as CARVE and the CVI sweep label it."""
+    rng = np.random.default_rng(1)
+    n = 120
+    metrics = ["silhouette", "davies_bouldin", "calinski_harabasz"]
+    curves = pd.DataFrame(
+        {
+            "metric": np.repeat(metrics, 4),
+            "model": [LEIDEN_MODEL] * 12,
+            "resolution": RESOLUTIONS * 3,
+            "k": [4, 6, 8, 20] * 3,
+            "score": [0.30, 0.37, 0.28, 0.13, 0.40, 0.45, 0.20, 0.10, 9.0, 7.0, 5.0, 3.0],
+            "ari": [0.60, 0.70, 0.97, 0.55] * 3,
+        }
+    )
+    best = curves.iloc[[1, 5, 8]].reset_index(drop=True)
+    return CompositeInputs(
+        X=rng.normal(size=(n, 5)),
+        y=rng.choice(["a", "b", "c"], size=n),
+        Z=rng.normal(size=(n, 2)),
+        carve=StubCarve(
+            resolution_results(RESOLUTIONS, LEIDEN_LABEL),
+            select=lambda measure, not_two: ("m0", 0.41),
+            sweep_param="resolution",
+        ),
+        carve_labels=rng.integers(0, 8, size=n),
+        comparison_labels=rng.integers(0, 6, size=n),
+        comparison_name="Silhouette",
+        comparison_k=6,
+        curves_df=curves,
+        best_df=best,
+        comparison_resolution=0.043,
+    )
+
+
+class _Groups(ClusterMixin, BaseEstimator):
+    """Below resolution 0.1 two groups; from 0.1 n_groups, shuffled by random_state."""
+
+    def __init__(self, resolution=1.0, n_groups=3, random_state=None):
+        self.resolution = resolution
+        self.n_groups = n_groups
+        self.random_state = random_state
+
+    def fit_predict(self, X, y=None):
+        n = len(X)
+        if self.resolution < 0.1:
+            return np.arange(n) % 2
+        return np.random.default_rng(self.random_state).permutation(np.arange(n) % self.n_groups)
 
 
 def _two_method_results(ks):
@@ -247,6 +318,86 @@ class TestLevineFigure:
         assert _row(panels["A"]) < _row(panels["D"])
         plt.close(fig)
 
+    def test_a_resolution_run_titles_its_curves_over_resolution(self, resolution_inputs):
+        fig = figure_levine_results(resolution_inputs, save=False)
+        panels = _lettered(fig)
+        assert panels["D"].get_title() == "CARVE ARI over resolution"
+        assert panels["E"].get_title() == "CVIs over resolution"
+        plt.close(fig)
+
+    def test_a_resolution_run_draws_both_curve_panels_on_a_log_axis(
+        self, resolution_inputs
+    ):
+        # The grid is log-spaced from 0.01 to 2.3; on a linear axis its low
+        # end, where the CVIs select, would crowd into the first tick.
+        fig = figure_levine_results(resolution_inputs, save=False)
+        panels = _lettered(fig)
+        assert panels["D"].get_xscale() == "log"
+        assert panels["E"].get_xscale() == "log"
+        plt.close(fig)
+
+    def test_panel_c_names_the_comparison_resolution_and_its_k(self, resolution_inputs):
+        fig = figure_levine_results(resolution_inputs, save=False)
+        title = _lettered(fig)["C"].get_title()
+        assert "0.043" in title
+        assert "k=6" in title
+        plt.close(fig)
+
+    def test_legends_name_the_leiden_setting_briefly(self, resolution_inputs):
+        # CARVE's full configuration string ran both legends into each other.
+        fig = figure_levine_results(resolution_inputs, save=False)
+        texts = [
+            text.get_text()
+            for ax in fig.get_axes()
+            if ax.get_legend() is not None
+            for text in ax.get_legend().get_texts()
+        ]
+        assert "Silhouette — Leiden, 30 neighbors, Jaccard" in texts
+        assert not any("objective_function" in text for text in texts)
+        plt.close(fig)
+
+    def test_cvi_legend_stays_clear_of_the_resolution_axis_label(
+        self, resolution_inputs
+    ):
+        # The resolution ticks stand upright and take most of the legend
+        # strip, so a centered three-entry legend reached up into "Resolution".
+        fig = figure_levine_results(resolution_inputs, save=False)
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        panels = _lettered(fig)
+        legends = [ax.get_legend() for ax in fig.get_axes() if ax.get_legend()]
+        for letter in ("D", "E"):
+            label = panels[letter].xaxis.label.get_window_extent(renderer)
+            for legend in legends:
+                assert not label.overlaps(legend.get_window_extent(renderer))
+        plt.close(fig)
+
+    def test_curve_legends_start_right_under_the_resolution_labels(
+        self, resolution_inputs
+    ):
+        # Bottom-aligned in a strip 0.55 rows tall, the legends left most of
+        # an inch blank under "Resolution".
+        fig = figure_levine_results(resolution_inputs, save=False)
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        panels = _lettered(fig)
+        legends = [
+            ax.get_legend().get_window_extent(renderer)
+            for ax in fig.get_axes()
+            if ax.get_legend() is not None and not ax.axison
+        ]
+        f_top = panels["F"].get_tightbbox(renderer).y1
+        for letter in ("D", "E"):
+            curves = panels[letter].get_tightbbox(renderer)
+            (legend,) = [
+                box for box in legends if curves.x0 < (box.x0 + box.x1) / 2 < curves.x1
+            ]
+            assert 0 <= (curves.y0 - legend.y1) / fig.dpi < 0.2
+        # The strip ends a short way below the taller legend, clear of F.
+        lowest = min(box.y0 for box in legends)
+        assert 0 < (lowest - f_top) / fig.dpi < 0.45
+        plt.close(fig)
+
     def test_uses_the_smaller_marker_size(self, inputs):
         klein = figure_klein_results(inputs, save=False)
         levine = figure_levine_results(inputs, save=False)
@@ -311,6 +462,65 @@ class TestEstimatorSpecFromModelLabel:
     def test_raises_on_an_unknown_label(self):
         with pytest.raises(ValueError, match="Cannot map model label"):
             _estimator_spec_from_model_label("SomeOtherEstimator")
+
+
+class TestPrepareCompositeOverResolution:
+    """The CVI winner of a resolution sweep is refit from the grid it came from:
+    a Leiden on a non-default graph has no registered spec to rebuild it from."""
+
+    GRIDS = [(_Groups, {"resolution": [0.05, 0.2], "n_groups": [4]})]
+
+    def _best(self, model="_Groups (n_groups=4)"):
+        return pd.DataFrame(
+            {
+                "metric": ["silhouette"],
+                "model": [model],
+                "resolution": [0.2],
+                "k": [4],
+                "score": [0.5],
+                "ari": [0.5],
+            }
+        )
+
+    def _carve(self, n):
+        return StubCarve(
+            resolution_results([0.05, 0.2], "_Groups"),
+            select=lambda measure, not_two: ("m0", 0.2),
+            labels=np.arange(n) % 2,
+            sweep_param="resolution",
+        )
+
+    def test_refits_the_winner_at_its_resolution_with_the_grid_s_parameters(self):
+        n = 40
+        X = np.random.default_rng(0).normal(size=(n, 3))
+        y = np.repeat(["a", "b"], n // 2)
+        result = prepare_composite(
+            X, y, self._carve(n), curves_df=self._best(), best_df=self._best(),
+            model_grids=self.GRIDS, embedding=X[:, :2], random_state=5,
+        )
+        expected = np.random.default_rng(5).permutation(np.arange(n) % 4)
+        assert adjusted_rand_score(expected, result.comparison_labels) == 1.0
+        assert result.comparison_k == 4
+        assert result.comparison_resolution == 0.2
+
+    def test_a_resolution_winner_needs_the_swept_grids(self):
+        n = 40
+        X = np.zeros((n, 3))
+        with pytest.raises(ValueError, match="model_grids"):
+            prepare_composite(
+                X, np.repeat(["a", "b"], n // 2), self._carve(n),
+                curves_df=self._best(), best_df=self._best(), embedding=X[:, :2],
+            )
+
+    def test_refuses_a_winner_that_no_swept_grid_renders(self):
+        n = 40
+        X = np.zeros((n, 3))
+        with pytest.raises(ValueError, match="_Groups \\(n_groups=7\\)"):
+            prepare_composite(
+                X, np.repeat(["a", "b"], n // 2), self._carve(n),
+                curves_df=self._best(), best_df=self._best("_Groups (n_groups=7)"),
+                model_grids=self.GRIDS, embedding=X[:, :2],
+            )
 
 
 class TestPrepareComposite:
@@ -591,3 +801,93 @@ class TestAriTableExtraRows:
 
         with pytest.raises(ValueError, match="ari"):
             ari_table(inputs, extra_rows=[{"method": "M3C", "k": 2}])
+
+
+def _numbering_inputs(*, X, y, carve, carve_labels):
+    """CompositeInputs for the numbering tests, which read no curves."""
+    return CompositeInputs(
+        X=np.asarray(X),
+        y=np.asarray(y),
+        Z=np.zeros((len(y), 2)),
+        carve=carve,
+        carve_labels=np.asarray(carve_labels),
+        comparison_labels=np.asarray(carve_labels),
+        comparison_name="Silhouette",
+        comparison_k=int(len(np.unique(carve_labels))),
+        curves_df=pd.DataFrame(),
+        best_df=pd.DataFrame(),
+    )
+
+
+@pytest.fixture
+def coarser_fit():
+    """A small real fit whose selected k differs from the reported label count.
+
+    Three blobs carry four reported labels, so inside carve_labels_aligned
+    CARVE keeps its own ids, as it does on Levine (8 clusters against 14
+    populations), while the aligned ids follow the reported codes.
+    """
+    rng = np.random.default_rng(0)
+    X = np.vstack([
+        rng.normal(loc=0.0, scale=0.4, size=(40, 3)),
+        rng.normal(loc=6.0, scale=0.4, size=(40, 3)),
+        rng.normal(loc=(0.0, 6.0, 0.0), scale=0.4, size=(40, 3)),
+    ])
+    y = np.array(["d"] * 40 + ["c"] * 40 + ["b"] * 35 + ["a"] * 5)
+    carve = CARVE(
+        estimator_param_grids=param_grids(EstimatorSpec(name="kmeans"), (2, 3)),
+        n_resamples=3,
+        random_state=0,
+    )
+    carve.fit(X, reference_labels=y)
+    aligned = _align_to_reference(carve.get_labels(measure="stability", rule="1se"), y)
+    return _numbering_inputs(X=X, y=y, carve=carve, carve_labels=aligned)
+
+
+def _own_labels(inputs):
+    with carve_labels_aligned(inputs.carve, inputs.y):
+        return np.asarray(inputs.carve.get_labels(measure="stability", rule="1se"))
+
+
+class TestCarveClusterNumbers:
+    def test_each_cluster_gets_the_number_carve_s_figure_prints(self, coarser_fit):
+        own = _own_labels(coarser_fit)
+        aligned = coarser_fit.carve_labels
+        # Only meaningful while the two labelings differ.
+        assert set(np.unique(aligned).tolist()) != set(np.unique(own).tolist())
+        numbers = carve_cluster_numbers(coarser_fit)
+        assert sorted(numbers) == sorted(np.unique(aligned).tolist())
+        for aligned_id, number in numbers.items():
+            assert set((own[aligned == aligned_id] + 1).tolist()) == {number}
+
+    def test_a_different_partition_raises(self):
+        results = pd.DataFrame(
+            {"method_id": ["m0"], "method_label": ["KMeans"], "n_clusters": [2]}
+        )
+        carve = StubCarve(
+            results,
+            select=lambda measure, not_two: ("m0", 2),
+            labels=np.array([0, 1, 1, 1]),
+        )
+        inputs = _numbering_inputs(
+            X=np.zeros((4, 2)),
+            y=np.array(["a", "a", "b", "b"]),
+            carve=carve,
+            carve_labels=np.array([0, 0, 1, 1]),
+        )
+        with pytest.raises(ValueError, match="same partition"):
+            carve_cluster_numbers(inputs)
+
+
+class TestCarveOutputCmap:
+    def test_entry_j_is_the_composite_color_of_carve_s_own_cluster_j(
+        self, coarser_fit
+    ):
+        own = _own_labels(coarser_fit)
+        _, carve_cmap, _ = composite_color_maps(coarser_fit)
+        cmap = carve_output_cmap(coarser_fit)
+        own_ids = np.unique(own)
+        assert cmap.N == own_ids.size
+        for j, own_id in enumerate(own_ids):
+            aligned_id = int(coarser_fit.carve_labels[own == own_id][0])
+            assert mcolors.to_hex(cmap(j)) == mcolors.to_hex(carve_cmap[aligned_id])

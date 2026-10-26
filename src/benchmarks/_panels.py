@@ -4,6 +4,7 @@ Nothing here creates a figure, calls plt.show, or saves anything. Composition
 is the job of the figures package; these only draw.
 """
 
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -729,6 +730,39 @@ def runtime_lines(
     return style_axes(ax)
 
 
+# A Leiden or Louvain configuration as CARVE renders it ("LeidenClustering,
+# n_neighbors=30, ..."), as the CVI sweep does ("LeidenClustering
+# (n_neighbors=30, ...)") or one parameter per line, as in CARVE's notes.
+_GRAPH_SETTING = re.compile(
+    r"(Leiden|Louvain)Clustering(?:[,\s]+|\s*\()"
+    r"(\w+=[^,()\s]+(?:[,\s]+\w+=[^,()\s]+)*)\)?"
+)
+
+
+def compact_setting(text: str) -> str:
+    """Shorten every graph-clusterer configuration in text for a legend or title.
+
+    "LeidenClustering, n_neighbors=30, objective_function=modularity,
+    weighting=jaccard" reads "Leiden, 30 neighbors, Jaccard". Modularity, the
+    registered objective, is left unsaid; another objective is named, since it
+    changes the resolution scale. Text without such a configuration is
+    returned unchanged.
+    """
+
+    def shorten(match: re.Match) -> str:
+        params = dict(re.findall(r"(\w+)=([^,()\s]+)", match.group(2)))
+        parts = [match.group(1)]
+        if "n_neighbors" in params:
+            parts.append(f"{params['n_neighbors']} neighbors")
+        if params.get("weighting") == "jaccard":
+            parts.append("Jaccard")
+        if params.get("objective_function", "modularity") != "modularity":
+            parts.append(params["objective_function"])
+        return ", ".join(parts)
+
+    return _GRAPH_SETTING.sub(shorten, text)
+
+
 def _sweep_axis_label(param: str) -> str:
     """The x-axis label for a sweep parameter, in CARVE's own wording."""
     if param == "n_clusters":
@@ -921,13 +955,18 @@ def cvi_lines(
 
     Indices live on incompatible scales, so they are min-max normalized to a
     common axis by default; the selected k is unaffected by that rescaling.
+
+    Curves from cvi_resolution_sweep carry a resolution column. Their k is an
+    outcome that two resolutions can share, so the lines and the selection
+    are placed by resolution instead.
     """
+    x_col = "resolution" if "resolution" in curves_df.columns else "k"
     for _, best in best_df.iterrows():
         metric = best["metric"]
         model = best["model"]
         sub = curves_df.loc[
             (curves_df["metric"] == metric) & (curves_df["model"] == model)
-        ].sort_values("k")
+        ].sort_values(x_col)
         if sub.empty:
             continue
 
@@ -938,7 +977,7 @@ def cvi_lines(
 
         color = metric_color(str(metric))
         ax.plot(
-            sub["k"].to_numpy(),
+            sub[x_col].to_numpy(),
             values,
             marker="o",
             markersize=4.5,
@@ -952,10 +991,13 @@ def cvi_lines(
         # replaces sat on the curve, so it read as a data point rather than
         # as a selection and was lost wherever two indices crossed.
         ax.axvline(
-            int(best["k"]), color=color, linestyle="--", linewidth=1.0, alpha=0.6
+            float(best[x_col]), color=color, linestyle="--", linewidth=1.0, alpha=0.6
         )
 
-    ax.set_xlabel("Number of clusters $k$", fontsize=FONT_SIZES["axis_label"])
+    ax.set_xlabel(
+        _sweep_axis_label("resolution" if x_col == "resolution" else "n_clusters"),
+        fontsize=FONT_SIZES["axis_label"],
+    )
     ax.set_ylabel(
         "Score (normalized)" if normalize else "Score",
         fontsize=FONT_SIZES["axis_label"],
@@ -1583,7 +1625,13 @@ def metric_legend(
     )
 
 
-def panel_letter(ax: Axes, letter: str, *, x: float = -0.08, y: float = 1.1) -> None:
+# Fraction of the axes width left of the axes where a panel letter ends.
+PANEL_LETTER_X = -0.08
+
+
+def panel_letter(
+    ax: Axes, letter: str, *, x: float = PANEL_LETTER_X, y: float = 1.1
+) -> None:
     """Place a bold panel letter in axes coordinates."""
     ax.text(
         x,
