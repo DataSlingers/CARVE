@@ -20,6 +20,10 @@ marker_table return the numbers it draws.
 
 _guidance draws the two schematic figures of the practical-guidance S Text,
 from hand-specified shapes rather than a fit.
+
+The six main figures are laid out at the PLOS page width and also saved as
+Fig1.tif to Fig6.tif under vis/plos/ (PLOS_DIR) for the submission; Fig 2,
+the CARVE overview, is drawn outside this package.
 """
 
 from ._ablation import figure_ablation, figure_ablation_resampling
@@ -31,6 +35,7 @@ from ._carve_output import (
     figure_carve_output_levine,
 )
 from ._case_study import CompositeInputs, composite_figure, prepare_composite
+from ._clustering_problem import DatasetRow, figure_clustering_problem
 from ._cusanovich_results import figure_cusanovich_results
 from ._guidance import figure_guidance_clusters, figure_guidance_global
 from ._heca_calibration import figure_heca_calibration
@@ -48,8 +53,10 @@ from ._paths import (
     BENCHMARKING_DIR,
     CASE_STUDY_DIR,
     GUIDANCE_DIR,
+    PLOS_DIR,
     VIS_ROOT,
     figure_path,
+    plos_figure_path,
 )
 from ._reference_scatter import figure_reference_scatter
 from ._scaling import figure_scaling_ari, figure_scaling_runtime
@@ -60,7 +67,9 @@ __all__ = [
     "BENCHMARKING_DIR",
     "CASE_STUDY_DIR",
     "CompositeInputs",
+    "DatasetRow",
     "GUIDANCE_DIR",
+    "PLOS_DIR",
     "VIS_ROOT",
     "composite_figure",
     "composition_tables",
@@ -71,6 +80,7 @@ __all__ = [
     "figure_carve_output_heca",
     "figure_carve_output_klein",
     "figure_carve_output_levine",
+    "figure_clustering_problem",
     "figure_cusanovich_results",
     "figure_guidance_clusters",
     "figure_guidance_global",
@@ -88,5 +98,6 @@ __all__ = [
     "figure_scenario_dashboard",
     "figure_scenario_overview",
     "marker_table",
+    "plos_figure_path",
     "prepare_composite",
 ]

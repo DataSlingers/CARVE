@@ -165,6 +165,15 @@ def test_motivation_levine_loader_uses_the_manuscript_subsample():
     assert "subsample=5000" in _code(NOTEBOOKS["motivation"])
 
 
+def test_motivation_draws_fig_1_through_the_figures_package():
+    # Fig 1 is laid out and saved, PNG and Fig1.tif, by the figure module,
+    # so the notebook carries no layout or savefig of its own.
+    source = _code(NOTEBOOKS["motivation"])
+    assert "show(figure_clustering_problem(rows))" in source
+    assert "savefig" not in source
+    assert "plt.subplots" not in source
+
+
 def test_klein_prepare_composite_uses_the_generalizability_selection():
     source = _code(NOTEBOOKS["klein"])
     assert 'measure="generalizability"' in source

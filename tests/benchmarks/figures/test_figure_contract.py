@@ -8,6 +8,7 @@ from matplotlib.figure import Figure
 from benchmarks import figures
 
 EXPECTED = (
+    "figure_clustering_problem",
     "figure_benchmarking_examples",
     "figure_benchmarking_results",
     "figure_scaling_ari",
