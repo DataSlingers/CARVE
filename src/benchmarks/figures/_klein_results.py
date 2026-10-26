@@ -48,4 +48,5 @@ def figure_klein_results(
         save=save,
         out_dir=out_dir,
         curves_first=True,
+        plos_number=5,
     )

@@ -46,12 +46,14 @@ from .._theme import (
     save_figure,
     save_plos_tiff,
     theme_context,
+    thin_lines,
 )
 from ._case_study import (
     CompositeInputs,
     _swept_resolutions,
     carve_labels_aligned,
     carve_output_cmap,
+    short_estimator_names,
 )
 from ._heca_carve import AXIS_LABELS, MARKER_LINEWIDTH, MARKER_SIZE, resolution_axis
 from ._paths import CASE_STUDY_DIR, figure_path, plos_figure_path
@@ -88,26 +90,6 @@ _PRINT_MARKER_SCALE = (PRINT_WIDTH_IN / _SCREEN_WIDTH_IN) ** 2
 # drawn at this fraction.
 _PRINT_CURVE_SCALE = 0.6
 
-# The estimator reprs CARVE writes into the legend, as the print legend
-# names them. At the print width the full reprs run across the curves.
-_ESTIMATOR_LABELS = {
-    "AgglomerativeClustering, linkage=ward": "Ward agglomerative",
-    "SpectralClustering, affinity=self_tuning": "Spectral, self-tuning",
-}
-
-
-def _thin_curves(ax: Axes, scale: float) -> None:
-    """Scale the line widths and marker sizes CARVE drew a curve panel with.
-
-    Error bar caps are markers on lines of their own, and the bars are line
-    collections, so both follow.
-    """
-    for line in ax.lines:
-        line.set_linewidth(line.get_linewidth() * scale)
-        line.set_markersize(line.get_markersize() * scale)
-    for collection in ax.collections:
-        collection.set_linewidths(np.asarray(collection.get_linewidths()) * scale)
-
 
 def _print_curve_legend(ax: Axes) -> None:
     """The estimator legend CARVE draws, rebuilt from the thinned curves.
@@ -122,7 +104,7 @@ def _print_curve_legend(ax: Axes) -> None:
     handles, labels = ax.get_legend_handles_labels()
     ax.legend(
         handles,
-        [_ESTIMATOR_LABELS.get(label, label) for label in labels],
+        [short_estimator_names(label) for label in labels],
         loc="lower left",
         frameon=True,
         framealpha=0.95,
@@ -229,7 +211,7 @@ def carve_output_figure(
                 ax.set_xlabel("Resolution")
                 resolution_axis(ax, resolutions)
         for ax in (ax_a, ax_b):
-            _thin_curves(ax, _PRINT_CURVE_SCALE)
+            thin_lines(ax, _PRINT_CURVE_SCALE)
         _print_curve_legend(ax_a if measure == _MEASURE_STABILITY else ax_b)
         carve.plot_consensus_matrix(
             measure=measure,

@@ -30,6 +30,7 @@ from benchmarks.figures._case_study import (
 from sklearn.base import BaseEstimator, ClusterMixin
 from sklearn.metrics import adjusted_rand_score
 
+from benchmarks._theme import PRINT_FONT_SIZES, PRINT_MAX_HEIGHT_IN, PRINT_WIDTH_IN
 from carve import CARVE
 from tests.benchmarks._helpers import StubCarve, resolution_results
 
@@ -238,6 +239,37 @@ class TestKleinFigure:
         assert list(tmp_path.iterdir()) == []
         plt.close(fig)
 
+    def test_saves_the_plos_figure_file_as_fig5(self, inputs, tmp_path):
+        from PIL import Image
+
+        fig = figure_klein_results(inputs, save=True, out_dir=tmp_path)
+        plt.close(fig)
+        with Image.open(tmp_path / "Fig5.tif") as image:
+            assert image.mode == "RGB"
+            assert image.info["compression"] == "tiff_lzw"
+
+    def test_is_laid_out_at_the_print_sizes(self, inputs):
+        fig = figure_klein_results(inputs, save=False)
+        assert fig.get_figwidth() == PRINT_WIDTH_IN
+        assert fig.get_figheight() <= PRINT_MAX_HEIGHT_IN
+        for ax in fig.get_axes():
+            assert ax.title.get_fontsize() <= PRINT_FONT_SIZES["title"]
+            for text in ax.texts:
+                assert text.get_fontsize() <= PRINT_FONT_SIZES["panel_letter"]
+        plt.close(fig)
+
+    def test_legend_strip_names_the_estimators_briefly(self, inputs):
+        fig = figure_klein_results(inputs, save=False)
+        texts = [
+            text.get_text()
+            for ax in fig.get_axes()
+            if ax.get_legend() is not None
+            for text in ax.get_legend().get_texts()
+        ]
+        assert texts
+        assert not any("Clustering" in text for text in texts)
+        plt.close(fig)
+
     def test_builds_exactly_two_panel_legends(self, inputs):
         """The original built legend D twice and discarded the first."""
         fig = figure_klein_results(inputs, save=False)
@@ -303,6 +335,11 @@ class TestLevineFigure:
         fig = figure_levine_results(inputs, save=False, out_dir=tmp_path)
         assert list(tmp_path.iterdir()) == []
         plt.close(fig)
+
+    def test_an_si_figure_writes_no_plos_file(self, inputs, tmp_path):
+        fig = figure_levine_results(inputs, save=True, out_dir=tmp_path)
+        plt.close(fig)
+        assert not list(tmp_path.glob("*.tif"))
 
     def test_bottom_panel_is_the_ari_lollipop(self, inputs):
         fig = figure_levine_results(inputs, save=False)

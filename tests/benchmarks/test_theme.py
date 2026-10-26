@@ -34,11 +34,13 @@ from benchmarks._theme import (
     PLOS_MIN_WIDTH_IN,
     PLOS_TIFF_DPI,
     print_axes_text,
+    print_free_text,
     print_theme_context,
     save_figure,
     save_plos_tiff,
     style_axes,
     theme_context,
+    thin_lines,
 )
 
 PLOTTED_METRICS = (
@@ -555,5 +557,58 @@ class TestPrintAxesText:
         fig, ax = self._drawn()
         print_axes_text(ax)
         assert ax.texts[0].get_fontsize() == 28
+        plt.close(fig)
+
+
+class TestPrintFreeText:
+    """Free text the panel helpers place at a screen size takes the print size
+    of the same role; text at any other size is left alone."""
+
+    def test_every_screen_size_maps_to_one_print_size(self):
+        by_screen = {}
+        for role, size in FONT_SIZES.items():
+            by_screen.setdefault(size, set()).add(PRINT_FONT_SIZES[role])
+        assert all(len(prints) == 1 for prints in by_screen.values())
+
+    def test_maps_each_role_to_its_print_size(self):
+        fig, ax = plt.subplots()
+        texts = {
+            role: ax.text(0.1, 0.1, role, fontsize=FONT_SIZES[role])
+            for role in ("axis_label", "title", "panel_letter")
+        }
+        arrow = ax.annotate("PC1", (0.2, 0.2), fontsize=FONT_SIZES["axis_label"])
+        print_free_text(ax)
+        for role, text in texts.items():
+            assert text.get_fontsize() == PRINT_FONT_SIZES[role]
+        assert arrow.get_fontsize() == PRINT_FONT_SIZES["axis_label"]
+        plt.close(fig)
+
+    def test_leaves_text_at_other_sizes_alone(self):
+        fig, ax = plt.subplots()
+        text = ax.text(0.1, 0.1, "odd", fontsize=6.5)
+        print_free_text(ax)
+        assert text.get_fontsize() == 6.5
+        plt.close(fig)
+
+
+class TestThinLines:
+    def test_scales_line_widths_marker_sizes_and_error_bars(self):
+        fig, ax = plt.subplots()
+        container = ax.errorbar(
+            [0, 1],
+            [0, 1],
+            yerr=0.1,
+            linewidth=2.0,
+            elinewidth=2.0,
+            markersize=6.0,
+            marker="o",
+            capsize=4,
+        )
+        line, caps, bars = container.lines
+        thin_lines(ax, 0.5)
+        assert line.get_linewidth() == 1.0
+        assert line.get_markersize() == 3.0
+        assert all(cap.get_markersize() == 4.0 for cap in caps)
+        assert np.allclose(bars[0].get_linewidths(), 1.0)
         plt.close(fig)
 

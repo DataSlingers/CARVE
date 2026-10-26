@@ -16,6 +16,7 @@ from typing import Any
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap, to_hex
 from matplotlib.figure import Figure
@@ -526,6 +527,37 @@ def print_axes_text(ax: Axes) -> Axes:
         for text in legend.get_texts():
             text.set_fontsize(PRINT_FONT_SIZES["legend"])
         legend.get_title().set_fontsize(PRINT_FONT_SIZES["legend"])
+    return ax
+
+
+def print_free_text(ax: Axes) -> Axes:
+    """Set an axes' free text from its screen size to its print size.
+
+    The panel helpers place text with ax.text and ax.annotate at FONT_SIZES's
+    sizes: alluvial labels, axis arrows, panel letters. Each takes the
+    PRINT_FONT_SIZES size of the role it was set at; text at any other size
+    is left alone.
+    """
+    by_screen = {FONT_SIZES[role]: PRINT_FONT_SIZES[role] for role in FONT_SIZES}
+    for text in ax.texts:
+        size = by_screen.get(text.get_fontsize())
+        if size is not None:
+            text.set_fontsize(size)
+    return ax
+
+
+def thin_lines(ax: Axes, scale: float) -> Axes:
+    """Scale an axes' line widths and marker sizes by ``scale``.
+
+    For curves drawn at a width that suits a figure laid out larger than it
+    prints. Error bar caps are markers on lines of their own, and the bars
+    are line collections, so both follow.
+    """
+    for line in ax.lines:
+        line.set_linewidth(line.get_linewidth() * scale)
+        line.set_markersize(line.get_markersize() * scale)
+    for collection in ax.collections:
+        collection.set_linewidths(np.asarray(collection.get_linewidths()) * scale)
     return ax
 
 

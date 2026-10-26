@@ -29,10 +29,52 @@ from .._panels import (
     panel_letter,
     scatter_clusters,
 )
-from .._theme import FONT_SIZES, save_figure, theme_context
+from .._theme import (
+    PRINT_FONT_SIZES,
+    PRINT_WIDTH_IN,
+    print_axes_text,
+    print_free_text,
+    print_theme_context,
+    save_figure,
+    save_plos_tiff,
+    thin_lines,
+)
 from .._types import EstimatorSpec
 from ._heca_carve import resolution_axis
-from ._paths import CASE_STUDY_DIR, figure_path
+from ._paths import CASE_STUDY_DIR, figure_path, plos_figure_path
+
+# The composite is drawn square at the print width. Its curves are drawn at
+# a width that suits a figure twice that size, so at print they take this
+# fraction; scatter marker areas are given for a 16-inch figure and scale
+# with the area.
+_SCREEN_WIDTH_IN = 16.0
+_PRINT_CURVE_SCALE = 0.75
+_PRINT_MARKER_SCALE = (PRINT_WIDTH_IN / _SCREEN_WIDTH_IN) ** 2
+
+# At the print width the legend strip needs half a panel row for the four
+# CVI entries and their title, and the rows need more space between them
+# for the axis labels and titles than at the screen width. The figure is
+# that much taller than wide and stays under PRINT_MAX_HEIGHT_IN.
+_PRINT_HEIGHT_IN = 8.0
+_LEGEND_ROW_RATIO = 0.5
+_ROW_SPACE = 0.3
+
+# The estimator reprs CARVE and the CVI sweep write into legends, as the
+# printed figures name them. At the print width the full reprs run across
+# the curves or past the legend's column.
+_SHORT_ESTIMATOR_NAMES: dict[str, str] = {
+    "AgglomerativeClustering, linkage=ward": "Ward agglomerative",
+    "AgglomerativeClustering (linkage=ward)": "Ward agglomerative",
+    "SpectralClustering, affinity=self_tuning": "Spectral, self-tuning",
+    "SpectralClustering (affinity=self_tuning)": "Spectral, self-tuning",
+}
+
+
+def short_estimator_names(text: str) -> str:
+    """A legend entry with the known estimator reprs in it shortened."""
+    for full, short in _SHORT_ESTIMATOR_NAMES.items():
+        text = text.replace(full, short)
+    return text
 
 
 @dataclass(frozen=True)
@@ -423,6 +465,7 @@ def composite_figure(
     save: bool = True,
     out_dir: Path | None = None,
     curves_first: bool = False,
+    plos_number: int | None = None,
 ) -> Figure:
     """Draw the six-panel case-study composite.
 
@@ -437,25 +480,43 @@ def composite_figure(
     them, as a corner arrow pair rather than as xlabel/ylabel: all three
     scatters share one embedding, so repeating the names under B and C says
     nothing the reader does not already have from A.
+
+    The figure is laid out at PRINT_WIDTH_IN under print_theme_context, and
+    the panel helpers' screen text sizes are reset to the print sizes.
+    ``plos_number`` names the PLOS figure file saved beside the PNG; an SI
+    figure, which PLOS takes in any format, leaves it None.
     """
     true_cmap, carve_cmap, comparison_cmap = composite_color_maps(inputs)
     carve_resolutions = _swept_resolutions(inputs.carve)
     cvi_over_resolution = "resolution" in inputs.curves_df.columns
     # A resolution axis stands its tick labels upright, and they hang into
     # the legend strip under the curves; the strip grows to hold both.
-    legend_height = (
-        0.35 if carve_resolutions is not None or cvi_over_resolution else 0.3
+    legend_height = _LEGEND_ROW_RATIO + (
+        0.05 if carve_resolutions is not None or cvi_over_resolution else 0.0
     )
+    marker_size = marker_size * _PRINT_MARKER_SCALE
 
-    with theme_context():
-        fig = plt.figure(figsize=(16, 16), constrained_layout=False)
+    with print_theme_context():
+        fig = plt.figure(
+            figsize=(PRINT_WIDTH_IN, _PRINT_HEIGHT_IN), constrained_layout=False
+        )
         if curves_first:
             curve_row, legend_row, scatter_row = 0, 1, 2
             height_ratios = [1.0, legend_height, 1.0, 1.0]
         else:
             scatter_row, curve_row, legend_row = 0, 1, 2
             height_ratios = [1.0, 1.0, legend_height, 1.0]
-        gs = fig.add_gridspec(4, 6, height_ratios=height_ratios, hspace=0.2, wspace=0.8)
+        gs = fig.add_gridspec(
+            4,
+            6,
+            height_ratios=height_ratios,
+            hspace=_ROW_SPACE,
+            wspace=0.8,
+            left=0.08,
+            right=0.98,
+            top=0.97,
+            bottom=0.03,
+        )
         ax_true = fig.add_subplot(gs[scatter_row, 0:2])
         ax_carve = fig.add_subplot(gs[scatter_row, 2:4])
         ax_cvi = fig.add_subplot(gs[scatter_row, 4:6])
@@ -521,6 +582,13 @@ def composite_figure(
             )
 
         bottom_panel(ax_bottom, inputs)
+        for ax in (ax_carve_curves, ax_cvi_curves):
+            thin_lines(ax, _PRINT_CURVE_SCALE)
+        # Before the legend strip: a resolution run's legends are placed
+        # under the curve panels' tick and axis labels at their print size.
+        for ax in fig.get_axes():
+            print_axes_text(ax)
+            print_free_text(ax)
 
         # Move the two panel legends into their own strip. Building each one
         # exactly once; the cell this replaces assigned leg_D twice and threw
@@ -552,11 +620,11 @@ def composite_figure(
                 }
             target_ax.legend(
                 handles,
-                [compact_setting(label) for label in labels],
+                [compact_setting(short_estimator_names(label)) for label in labels],
                 title=title,
                 ncol=1,
                 frameon=False,
-                fontsize=FONT_SIZES["legend"],
+                fontsize=PRINT_FONT_SIZES["legend"],
                 **placement,
             )
 
@@ -564,11 +632,13 @@ def composite_figure(
         curves = (ax_carve_curves, ax_cvi_curves)
         ordered = (*curves, *scatters) if curves_first else (*scatters, *curves)
         for letter, ax in zip("ABCDEF", (*ordered, ax_bottom)):
-            panel_letter(ax, letter)
+            panel_letter(ax, letter, fontsize=PRINT_FONT_SIZES["panel_letter"])
 
         if save:
             save_figure(
                 fig,
                 figure_path(save_name, subdir=CASE_STUDY_DIR, out_dir=out_dir),
             )
+            if plos_number is not None:
+                save_plos_tiff(fig, plos_figure_path(plos_number, out_dir=out_dir))
     return fig
