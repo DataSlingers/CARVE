@@ -30,8 +30,13 @@ from benchmarks._theme import (
     metric_dashes,
     metric_linestyle,
     metric_linewidth,
+    PLOS_MAX_FILE_BYTES,
+    PLOS_MIN_WIDTH_IN,
+    PLOS_TIFF_DPI,
+    print_axes_text,
     print_theme_context,
     save_figure,
+    save_plos_tiff,
     style_axes,
     theme_context,
 )
@@ -411,6 +416,78 @@ class TestSaveFigure:
         plt.close(fig)
 
 
+def _print_figure(width_in: float, height_in: float, *, transparent: bool = False):
+    """A figure laid out at the given size, its axes filling most of it."""
+    with print_theme_context():
+        fig, ax = plt.subplots(figsize=(width_in, height_in))
+        ax.plot([0, 1, 2], [0, 1, 0])
+        ax.set_xlabel("k")
+        if transparent:
+            fig.patch.set_alpha(0.0)
+            ax.patch.set_alpha(0.0)
+    return fig
+
+
+class TestSavePlosTiff:
+    """PLOS Computational Biology figure files: an LZW-compressed TIFF, RGB
+    at 8 bits per channel with no alpha channel, 300 dpi, 2.63 to 7.5 inches
+    wide and at most 8.75 inches tall, under 10 MB."""
+
+    def test_the_limits_are_the_plos_values(self):
+        assert PLOS_TIFF_DPI == 300
+        assert PLOS_MIN_WIDTH_IN == 2.63
+        assert PLOS_MAX_FILE_BYTES == 10_000_000
+
+    def test_writes_an_lzw_compressed_rgb_tiff_at_300_dpi(self, tmp_path):
+        from PIL import Image
+
+        fig = _print_figure(PRINT_WIDTH_IN - 0.5, 4.0)
+        path = save_plos_tiff(fig, tmp_path / "sub" / "Fig1.tif")
+        plt.close(fig)
+        with Image.open(path) as image:
+            assert image.format == "TIFF"
+            assert image.mode == "RGB"
+            assert image.info["compression"] == "tiff_lzw"
+            assert tuple(round(v) for v in image.info["dpi"]) == (300, 300)
+            assert image.width <= PRINT_WIDTH_IN * PLOS_TIFF_DPI
+
+    def test_flattens_a_transparent_background_onto_white(self, tmp_path):
+        from PIL import Image
+
+        fig = _print_figure(PRINT_WIDTH_IN - 0.5, 4.0, transparent=True)
+        path = save_plos_tiff(fig, tmp_path / "Fig1.tif")
+        plt.close(fig)
+        with Image.open(path) as image:
+            assert image.mode == "RGB"
+            assert image.getpixel((0, 0)) == (255, 255, 255)
+
+    @pytest.mark.parametrize(
+        ("width_in", "height_in", "limit"),
+        # bbox_inches="tight" trims Matplotlib's default margins, so the
+        # oversized figures are well past the limits rather than just over.
+        [(12.0, 4.0, "7.5"), (2.0, 2.0, "2.63"), (6.0, 12.0, "8.75")],
+        ids=["too-wide", "too-narrow", "too-tall"],
+    )
+    def test_rejects_a_figure_outside_the_page_and_writes_nothing(
+        self, tmp_path, width_in, height_in, limit
+    ):
+        fig = _print_figure(width_in, height_in)
+        with pytest.raises(ValueError, match=limit):
+            save_plos_tiff(fig, tmp_path / "Fig1.tif")
+        plt.close(fig)
+        assert not (tmp_path / "Fig1.tif").exists()
+
+    def test_rejects_a_file_over_the_size_limit(self, tmp_path, monkeypatch):
+        import benchmarks._theme as theme
+
+        monkeypatch.setattr(theme, "PLOS_MAX_FILE_BYTES", 1_000)
+        fig = _print_figure(PRINT_WIDTH_IN - 0.5, 4.0)
+        with pytest.raises(ValueError, match="MB"):
+            save_plos_tiff(fig, tmp_path / "Fig1.tif")
+        plt.close(fig)
+        assert not (tmp_path / "Fig1.tif").exists()
+
+
 class TestComparatorDashes:
     def test_every_comparator_has_its_own_pattern(self):
         """Four warm hues cannot all clear the CVD separation threshold
@@ -441,3 +518,42 @@ class TestSequentialRamp:
         samples = [cmap(v / 8) for v in range(9)]
         luminance = [0.2126 * r + 0.7152 * g + 0.0722 * b for r, g, b, _ in samples]
         assert luminance == sorted(luminance, reverse=True)
+
+
+class TestPrintAxesText:
+    """CARVE's plotting methods set their own text sizes for a figure seen on
+    screen; print_axes_text resets an axes they drew to the print sizes."""
+
+    def _drawn(self):
+        fig, ax = plt.subplots()
+        ax.plot([0, 1], [0, 1], label="a")
+        ax.set_title("title", fontsize=13)
+        ax.set_xlabel("x", fontsize=12)
+        ax.set_ylabel("y", fontsize=12)
+        ax.tick_params(labelsize=11)
+        ax.legend(fontsize=10, title="legend")
+        ax.text(0.5, 0.5, "A", fontsize=28)
+        return fig, ax
+
+    def test_sets_title_labels_ticks_and_legend_to_the_print_sizes(self):
+        fig, ax = self._drawn()
+        print_axes_text(ax)
+        fig.canvas.draw()
+        assert ax.title.get_fontsize() == PRINT_FONT_SIZES["title"]
+        assert ax.xaxis.label.get_fontsize() == PRINT_FONT_SIZES["axis_label"]
+        assert ax.yaxis.label.get_fontsize() == PRINT_FONT_SIZES["axis_label"]
+        ticks = ax.get_xticklabels() + ax.get_yticklabels()
+        assert ticks and {t.get_fontsize() for t in ticks} == {PRINT_FONT_SIZES["tick"]}
+        legend = ax.get_legend()
+        assert {t.get_fontsize() for t in legend.get_texts()} == {
+            PRINT_FONT_SIZES["legend"]
+        }
+        assert legend.get_title().get_fontsize() == PRINT_FONT_SIZES["legend"]
+        plt.close(fig)
+
+    def test_leaves_free_text_such_as_panel_letters_alone(self):
+        fig, ax = self._drawn()
+        print_axes_text(ax)
+        assert ax.texts[0].get_fontsize() == 28
+        plt.close(fig)
+

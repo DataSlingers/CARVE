@@ -8,6 +8,7 @@ published figure used stock matplotlib defaults and pdf.fonttype 42 was never
 applied.
 """
 
+import io
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -508,9 +509,89 @@ def style_axes(ax: Axes, *, grid: bool = True) -> Axes:
     return ax
 
 
+def print_axes_text(ax: Axes) -> Axes:
+    """Set an axes' title, axis labels, tick labels and legend to the print sizes.
+
+    CARVE's own plotting methods size their text for a figure viewed on
+    screen, at up to 13 points, which a figure laid out at PRINT_WIDTH_IN
+    prints as is. Free text placed with ax.text, such as panel letters, is
+    left alone.
+    """
+    ax.title.set_fontsize(PRINT_FONT_SIZES["title"])
+    ax.xaxis.label.set_fontsize(PRINT_FONT_SIZES["axis_label"])
+    ax.yaxis.label.set_fontsize(PRINT_FONT_SIZES["axis_label"])
+    ax.tick_params(labelsize=PRINT_FONT_SIZES["tick"])
+    legend = ax.get_legend()
+    if legend is not None:
+        for text in legend.get_texts():
+            text.set_fontsize(PRINT_FONT_SIZES["legend"])
+        legend.get_title().set_fontsize(PRINT_FONT_SIZES["legend"])
+    return ax
+
+
 def save_figure(fig: Figure, path: Path, *, dpi: int = 300) -> Path:
     """Save a figure under its manuscript filename, creating parents as needed."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=dpi, bbox_inches="tight")
+    return path
+
+
+# PLOS Computational Biology takes each main figure as its own file: a TIFF
+# with LZW compression, RGB at 8 bits per channel with no alpha channel or
+# layers, 300 to 600 dpi, 2.63 to 7.5 inches wide, at most 8.75 inches tall
+# and 10 MB or less (journals.plos.org/ploscompbiol/s/figures). The width
+# and height limits are PRINT_WIDTH_IN and PRINT_MAX_HEIGHT_IN above.
+PLOS_TIFF_DPI: int = 300
+PLOS_MIN_WIDTH_IN: float = 2.63
+PLOS_MAX_FILE_BYTES: int = 10_000_000
+
+
+def save_plos_tiff(fig: Figure, path: Path, *, dpi: int = PLOS_TIFF_DPI) -> Path:
+    """Save a figure as a PLOS figure file, creating parents as needed.
+
+    The figure is rendered as save_figure renders it and flattened onto
+    white, since Matplotlib's raster output carries an alpha channel that
+    PLOS does not accept. A file outside the size limits raises ValueError
+    before anything is written, so a figure that would be rescaled in
+    production, and its text with it, never reaches the submission folder.
+    """
+    from PIL import Image
+
+    path = Path(path)
+    buffer = io.BytesIO()
+    fig.savefig(buffer, format="png", dpi=dpi, bbox_inches="tight")
+    buffer.seek(0)
+    with Image.open(buffer) as rendered:
+        rgba = rendered.convert("RGBA")
+    white = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+    rgb = Image.alpha_composite(white, rgba).convert("RGB")
+
+    width_in, height_in = rgb.width / dpi, rgb.height / dpi
+    if rgb.width > round(PRINT_WIDTH_IN * dpi):
+        raise ValueError(
+            f"{path.name} is {width_in:.2f} inches wide; PLOS allows at most "
+            f"{PRINT_WIDTH_IN} inches."
+        )
+    if width_in < PLOS_MIN_WIDTH_IN:
+        raise ValueError(
+            f"{path.name} is {width_in:.2f} inches wide; PLOS requires at least "
+            f"{PLOS_MIN_WIDTH_IN} inches."
+        )
+    if rgb.height > round(PRINT_MAX_HEIGHT_IN * dpi):
+        raise ValueError(
+            f"{path.name} is {height_in:.2f} inches tall; PLOS allows at most "
+            f"{PRINT_MAX_HEIGHT_IN} inches."
+        )
+
+    encoded = io.BytesIO()
+    rgb.save(encoded, format="TIFF", compression="tiff_lzw", dpi=(dpi, dpi))
+    size = encoded.getbuffer().nbytes
+    if size > PLOS_MAX_FILE_BYTES:
+        raise ValueError(
+            f"{path.name} is {size / 1e6:.1f} MB; PLOS allows at most "
+            f"{PLOS_MAX_FILE_BYTES / 1e6:g} MB."
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(encoded.getvalue())
     return path
