@@ -14,8 +14,12 @@ clusters, and each CARVE cluster left unmatched past them, has its own until 64.
 The source clusters CARVE matches take tab10 and then the palette's most
 distinct mid-lightness entries (aligned_color_maps' matched_first), so A's
 fewer clusters are not left on whichever dark entries their matches had.
+
+The figure is laid out at the PLOS page width under print_theme_context and
+saved both as the PNG the manuscript includes and as Fig6.tif.
 """
 
+import re
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -32,10 +36,94 @@ from .._panels import (
     pipeline_lines,
     scatter_clusters,
 )
-from .._theme import FONT_SIZES, metric_color, save_figure, theme_context
-from ._paths import CASE_STUDY_DIR, figure_path
+from .._theme import (
+    PRINT_FONT_SIZES,
+    PRINT_WIDTH_IN,
+    metric_color,
+    print_axes_text,
+    print_free_text,
+    print_theme_context,
+    save_figure,
+    save_plos_tiff,
+    thin_lines,
+)
+from ._paths import CASE_STUDY_DIR, figure_path, plos_figure_path
 
+# The manuscript's figure number, which names the PLOS file.
+PLOS_FIGURE_NUMBER = 6
+
+# MARKER_SIZE is the marker area for the 15-inch screen layout the
+# notebook's reference scatter shares; at the print width it scales with the
+# area. C's curves (carve_lines, 1.8-point lines) and D's (CARVE's own,
+# 2-point) are drawn at a fraction of their screen weight.
 MARKER_SIZE = 8.0
+_SCREEN_WIDTH_IN = 15.0
+_PRINT_HEIGHT_IN = 6.9
+_PRINT_MARKER_SCALE = (PRINT_WIDTH_IN / _SCREEN_WIDTH_IN) ** 2
+_CARVE_LINES_SCALE = 0.75
+_PIPELINE_LINES_SCALE = 0.6
+# scatter_clusters outlines each marker at 0.3 points, which on 81,173 small
+# markers would darken every cluster; the outline thins with the figure.
+_PRINT_OUTLINE_WIDTH = 0.3 * PRINT_WIDTH_IN / _SCREEN_WIDTH_IN
+
+# At the print width more than this many resolution labels run into each
+# other, so every other grid value is labeled; every value keeps its tick.
+_MAX_TICK_LABELS = 8
+
+# The axis arrows sit in the maps' lower-left corner, which the t-SNE fills;
+# the axes are widened by this fraction of their range to leave it free.
+_ARROW_CORNER = 0.12
+
+# Legend entries as the printed figure names them: CARVE's estimator and
+# pipeline reprs run past their panel at the print width.
+_SHORT_LABELS: tuple[tuple[str, str], ...] = (
+    (r"(\w+)Clustering, n_neighbors=(\d+)", r"\1, \2 neighbors"),
+    (r"identity \| ", ""),
+    (r"LSI\(n_components=(\d+)\)", r"LSI, \1 components"),
+    (r"TSNE\(perplexity=(\d+)\)", r"t-SNE, perplexity \1"),
+)
+
+
+def _short_label(text: str) -> str:
+    """A legend entry with CARVE's estimator and pipeline reprs shortened."""
+    for pattern, replacement in _SHORT_LABELS:
+        text = re.sub(pattern, replacement, text)
+    return text
+
+
+def _shorten_legend(ax: Axes) -> None:
+    legend = ax.get_legend()
+    if legend is not None:
+        for text in legend.get_texts():
+            text.set_text(_short_label(text.get_text()))
+
+
+def resolution_tick_labels(grid: np.ndarray) -> list[str]:
+    """The resolution axis labels: every grid value, or every other past eight."""
+    step = 1 if len(grid) <= _MAX_TICK_LABELS else 2
+    return [
+        f"{value:g}" if index % step == 0 else "" for index, value in enumerate(grid)
+    ]
+
+
+def _room_for_legend(ax: Axes) -> None:
+    """Extend the y axis down by a fifth of its range.
+
+    C's and D's legends sit in their lower-left corner and take a larger
+    share of the panel at the print width; the extension keeps them under
+    the curves.
+    """
+    bottom, top = ax.get_ylim()
+    ax.set_ylim(bottom - 0.2 * (top - bottom), top)
+
+
+def _clear_corner(ax: Axes) -> None:
+    """Widen the axes left and down, leaving the lower-left corner to the arrows."""
+    for get, set_ in ((ax.get_xlim, ax.set_xlim), (ax.get_ylim, ax.set_ylim)):
+        low, high = get()
+        set_(low - _ARROW_CORNER * (high - low), high)
+
+
 SOURCE_TSNE_LABELS = ("t-SNE 1", "t-SNE 2")
 SAVE_NAME = "cusanovich_results.png"
 
@@ -68,10 +156,10 @@ def _mark_source(ax: Axes, inputs: CusanovichInputs, method_id: str) -> None:
             [resolution],
             [float(at_point[f"ari_{measure}"].iloc[0])],
             marker="D",
-            markersize=8.0,
+            markersize=8.0 * _CARVE_LINES_SCALE,
             linestyle="none",
             markerfacecolor="white",
-            markeredgewidth=1.5,
+            markeredgewidth=1.5 * _CARVE_LINES_SCALE,
             markeredgecolor=metric_color(f"ari_{measure}_1se"),
             zorder=3,
             label=(
@@ -81,7 +169,7 @@ def _mark_source(ax: Axes, inputs: CusanovichInputs, method_id: str) -> None:
             ),
         )
 
-    ax.legend(fontsize=FONT_SIZES["legend"], frameon=False)
+    ax.legend(fontsize=PRINT_FONT_SIZES["legend"], frameon=False)
 
 
 def _observed_cluster_axis(ax: Axes, inputs: CusanovichInputs, method_id: str) -> None:
@@ -93,8 +181,8 @@ def _observed_cluster_axis(ax: Axes, inputs: CusanovichInputs, method_id: str) -
         curve["sweep_value"].to_numpy(dtype=float),
         labels=[f"{count:.0f}" for count in curve["n_clusters_observed"]],
     )
-    top.tick_params(labelsize=FONT_SIZES["tick"])
-    top.set_xlabel("Mean observed clusters", fontsize=FONT_SIZES["axis_label"])
+    top.tick_params(labelsize=PRINT_FONT_SIZES["tick"])
+    top.set_xlabel("Mean observed clusters", fontsize=PRINT_FONT_SIZES["axis_label"])
 
 
 def figure_cusanovich_results(
@@ -111,8 +199,9 @@ def figure_cusanovich_results(
     )
     n_source = int(np.unique(inputs.y).size)
 
-    with theme_context():
-        fig, axes = plt.subplots(2, 2, figsize=(15.0, 13.0))
+    marker_size = MARKER_SIZE * _PRINT_MARKER_SCALE
+    with print_theme_context():
+        fig, axes = plt.subplots(2, 2, figsize=(PRINT_WIDTH_IN, _PRINT_HEIGHT_IN))
         ax_a, ax_b, ax_c, ax_d = axes.flat
         ax_d.sharex(ax_c)
 
@@ -121,18 +210,22 @@ def figure_cusanovich_results(
             inputs.map_coordinates,
             inputs.carve_labels,
             color_map=carve_cmap,
-            s=MARKER_SIZE,
+            s=marker_size,
+            linewidth=_PRINT_OUTLINE_WIDTH,
             title=_panel_a_title(inputs, selected, n_clusters),
         )
+        _clear_corner(ax_a)
         axis_arrows(ax_a, inputs.map_axis_labels)
         scatter_clusters(
             ax_b,
             inputs.map_coordinates,
             inputs.y,
             color_map=source_cmap,
-            s=MARKER_SIZE,
+            s=marker_size,
+            linewidth=_PRINT_OUTLINE_WIDTH,
             title=f"Cusanovich et al.: {n_source} clusters\non {inputs.map_name}",
         )
+        _clear_corner(ax_b)
         axis_arrows(ax_b, inputs.map_axis_labels)
 
         carve_lines(
@@ -141,17 +234,19 @@ def figure_cusanovich_results(
             rule=inputs.rule,
             not_two=inputs.not_two,
             title=(
-                f"Stability & Generalizability over {carve.sweep_.param}, "
+                f"Stability & Generalizability over {carve.sweep_.param},\n"
                 "pooled over pipelines"
             ),
         )
+        # Before _mark_source, whose legend copies the curves' handles.
+        thin_lines(ax_c, _CARVE_LINES_SCALE)
         # The resolution grid is log-spaced, so C draws it on a log axis ticked
         # at the grid values; D shares C's x axis and follows. The scale is set
         # before the secondary axis exists, because a later scale change resets
         # that axis's ticks when the figure is drawn.
         grid = np.unique(carve.estimator_results_["sweep_value"].to_numpy(dtype=float))
         ax_c.set_xscale("log")
-        ax_c.set_xticks(grid, labels=[f"{value:g}" for value in grid])
+        ax_c.set_xticks(grid, labels=resolution_tick_labels(grid))
         ax_c.minorticks_off()
         _mark_source(ax_c, inputs, method_id)
         _observed_cluster_axis(ax_c, inputs, method_id)
@@ -162,15 +257,24 @@ def figure_cusanovich_results(
             method_id=method_id,
             rule=inputs.rule,
             not_two=inputs.not_two,
-            title="Stability & Generalizability across preprocessing pipelines",
+            title="Stability & Generalizability\nacross preprocessing pipelines",
         )
+        # The legend's proxy lines take the print theme's widths already.
+        thin_lines(ax_d, _PIPELINE_LINES_SCALE)
+        for ax in (ax_c, ax_d):
+            _shorten_legend(ax)
+            _room_for_legend(ax)
 
+        for ax in fig.get_axes():
+            print_axes_text(ax)
+            print_free_text(ax)
         for letter, ax in zip("ABCD", axes.flat):
-            panel_letter(ax, letter)
+            panel_letter(ax, letter, fontsize=PRINT_FONT_SIZES["panel_letter"])
         fig.tight_layout()
 
         if save:
             save_figure(
                 fig, figure_path(SAVE_NAME, subdir=CASE_STUDY_DIR, out_dir=out_dir)
             )
+            save_plos_tiff(fig, plos_figure_path(PLOS_FIGURE_NUMBER, out_dir=out_dir))
     return fig

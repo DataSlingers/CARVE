@@ -11,7 +11,8 @@ from sklearn.preprocessing import FunctionTransformer
 
 from benchmarks._cusanovich_compare import CusanovichInputs
 from benchmarks.figures import figure_cusanovich_results
-from benchmarks.figures._cusanovich_results import MARKER_SIZE
+from benchmarks._theme import PRINT_FONT_SIZES, PRINT_MAX_HEIGHT_IN, PRINT_WIDTH_IN
+from benchmarks.figures._cusanovich_results import _PRINT_MARKER_SCALE, MARKER_SIZE
 from carve._pipeline import PipelineSpec, PipelineStep
 from tests.benchmarks._helpers import StubCarve, pipeline_results, resolution_results
 
@@ -89,6 +90,26 @@ def test_writes_under_its_manuscript_name(inputs, tmp_path):
     assert (tmp_path / "cusanovich_results.png").is_file()
 
 
+def test_writes_the_plos_figure_file_as_fig6(inputs, tmp_path):
+    from PIL import Image
+
+    figure_cusanovich_results(inputs, save=True, out_dir=tmp_path)
+    with Image.open(tmp_path / "Fig6.tif") as image:
+        assert image.mode == "RGB"
+        assert image.info["compression"] == "tiff_lzw"
+
+
+def test_is_laid_out_at_the_print_sizes(inputs):
+    fig = figure_cusanovich_results(inputs, save=False)
+    assert fig.get_figwidth() == PRINT_WIDTH_IN
+    assert fig.get_figheight() <= PRINT_MAX_HEIGHT_IN
+    for ax in fig.get_axes():
+        assert ax.title.get_fontsize() <= PRINT_FONT_SIZES["title"]
+        assert ax.xaxis.label.get_fontsize() <= PRINT_FONT_SIZES["axis_label"]
+        for text in ax.texts:
+            assert text.get_fontsize() <= PRINT_FONT_SIZES["panel_letter"]
+
+
 def test_titles_name_the_selection_and_the_source(inputs):
     panels = _panels(figure_cusanovich_results(inputs, save=False))
     assert panels["A"].get_title() == (
@@ -98,10 +119,10 @@ def test_titles_name_the_selection_and_the_source(inputs):
         "Cusanovich et al.: 6 clusters\non t-SNE, perplexity 100"
     )
     assert panels["C"].get_title() == (
-        "Stability & Generalizability over resolution, pooled over pipelines"
+        "Stability & Generalizability over resolution,\npooled over pipelines"
     )
     assert panels["D"].get_title() == (
-        "Stability & Generalizability across preprocessing pipelines"
+        "Stability & Generalizability\nacross preprocessing pipelines"
     )
 
 
@@ -116,7 +137,9 @@ def test_a_and_b_both_draw_the_map(inputs):
         assert sorted(map(tuple, drawn)) == sorted(map(tuple, points))
         assert set(names) <= {text.get_text() for text in ax.texts}
         sizes = np.concatenate([c.get_sizes() for c in _scatter_collections(ax)])
-        np.testing.assert_allclose(sizes, MARKER_SIZE)
+        # MARKER_SIZE is given for the screen layout and scaled with the area
+        # of the print-width figure.
+        np.testing.assert_allclose(sizes, MARKER_SIZE * _PRINT_MARKER_SCALE)
 
 
 def test_a_carve_cluster_takes_the_color_of_the_source_cluster_it_matches(inputs):
@@ -210,3 +233,14 @@ def test_every_selection_uses_the_inputs_rule_and_not_two(inputs):
     calls = inputs.carve.selection_calls
     assert calls
     assert all(call["rule"] == "max" and call["not_two"] for call in calls)
+
+
+def test_a_long_resolution_grid_labels_every_other_value():
+    from benchmarks.figures._cusanovich_results import resolution_tick_labels
+
+    grid = np.geomspace(0.02, 3.0, 15)
+    labels = resolution_tick_labels(grid)
+    assert len(labels) == 15
+    assert labels[0::2] == [f"{value:g}" for value in grid[0::2]]
+    assert set(labels[1::2]) == {""}
+    assert resolution_tick_labels(grid[:8]) == [f"{value:g}" for value in grid[:8]]
