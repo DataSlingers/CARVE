@@ -147,7 +147,7 @@ def _left_body(text):
 
 
 class TestScalingTables:
-    """The committed S8 and S9 head their columns with the swept values and
+    """The committed S11 and S12 head their columns with the swept values and
     order the classical indices differently from S2. A fragment that
     differs in either needs hand-editing before it can replace them."""
 
@@ -156,7 +156,7 @@ class TestScalingTables:
             ("gaussians_samples", r"Metric & 1000 & 5500 & 10000 \\"),
             ("gaussians_dimensionality", r"Metric & 50 & 525 & 1000 \\"),
         ],
-        ids=["S8", "S9"],
+        ids=["S11", "S12"],
     )
     def fragment(self, request, tmp_path):
         name, header = request.param

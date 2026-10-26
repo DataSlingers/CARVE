@@ -10,6 +10,7 @@ import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.colors import to_hex
 from matplotlib.figure import Figure
 from matplotlib.text import Text
@@ -163,6 +164,19 @@ def _drawn_lines(ax):
         line for line in ax.lines
         if len(line.get_xdata()) > 2 and line.get_linestyle() != "None"
     ]
+
+
+def _assert_legend_below_panels(fig):
+    """The one legend lies wholly under every panel, tick and axis labels
+    included, as in the other benchmarking figures. The module's figures
+    are shared and may already be closed, which leaves them a canvas with no
+    renderer, so an Agg canvas draws them here."""
+    canvas = FigureCanvasAgg(fig)
+    canvas.draw()
+    renderer = canvas.get_renderer()
+    (legend,) = fig.legends
+    panels_bottom = min(ax.get_tightbbox(renderer).y0 for ax in fig.axes)
+    assert legend.get_window_extent(renderer).y1 <= panels_bottom
 
 
 def _per_study(summary, study, metric, x):
@@ -430,6 +444,9 @@ class TestFigureAblation:
             f"Default ($\\rho$ = {NO_STUDY.rho_default:g}, $B$ = {NO_STUDY.b_default:g})",
         ]
 
+    def test_legend_sits_below_the_panels(self, figure):
+        _assert_legend_below_panels(figure)
+
     def test_titles_name_the_scenario_and_the_parameter_held_fixed(self, figure):
         panels = _panels(figure)
         for letter, (study, arm, _) in ARI_PANELS.items():
@@ -593,6 +610,9 @@ class TestFigureAblationResampling:
             "95% CI",
             f"Default $\\rho$ = {NO_STUDY.rho_default:g}",
         ]
+
+    def test_legend_sits_below_the_panels(self, resampling):
+        _assert_legend_below_panels(resampling)
 
 
 class TestFittedLimits:

@@ -366,9 +366,9 @@ def _interval_handle() -> ErrorbarContainer:
 
 
 def _legend(fig: Figure, default_label: str, references: Sequence[Line2D] = ()) -> None:
-    """The figure's one shared legend, above the panels: the selectors, the
-    grey references, the interval and the default. More than five entries
-    wrap onto two rows of three."""
+    """The figure's one shared legend, below the panels as in the other
+    benchmarking figures: the selectors, the grey references, the interval
+    and the default. More than five entries wrap onto two rows of three."""
     handles: list[Line2D | ErrorbarContainer] = [
         Line2D(
             [],
@@ -395,7 +395,7 @@ def _legend(fig: Figure, default_label: str, references: Sequence[Line2D] = ()) 
     )
     fig.legend(
         handles=handles,
-        loc="outside upper center",
+        loc="outside lower center",
         ncol=len(handles) if len(handles) <= 5 else 3,
     )
 

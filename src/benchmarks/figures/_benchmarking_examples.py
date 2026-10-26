@@ -24,14 +24,14 @@ from ._paths import BENCHMARKING_DIR, figure_path
 # the published S1 Fig and Fig 4 both present them in. Fig 4 orders its
 # panels by this too, so the two figures cannot disagree about where a family
 # sits, and neither depends on the order a caller happened to build its
-# mapping in.
+# mapping in. Swiss rolls come last, as in the per-task S tables.
 DEFAULT_SCENARIOS = (
     "gaussians",
     "t_dist",
     "t_dist_noise",
-    "swiss_rolls",
     "circles",
     "moons",
+    "swiss_rolls",
 )
 
 SCENARIO_TITLES = {

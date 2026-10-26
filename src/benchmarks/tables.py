@@ -1,10 +1,10 @@
 """Write the supplementary tables as .tex fragments.
 
 Under their manuscript names, to disk, rather than printed for copy-paste.
-Each fragment is the caption-free float the manuscript's S2-S9 use, so it
-replaces the committed table without hand-editing. The caption, with k*,
-goes in the fragment's first line as a LaTeX comment that identifies the
-file and never renders.
+Each fragment is the caption-free float the manuscript's S2-S7 and S11-S12
+Table use, so it replaces the committed table without hand-editing. The
+caption, with k*, goes in the fragment's first line as a LaTeX comment that
+identifies the file and never renders.
 """
 
 from collections.abc import Mapping, Sequence
@@ -32,8 +32,8 @@ TABLE_NAMES: dict[str, str] = {
     "circles": "S5_table",
     "moons": "S6_table",
     "swiss_rolls": "S7_table",
-    "gaussians_samples": "S8_table",
-    "gaussians_dimensionality": "S9_table",
+    "gaussians_samples": "S11_table",
+    "gaussians_dimensionality": "S12_table",
 }
 
 TABLE_CAPTIONS: dict[str, str] = {

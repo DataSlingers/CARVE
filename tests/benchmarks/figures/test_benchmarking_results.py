@@ -200,7 +200,7 @@ class TestFigureBenchmarkingResults:
         titles = [ax.get_title() for ax in fig.get_axes() if ax.get_title()]
         assert titles == [
             SCENARIO_TITLES[name]
-            for name in ("gaussians", "t_dist", "swiss_rolls", "moons")
+            for name in ("gaussians", "t_dist", "moons", "swiss_rolls")
         ]
         plt.close(fig)
 
