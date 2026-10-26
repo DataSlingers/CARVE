@@ -41,3 +41,4 @@ docs/
 
 # agent scratch (subagent-driven-development workspaces)
 .superpowers/
+.Rproj.user
