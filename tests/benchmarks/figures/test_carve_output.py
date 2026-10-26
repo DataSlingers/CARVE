@@ -32,8 +32,15 @@ from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
 
 from benchmarks._estimators import resolution_grids
-from benchmarks._theme import ESTIMATOR_COLORS, cluster_colors
+from benchmarks._theme import (
+    ESTIMATOR_COLORS,
+    PRINT_FONT_SIZES,
+    PRINT_MAX_HEIGHT_IN,
+    PRINT_WIDTH_IN,
+    cluster_colors,
+)
 from benchmarks.figures._heca_carve import MARKER_LINEWIDTH, MARKER_SIZE
+from benchmarks.figures._carve_output import PRINT_ROW_HEIGHT_IN, _PRINT_MARKER_SCALE
 from benchmarks._types import EstimatorSpec
 from benchmarks.figures import (
     figure_carve_output_heca,
@@ -182,6 +189,44 @@ class TestCarveOutputFigures:
     def test_levine_save_false_writes_nothing(self, inputs, tmp_path):
         fig = figure_carve_output_levine(inputs, save=False, out_dir=tmp_path)
         assert list(tmp_path.iterdir()) == []
+        plt.close(fig)
+
+    def test_klein_saves_the_plos_figure_file_as_fig3(self, inputs, tmp_path):
+        from PIL import Image
+
+        fig = figure_carve_output_klein(inputs, save=True, out_dir=tmp_path)
+        plt.close(fig)
+        with Image.open(tmp_path / "Fig3.tif") as image:
+            assert image.mode == "RGB"
+            assert image.info["compression"] == "tiff_lzw"
+
+    def test_levine_an_si_figure_writes_no_plos_file(self, inputs, tmp_path):
+        fig = figure_carve_output_levine(inputs, save=True, out_dir=tmp_path)
+        plt.close(fig)
+        assert not list(tmp_path.glob("*.tif"))
+
+    @pytest.mark.parametrize("build", ["klein", "levine"])
+    def test_is_laid_out_at_the_print_width(self, inputs, build):
+        figure = {
+            "klein": figure_carve_output_klein,
+            "levine": figure_carve_output_levine,
+        }[build]
+        fig = figure(inputs, save=False)
+        assert fig.get_figwidth() == PRINT_WIDTH_IN
+        assert fig.get_figheight() <= PRINT_MAX_HEIGHT_IN
+        for ax in fig.get_axes():
+            assert ax.title.get_fontsize() <= PRINT_FONT_SIZES["title"]
+            assert ax.xaxis.label.get_fontsize() <= PRINT_FONT_SIZES["axis_label"]
+        plt.close(fig)
+
+    def test_the_curve_legend_names_the_estimators_briefly(self, inputs):
+        fig = figure_carve_output_klein(inputs, save=False)
+        panels = _panel_by_letter(fig)
+        (legend,) = [
+            ax.get_legend() for ax in (panels["A"], panels["B"]) if ax.get_legend()
+        ]
+        texts = [text.get_text() for text in legend.get_texts()]
+        assert not any("Clustering," in text for text in texts)
         plt.close(fig)
 
     def test_draws_six_lettered_panels(self, inputs):
@@ -460,7 +505,8 @@ class TestCarveOutputFigures:
                     X=inputs.X,
                     embedding=inputs.Z,
                     ax=ax,
-                    size_range=(6.0, 24.0),  # Levine's marker_size of 8
+                    # Levine's marker_size of 8, scaled to the print width.
+                    size_range=(6.0 * _PRINT_MARKER_SCALE, 24.0 * _PRINT_MARKER_SCALE),
                     legend=False,
                     show=False,
                 )
@@ -493,9 +539,9 @@ class TestCarveOutputFigures:
             .get_gridspec()
         )
         assert tuple(gs.get_height_ratios()) == (1.0, 1.0, ratio)
-        # The extra height goes to row E-F alone; rows A-B and C-D keep 14/3
-        # inches each.
-        assert fig.get_size_inches()[1] == pytest.approx(14.0 / 3 * (2 + ratio))
+        # The extra height goes to row E-F alone; rows A-B and C-D keep
+        # PRINT_ROW_HEIGHT_IN each.
+        assert fig.get_size_inches()[1] == pytest.approx(PRINT_ROW_HEIGHT_IN * (2 + ratio))
         plt.close(fig)
 
     def test_levine_panels_e_and_f_carry_no_legend(self, inputs):
@@ -591,8 +637,10 @@ class TestCarveOutputFigures:
                 if isinstance(c, PathCollection)
             ]
         )
-        np.testing.assert_allclose(klein_sizes, 20.0)
-        np.testing.assert_allclose(levine_sizes, 8.0)
+        # The sizes are given for the screen-width figure and scaled with the
+        # area of the print-width one.
+        np.testing.assert_allclose(klein_sizes, 20.0 * _PRINT_MARKER_SCALE)
+        np.testing.assert_allclose(levine_sizes, 8.0 * _PRINT_MARKER_SCALE)
         plt.close(klein_fig)
         plt.close(levine_fig)
 
@@ -763,7 +811,10 @@ class TestCarveOutputOverResolution:
         fig = figure_carve_output_levine(leiden_inputs, save=False)
         panels = _panel_by_letter(fig)
         gap = panels["B"].get_position().x0 - panels["A"].get_position().x1
-        assert gap < 0.12
+        # In inches: B's tick labels and y label keep their point size, so at
+        # the print width the same margin is a larger fraction of the figure.
+        # A legend gap took a fifth of a 13-inch figure.
+        assert gap * fig.get_figwidth() < 1.25
         plt.close(fig)
 
     def test_consensus_letter_lines_up_with_a_and_the_matrix_stays_centered(

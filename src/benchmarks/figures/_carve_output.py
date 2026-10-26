@@ -37,9 +37,14 @@ from .._theme import (
     ESTIMATOR_CMAP_NAME,
     FONT_SIZES,
     FOREGROUND_COLOR,
+    PRINT_FONT_SIZES,
+    PRINT_WIDTH_IN,
     REFERENCE_LINEWIDTH,
     cluster_cmap,
+    print_axes_text,
+    print_theme_context,
     save_figure,
+    save_plos_tiff,
     theme_context,
 )
 from ._case_study import (
@@ -49,7 +54,7 @@ from ._case_study import (
     carve_output_cmap,
 )
 from ._heca_carve import AXIS_LABELS, MARKER_LINEWIDTH, MARKER_SIZE, resolution_axis
-from ._paths import CASE_STUDY_DIR, figure_path
+from ._paths import CASE_STUDY_DIR, figure_path, plos_figure_path
 
 # Panel A is always the stability overview and panel B always the
 # generalizability overview -- their titles say so, and swapping either
@@ -65,7 +70,72 @@ _MEASURE_STABILITY = "stability"
 _MEASURE_GENERALIZABILITY = "generalizability"
 
 
-def _six_panel_grid(scatter_row_height: float) -> tuple[Figure, tuple[Axes, ...]]:
+# The hECA figure is drawn at this width and scaled down on the page. Fig 3
+# and S8 Fig are laid out at PRINT_WIDTH_IN, where a row of two panels is
+# PRINT_ROW_HEIGHT_IN tall; Fig 3's taller scatter row then keeps the figure
+# under PRINT_MAX_HEIGHT_IN.
+_SCREEN_WIDTH_IN = 13.0
+_SCREEN_ROW_HEIGHT_IN = 14.0 / 3
+PRINT_ROW_HEIGHT_IN = 2.5
+
+# Scatter marker sizes are given for the screen-width figure. Marker area is
+# in points squared, so at the print width it scales with the width ratio
+# squared, which keeps each marker's size relative to its panel.
+_PRINT_MARKER_SCALE = (PRINT_WIDTH_IN / _SCREEN_WIDTH_IN) ** 2
+
+# CARVE draws its metric curves with 2-point lines, 6-point markers and
+# 4-point caps, which suit the screen width; at the print width they are
+# drawn at this fraction.
+_PRINT_CURVE_SCALE = 0.6
+
+# The estimator reprs CARVE writes into the legend, as the print legend
+# names them. At the print width the full reprs run across the curves.
+_ESTIMATOR_LABELS = {
+    "AgglomerativeClustering, linkage=ward": "Ward agglomerative",
+    "SpectralClustering, affinity=self_tuning": "Spectral, self-tuning",
+}
+
+
+def _thin_curves(ax: Axes, scale: float) -> None:
+    """Scale the line widths and marker sizes CARVE drew a curve panel with.
+
+    Error bar caps are markers on lines of their own, and the bars are line
+    collections, so both follow.
+    """
+    for line in ax.lines:
+        line.set_linewidth(line.get_linewidth() * scale)
+        line.set_markersize(line.get_markersize() * scale)
+    for collection in ax.collections:
+        collection.set_linewidths(np.asarray(collection.get_linewidths()) * scale)
+
+
+def _print_curve_legend(ax: Axes) -> None:
+    """The estimator legend CARVE draws, rebuilt from the thinned curves.
+
+    A legend copies its handles when it is made, so it is drawn after the
+    curves are thinned, in CARVE's place and style, with short names. At the
+    print width the legend takes a larger share of the panel, so the y axis
+    is extended downward by a fifth of its range to keep it under the curves.
+    """
+    bottom, top = ax.get_ylim()
+    ax.set_ylim(bottom - 0.2 * (top - bottom), top)
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(
+        handles,
+        [_ESTIMATOR_LABELS.get(label, label) for label in labels],
+        loc="lower left",
+        frameon=True,
+        framealpha=0.95,
+        title="Estimators",
+    )
+
+
+def _six_panel_grid(
+    scatter_row_height: float,
+    *,
+    width_in: float = _SCREEN_WIDTH_IN,
+    row_height_in: float = _SCREEN_ROW_HEIGHT_IN,
+) -> tuple[Figure, tuple[Axes, ...]]:
     """The figure and its six axes, A to F, in three rows of two."""
     # No explicit hspace/wspace here: passing them marks the gridspec as
     # manually customized, which makes every one of CARVE's own plotting
@@ -73,8 +143,7 @@ def _six_panel_grid(scatter_row_height: float) -> tuple[Figure, tuple[Axes, ...]
     # figure is "not compatible with tight_layout" on every subsequent
     # call. Leaving spacing to the default lets those internal calls lay
     # the panels out cleanly instead.
-    row_height = 14.0 / 3
-    fig = plt.figure(figsize=(13.0, row_height * (2 + scatter_row_height)))
+    fig = plt.figure(figsize=(width_in, row_height_in * (2 + scatter_row_height)))
     gs = fig.add_gridspec(3, 2, height_ratios=(1.0, 1.0, scatter_row_height))
     axes = tuple(fig.add_subplot(gs[row, col]) for row in range(3) for col in range(2))
     return fig, axes
@@ -88,10 +157,11 @@ def carve_output_figure(
     save_name: str,
     marker_linewidth: float = 0.2,
     scatter_row_height: float = 1.0,
+    plos_number: int | None = None,
     save: bool = True,
     out_dir: Path | None = None,
 ) -> Figure:
-    """Draw the six-panel CARVE diagnostic figure (Fig 3 / S4 Fig).
+    """Draw the six-panel CARVE diagnostic figure (Fig 3 / S8 Fig).
 
     ``marker_size`` scales panel F's fixed marker size directly (that
     parameter's name on ``plot_diagnostic_scatter`` matches this one
@@ -106,6 +176,11 @@ def carve_output_figure(
     ``scatter_row_height`` is the height of the E-F row relative to each of
     the other two rows. The figure grows with it, so panels A to D keep
     their size.
+
+    The figure is laid out at PRINT_WIDTH_IN under print_theme_context, and
+    the text CARVE's methods size for the screen is reset to the print
+    sizes. ``plos_number`` names the PLOS figure file saved beside the PNG;
+    an SI figure, which PLOS takes in any format, leaves it None.
     """
     carve = inputs.carve
     measure = inputs.measure
@@ -118,14 +193,19 @@ def carve_output_figure(
     # give it. Panels A and B color one line per estimator, not per cluster,
     # so they take the estimator map instead.
     cluster_panel_cmap = carve_output_cmap(inputs)
+    marker_size = marker_size * _PRINT_MARKER_SCALE
     scatter_size_range = (marker_size * 0.75, marker_size * 3.0)
     # A resolution run's curves go on the log axis hECA's figure uses, with
     # one tick per fitted resolution.
     resolutions = _swept_resolutions(carve)
     over = "$k$" if resolutions is None else "resolution"
 
-    with theme_context(), carve_labels_aligned(carve, inputs.y):
-        fig, (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f) = _six_panel_grid(scatter_row_height)
+    with print_theme_context(), carve_labels_aligned(carve, inputs.y):
+        fig, (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f) = _six_panel_grid(
+            scatter_row_height,
+            width_in=PRINT_WIDTH_IN,
+            row_height_in=PRINT_ROW_HEIGHT_IN,
+        )
 
         # A and B draw the same estimators in the same colors, so one
         # legend names them for both. It goes on the curve of the measure
@@ -141,14 +221,16 @@ def carve_output_figure(
                 ax=ax,
                 palette=ESTIMATOR_CMAP_NAME,
                 title=title,
-                legend=curve_measure == measure,
-                legend_loc="lower left",
+                legend=False,
                 show=False,
             )
         if resolutions is not None:
             for ax in (ax_a, ax_b):
                 ax.set_xlabel("Resolution")
                 resolution_axis(ax, resolutions)
+        for ax in (ax_a, ax_b):
+            _thin_curves(ax, _PRINT_CURVE_SCALE)
+        _print_curve_legend(ax_a if measure == _MEASURE_STABILITY else ax_b)
         carve.plot_consensus_matrix(
             measure=measure,
             rule=rule,
@@ -166,6 +248,7 @@ def carve_output_figure(
             ax=ax_d,
             palette=cluster_panel_cmap,
             title="Per-cluster stability",
+            size=8.0 * _PRINT_MARKER_SCALE,
             show=False,
         )
         carve.plot_cluster_scatter(
@@ -201,8 +284,12 @@ def carve_output_figure(
             show=False,
         )
 
+        # Colorbars are axes of their own, so every axes is reset, not
+        # only the six panels.
+        for ax in fig.get_axes():
+            print_axes_text(ax)
         for letter, ax in zip("ABDEF", (ax_a, ax_b, ax_d, ax_e, ax_f)):
-            panel_letter(ax, letter)
+            panel_letter(ax, letter, fontsize=PRINT_FONT_SIZES["panel_letter"])
 
         # CARVE writes a graph clusterer's full configuration into the curve
         # legend and D's note, where it runs past the figure. The note also
@@ -219,13 +306,20 @@ def carve_output_figure(
         fig.draw_without_rendering()
         above, matrix = ax_a.get_position(), ax_c.get_position()
         letter_x = above.x0 + PANEL_LETTER_X * above.width
-        panel_letter(ax_c, "C", x=(letter_x - matrix.x0) / matrix.width)
+        panel_letter(
+            ax_c,
+            "C",
+            x=(letter_x - matrix.x0) / matrix.width,
+            fontsize=PRINT_FONT_SIZES["panel_letter"],
+        )
 
         if save:
             save_figure(
                 fig,
                 figure_path(save_name, subdir=CASE_STUDY_DIR, out_dir=out_dir),
             )
+            if plos_number is not None:
+                save_plos_tiff(fig, plos_figure_path(plos_number, out_dir=out_dir))
     return fig
 
 
@@ -244,6 +338,7 @@ def figure_carve_output_klein(
         axis_labels=("PC1", "PC2"),
         save_name="CARVE_output_klein.png",
         scatter_row_height=1.2,
+        plos_number=3,
         save=save,
         out_dir=out_dir,
     )
@@ -252,7 +347,7 @@ def figure_carve_output_klein(
 def figure_carve_output_levine(
     inputs: CompositeInputs, *, save: bool = True, out_dir: Path | None = None
 ) -> Figure:
-    """Build S4 Fig: CARVE output on the Levine mass cytometry case study.
+    """Build S8 Fig: CARVE output on the Levine mass cytometry case study.
 
     Panel F's outlines are a quarter of CARVE's default width: over 5,000
     cells the default black outlines covered the color of the unstable

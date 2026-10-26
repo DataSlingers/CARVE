@@ -1630,15 +1630,24 @@ PANEL_LETTER_X = -0.08
 
 
 def panel_letter(
-    ax: Axes, letter: str, *, x: float = PANEL_LETTER_X, y: float = 1.1
+    ax: Axes,
+    letter: str,
+    *,
+    x: float = PANEL_LETTER_X,
+    y: float = 1.1,
+    fontsize: float = FONT_SIZES["panel_letter"],
 ) -> None:
-    """Place a bold panel letter in axes coordinates."""
+    """Place a bold panel letter in axes coordinates.
+
+    A figure laid out at the print width passes PRINT_FONT_SIZES's letter
+    size; the default suits a figure drawn larger and scaled down.
+    """
     ax.text(
         x,
         y,
         letter,
         transform=ax.transAxes,
-        fontsize=FONT_SIZES["panel_letter"],
+        fontsize=fontsize,
         fontweight="bold",
         va="top",
         ha="right",
