@@ -3,6 +3,10 @@
 Takes the artifact frames it draws. The function this replaces re-simulated
 data inside the plotting call, which meant a figure could disagree with the
 table beside it, and it took 19 parameters across 408 lines.
+
+The figure is laid out at the PLOS page width under print_theme_context, so
+its text prints at the sizes it is set in, and it is saved both as the PNG
+the manuscript includes and as Fig4.tif for the PLOS upload.
 """
 
 from collections.abc import Mapping, Sequence
@@ -13,9 +17,18 @@ import pandas as pd
 from matplotlib.figure import Figure
 
 from .._panels import metric_legend, metric_lines
-from .._theme import FONT_SIZES, save_figure, theme_context
+from .._theme import (
+    CARVE_LINEWIDTH,
+    PRINT_FONT_SIZES,
+    PRINT_LINEWIDTH,
+    PRINT_WIDTH_IN,
+    print_axes_text,
+    print_theme_context,
+    save_figure,
+    save_plos_tiff,
+)
 from ._benchmarking_examples import DEFAULT_SCENARIOS, SCENARIO_TITLES
-from ._paths import BENCHMARKING_DIR, figure_path
+from ._paths import BENCHMARKING_DIR, figure_path, plos_figure_path
 
 # Legend order, which metric_legend reads directly: the oracle first in its
 # own column, then CARVE's two measures in one column, then the four
@@ -35,6 +48,13 @@ DEFAULT_METRICS: tuple[str, ...] = (
 # The difficulty axis is a signal-to-noise sweep; the paper names it that.
 X_LABEL = "SNR"
 Y_LABEL = r"ARI (selected $\hat{k}$ vs. true labels)"
+
+# The manuscript's figure number, which names the PLOS file.
+PLOS_FIGURE_NUMBER = 4
+
+# Panel height at print size, and the room under the grid for the legend.
+ROW_HEIGHT_IN = 2.05
+LEGEND_HEIGHT_IN = 0.75
 
 # Capitalized, as the published figure prints them and as the per-family
 # section overviews draw them.
@@ -89,13 +109,14 @@ def figure_benchmarking_results(
     names = sorted(results_by_scenario, key=lambda name: ranked.get(name, len(ranked)))
     n_rows = -(-len(names) // ncols)
 
-    with theme_context():
+    with print_theme_context():
         fig, axes = plt.subplots(
             n_rows,
             ncols,
-            figsize=(4.0 * ncols, 3.2 * n_rows),
+            figsize=(PRINT_WIDTH_IN, ROW_HEIGHT_IN * n_rows + LEGEND_HEIGHT_IN),
             squeeze=False,
             sharey=True,
+            layout="constrained",
         )
 
         for index, name in enumerate(names):
@@ -107,11 +128,18 @@ def figure_benchmarking_results(
                 metrics=metrics,
                 x_col="axis_value",
                 x_label=X_LABEL,
+                # metric_lines draws CARVE at CARVE_LINEWIDTH and the
+                # references lighter; scaled so CARVE prints at the print
+                # theme's line width.
+                element_scale=PRINT_LINEWIDTH / CARVE_LINEWIDTH,
                 show_legend=False,
             )
+            print_axes_text(ax)
             ax.set_xticks(sorted(frame["axis_value"].unique()))
             ax.set_xticklabels(_DIFFICULTY_TICKS[: frame["axis_value"].nunique()])
-            ax.set_title(SCENARIO_TITLES.get(name, name), fontsize=FONT_SIZES["title"])
+            ax.set_title(
+                SCENARIO_TITLES.get(name, name), fontsize=PRINT_FONT_SIZES["title"]
+            )
             # One y label for the whole grid, set below as a figure label, so
             # every panel clears its own.
             ax.set_ylabel("")
@@ -119,9 +147,10 @@ def figure_benchmarking_results(
         for index in range(len(names), n_rows * ncols):
             axes[index // ncols, index % ncols].set_visible(False)
 
-        fig.supylabel(Y_LABEL, fontsize=FONT_SIZES["axis_label"])
-        fig.tight_layout()
-        metric_legend(fig, axes, metrics, y_offset=0.06)
+        fig.supylabel(Y_LABEL, fontsize=PRINT_FONT_SIZES["axis_label"])
+        metric_legend(
+            fig, axes, metrics, fontsize=PRINT_FONT_SIZES["legend"], outside=True
+        )
 
         if save:
             save_figure(
@@ -132,4 +161,5 @@ def figure_benchmarking_results(
                     out_dir=out_dir,
                 ),
             )
+            save_plos_tiff(fig, plos_figure_path(PLOS_FIGURE_NUMBER, out_dir=out_dir))
     return fig

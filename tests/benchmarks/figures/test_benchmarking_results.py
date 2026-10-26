@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from benchmarks._artifacts import SCHEMA
-from benchmarks._theme import METRIC_COLORS
+from benchmarks._theme import METRIC_COLORS, PRINT_FONT_SIZES, PRINT_WIDTH_IN
 from benchmarks.figures import figure_benchmarking_results
 from benchmarks.figures._benchmarking_results import DEFAULT_METRICS
 
@@ -78,11 +78,37 @@ class TestFigureBenchmarkingResults:
         assert (tmp_path / "benchmarking_results.png").exists()
         plt.close(fig)
 
+    def test_saves_the_plos_figure_file_as_fig4(self, results, tmp_path):
+        from PIL import Image
+
+        fig = figure_benchmarking_results(
+            results, metrics=METRICS, save=True, out_dir=tmp_path
+        )
+        plt.close(fig)
+        with Image.open(tmp_path / "Fig4.tif") as image:
+            assert image.mode == "RGB"
+            assert image.info["compression"] == "tiff_lzw"
+
     def test_save_false_writes_nothing(self, results, tmp_path):
         fig = figure_benchmarking_results(
             results, metrics=METRICS, save=False, out_dir=tmp_path
         )
         assert not (tmp_path / "benchmarking_results.png").exists()
+        assert not (tmp_path / "Fig4.tif").exists()
+        plt.close(fig)
+
+    def test_is_laid_out_at_the_print_width(self, results):
+        fig = figure_benchmarking_results(results, metrics=METRICS, save=False)
+        assert fig.get_figwidth() == PRINT_WIDTH_IN
+        plt.close(fig)
+
+    def test_panel_text_is_set_at_the_print_sizes(self, results):
+        fig = figure_benchmarking_results(results, metrics=METRICS, save=False)
+        for ax in fig.get_axes():
+            if not ax.get_visible():
+                continue
+            assert ax.title.get_fontsize() == PRINT_FONT_SIZES["title"]
+            assert ax.xaxis.label.get_fontsize() == PRINT_FONT_SIZES["axis_label"]
         plt.close(fig)
 
     def test_carries_one_deduplicated_figure_legend(self, results):
