@@ -163,6 +163,25 @@ CLUSTER_PALETTE: tuple[str, ...] = (
 # palette hue.
 FOREGROUND_COLOR: str = "#000000"
 
+# Neutral greys for the schematic guidance figures (figures/_guidance.py):
+# header bars and badges, card backgrounds, dartboard rings, the highlight
+# behind the cluster in question and the grey bands over untested or
+# excluded k. They carry frame, never data, so no palette hue is used.
+GUIDE_COLORS: dict[str, str] = {
+    "header": "#E4E6E8",
+    "badge": "#3B4651",
+    "card": "#F3F4F5",
+    "muted": "#595959",
+    "axis": "#8C8C8C",
+    "candidate": "#7F7F7F",
+    "ring_dark": "#E3E3E3",
+    "ring_light": "#FFFFFF",
+    "ring_edge": "#B5B5B5",
+    "bull": "#C4C4C4",
+    "focus": "#E2E4E7",
+    "untested": "#E9E9E9",
+}
+
 # CARVE's own plotting functions take a Matplotlib colormap *name* --
 # ``palette: str = "Accent"``, consumed as ``plt.get_cmap(palette, n)`` -- so
 # CLUSTER_PALETTE (a tuple of hex strings) cannot be passed to them as-is.

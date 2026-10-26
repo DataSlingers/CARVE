@@ -19,6 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 VIS_ROOT = REPO_ROOT / "vis"
 BENCHMARKING_DIR = VIS_ROOT / "benchmarking"
 CASE_STUDY_DIR = VIS_ROOT / "case_studies"
+GUIDANCE_DIR = VIS_ROOT / "guidance"
 
 
 def figure_path(name: str, *, subdir: Path, out_dir: Path | None = None) -> Path:

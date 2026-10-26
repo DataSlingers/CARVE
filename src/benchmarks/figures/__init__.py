@@ -17,6 +17,9 @@ views of a run on Longleaf; _carve_output also draws its CARVE overview.
 _levine_composition draws what the Levine clusters are made of: composition by
 gated population and median marker expression. composition_tables and
 marker_table return the numbers it draws.
+
+_guidance draws the two schematic figures of the practical-guidance S Text,
+from hand-specified shapes rather than a fit.
 """
 
 from ._ablation import figure_ablation, figure_ablation_resampling
@@ -29,6 +32,7 @@ from ._carve_output import (
 )
 from ._case_study import CompositeInputs, composite_figure, prepare_composite
 from ._cusanovich_results import figure_cusanovich_results
+from ._guidance import figure_guidance_clusters, figure_guidance_global
 from ._heca_calibration import figure_heca_calibration
 from ._heca_carve import figure_heca_carve
 from ._heca_runtime import figure_heca_runtime
@@ -40,7 +44,13 @@ from ._levine_composition import (
     marker_table,
 )
 from ._levine_results import figure_levine_results
-from ._paths import BENCHMARKING_DIR, CASE_STUDY_DIR, VIS_ROOT, figure_path
+from ._paths import (
+    BENCHMARKING_DIR,
+    CASE_STUDY_DIR,
+    GUIDANCE_DIR,
+    VIS_ROOT,
+    figure_path,
+)
 from ._reference_scatter import figure_reference_scatter
 from ._scaling import figure_scaling_ari, figure_scaling_runtime
 from ._scenario_dashboard import figure_scenario_dashboard
@@ -50,6 +60,7 @@ __all__ = [
     "BENCHMARKING_DIR",
     "CASE_STUDY_DIR",
     "CompositeInputs",
+    "GUIDANCE_DIR",
     "VIS_ROOT",
     "composite_figure",
     "composition_tables",
@@ -61,6 +72,8 @@ __all__ = [
     "figure_carve_output_klein",
     "figure_carve_output_levine",
     "figure_cusanovich_results",
+    "figure_guidance_clusters",
+    "figure_guidance_global",
     "figure_heca_calibration",
     "figure_heca_carve",
     "figure_heca_runtime",

@@ -26,6 +26,8 @@ EXPECTED = (
     "figure_reference_scatter",
     "figure_ablation",
     "figure_ablation_resampling",
+    "figure_guidance_global",
+    "figure_guidance_clusters",
 )
 
 # Figures not yet implemented. Tasks 9 through 12 each removed their own
