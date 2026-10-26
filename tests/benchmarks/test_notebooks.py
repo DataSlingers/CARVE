@@ -282,6 +282,14 @@ def test_cusanovich_notebook_draws_the_source_tsne_and_writes_its_tables():
     assert source.count("plt.subplots") == 1
 
 
+def test_cusanovich_notebook_measures_runtime_with_the_studys_configuration():
+    # S17 Table and S13 Text come from this section, so a fresh run of the
+    # notebook regenerates them on the reader's machine.
+    source = _code(NOTEBOOKS["cusanovich"])
+    assert "measure_or_load_runtime(\n    study, X, y," in source
+    assert "save_runtime_tables(runtime, OUT_DIR, prefix=study.name)" in source
+
+
 def test_cusanovich_notebook_shows_carves_own_plots():
     # Both criteria over resolution, pooled over pipelines and by pipeline,
     # drawn by CARVE's own plotting methods rather than a benchmarks figure.

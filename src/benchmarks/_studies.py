@@ -349,6 +349,47 @@ def fit_or_load_carve(
         carve.X_ = np.asarray(X)
         return carve
 
+    carve = fit_carve(
+        X,
+        y,
+        model_grids=model_grids,
+        n_resamples=n_resamples,
+        n_jobs=n_jobs,
+        random_state=random_state,
+        consensus_anchors=consensus_anchors,
+        randomize_preprocessing=randomize_preprocessing,
+        normalization_options=normalization_options,
+        dim_reduction_options=dim_reduction_options,
+        classifier=classifier,
+        verbose=verbose,
+    )
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    carve.save(str(cache_path))
+    fingerprint_path(cache_path).write_text(fingerprint(X))
+    return carve
+
+
+def fit_carve(
+    X: np.ndarray,
+    y: np.ndarray | pd.Series | None,
+    *,
+    model_grids: list[tuple[type[ClusterMixin], dict[str, list[Any]]]],
+    n_resamples: int = PACKAGE_N_RESAMPLES,
+    n_jobs: int = 1,
+    random_state: int = 42,
+    consensus_anchors: int | None = None,
+    randomize_preprocessing: bool = False,
+    normalization_options: list[Any] | None = None,
+    dim_reduction_options: list[Any] | None = None,
+    classifier: ClassifierMixin | None = None,
+    verbose: int | None = None,
+) -> CARVE:
+    """Build and fit CARVE as fit_or_load_carve does, without the cache.
+
+    The runtime measurements (_runtime) time this call, so a measured fit is
+    constructed exactly as a case study's cached fit. Optional arguments are
+    forwarded only when set, as fit_or_load_carve documents.
+    """
     optional = {
         name: value
         for name, value in (
@@ -373,10 +414,6 @@ def fit_or_load_carve(
         reference_labels=reference,
         **({"randomize_preprocessing": True} if randomize_preprocessing else {}),
     )
-
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    carve.save(str(cache_path))
-    fingerprint_path(cache_path).write_text(fingerprint(X))
     return carve
 
 
