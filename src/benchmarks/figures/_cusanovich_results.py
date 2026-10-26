@@ -102,6 +102,22 @@ def _shorten_legend(ax: Axes) -> None:
             text.set_text(_short_label(text.get_text()))
 
 
+def _drop_shared_estimator(ax: Axes) -> None:
+    """Drop the estimator from C's CARVE entries when they all name the same one.
+
+    The study sweeps one clustering setting, which panel A's title names, so
+    "CARVE Stability (1SE) — Louvain, 15 neighbors" reads "CARVE Stability (1SE)".
+    """
+    legend = ax.get_legend()
+    if legend is None:
+        return
+    carve_texts = [t for t in legend.get_texts() if t.get_text().startswith("CARVE ")]
+    suffixes = {t.get_text().partition(" — ")[2] for t in carve_texts}
+    if len(suffixes) == 1 and suffixes != {""}:
+        for text in carve_texts:
+            text.set_text(text.get_text().partition(" — ")[0])
+
+
 def resolution_tick_labels(grid: np.ndarray) -> list[str]:
     """The resolution axis labels: every grid value, or every other past eight."""
     step = 1 if len(grid) <= _MAX_TICK_LABELS else 2
@@ -299,6 +315,7 @@ def figure_cusanovich_results(
         )
         # The legend's proxy lines take the print theme's widths already.
         thin_lines(ax_d, _PIPELINE_LINES_SCALE)
+        _drop_shared_estimator(ax_c)
         for ax in (ax_c, ax_d):
             _shorten_legend(ax)
             _room_for_legend(ax)

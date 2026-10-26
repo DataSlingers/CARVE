@@ -366,6 +366,21 @@ class TestPrintTheme:
         assert PRINT_RC_PARAMS["mathtext.rm"] == "sans"
         assert PRINT_RC_PARAMS["mathtext.it"] == "sans:italic"
 
+    def test_legends_are_frameless_and_compact(self):
+        # One legend style in every print figure: no frame, and tighter
+        # spacing than Matplotlib's defaults, since the text cannot go below
+        # PLOS's 8 points.
+        defaults = plt.rcParamsDefault
+        assert PRINT_RC_PARAMS["legend.frameon"] is False
+        assert PRINT_RC_PARAMS["legend.title_fontsize"] == PRINT_FONT_SIZES["legend"]
+        for key in (
+            "legend.labelspacing",
+            "legend.handlelength",
+            "legend.handletextpad",
+            "legend.borderaxespad",
+        ):
+            assert PRINT_RC_PARAMS[key] < defaults[key]
+
     def test_keeps_the_base_theme(self):
         for key in ("pdf.fonttype", "savefig.dpi", "axes.spines.top", "axes.grid"):
             assert PRINT_RC_PARAMS[key] == RC_PARAMS[key]

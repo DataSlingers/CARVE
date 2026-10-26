@@ -364,7 +364,15 @@ PRINT_RC_PARAMS: dict[str, Any] = {
     "ytick.major.size": 3.0,
     "lines.linewidth": PRINT_LINEWIDTH,
     "lines.markersize": PRINT_MARKERSIZE,
+    # One legend style for every print figure: frameless, and spaced tighter
+    # than Matplotlib's defaults (0.5, 2.0, 0.8, 0.5), since 8 points is the
+    # smallest text PLOS takes.
     "legend.frameon": False,
+    "legend.title_fontsize": PRINT_FONT_SIZES["legend"],
+    "legend.labelspacing": 0.3,
+    "legend.handlelength": 1.5,
+    "legend.handletextpad": 0.5,
+    "legend.borderaxespad": 0.3,
     # bbox_inches="tight" pads the saved file by this much on every side; at
     # the default 0.1 inch a figure laid out at PRINT_WIDTH_IN saves wider
     # than the page.

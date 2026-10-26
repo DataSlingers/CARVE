@@ -97,19 +97,18 @@ def _print_curve_legend(ax: Axes) -> None:
     """The estimator legend CARVE draws, rebuilt from the thinned curves.
 
     A legend copies its handles when it is made, so it is drawn after the
-    curves are thinned, in CARVE's place and style, with short names. At the
+    curves are thinned, in CARVE's place, with short names. At the
     print width the legend takes a larger share of the panel, so the y axis
     is extended downward by a fifth of its range to keep it under the curves.
     """
     bottom, top = ax.get_ylim()
     ax.set_ylim(bottom - 0.2 * (top - bottom), top)
     handles, labels = ax.get_legend_handles_labels()
+    # The print theme's frameless legend, as in the other figures' curves.
     ax.legend(
         handles,
         [short_estimator_names(label) for label in labels],
         loc="lower left",
-        frameon=True,
-        framealpha=0.95,
         title="Estimators",
     )
 

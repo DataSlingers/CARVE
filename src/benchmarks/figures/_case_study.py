@@ -51,12 +51,13 @@ _SCREEN_WIDTH_IN = 16.0
 _PRINT_CURVE_SCALE = 0.75
 _PRINT_MARKER_SCALE = (PRINT_WIDTH_IN / _SCREEN_WIDTH_IN) ** 2
 
-# At the print width the legend strip needs half a panel row for the four
-# CVI entries and their title, and the rows need more space between them
-# for the axis labels and titles than at the screen width. The figure is
-# that much taller than wide and stays under PRINT_MAX_HEIGHT_IN.
+# At the print width the legend strip needs 0.42 of a panel row for the four
+# CVI entries and their title in the print theme's compact legend, and the
+# rows need more space between them for the axis labels and titles than at
+# the screen width. The figure is that much taller than wide and stays
+# under PRINT_MAX_HEIGHT_IN.
 _PRINT_HEIGHT_IN = 8.0
-_LEGEND_ROW_RATIO = 0.5
+_LEGEND_ROW_RATIO = 0.42
 _ROW_SPACE = 0.3
 
 # The estimator reprs CARVE and the CVI sweep write into legends, as the

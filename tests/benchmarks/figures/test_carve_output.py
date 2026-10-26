@@ -219,6 +219,15 @@ class TestCarveOutputFigures:
             assert ax.xaxis.label.get_fontsize() <= PRINT_FONT_SIZES["axis_label"]
         plt.close(fig)
 
+    def test_the_curve_legend_is_frameless_like_the_other_figures(self, inputs):
+        fig = figure_carve_output_klein(inputs, save=False)
+        panels = _panel_by_letter(fig)
+        (legend,) = [
+            ax.get_legend() for ax in (panels["A"], panels["B"]) if ax.get_legend()
+        ]
+        assert legend.get_frame_on() is False
+        plt.close(fig)
+
     def test_the_curve_legend_names_the_estimators_briefly(self, inputs):
         fig = figure_carve_output_klein(inputs, save=False)
         panels = _panel_by_letter(fig)

@@ -269,3 +269,10 @@ def test_c_and_d_titles_and_letters_share_one_line(inputs):
     label = top.xaxis.label
     assert label.get_horizontalalignment() == "left"
     assert extent(label).y1 < extent(c.title).y0
+
+
+def test_c_names_the_one_estimator_in_a_not_in_every_legend_entry(inputs):
+    panels = _panels(figure_cusanovich_results(inputs, save=False))
+    texts = [t.get_text() for t in panels["C"].get_legend().get_texts()]
+    carve = [text for text in texts if text.startswith("CARVE ")]
+    assert carve == ["CARVE Stability (1SE)", "CARVE Generalizability (1SE)"]
