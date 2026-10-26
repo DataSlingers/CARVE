@@ -70,6 +70,10 @@ _PRINT_OUTLINE_WIDTH = 0.3 * PRINT_WIDTH_IN / _SCREEN_WIDTH_IN
 # other, so every other grid value is labeled; every value keeps its tick.
 _MAX_TICK_LABELS = 8
 
+# C's title clears its cluster axis label by this much; D's title, aligned
+# with C's, takes the same pad (points).
+_TITLE_PAD = 10.0
+
 # The axis arrows sit in the maps' lower-left corner, which the t-SNE fills;
 # the axes are widened by this fraction of their range to leave it free.
 _ARROW_CORNER = 0.12
@@ -115,6 +119,31 @@ def _room_for_legend(ax: Axes) -> None:
     """
     bottom, top = ax.get_ylim()
     ax.set_ylim(bottom - 0.2 * (top - bottom), top)
+
+
+def _align_d_with_c(fig: Figure, ax_c: Axes, ax_d: Axes) -> None:
+    """Extend D up to the top of C's cluster axis and letter both at one height.
+
+    C carries a second x axis above its plot, which tight_layout makes room
+    for above D as well; extending D into that room puts the two titles on
+    one line instead of leaving a band of white between B and D's title.
+    """
+    fig.draw_without_rendering()
+    to_figure = fig.transFigure.inverted()
+    (top_axis,) = ax_c.child_axes
+    cluster_top = top_axis.get_tightbbox().transformed(to_figure).y1
+    box = ax_d.get_position()
+    ax_d.set_position([box.x0, box.y0, box.width, cluster_top - box.y0])
+    fig.draw_without_rendering()
+    title_top = ax_c.title.get_window_extent().transformed(to_figure).y1
+    for letter, ax in (("C", ax_c), ("D", ax_d)):
+        box = ax.get_position()
+        panel_letter(
+            ax,
+            letter,
+            y=(title_top - box.y0) / box.height,
+            fontsize=PRINT_FONT_SIZES["panel_letter"],
+        )
 
 
 def _clear_corner(ax: Axes) -> None:
@@ -173,7 +202,11 @@ def _mark_source(ax: Axes, inputs: CusanovichInputs, method_id: str) -> None:
 
 
 def _observed_cluster_axis(ax: Axes, inputs: CusanovichInputs, method_id: str) -> None:
-    """A secondary x axis naming the mean observed cluster count per resolution."""
+    """A secondary x axis naming the mean observed cluster count per resolution.
+
+    Its label is left-aligned just above its tick labels, so it reads as the
+    axis's label rather than as a line of the panel title above it.
+    """
     results = inputs.carve.estimator_results_
     curve = results.loc[results["method_id"] == method_id].sort_values("sweep_value")
     top = ax.secondary_xaxis("top")
@@ -182,7 +215,12 @@ def _observed_cluster_axis(ax: Axes, inputs: CusanovichInputs, method_id: str) -
         labels=[f"{count:.0f}" for count in curve["n_clusters_observed"]],
     )
     top.tick_params(labelsize=PRINT_FONT_SIZES["tick"])
-    top.set_xlabel("Mean observed clusters", fontsize=PRINT_FONT_SIZES["axis_label"])
+    top.set_xlabel(
+        "Mean observed clusters",
+        fontsize=PRINT_FONT_SIZES["axis_label"],
+        loc="left",
+        labelpad=2,
+    )
 
 
 def figure_cusanovich_results(
@@ -264,13 +302,15 @@ def figure_cusanovich_results(
         for ax in (ax_c, ax_d):
             _shorten_legend(ax)
             _room_for_legend(ax)
+            ax.set_title(ax.get_title(), pad=_TITLE_PAD)
 
         for ax in fig.get_axes():
             print_axes_text(ax)
             print_free_text(ax)
-        for letter, ax in zip("ABCD", axes.flat):
+        for letter, ax in (("A", ax_a), ("B", ax_b)):
             panel_letter(ax, letter, fontsize=PRINT_FONT_SIZES["panel_letter"])
         fig.tight_layout()
+        _align_d_with_c(fig, ax_c, ax_d)
 
         if save:
             save_figure(
