@@ -74,11 +74,13 @@ _MEASURE_GENERALIZABILITY = "generalizability"
 
 # The hECA figure is drawn at this width and scaled down on the page. Fig 3
 # and S8 Fig are laid out at PRINT_WIDTH_IN, where a row of two panels is
-# PRINT_ROW_HEIGHT_IN tall; Fig 3's taller scatter row then keeps the figure
-# under PRINT_MAX_HEIGHT_IN.
+# PRINT_ROW_HEIGHT_IN tall. At that width titles and axis labels take a
+# larger share of each row than on screen, so the scatter row is given
+# about 1.55 rows (Fig 3; S8 Fig 1.6) to keep the embeddings from flattening,
+# and the figure stays under PRINT_MAX_HEIGHT_IN.
 _SCREEN_WIDTH_IN = 13.0
 _SCREEN_ROW_HEIGHT_IN = 14.0 / 3
-PRINT_ROW_HEIGHT_IN = 2.5
+PRINT_ROW_HEIGHT_IN = 2.35
 
 # Scatter marker sizes are given for the screen-width figure. Marker area is
 # in points squared, so at the print width it scales with the width ratio
@@ -319,7 +321,7 @@ def figure_carve_output_klein(
         marker_size=20.0,
         axis_labels=("PC1", "PC2"),
         save_name="CARVE_output_klein.png",
-        scatter_row_height=1.2,
+        scatter_row_height=1.55,
         plos_number=3,
         save=save,
         out_dir=out_dir,
@@ -341,7 +343,7 @@ def figure_carve_output_levine(
         axis_labels=("t-SNE 1", "t-SNE 2"),
         save_name="CARVE_output_levine.png",
         marker_linewidth=0.05,
-        scatter_row_height=1.3,
+        scatter_row_height=1.6,
         save=save,
         out_dir=out_dir,
     )

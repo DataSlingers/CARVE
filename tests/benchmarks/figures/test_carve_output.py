@@ -526,7 +526,7 @@ class TestCarveOutputFigures:
 
     @pytest.mark.parametrize(
         ("draw", "ratio"),
-        [(figure_carve_output_klein, 1.2), (figure_carve_output_levine, 1.3)],
+        [(figure_carve_output_klein, 1.55), (figure_carve_output_levine, 1.6)],
     )
     def test_scatter_row_is_taller_and_rows_a_to_d_keep_their_size(
         self, inputs, draw, ratio
