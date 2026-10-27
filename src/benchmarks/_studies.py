@@ -30,7 +30,7 @@ from ._estimators import (
     resolution_grids,
 )
 from ._preprocessing import preprocessing_fingerprint
-from ._types import EstimatorSpec, PreprocessingSpec, Study
+from ._types import ComparatorSpec, EstimatorSpec, PreprocessingSpec, Study
 
 CVI_SWEEP_METRICS: tuple[str, ...] = (
     "silhouette",
@@ -701,6 +701,9 @@ STUDIES: dict[str, Study] = {
         # notebook and the ablation read both from here.
         not_two=False,
         reported_k=4,
+        # M3C's maxK is the top of the CARVE sweep, which is also M3C's own
+        # default. SC3's gene filter applies: X is log-normalized counts.
+        comparators=ComparatorSpec(m3c_max_k=10, sc3_gene_filter=True),
     ),
     "levine32": Study(
         name="levine32",
@@ -722,6 +725,10 @@ STUDIES: dict[str, Study] = {
         # populations. The CVI sweep and CARVE's fit share this grid.
         resolutions=tuple(float(f"{0.1 * 30 ** (i / 12):.2g}") for i in range(-8, 12)),
         n_resamples=100,
+        # No k sweep to match, so M3C's maxK covers the 14 gated populations.
+        # SC3's gene filter keeps genes with 10 to 90 percent zeros; CyTOF
+        # values have no exact zeros, so it would remove all 32 markers.
+        comparators=ComparatorSpec(m3c_max_k=15, sc3_gene_filter=False),
     ),
     "cusanovich": Study(
         name="cusanovich",

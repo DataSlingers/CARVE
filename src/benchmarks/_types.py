@@ -224,6 +224,26 @@ class Scenario:
 
 
 @dataclass(frozen=True)
+class ComparatorSpec:
+    """How a case study runs the external comparators, M3C and SC3.
+
+    m3c_max_k is M3C's maxK, the top of its K sweep; M3C always starts at 2.
+    It is a search window set per study, like CARVE's own sweep.
+
+    sc3_gene_filter is SC3's dropout filter, on by default in SC3. A study
+    turns it off only where the data makes it inapplicable.
+
+    m3c_samples is the size of the stratified subsample M3C clusters. It
+    restates _m3c.M3C_MAX_SAMPLES, which this module cannot import without a
+    cycle; tests/benchmarks/test_studies.py pins the two equal.
+    """
+
+    m3c_max_k: int
+    sc3_gene_filter: bool
+    m3c_samples: int = 1000
+
+
+@dataclass(frozen=True)
 class Study:
     """One case study: a real dataset run through the same pipeline.
 
@@ -253,6 +273,9 @@ class Study:
     the case-study figure fits it on every cell and draws its scatter panels
     on the result, so the map does not change with whichever pipeline a fit
     rates best.
+
+    comparators, when set, is how the study runs M3C and SC3 for the
+    comparison figure and table; None for studies without that comparison.
     """
 
     name: str
@@ -270,6 +293,7 @@ class Study:
     not_two: bool = False
     reported_k: int | None = None
     map_option: tuple[str, dict[str, list[Any]]] | None = None
+    comparators: ComparatorSpec | None = None
 
     def __post_init__(self) -> None:
         if not self.candidate_k and not self.resolutions:

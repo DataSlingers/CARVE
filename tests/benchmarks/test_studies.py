@@ -1,5 +1,6 @@
 """Tests for case-study compute."""
 
+import dataclasses
 from collections import Counter
 
 import numpy as np
@@ -754,6 +755,44 @@ class TestDenseEstimatorGuard:
 class TestStudies:
     def test_every_case_study_is_registered(self):
         assert set(STUDIES) == {"klein", "levine32", "cusanovich", "heca"}
+
+    def test_klein_runs_m3c_over_its_carve_window_and_sc3_with_its_gene_filter(self):
+        spec = STUDIES["klein"].comparators
+        assert spec.m3c_max_k == max(STUDIES["klein"].candidate_k) == 10
+        assert spec.sc3_gene_filter is True
+
+    def test_levine_widens_m3c_and_turns_off_sc3_s_gene_filter(self):
+        # 15 covers the 14 gated populations; CyTOF values have no exact
+        # zeros, so SC3's dropout filter would remove every marker.
+        spec = STUDIES["levine32"].comparators
+        assert spec.m3c_max_k == 15
+        assert spec.sc3_gene_filter is False
+
+    def test_only_klein_and_levine_run_the_comparators(self):
+        running = {name for name, study in STUDIES.items() if study.comparators is not None}
+        assert running == {"klein", "levine32"}
+
+    def test_m3c_subsample_size_restates_the_m3c_ceiling(self):
+        from benchmarks._m3c import M3C_MAX_SAMPLES
+
+        for name in ("klein", "levine32"):
+            assert STUDIES[name].comparators.m3c_samples == M3C_MAX_SAMPLES
+
+    def test_klein_m3c_cache_key_is_unchanged(self, tmp_path):
+        from benchmarks._m3c import m3c_cache_path
+
+        spec = STUDIES["klein"].comparators
+        path = m3c_cache_path(
+            study_name="klein",
+            scale="publication",
+            root=tmp_path,
+            config={"maxK": spec.m3c_max_k, "n_samples": spec.m3c_samples},
+        )
+        assert path.name == "m3c_klein_publication_6d83a1fa.parquet"
+
+    def test_comparator_spec_is_frozen(self):
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            STUDIES["klein"].comparators.m3c_max_k = 3
 
     def test_each_study_has_a_loader_and_a_sweep(self):
         for study in STUDIES.values():
