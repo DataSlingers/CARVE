@@ -276,6 +276,11 @@ def carve_order_cmap(
 _ARI_ROW_COLUMNS: tuple[str, ...] = ("method", "metric", "ari", "k")
 
 
+#: How METRIC_COLORS spells each selection rule after the measure: the 1-SE
+#: rule as "_1se", the quantile rule as "_quant", and the maximum bare.
+_RULE_SUFFIX = {"1se": "_1se", "quantile": "_quant", "max": ""}
+
+
 def ari_table(
     inputs: CompositeInputs,
     *,
@@ -290,13 +295,13 @@ def ari_table(
 
     extra_rows appends comparators that do not come out of best_df, which is
     the CVI sweep's own output and has no room for a tool that is not a CVI.
-    The Klein M3C figure passes M3C's two rows here. Levine and hECA pass
+    figure_comparators passes one M3C row and one SC3 row here. Levine and hECA pass
     nothing and are unaffected.
     """
     rows = [
         {
             "method": "CARVE",
-            "metric": "ari_stability_1se",
+            "metric": f"ari_{inputs.measure}{_RULE_SUFFIX[inputs.rule]}",
             "ari": float(adjusted_rand_score(inputs.y, inputs.carve_labels)),
             "k": int(len(set(np.asarray(inputs.carve_labels).tolist()))),
         }

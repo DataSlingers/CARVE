@@ -1,5 +1,6 @@
 """Tests for the shared case-study composite and its two instantiations."""
 
+import dataclasses
 import inspect
 
 import matplotlib.colors as mcolors
@@ -798,6 +799,27 @@ class TestPrepareComposite:
 
 
 class TestAriTableExtraRows:
+    def test_the_carve_row_follows_a_generalizability_selection(self, inputs):
+        from benchmarks.figures._case_study import ari_table
+
+        table = ari_table(dataclasses.replace(inputs, measure="generalizability"))
+        assert table.loc[table["method"] == "CARVE", "metric"].item() == "ari_generalizability_1se"
+
+    def test_the_carve_row_keeps_stability_green_by_default(self, inputs):
+        from benchmarks.figures._case_study import ari_table
+
+        table = ari_table(inputs)
+        assert table.loc[table["method"] == "CARVE", "metric"].item() == "ari_stability_1se"
+
+    def test_the_carve_row_names_the_quantile_rule_as_the_theme_does(self, inputs):
+        from benchmarks._theme import METRIC_COLORS
+        from benchmarks.figures._case_study import ari_table
+
+        table = ari_table(dataclasses.replace(inputs, measure="generalizability", rule="quantile"))
+        metric = table.loc[table["method"] == "CARVE", "metric"].item()
+        assert metric == "ari_generalizability_quant"
+        assert metric in METRIC_COLORS
+
     def test_default_is_unchanged(self, inputs):
         from benchmarks.figures._case_study import ari_table
 
