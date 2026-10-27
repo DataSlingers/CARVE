@@ -146,6 +146,26 @@ def test_klein_hands_m3c_its_subsample_rows():
     assert "rows=m3c_subsample" in source
 
 
+def test_klein_runs_both_comparators_from_the_study():
+    source = _code(NOTEBOOKS["klein"])
+    assert "study.comparators" in source
+    assert "run_or_load_sc3(" in source
+    assert "figure_comparators(" in source
+    assert "figure_klein_m3c" not in source
+    assert "write_m3c_table" not in source
+    assert "max(study.candidate_k)" not in source
+
+
+def test_levine_runs_both_comparators_from_the_study():
+    source = _code(NOTEBOOKS["levine"])
+    assert "study.comparators" in source
+    assert "m3c_rows(y" in source
+    assert "rows=m3c_subsample" in source
+    assert "run_or_load_sc3(" in source
+    assert "figure_comparators(" in source
+    assert 'k_header="Clusters"' in source
+
+
 def test_levine_loads_its_data_through_the_study():
     source = _code(NOTEBOOKS["levine"])
     assert 'STUDIES["levine32"]' in source
