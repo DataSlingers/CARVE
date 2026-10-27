@@ -17,7 +17,9 @@ from benchmarks._sc3 import (
     align_labels,
     check_input,
     check_spectrum_selection,
+    run_or_load_sc3,
     run_sc3,
+    sc3_cache_path,
     tracy_widom_bound,
 )
 
@@ -271,3 +273,113 @@ class TestSeedAndCores:
     @pytest.mark.requires_sc3
     def test_the_seed_reaches_the_r_random_number_generator(self, runs):
         assert runs[(7, 2)].n_dim != runs[(1, 2)].n_dim
+
+
+class TestCachePath:
+    def test_encodes_study_and_scale(self, tmp_path):
+        path = sc3_cache_path(
+            study_name="klein",
+            scale="publication",
+            root=tmp_path,
+            config={"gene_filter": True},
+        )
+        assert path.parent == tmp_path
+        assert path.name.startswith("sc3_klein_publication_")
+        assert path.suffix == ".parquet"
+
+    def test_a_different_config_gives_a_different_path(self, tmp_path):
+        on = sc3_cache_path(
+            study_name="k", scale="p", root=tmp_path, config={"gene_filter": True}
+        )
+        off = sc3_cache_path(
+            study_name="k", scale="p", root=tmp_path, config={"gene_filter": False}
+        )
+        assert on != off
+
+
+class TestRunOrLoad:
+    X = np.arange(18, dtype=float).reshape(6, 3)
+
+    def _patch(self, monkeypatch, calls):
+        def fake_run(X, **kwargs):
+            calls.append(kwargs)
+            return stub_result(
+                config={
+                    **SC3_DEFAULTS,
+                    "gene_filter": kwargs["gene_filter"],
+                    "seed": kwargs.get("seed", 1),
+                }
+            )
+
+        monkeypatch.setattr("benchmarks._sc3.run_sc3", fake_run)
+
+    def test_runs_once_then_serves_an_identical_result(self, tmp_path, monkeypatch):
+        calls = []
+        self._patch(monkeypatch, calls)
+        cache = tmp_path / "sc3.parquet"
+        first = run_or_load_sc3(self.X, cache_path=cache, gene_filter=False)
+        second = run_or_load_sc3(self.X, cache_path=cache, gene_filter=False)
+        assert len(calls) == 1
+        np.testing.assert_array_equal(second.labels, first.labels)
+        pd.testing.assert_frame_equal(second.spectrum, first.spectrum)
+        assert (second.k, second.bound, second.n_dim) == (
+            first.k,
+            first.bound,
+            first.n_dim,
+        )
+        assert (second.n_features_used, second.runtime_s) == (
+            first.n_features_used,
+            first.runtime_s,
+        )
+        assert (second.kmeans_nstart, second.n_cores) == (
+            first.kmeans_nstart,
+            first.n_cores,
+        )
+        assert (second.sc3_version, second.r_version) == (
+            first.sc3_version,
+            first.r_version,
+        )
+        assert dict(second.config) == dict(first.config)
+
+    def test_refuses_a_cache_computed_on_a_different_x(self, tmp_path, monkeypatch):
+        self._patch(monkeypatch, [])
+        cache = tmp_path / "sc3.parquet"
+        run_or_load_sc3(self.X, cache_path=cache, gene_filter=False)
+        Y = self.X.copy()
+        Y[0, 0] += 1.0
+        with pytest.raises(ValueError, match="fit on a different X"):
+            run_or_load_sc3(Y, cache_path=cache, gene_filter=False)
+
+    def test_refuses_a_cache_computed_under_other_settings(
+        self, tmp_path, monkeypatch
+    ):
+        self._patch(monkeypatch, [])
+        cache = tmp_path / "sc3.parquet"
+        run_or_load_sc3(self.X, cache_path=cache, gene_filter=False)
+        with pytest.raises(ValueError, match="gene_filter"):
+            run_or_load_sc3(self.X, cache_path=cache, gene_filter=True)
+
+    def test_the_core_count_is_not_part_of_the_key(self, tmp_path, monkeypatch):
+        calls = []
+        self._patch(monkeypatch, calls)
+        cache = tmp_path / "sc3.parquet"
+        run_or_load_sc3(self.X, cache_path=cache, gene_filter=False, n_cores=2)
+        run_or_load_sc3(self.X, cache_path=cache, gene_filter=False, n_cores=4)
+        assert len(calls) == 1
+
+    def test_force_recomputes(self, tmp_path, monkeypatch):
+        calls = []
+        self._patch(monkeypatch, calls)
+        cache = tmp_path / "sc3.parquet"
+        run_or_load_sc3(self.X, cache_path=cache, gene_filter=False)
+        run_or_load_sc3(self.X, cache_path=cache, gene_filter=False, force=True)
+        assert len(calls) == 2
+
+    def test_recomputes_when_a_cache_file_is_missing(self, tmp_path, monkeypatch):
+        calls = []
+        self._patch(monkeypatch, calls)
+        cache = tmp_path / "sc3.parquet"
+        run_or_load_sc3(self.X, cache_path=cache, gene_filter=False)
+        (tmp_path / "sc3.spectrum.parquet").unlink()
+        run_or_load_sc3(self.X, cache_path=cache, gene_filter=False)
+        assert len(calls) == 2

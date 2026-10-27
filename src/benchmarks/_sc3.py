@@ -17,17 +17,22 @@ does not install it.
 """
 
 import contextlib
+import hashlib
+import json
 import math
 import os
 import sys
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
 import numpy as np
 import pandas as pd
+
+from ._artifacts import check_fingerprint, fingerprint, fingerprint_path
 
 #: SC3 1.36.0's defaults for the settings this run depends on, restated so a
 #: Bioconductor release that changes one shows up as a diff here. kmeans_nstart
@@ -452,3 +457,133 @@ def run_sc3(
         sc3_version=sc3_version,
         r_version=r_version,
     )
+
+
+def sc3_cache_path(
+    *, study_name: str, scale: str, root: Path, config: Mapping[str, Any]
+) -> Path:
+    """Where a study's SC3 result is cached, per scale and per configuration.
+
+    As in _m3c.m3c_cache_path, the config hash is part of the file name so two
+    runs under different settings never share one.
+    """
+    key = hashlib.sha1(
+        json.dumps(dict(config), sort_keys=True, default=str).encode()
+    ).hexdigest()[:8]
+    return Path(root) / f"sc3_{study_name}_{scale}_{key}.parquet"
+
+
+def _spectrum_path(path: Path) -> Path:
+    return path.with_name(path.stem + ".spectrum.parquet")
+
+
+def _sidecar_path(path: Path) -> Path:
+    return path.with_name(path.stem + ".json")
+
+
+def _cache_files(path: Path) -> tuple[Path, Path, Path, Path]:
+    return (path, _spectrum_path(path), _sidecar_path(path), fingerprint_path(path))
+
+
+def _cache_is_complete(path: Path) -> bool:
+    """True only when every file a cached result needs is present."""
+    return all(candidate.is_file() for candidate in _cache_files(path))
+
+
+def _write_cache(path: Path, result: SC3Result, X: np.ndarray) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({"label": result.labels}).to_parquet(path, index=False)
+    result.spectrum.to_parquet(_spectrum_path(path), index=False)
+    _sidecar_path(path).write_text(
+        json.dumps(
+            {
+                "k": result.k,
+                "bound": result.bound,
+                "n_features_used": result.n_features_used,
+                "n_dim": list(result.n_dim),
+                "kmeans_nstart": result.kmeans_nstart,
+                "n_cores": result.n_cores,
+                "runtime_s": result.runtime_s,
+                "config": dict(result.config),
+                "sc3_version": result.sc3_version,
+                "r_version": result.r_version,
+            },
+            indent=2,
+            default=str,
+        )
+    )
+    fingerprint_path(path).write_text(fingerprint(X))
+
+
+def _read_cache(path: Path) -> SC3Result:
+    meta = json.loads(_sidecar_path(path).read_text())
+    return SC3Result(
+        labels=pd.read_parquet(path)["label"].to_numpy(dtype=int),
+        k=int(meta["k"]),
+        spectrum=pd.read_parquet(_spectrum_path(path)),
+        bound=float(meta["bound"]),
+        n_features_used=int(meta["n_features_used"]),
+        n_dim=tuple(int(d) for d in meta["n_dim"]),
+        kmeans_nstart=int(meta["kmeans_nstart"]),
+        n_cores=int(meta["n_cores"]),
+        runtime_s=float(meta["runtime_s"]),
+        config=meta["config"],
+        sc3_version=str(meta["sc3_version"]),
+        r_version=str(meta["r_version"]),
+    )
+
+
+def run_or_load_sc3(
+    X: np.ndarray,
+    *,
+    cache_path: Path,
+    gene_filter: bool,
+    seed: int = _DEFAULT_SEED,
+    n_cores: int | None = None,
+    allow_install: bool = False,
+    verbose: bool = False,
+    force: bool = False,
+) -> SC3Result:
+    """Run SC3 on X, or serve the cached result of an identical run.
+
+    A cached result is served only against the X it was computed on
+    (check_fingerprint, shared with fit_or_load_carve and run_or_load_m3c)
+    and only under the settings this call would use. n_cores is recorded but
+    not compared: SC3 draws its random numbers through doRNG, which assigns
+    one stream per task rather than per worker (see run_sc3). The live tests
+    check that two core counts agree on one fixture; they do not prove the
+    invariance in general.
+    """
+    cache_path = Path(cache_path)
+    X = np.asarray(X)
+    if not force and _cache_is_complete(cache_path):
+        check_fingerprint(cache_path, X)
+        result = _read_cache(cache_path)
+        expected = _config(gene_filter=gene_filter, seed=seed)
+        mismatched = sorted(
+            key
+            for key in set(result.config) | set(expected)
+            if result.config.get(key) != expected.get(key)
+        )
+        if mismatched:
+            details = "; ".join(
+                f"{key}: cached={result.config.get(key)!r}, "
+                f"requested={expected.get(key)!r}"
+                for key in mismatched
+            )
+            raise ValueError(
+                f"{cache_path} was cached with different SC3 settings than this "
+                f"call would use ({details}). Pass force=True to recompute."
+            )
+        return result
+
+    result = run_sc3(
+        X,
+        gene_filter=gene_filter,
+        seed=seed,
+        n_cores=n_cores,
+        allow_install=allow_install,
+        verbose=verbose,
+    )
+    _write_cache(cache_path, result, X)
+    return result
