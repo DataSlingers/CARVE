@@ -749,7 +749,7 @@ class TestAblationTables:
         assert oracle["agreement"].isna().all()
 
 
-class TestRenderM3CTex:
+class TestComparisonTable:
     @pytest.fixture
     def ari_df(self):
         return pd.DataFrame(
@@ -761,46 +761,52 @@ class TestRenderM3CTex:
         )
 
     def test_renders_one_row_per_method(self, ari_df):
-        from benchmarks._tables import render_m3c_tex
+        from benchmarks._tables import render_comparison_tex
 
-        tex = render_m3c_tex(ari_df, caption="Klein comparison.", label="tab:klein_m3c")
+        tex = render_comparison_tex(ari_df, caption="Klein comparison.", label="tab:klein_m3c")
         for method in ("CARVE", "Silhouette", "M3C"):
             assert method in tex
 
     def test_carries_the_caption_and_label(self, ari_df):
-        from benchmarks._tables import render_m3c_tex
+        from benchmarks._tables import render_comparison_tex
 
-        tex = render_m3c_tex(ari_df, caption="Klein comparison.", label="tab:klein_m3c")
+        tex = render_comparison_tex(ari_df, caption="Klein comparison.", label="tab:klein_m3c")
         assert r"\caption{Klein comparison.}" in tex
         assert r"\label{tab:klein_m3c}" in tex
 
     def test_escapes_latex_specials_in_the_caption(self, ari_df):
-        from benchmarks._tables import render_m3c_tex
+        from benchmarks._tables import render_comparison_tex
 
-        tex = render_m3c_tex(ari_df, caption="50% of cells", label="tab:x")
+        tex = render_comparison_tex(ari_df, caption="50% of cells", label="tab:x")
         assert r"50\% of cells" in tex
 
     def test_rounds_ari_to_the_requested_precision(self, ari_df):
-        from benchmarks._tables import render_m3c_tex
+        from benchmarks._tables import render_comparison_tex
 
-        tex = render_m3c_tex(
+        tex = render_comparison_tex(
             ari_df, caption="c", label="l", decimals=2
         )
         assert "0.81" in tex
         assert "0.810" not in tex
 
-    def test_writes_a_tex_file(self, ari_df, tmp_path):
-        from benchmarks._tables import write_m3c_table
+    def test_writes_a_tex_file_under_its_name(self, ari_df, tmp_path):
+        from benchmarks._tables import write_comparison_table
 
-        path = write_m3c_table(ari_df, out_dir=tmp_path)
-        assert path == tmp_path / "si_table_m3c.tex"
+        path = write_comparison_table(
+            ari_df, out_dir=tmp_path, name="si_table_klein_comparison",
+            caption="c", label="tab:klein_comparison",
+        )
+        assert path == tmp_path / "si_table_klein_comparison.tex"
         assert r"\begin{table}" in path.read_text()
 
     def test_writes_a_csv_beside_the_tex(self, ari_df, tmp_path):
-        from benchmarks._tables import write_m3c_table
+        from benchmarks._tables import write_comparison_table
 
-        write_m3c_table(ari_df, out_dir=tmp_path)
-        written = pd.read_csv(tmp_path / "si_table_m3c.csv")
+        write_comparison_table(
+            ari_df, out_dir=tmp_path, name="si_table_klein_comparison",
+            caption="c", label="tab:klein_comparison",
+        )
+        written = pd.read_csv(tmp_path / "si_table_klein_comparison.csv")
         assert written["method"].tolist() == ["CARVE", "Silhouette", "M3C"]
         assert written["ari"].tolist() == [0.81, 0.42, 0.41]
         assert written["k"].tolist() == [4, 2, 2]
@@ -810,8 +816,29 @@ class TestRenderM3CTex:
             "m3c_rcsi",
         ]
 
+    def test_the_k_column_is_headed_k_by_default(self, ari_df):
+        from benchmarks._tables import render_comparison_tex
+
+        tex = render_comparison_tex(ari_df, caption="c", label="l")
+        assert r"Method & $k$ & ARI \\" in tex
+
+    def test_a_resolution_study_heads_the_column_clusters(self, ari_df):
+        from benchmarks._tables import render_comparison_tex
+
+        tex = render_comparison_tex(ari_df, caption="c", label="l", k_header="Clusters")
+        assert r"Method & Clusters & ARI \\" in tex
+        assert "$k$" not in tex
+
+    def test_captions_name_both_tools_for_each_study(self):
+        from benchmarks._tables import KLEIN_COMPARISON_CAPTION, LEVINE_COMPARISON_CAPTION
+
+        for caption in (KLEIN_COMPARISON_CAPTION, LEVINE_COMPARISON_CAPTION):
+            assert "M3C" in caption and "SC3" in caption
+        assert "Klein" in KLEIN_COMPARISON_CAPTION
+        assert "Levine" in LEVINE_COMPARISON_CAPTION
+
     def test_preserves_math_notation_in_method_names(self):
-        from benchmarks._tables import render_m3c_tex
+        from benchmarks._tables import render_comparison_tex
 
         ari_df = pd.DataFrame(
             [
@@ -823,7 +850,7 @@ class TestRenderM3CTex:
                 }
             ]
         )
-        tex = render_m3c_tex(ari_df, caption="Test", label="tab:test")
+        tex = render_comparison_tex(ari_df, caption="Test", label="tab:test")
         # The method name with math should appear verbatim, unescaped
         assert "M3C (at $k=4$)" in tex
         # Verify no backslash escaping of the parentheses or dollar signs

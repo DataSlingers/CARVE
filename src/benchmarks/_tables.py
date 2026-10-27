@@ -688,30 +688,41 @@ def write_ablation_table(
     return paths
 
 
-# --- The Klein M3C comparison table -----------------------------------------------
-#: The default caption. Stated here rather than at the call site so the
-#: notebook and any later caller cannot caption the same table differently.
-M3C_CAPTION: str = (
-    "Selections and their agreement with the reported labels on the Klein "
-    "case study, for CARVE, the four classical validation indices, and M3C "
-    "run at its published defaults."
+# --- The case-study comparison tables ---------------------------------------------
+#: Default captions. Stated here rather than at the call site so the notebook
+#: and any later caller cannot caption the same table differently.
+KLEIN_COMPARISON_CAPTION: str = (
+    "Selections and their agreement with the reported time points on the Klein "
+    "case study, for CARVE, the four classical validation indices, M3C and SC3, "
+    "each at the k it selects."
+)
+LEVINE_COMPARISON_CAPTION: str = (
+    "Selections and their agreement with the gated populations on the Levine "
+    "case study, for CARVE, the three classical validation indices, M3C and SC3, "
+    "each at the number of clusters it selects."
 )
 
 
-def render_m3c_tex(
+def render_comparison_tex(
     ari_df: pd.DataFrame,
     *,
     caption: str,
     label: str,
+    k_header: str = "k",
     decimals: int = 3,
 ) -> str:
     """One row per method: its selected k and its ARI against the reported labels.
 
+    k_header names the middle column: "k" renders as $k$, and a study that
+    sweeps resolution passes "Clusters", since its selections are cluster
+    counts rather than a swept k.
+
     Runtime is deliberately not a column. fit_or_load_carve caches state
     rather than timings, so a runtime column would be measured under
-    different conditions for CARVE than for M3C; the two runtimes are
+    different conditions for CARVE than for M3C and SC3; the runtimes are
     reported in prose instead.
     """
+    header = "$k$" if k_header == "k" else _tex_escape(k_header)
     lines = [
         r"\begin{table}[ht]",
         r"\centering",
@@ -719,13 +730,12 @@ def render_m3c_tex(
         f"\\label{{{label}}}",
         r"\begin{tabular}{lrr}",
         r"\toprule",
-        r"Method & $k$ & ARI \\",
+        f"Method & {header} & ARI \\\\",
         r"\midrule",
     ]
     for _, row in ari_df.iterrows():
         method = str(row["method"])
-        # Method names may already carry math, as "M3C (at $k=4$)" does, so
-        # only names with no math are escaped.
+        # Method names may carry math; only names with none are escaped.
         rendered = method if "$" in method else _tex_escape(method)
         lines.append(
             f"{rendered} & ${int(row['k'])}$ & {_fmt(row['ari'], decimals)} \\\\"
@@ -734,13 +744,14 @@ def render_m3c_tex(
     return "\n".join(lines) + "\n"
 
 
-def write_m3c_table(
+def write_comparison_table(
     ari_df: pd.DataFrame,
     *,
     out_dir: Path,
-    name: str = "si_table_m3c",
-    caption: str = M3C_CAPTION,
-    label: str = "tab:klein_m3c",
+    name: str,
+    caption: str,
+    label: str,
+    k_header: str = "k",
     decimals: int = 3,
 ) -> Path:
     """Write the comparison table as .tex, with the underlying frame as .csv."""
@@ -748,7 +759,9 @@ def write_m3c_table(
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{name}.tex"
     path.write_text(
-        render_m3c_tex(ari_df, caption=caption, label=label, decimals=decimals)
+        render_comparison_tex(
+            ari_df, caption=caption, label=label, k_header=k_header, decimals=decimals
+        )
     )
     ari_df.to_csv(out_dir / f"{name}.csv", index=False)
     return path
