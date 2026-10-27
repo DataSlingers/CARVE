@@ -160,8 +160,10 @@ class TestRunGuards:
             run_sc3(np.zeros((5001, 2)), gene_filter=False)
 
 
-def _blobs(*, low_sd: float = 0.5, seed: int = 0) -> np.ndarray:
-    """Three groups of 50 cells, each high on its own block of 5 of 30 features.
+def _blobs(
+    *, low_sd: float = 0.5, seed: int = 0, sizes: tuple[int, ...] = (50, 50, 50)
+) -> np.ndarray:
+    """Three groups of cells (50 each by default), each high on its own block of 5 of 30 features.
 
     The 15 features no group is high on matter. SC3 scales each cell across
     its features before counting eigenvalues, and block profiles covering
@@ -175,8 +177,8 @@ def _blobs(*, low_sd: float = 0.5, seed: int = 0) -> np.ndarray:
     centers[2, 10:15] = 4.0
     return np.vstack(
         [
-            np.abs(rng.normal(c, np.where(c > 0, 0.5, low_sd), size=(50, 30)))
-            for c in centers
+            np.abs(rng.normal(c, np.where(c > 0, 0.5, low_sd), size=(m, 30)))
+            for c, m in zip(centers, sizes, strict=True)
         ]
     )
 
@@ -220,15 +222,14 @@ class TestRunLive:
         assert result.n_dim == (6, 7, 8, 9, 10, 11)
         assert result.n_cores == 1
 
-    def test_the_same_seed_gives_identical_labels(self, result):
-        again = run_sc3(_blobs(), gene_filter=False, seed=1, n_cores=1)
-        np.testing.assert_array_equal(again.labels, result.labels)
-
-    def test_the_core_count_does_not_change_the_labels(self, result):
-        # doRNG assigns one stream per task, not per worker. This is what
-        # lets n_cores stay out of the cache key (run_or_load_sc3).
-        two = run_sc3(_blobs(), gene_filter=False, seed=1, n_cores=2)
-        np.testing.assert_array_equal(two.labels, result.labels)
+    def test_does_not_write_to_the_process_descriptors_unless_verbose(self, capfd):
+        # SC3's workers inherit file descriptors 1 and 2 and write to them
+        # directly; only a descriptor-level redirect keeps them quiet.
+        run_sc3(_blobs(), gene_filter=False, seed=1, n_cores=2)
+        captured = capfd.readouterr()
+        for text in (captured.out, captured.err):
+            assert "starting worker" not in text
+            assert "Loading required package" not in text
 
     def test_the_gene_filter_drops_features_with_no_detections(self):
         X = _blobs(low_sd=1.0)
@@ -237,3 +238,36 @@ class TestRunLive:
         result = run_sc3(X, gene_filter=True, seed=1, n_cores=1)
         assert result.n_features_used == 30
         assert result.k == 3
+
+
+class TestSeedAndCores:
+    """Seed placement and core-count agreement on a 500-cell fixture.
+
+    From about 470 cells SC3's d range has more than 15 values, and
+    sc3_prepare samples 15 of them with R's global RNG, so n_dim depends on
+    set.seed. The labels of this design do not, so n_dim is the observable.
+    Three calls of about 40 s each, none at one core.
+    """
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def runs(cls):
+        X = _blobs(sizes=(167, 167, 166))
+        return {
+            (seed, cores): run_sc3(X, gene_filter=False, seed=seed, n_cores=cores)
+            for seed, cores in ((1, 2), (1, 3), (7, 2))
+        }
+
+    @pytest.mark.requires_sc3
+    def test_same_seed_agrees_across_core_counts(self, runs):
+        # doRNG assigns one stream per task, not per worker, which is why
+        # n_cores stays out of the cache key (run_or_load_sc3). This checks
+        # that 2 and 3 cores agree on this fixture.
+        two, three = runs[(1, 2)], runs[(1, 3)]
+        assert len(two.n_dim) == 15
+        assert two.n_dim == three.n_dim
+        np.testing.assert_array_equal(two.labels, three.labels)
+
+    @pytest.mark.requires_sc3
+    def test_the_seed_reaches_the_r_random_number_generator(self, runs):
+        assert runs[(7, 2)].n_dim != runs[(1, 2)].n_dim

@@ -16,7 +16,10 @@ functions, since it lives in the [notebooks] extra and the benchmarks CI job
 does not install it.
 """
 
+import contextlib
 import math
+import os
+import sys
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -276,6 +279,35 @@ def _install_sc3() -> None:
     )
 
 
+@contextlib.contextmanager
+def _silenced_fds(active: bool):
+    """Point file descriptors 1 and 2 at os.devnull for the duration, if active.
+
+    SC3 starts its worker processes with parallel::makeCluster(outfile = ""),
+    so each worker writes its startup lines, package warnings and the k-means
+    progress bar straight to the descriptors it inherits. capture.output and
+    suppressMessages only reach the master R process. Redirecting the
+    descriptors before the workers are spawned silences them, and restoring
+    them afterward leaves later output untouched.
+    """
+    if not active:
+        yield
+        return
+    sys.stdout.flush()
+    sys.stderr.flush()
+    saved = (os.dup(1), os.dup(2))
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(devnull, 1)
+        os.dup2(devnull, 2)
+        yield
+    finally:
+        os.dup2(saved[0], 1)
+        os.dup2(saved[1], 2)
+        for fd in (*saved, devnull):
+            os.close(fd)
+
+
 def run_sc3(
     X: np.ndarray,
     *,
@@ -300,12 +332,18 @@ def run_sc3(
         Passed to set.seed immediately before sc3_prepare, and as rand_seed.
     n_cores : int or None, default=None
         SC3's worker count; None is SC3's own default (all cores but one).
-        It does not change the labels (TestRunLive).
+        It stays out of the cache key because SC3 draws its random numbers
+        through doRNG, which assigns one stream per task rather than per
+        worker. TestRunLive checks that 2 and 3 cores agree on one fixture;
+        it does not prove the invariance in general.
     allow_install : bool, default=False
         Installing an R package is a side effect on the user's machine, so it
         is opt-in, as in _m3c.run_m3c.
     verbose : bool, default=False
-        Show SC3's own messages and progress bars.
+        Show SC3's own messages and progress bars. When False, the R
+        process's messages are suppressed and file descriptors 1 and 2 are
+        redirected to os.devnull while SC3 runs, which also silences its
+        worker processes.
     """
     X = check_input(X, gene_filter=gene_filter)
     if not _sc3_is_installed():
@@ -354,13 +392,14 @@ def run_sc3(
             ro.globalenv["carve_sc3_quiet"] = not verbose
 
             started = time.perf_counter()
-            ro.r(
-                "carve_sc3_result <- carve_sc3_fn(carve_sc3_logcounts, "
-                "carve_sc3_gene_filter, carve_sc3_seed, carve_sc3_n_cores, "
-                "carve_sc3_pct_dropout_min, carve_sc3_pct_dropout_max, "
-                "carve_sc3_d_region_min, carve_sc3_d_region_max, "
-                "carve_sc3_svm_max, carve_sc3_kmeans_iter_max, carve_sc3_quiet)"
-            )
+            with _silenced_fds(not verbose):
+                ro.r(
+                    "carve_sc3_result <- carve_sc3_fn(carve_sc3_logcounts, "
+                    "carve_sc3_gene_filter, carve_sc3_seed, carve_sc3_n_cores, "
+                    "carve_sc3_pct_dropout_min, carve_sc3_pct_dropout_max, "
+                    "carve_sc3_d_region_min, carve_sc3_d_region_max, "
+                    "carve_sc3_svm_max, carve_sc3_kmeans_iter_max, carve_sc3_quiet)"
+                )
             runtime_s = time.perf_counter() - started
 
             def scalar(name: str) -> Any:
