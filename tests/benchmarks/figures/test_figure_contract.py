@@ -20,7 +20,7 @@ EXPECTED = (
     "figure_carve_output_levine",
     "figure_carve_output_cusanovich",
     "figure_carve_output_heca",
-    "figure_klein_m3c",
+    "figure_comparators",
     "figure_cusanovich_results",
     "figure_heca_calibration",
     "figure_heca_carve",

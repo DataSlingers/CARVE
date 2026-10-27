@@ -37,12 +37,12 @@ from ._carve_output import (
 )
 from ._case_study import CompositeInputs, composite_figure, prepare_composite
 from ._clustering_problem import DatasetRow, figure_clustering_problem
+from ._comparators import figure_comparators
 from ._cusanovich_results import figure_cusanovich_results
 from ._guidance import figure_guidance_clusters, figure_guidance_global
 from ._heca_calibration import figure_heca_calibration
 from ._heca_carve import figure_heca_carve
 from ._heca_runtime import figure_heca_runtime
-from ._klein_m3c import figure_klein_m3c
 from ._klein_results import figure_klein_results
 from ._levine_composition import (
     composition_tables,
@@ -83,13 +83,13 @@ __all__ = [
     "figure_carve_output_klein",
     "figure_carve_output_levine",
     "figure_clustering_problem",
+    "figure_comparators",
     "figure_cusanovich_results",
     "figure_guidance_clusters",
     "figure_guidance_global",
     "figure_heca_calibration",
     "figure_heca_carve",
     "figure_heca_runtime",
-    "figure_klein_m3c",
     "figure_klein_results",
     "figure_levine_composition",
     "figure_levine_results",
