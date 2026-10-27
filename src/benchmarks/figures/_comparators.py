@@ -53,6 +53,9 @@ from ._paths import CASE_STUDY_DIR, figure_path
 #: Three panel rows at the print width; under PRINT_MAX_HEIGHT_IN.
 HEIGHT_IN = 8.0
 
+#: Left edge of panel E, in figure fractions, wide enough for its longest label.
+_E_LEFT = 0.24
+
 
 def _m3c_cells(
     inputs: CompositeInputs, m3c: M3CResult
@@ -143,6 +146,11 @@ def figure_comparators(
         ax_c = fig.add_subplot(grid[1, 0])
         ax_d = fig.add_subplot(grid[1, 1])
         ax_e = fig.add_subplot(grid[2, :])
+        # E's y tick labels ("Calinski Harabasz", "M3C (1,000 cells)") are
+        # wider than the shared left margin; without room for them the tight
+        # bbox grows past PRINT_WIDTH_IN.
+        box = ax_e.get_position()
+        ax_e.set_position([_E_LEFT, box.y0, box.x1 - _E_LEFT, box.height])
 
         m3c_lines(
             ax_a,
@@ -198,6 +206,11 @@ def figure_comparators(
         for letter, ax in zip("ABCDE", (ax_a, ax_b, ax_c, ax_d, ax_e)):
             panel_letter(ax, letter, fontsize=PRINT_FONT_SIZES["panel_letter"])
 
-    if save:
-        save_figure(fig, figure_path(save_name, subdir=CASE_STUDY_DIR, out_dir=out_dir))
+        # Saved inside the theme so savefig.pad_inches is the print theme's;
+        # outside it the default padding widens the file past PRINT_WIDTH_IN.
+        if save:
+            save_figure(
+                fig, figure_path(save_name, subdir=CASE_STUDY_DIR, out_dir=out_dir)
+            )
+
     return fig

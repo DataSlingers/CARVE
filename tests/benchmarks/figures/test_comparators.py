@@ -198,3 +198,40 @@ class TestFigure:
         fig = _draw(inputs, m3c_result, sc3_result)
         texts = [t.get_text() for t in fig.axes[2].texts]
         assert any(f"k = {sc3_result.k} eigenvalues" in t for t in texts)
+
+    def test_saved_png_stays_inside_the_print_page(self, inputs, m3c_result, sc3_result, tmp_path):
+        # The real labels are long ("Calinski Harabasz", "M3C (1,000 cells)");
+        # any artist outside the canvas widens the tight-bbox save past the page.
+        from PIL import Image
+
+        n = 1000
+        rng = np.random.default_rng(5)
+        best = pd.DataFrame(
+            {
+                "metric": ["calinski_harabasz", "davies_bouldin"],
+                "model": ["AgglomerativeClustering (linkage=ward)"] * 2,
+                "k": [4, 4],
+                "score": [0.5, 0.4],
+                "ari": [0.5, 0.4],
+            }
+        )
+        big = dataclasses.replace(
+            inputs,
+            X=rng.normal(size=(n, 5)),
+            y=rng.choice(["a", "b", "c", "d"], n),
+            Z=rng.normal(size=(n, 2)),
+            carve_labels=rng.integers(0, 4, n),
+            comparison_labels=rng.integers(0, 4, n),
+            best_df=best,
+        )
+        m3c = dataclasses.replace(
+            m3c_result,
+            labels={k: rng.integers(0, k, size=n) for k in (2, 3, 4, 5)},
+            rows=np.arange(n),
+        )
+        sc3 = dataclasses.replace(sc3_result, labels=rng.integers(0, 3, size=n))
+        _draw(big, m3c, sc3, save=True, out_dir=tmp_path)
+        with Image.open(tmp_path / "klein_carve_m3c_sc3.png") as img:
+            width, height = img.size
+        assert width <= round(PRINT_WIDTH_IN * 300)
+        assert height <= round(PRINT_MAX_HEIGHT_IN * 300)
