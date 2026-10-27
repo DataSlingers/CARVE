@@ -29,6 +29,7 @@ import matplotlib.text as mtext
 import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.collections import LineCollection
+from matplotlib.colorbar import Colorbar
 from matplotlib.colors import ListedColormap
 from matplotlib.container import ErrorbarContainer
 from matplotlib.figure import Figure
@@ -182,6 +183,54 @@ def _clear_legend(ax: Axes, legend: Legend) -> None:
     needed = box.y1 + _LEGEND_CLEARANCE
     if (lowest - bottom) / (top - bottom) < needed:
         ax.set_ylim((lowest - needed * top) / (1.0 - needed), top)
+
+
+# Space between neighboring panels' text, across rows and between columns,
+# in units of the print theme's 8-point font: 0.2 inches. Matplotlib's
+# default, about 0.12 inches, crowded a row's axis label against the titles
+# below it once C's title no longer held the rows apart.
+_PANEL_PAD = 1.8
+
+# C's colorbar, in the matrix's axes coordinates: beside the matrix, a
+# twentieth of its width away and as wide, as tall as the matrix. CARVE's
+# own colorbar takes a strip at the edge of C's cell, which left a gap
+# beside the centered square matrix and pushed the colorbar's labels into
+# the gutter between the columns, widening it for every row.
+_CONSENSUS_COLORBAR_BOUNDS = (1.05, 0.0, 0.05, 1.0)
+
+# CARVE appends its cluster band above the matrix at this fraction of the
+# matrix's height.
+_CONSENSUS_BAND_FRACTION = 0.04
+
+
+def _consensus_colorbar(ax: Axes) -> Colorbar:
+    """C's colorbar, drawn as an inset of the matrix axes.
+
+    An inset follows the matrix wherever its square aspect places it, and
+    the layout counts the colorbar's labels as part of C, so they stay in
+    C's column.
+    """
+    cax = ax.inset_axes(_CONSENSUS_COLORBAR_BOUNDS)
+    return ax.figure.colorbar(ax.images[0], cax=cax, label="Consensus")
+
+
+def _title_above_band(ax: Axes) -> None:
+    """Set C's title the theme's title pad above the cluster band.
+
+    CARVE pads the title a fixed 25 points to clear the band, which at the
+    print width lifts it a quarter inch above the band, close to A's axis
+    label, and the shared row spacing then leaves every row that much
+    further apart. The band's height is read from the matrix's current
+    place in the layout.
+    """
+    fig = ax.figure
+    box = ax.get_axes_locator()(ax, fig.canvas.get_renderer())
+    band = _CONSENSUS_BAND_FRACTION * box.height * fig.get_figheight() * 72
+    ax.set_title(
+        ax.get_title(),
+        pad=band + plt.rcParams["axes.titlepad"],
+        fontsize=ax.title.get_fontsize(),
+    )
 
 
 def _six_panel_grid(scatter_row_height: float) -> tuple[Figure, tuple[Axes, ...]]:
@@ -399,9 +448,11 @@ def _draw_six_panels(
             **selection,
             ax=ax_c,
             palette=palette,
+            colorbar=False,
             title=consensus_title,
             show=False,
         )
+        consensus_colorbar = _consensus_colorbar(ax_c)
         carve.plot_cluster_violin(
             source="gini",
             **selection,
@@ -467,7 +518,7 @@ def _draw_six_panels(
 
         # Colorbars are axes of their own, so every axes is reset, not
         # only the six panels.
-        for ax in fig.get_axes():
+        for ax in (*fig.get_axes(), consensus_colorbar.ax):
             print_axes_text(ax)
         for letter, ax in zip("ABDEF", (ax_a, ax_b, ax_d, ax_e, ax_f)):
             panel_letter(ax, letter, fontsize=PRINT_FONT_SIZES["panel_letter"])
@@ -480,7 +531,10 @@ def _draw_six_panels(
             if short != text.get_text():
                 text.set_text(short.replace(" (resolution =", "\n(resolution ="))
 
-        fig.tight_layout()
+        _title_above_band(ax_c)
+        fig.tight_layout(h_pad=_PANEL_PAD, w_pad=_PANEL_PAD)
+        # The layout resized the matrix, and with it the band.
+        _title_above_band(ax_c)
         for ax, legend in legends:
             _clear_legend(ax, legend)
         # C's square matrix sits centered in its wider cell, and panel_letter

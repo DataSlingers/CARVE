@@ -665,6 +665,81 @@ class TestCarveOutputFigures:
         plt.close(levine_fig)
 
 
+def _inches(fig, box):
+    return box.transformed(fig.dpi_scale_trans.inverted())
+
+
+@pytest.mark.parametrize(
+    "draw", [figure_carve_output_klein, figure_carve_output_levine]
+)
+class TestConsensusPanelAndSpacing:
+    """C's colorbar and title, and the space between the panels.
+
+    CARVE's colorbar took a strip at the edge of C's cell, a gap away from
+    the centered square matrix, and its labels widened the gutter between
+    the columns for every row. CARVE's fixed 25-point title pad lifted C's
+    title toward A's axis label, and the shared row spacing that made room
+    for it left the lower rows further apart than they needed.
+    """
+
+    def test_colorbar_sits_beside_the_matrix_as_tall_as_it(self, inputs, draw):
+        fig = draw(inputs, save=False)
+        fig.draw_without_rendering()
+        ax_c = _panel_by_letter(fig)["C"]
+        (cax,) = ax_c.child_axes
+        matrix = _inches(fig, ax_c.get_window_extent())
+        bar = _inches(fig, cax.get_window_extent())
+        assert 0.0 < bar.x0 - matrix.x1 < 0.15
+        assert bar.y0 == pytest.approx(matrix.y0, abs=0.01)
+        assert bar.y1 == pytest.approx(matrix.y1, abs=0.01)
+        assert cax.get_ylabel() == "Consensus"
+        assert cax.yaxis.label.get_fontsize() == PRINT_FONT_SIZES["axis_label"]
+        plt.close(fig)
+
+    def test_colorbar_labels_stay_in_c_s_column(self, inputs, draw):
+        fig = draw(inputs, save=False)
+        fig.draw_without_rendering()
+        panels = _panel_by_letter(fig)
+        (cax,) = panels["C"].child_axes
+        right = _inches(fig, cax.get_tightbbox()).x1
+        assert right < _inches(fig, panels["A"].get_window_extent()).x1
+        plt.close(fig)
+
+    def test_c_s_title_sits_above_the_band_as_d_s_above_its_axes(
+        self, inputs, draw
+    ):
+        fig = draw(inputs, save=False)
+        fig.draw_without_rendering()
+        panels = _panel_by_letter(fig)
+        ax_c = panels["C"]
+        # The band is the other axes that draws an image.
+        (band,) = [ax for ax in fig.get_axes() if ax.images and ax is not ax_c]
+        title = _inches(fig, ax_c.title.get_window_extent())
+        band_top = _inches(fig, band.get_window_extent()).y1
+        ax_d = panels["D"]
+        d_title = _inches(fig, ax_d.title.get_window_extent())
+        d_top = _inches(fig, ax_d.get_window_extent()).y1
+        # Both titles are measured to the bottom of their descenders.
+        assert title.y0 - band_top == pytest.approx(d_title.y0 - d_top, abs=0.01)
+        assert title.y0 == pytest.approx(d_title.y0, abs=0.03)
+        plt.close(fig)
+
+    def test_rows_and_columns_are_a_fifth_of_an_inch_apart(self, inputs, draw):
+        fig = draw(inputs, save=False)
+        fig.draw_without_rendering()
+        panels = _panel_by_letter(fig)
+        a = panels["A"]
+        under_a = _inches(fig, a.get_tightbbox()).y0
+        d_title = _inches(fig, panels["D"].title.get_window_extent()).y1
+        assert under_a - d_title == pytest.approx(0.2, abs=0.05)
+        gutter = (
+            _inches(fig, panels["B"].get_tightbbox()).x0
+            - _inches(fig, a.get_window_extent()).x1
+        )
+        assert gutter == pytest.approx(0.2, abs=0.05)
+        plt.close(fig)
+
+
 class TestClusterIdsAgreeWithTheComposite:
     """Fig 3 and Fig 5 must call the same cluster "cluster 1".
 
