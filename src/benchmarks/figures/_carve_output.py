@@ -401,8 +401,8 @@ def _draw_six_panels(
 
     ``sweep_value`` makes C to F show the partition at that value of the
     swept parameter instead of the rule's selection, and marks it in A and
-    B with a dotted line, "Selected by inspection", beside the rule's dashed
-    one, which is then named after the rule alone. ``rows`` draws E and
+    B with a dotted line, "Selected after inspection", beside the rule's
+    dashed one, which is then named after the rule alone. ``rows`` draws E and
     F over a subsample, one ``embedding`` row per entry; it must include
     every cluster, since CARVE's scatters color and shape clusters by their
     position among the labels drawn.
@@ -463,7 +463,7 @@ def _draw_six_panels(
                     color=FOREGROUND_COLOR,
                     linestyle=":",
                     linewidth=REFERENCE_LINEWIDTH,
-                    label=f"Selected by inspection: {sweep_value:g}",
+                    label=f"Selected after inspection: {sweep_value:g}",
                     zorder=0,
                 )
         if resolutions is not None:
@@ -476,7 +476,7 @@ def _draw_six_panels(
         # legend on A names them for both. A's dashed line joins it when it
         # is the selection C to F show. Otherwise B names its own reference
         # lines: the selection on B's curve, or the rule's line and the
-        # value selected by inspection, which under the estimators would
+        # value selected after inspection, which under the estimators would
         # make one legend too tall for the panel.
         if sweep_value is None and measure == _MEASURE_STABILITY:
             legends = [(ax_a, _print_curve_legend(ax_a))]
@@ -761,7 +761,7 @@ def figure_carve_output_heca(
     Panels C to F show the partition at ``sweep_value``, a resolution the
     caller selects by inspecting the curves, rather than the rule's
     selection; A and B mark both, and B's legend names the first "Selected
-    by inspection" and the second after the rule alone.
+    after inspection" and the second after the rule alone.
     ``measure`` and ``rule`` pick between the settings fitted at
     ``sweep_value``. C is the anchor block, the consensus an anchored fit
     stores. D's violins take every cell's score, without CARVE's per-cell

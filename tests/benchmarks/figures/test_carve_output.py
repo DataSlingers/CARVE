@@ -1160,7 +1160,7 @@ class TestCarveOutputHeca:
         selected = float(carve.get_sweep_value(measure="generalizability"))
         assert sorted(texts["B"]) == [
             f"1-SE rule: {selected:g}",
-            f"Selected by inspection: {HECA_PIN:g}",
+            f"Selected after inspection: {HECA_PIN:g}",
         ]
         plt.close(fig)
 
@@ -1175,7 +1175,7 @@ class TestCarveOutputHeca:
             "Leiden, 20 neighbors",
         ]
         texts = [t.get_text() for t in panels["B"].get_legend().get_texts()]
-        assert f"Selected by inspection: {HECA_PIN:g}" in texts
+        assert f"Selected after inspection: {HECA_PIN:g}" in texts
         assert not any(text.startswith("Selected resolution") for text in texts)
         plt.close(fig)
 
