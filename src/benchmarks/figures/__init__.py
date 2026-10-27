@@ -30,6 +30,7 @@ from ._ablation import figure_ablation, figure_ablation_resampling
 from ._benchmarking_examples import figure_benchmarking_examples
 from ._benchmarking_results import figure_benchmarking_results
 from ._carve_output import (
+    figure_carve_output_cusanovich,
     figure_carve_output_heca,
     figure_carve_output_klein,
     figure_carve_output_levine,
@@ -77,6 +78,7 @@ __all__ = [
     "figure_ablation_resampling",
     "figure_benchmarking_examples",
     "figure_benchmarking_results",
+    "figure_carve_output_cusanovich",
     "figure_carve_output_heca",
     "figure_carve_output_klein",
     "figure_carve_output_levine",

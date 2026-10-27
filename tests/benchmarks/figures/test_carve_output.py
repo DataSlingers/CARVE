@@ -27,11 +27,14 @@ import matplotlib.text as mtext
 import numpy as np
 import pandas as pd
 import pytest
-from matplotlib.collections import PathCollection, PolyCollection
+from matplotlib.collections import LineCollection, PathCollection, PolyCollection
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
 
+from benchmarks._cusanovich_compare import CusanovichInputs, best_pipeline
 from benchmarks._estimators import resolution_grids
+from benchmarks._panels import aligned_color_maps
+from benchmarks._preprocessing import resolve_preprocessing
 from benchmarks._theme import (
     ESTIMATOR_COLORS,
     PRINT_FONT_SIZES,
@@ -39,10 +42,17 @@ from benchmarks._theme import (
     PRINT_WIDTH_IN,
     cluster_colors,
 )
-from benchmarks.figures._heca_carve import MARKER_LINEWIDTH, MARKER_SIZE
 from benchmarks.figures._carve_output import PRINT_ROW_HEIGHT_IN, _PRINT_MARKER_SCALE
-from benchmarks._types import EstimatorSpec
+from benchmarks.figures._cusanovich_results import (
+    _PRINT_MARKER_SCALE as FIG6_MARKER_SCALE,
+)
+from benchmarks.figures._cusanovich_results import (
+    _PRINT_OUTLINE_WIDTH as FIG6_OUTLINE_WIDTH,
+)
+from benchmarks.figures._cusanovich_results import MARKER_SIZE as FIG6_MARKER_SIZE
+from benchmarks._types import EstimatorSpec, PreprocessingSpec
 from benchmarks.figures import (
+    figure_carve_output_cusanovich,
     figure_carve_output_heca,
     figure_carve_output_klein,
     figure_carve_output_levine,
@@ -50,6 +60,7 @@ from benchmarks.figures import (
 from benchmarks.figures._case_study import (
     CompositeInputs,
     _align_to_reference,
+    carve_cluster_numbers,
     carve_labels_aligned,
     composite_color_maps,
     reference_codes,
@@ -907,11 +918,29 @@ def _draw_heca(anchored_leiden, **kwargs):
     return figure_carve_output_heca(
         carve,
         sweep_value=HECA_PIN,
-        resolutions=HECA_RESOLUTIONS,
         rows=rows,
         embedding=embedding,
         **kwargs,
     )
+
+
+def _points_under_legend(ax):
+    """Curve points and error-bar ends of ax that its legend box covers."""
+    ax.figure.draw_without_rendering()
+    box = ax.get_legend().get_window_extent()
+    xy = [
+        np.column_stack([line.get_xdata(), line.get_ydata()])
+        for line in ax.get_lines()
+        if line.get_transform() == ax.transData
+    ]
+    xy += [
+        np.asarray(segment)
+        for bars in ax.collections
+        if isinstance(bars, LineCollection)
+        for segment in bars.get_segments()
+    ]
+    display = ax.transData.transform(np.vstack(xy).astype(float))
+    return [tuple(p) for p in display if box.contains(*p)]
 
 
 def _vertical_line_positions(ax):
@@ -959,19 +988,44 @@ class TestCarveOutputHeca:
         assert _vertical_line_positions(ax) == {selected, HECA_PIN}
         plt.close(fig)
 
-    def test_panel_b_legend_names_each_setting_by_neighbor_count(
+    def test_draws_at_the_print_width_of_the_other_case_studies(
         self, anchored_leiden
     ):
         fig = _draw_heca(anchored_leiden)
-        legend = _panel_by_letter(fig)["B"].get_legend()
-        texts = {text.get_text() for text in legend.get_texts()}
-        assert {"Leiden, 10 neighbors", "Leiden, 20 neighbors"} <= texts
-        assert f"Shown in C to F: {HECA_PIN:g}" in texts
+        assert fig.get_figwidth() == PRINT_WIDTH_IN
+        assert fig.get_figheight() <= PRINT_MAX_HEIGHT_IN
+        for ax in fig.get_axes():
+            assert ax.title.get_fontsize() <= PRINT_FONT_SIZES["title"]
+        plt.close(fig)
+
+    def test_a_names_the_settings_and_b_its_reference_lines(self, anchored_leiden):
+        # Panels C to F show the stability measure's pick at the pin, so
+        # the estimators' legend sits on A; one legend holding the two
+        # reference lines too was taller than the panel had room for.
+        carve, _, _ = anchored_leiden
+        fig = _draw_heca(anchored_leiden)
+        panels = _panel_by_letter(fig)
+        texts = {
+            letter: [text.get_text() for text in panels[letter].get_legend().get_texts()]
+            for letter in "AB"
+        }
+        assert texts["A"] == ["Leiden, 10 neighbors", "Leiden, 20 neighbors"]
+        selected = float(carve.get_sweep_value(measure="generalizability"))
+        assert sorted(texts["B"]) == [
+            f"Selected resolution (1-SE rule): {selected:g}",
+            f"Shown in C to F: {HECA_PIN:g}",
+        ]
+        plt.close(fig)
+
+    @pytest.mark.parametrize("letter", ["A", "B"])
+    def test_no_curve_point_falls_under_a_legend(self, anchored_leiden, letter):
+        fig = _draw_heca(anchored_leiden)
+        assert not _points_under_legend(_panel_by_letter(fig)[letter])
         plt.close(fig)
 
     def test_no_text_carries_the_estimator_repr(self, anchored_leiden):
-        """CARVE's configuration note and full estimator names overflow the
-        figure at hECA's panel width; neither is drawn anywhere."""
+        """CARVE's full estimator names overflow the figure at the print
+        width; the legend and the configuration notes carry the short form."""
         fig = _draw_heca(anchored_leiden)
         texts = [t.get_text() for t in fig.findobj(mtext.Text)]
         assert not any("LeidenClustering" in text for text in texts)
@@ -998,12 +1052,19 @@ class TestCarveOutputHeca:
         assert not np.allclose(pinned, selected)
 
         fig = _draw_heca(anchored_leiden)
-        drawn = np.asarray(_panel_by_letter(fig)["C"].images[0].get_array())
+        ax_c = _panel_by_letter(fig)["C"]
+        k = np.unique(carve.get_labels(sweep_value=HECA_PIN)).size
+        assert ax_c.get_title() == (
+            f"Consensus matrix ($k={k}$, {HECA_ANCHORS} anchor cells)"
+        )
+        drawn = np.asarray(ax_c.images[0].get_array())
         assert drawn.shape == (HECA_ANCHORS, HECA_ANCHORS)
         assert np.allclose(np.sort(drawn.ravel()), pinned)
         plt.close(fig)
 
-    def test_violins_cover_the_pinned_clusters_without_dots(self, anchored_leiden):
+    def test_violins_cover_the_pinned_clusters_without_dots_or_note(
+        self, anchored_leiden
+    ):
         carve, _, _ = anchored_leiden
         fig = _draw_heca(anchored_leiden)
         ax_d = _panel_by_letter(fig)["D"]
@@ -1011,6 +1072,8 @@ class TestCarveOutputHeca:
         n_clusters = np.unique(carve.get_labels(sweep_value=HECA_PIN)).size
         assert len(bodies) == n_clusters
         assert not any(isinstance(c, PathCollection) for c in ax_d.collections)
+        texts = [t.get_text() for t in ax_d.findobj(mtext.Text)]
+        assert not any("Leiden" in text for text in texts)
         plt.close(fig)
 
     def test_panel_e_draws_the_subsample_in_its_pinned_cluster_colors(
@@ -1069,17 +1132,22 @@ class TestCarveOutputHeca:
         assert any(ax.get_label() == "<colorbar>" for ax in fig.get_axes())
         plt.close(fig)
 
-    @pytest.mark.parametrize("letter", ["E", "F"])
-    def test_scatter_outlines_take_the_hECA_linewidth(self, anchored_leiden, letter):
+    @pytest.mark.parametrize(
+        ("letter", "width"), [("E", FIG6_OUTLINE_WIDTH), ("F", 0.05)]
+    )
+    def test_scatter_outlines_take_the_cusanovich_widths(
+        self, anchored_leiden, letter, width
+    ):
         fig = _draw_heca(anchored_leiden)
         ax = _panel_by_letter(fig)[letter]
         points = [c for c in ax.collections if isinstance(c, PathCollection)]
         assert points
         for collection in points:
-            assert np.allclose(collection.get_linewidths(), MARKER_LINEWIDTH)
+            assert np.allclose(collection.get_linewidths(), width)
         plt.close(fig)
 
-    def test_scatter_markers_take_the_hECA_size(self, anchored_leiden):
+    def test_scatter_markers_take_fig_6_s_printed_area(self, anchored_leiden):
+        size = FIG6_MARKER_SIZE * FIG6_MARKER_SCALE
         fig = _draw_heca(anchored_leiden)
         panels = _panel_by_letter(fig)
         (points_e,) = [
@@ -1087,11 +1155,11 @@ class TestCarveOutputHeca:
         ]
         # A cell the toy fit never co-sampled has a NaN score and a NaN size.
         sizes_e = points_e.get_sizes()
-        assert np.nanmin(sizes_e) == pytest.approx(MARKER_SIZE * 0.75)
-        assert np.nanmax(sizes_e) == pytest.approx(MARKER_SIZE * 3.0)
+        assert np.nanmin(sizes_e) == pytest.approx(size * 0.75)
+        assert np.nanmax(sizes_e) == pytest.approx(size * 3.0)
         for collection in panels["F"].collections:
             if isinstance(collection, PathCollection) and len(collection.get_offsets()):
-                assert np.allclose(collection.get_sizes(), MARKER_SIZE)
+                assert np.allclose(collection.get_sizes(), size)
         plt.close(fig)
 
     def test_scatter_row_is_taller_and_rows_a_to_d_keep_their_size(
@@ -1104,9 +1172,9 @@ class TestCarveOutputHeca:
             .get_topmost_subplotspec()
             .get_gridspec()
         )
-        assert tuple(gs.get_height_ratios()) == (1.0, 1.0, 1.4)
-        # Each of rows A-B and C-D stays 14/3 inches; row E-F gets 1.4 of one.
-        assert fig.get_size_inches()[1] == pytest.approx(14.0 / 3 * 3.4)
+        assert tuple(gs.get_height_ratios()) == (1.0, 1.0, 1.6)
+        # Rows A-B and C-D keep PRINT_ROW_HEIGHT_IN; row E-F gets 1.6 of one.
+        assert fig.get_size_inches()[1] == pytest.approx(PRINT_ROW_HEIGHT_IN * 3.6)
         plt.close(fig)
 
     def test_a_subsample_missing_a_cluster_is_refused(self, anchored_leiden):
@@ -1120,9 +1188,176 @@ class TestCarveOutputHeca:
             figure_carve_output_heca(
                 carve,
                 sweep_value=HECA_PIN,
-                resolutions=HECA_RESOLUTIONS,
                 rows=rows[keep],
                 embedding=embedding[keep],
                 save=False,
             )
 
+
+
+# The Cusanovich fit sweeps one Louvain setting over resolution with
+# randomized preprocessing and an anchored consensus. The fixture is shaped
+# the same way at toy size: four blobs, two pipelines, two resolutions, 60
+# anchors. The reported labels split two of the blobs, so there are more of
+# them than CARVE has clusters and CARVE keeps its own ids, as it does on
+# the 30 source clusters. They are named against the blobs' order, and the
+# fit is not given them, so CARVE's own ids run in a different order from
+# the aligned ones.
+CUSANOVICH_ANCHORS = 60
+
+
+@pytest.fixture(scope="module")
+def cusanovich_inputs():
+    rng = np.random.default_rng(0)
+    centers = rng.normal(scale=8.0, size=(4, 6))
+    members = np.repeat(np.arange(4), 40)
+    X = centers[members] + rng.normal(scale=0.5, size=(160, 6))
+    y = np.array(["c", "d", "f", "e", "b", "a"])[
+        np.concatenate([np.repeat([0, 1, 2, 3], 20), np.repeat([4, 5], 40)])
+    ]
+    spec = PreprocessingSpec(
+        normalization=(("identity", {}),),
+        dim_reduction=(("identity", {}), ("pca", {"n_components": [3]})),
+    )
+    with pytest.warns(RuntimeWarning, match="anchored consensus"):
+        carve = CARVE(
+            estimator_param_grids=resolution_grids(
+                EstimatorSpec(name="louvain"), (0.1, 0.5)
+            ),
+            n_resamples=6,
+            n_trees=20,
+            random_state=0,
+            consensus_anchors=CUSANOVICH_ANCHORS,
+            **resolve_preprocessing(spec),
+        )
+        carve.fit(X, randomize_preprocessing=True)
+    labels = carve.get_labels(measure="stability", rule="1se")
+    row, _ = best_pipeline(carve)
+    return CusanovichInputs(
+        X=X,
+        y=y,
+        carve=carve,
+        carve_labels=_align_to_reference(labels, y),
+        map_coordinates=X[:, :2],
+        map_name="t-SNE, perplexity 100",
+        map_axis_labels=("t-SNE 1", "t-SNE 2"),
+        best_pipeline_row=row,
+        operating_point=(0.5, 4.0),
+    )
+
+
+class TestCarveOutputCusanovich:
+    def test_fixture_keeps_carve_s_own_ids_in_another_order(self, cusanovich_inputs):
+        # Fewer clusters than reported labels, and CARVE numbers them in an
+        # order other than the aligned ids', so the color test below can
+        # tell a map in CARVE's order from one in the aligned order.
+        inputs = cusanovich_inputs
+        assert np.unique(inputs.carve_labels).size < np.unique(inputs.y).size
+        numbers = carve_cluster_numbers(inputs)
+        assert sorted(numbers, key=numbers.get) != sorted(numbers)
+
+    def test_saves_under_its_own_filename_and_no_plos_file(
+        self, cusanovich_inputs, tmp_path
+    ):
+        fig = figure_carve_output_cusanovich(
+            cusanovich_inputs, save=True, out_dir=tmp_path
+        )
+        assert [p.name for p in tmp_path.iterdir()] == ["CARVE_output_cusanovich.png"]
+        plt.close(fig)
+
+    def test_save_false_writes_nothing(self, cusanovich_inputs, tmp_path):
+        fig = figure_carve_output_cusanovich(
+            cusanovich_inputs, save=False, out_dir=tmp_path
+        )
+        assert list(tmp_path.iterdir()) == []
+        plt.close(fig)
+
+    def test_draws_six_lettered_panels_at_the_print_width(self, cusanovich_inputs):
+        fig = figure_carve_output_cusanovich(cusanovich_inputs, save=False)
+        assert set(_panel_by_letter(fig)) == set("ABCDEF")
+        assert fig.get_figwidth() == PRINT_WIDTH_IN
+        assert fig.get_figheight() <= PRINT_MAX_HEIGHT_IN
+        plt.close(fig)
+
+    @pytest.mark.parametrize(
+        ("letter", "column"), [("A", "ari_stability"), ("B", "ari_generalizability")]
+    )
+    def test_curves_are_pooled_over_pipelines_on_a_log_axis(
+        self, cusanovich_inputs, letter, column
+    ):
+        # One line, the estimator's pooled scores; Fig 6 (D) draws the
+        # pipelines.
+        results = cusanovich_inputs.carve.estimator_results_.sort_values("sweep_value")
+        fig = figure_carve_output_cusanovich(cusanovich_inputs, save=False)
+        ax = _panel_by_letter(fig)[letter]
+        assert ax.get_xscale() == "log"
+        curves = [line for line in ax.get_lines() if line.get_marker() == "o"]
+        assert len(curves) == 1
+        assert _line_matching(ax, results[column], results["sweep_value"])
+        plt.close(fig)
+
+    def test_consensus_panel_names_k_and_the_anchor_block(self, cusanovich_inputs):
+        inputs = cusanovich_inputs
+        k = np.unique(inputs.carve_labels).size
+        fig = figure_carve_output_cusanovich(inputs, save=False)
+        ax_c = _panel_by_letter(fig)["C"]
+        assert ax_c.get_title() == (
+            f"Consensus matrix ($k={k}$, {CUSANOVICH_ANCHORS} anchor cells)"
+        )
+        assert ax_c.images[0].get_array().shape == (
+            CUSANOVICH_ANCHORS,
+            CUSANOVICH_ANCHORS,
+        )
+        plt.close(fig)
+
+    def test_violins_cover_every_cluster_without_dots_or_note(
+        self, cusanovich_inputs
+    ):
+        fig = figure_carve_output_cusanovich(cusanovich_inputs, save=False)
+        ax_d = _panel_by_letter(fig)["D"]
+        bodies = [c for c in ax_d.collections if isinstance(c, PolyCollection)]
+        assert len(bodies) == np.unique(cusanovich_inputs.carve_labels).size
+        assert not any(isinstance(c, PathCollection) for c in ax_d.collections)
+        texts = [t.get_text() for t in ax_d.findobj(mtext.Text)]
+        assert not any("Louvain" in text for text in texts)
+        plt.close(fig)
+
+    def test_e_draws_every_cell_in_its_fig_6_color(self, cusanovich_inputs):
+        """Each cell takes the color Fig 6 (A) gives its cluster: the color of
+        the source cluster it matches, with matched clusters first."""
+        inputs = cusanovich_inputs
+        _, fig6_colors = aligned_color_maps(
+            inputs.y, inputs.carve_labels, matched_first=True
+        )
+        fig = figure_carve_output_cusanovich(inputs, save=False)
+        points = _panel_by_letter(fig)["E"].collections[0]
+        cell_at = {tuple(xy): i for i, xy in enumerate(inputs.map_coordinates.tolist())}
+        cells = [cell_at[tuple(xy)] for xy in points.get_offsets().tolist()]
+        assert sorted(cells) == list(range(len(inputs.y)))
+        expected = [mcolors.to_rgb(fig6_colors[int(inputs.carve_labels[i])]) for i in cells]
+        np.testing.assert_allclose(points.get_facecolors()[:, :3], expected)
+        plt.close(fig)
+
+    def test_scatters_take_fig_6_s_marker_area_and_outlines(self, cusanovich_inputs):
+        fig = figure_carve_output_cusanovich(cusanovich_inputs, save=False)
+        panels = _panel_by_letter(fig)
+        fig6_area = FIG6_MARKER_SIZE * FIG6_MARKER_SCALE
+        (points_e,) = [
+            c for c in panels["E"].collections if isinstance(c, PathCollection)
+        ]
+        # Every toy cell scores alike, so E draws them all at the middle of
+        # its size range.
+        np.testing.assert_allclose(
+            points_e.get_sizes(), (fig6_area * 0.75 + fig6_area * 3.0) / 2
+        )
+        np.testing.assert_allclose(points_e.get_linewidths(), FIG6_OUTLINE_WIDTH)
+        points_f = [
+            c for c in panels["F"].collections if isinstance(c, PathCollection)
+        ]
+        np.testing.assert_allclose(
+            np.concatenate([c.get_sizes() for c in points_f]), fig6_area
+        )
+        np.testing.assert_allclose(
+            np.concatenate([c.get_linewidths() for c in points_f]), 0.05
+        )
+        plt.close(fig)

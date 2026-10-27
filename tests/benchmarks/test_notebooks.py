@@ -245,7 +245,6 @@ def test_cusanovich_notebook_reads_its_config_from_studies():
     [
         "cvi_sweep",
         "study_model_grids",
-        "figure_carve_output_cusanovich",
         "prepare_composite",
     ],
 )
@@ -254,6 +253,12 @@ def test_cusanovich_notebook_no_longer_runs_the_k_based_comparison(retired):
     # study with the move to randomized preprocessing (case-study spec,
     # section 6).
     assert retired not in _code(NOTEBOOKS["cusanovich"])
+
+
+def test_cusanovich_notebook_draws_carve_s_output_from_its_own_inputs():
+    # The six-panel CARVE output came back on the randomized fit's
+    # CusanovichInputs, not on CompositeInputs.
+    assert "figure_carve_output_cusanovich(inputs" in _code(NOTEBOOKS["cusanovich"])
 
 
 def test_heca_notebook_reads_its_config_from_studies():

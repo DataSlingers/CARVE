@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -42,6 +42,9 @@ from .._theme import (
 from .._types import EstimatorSpec
 from ._heca_carve import resolution_axis
 from ._paths import CASE_STUDY_DIR, figure_path, plos_figure_path
+
+if TYPE_CHECKING:
+    from .._cusanovich_compare import CusanovichInputs
 
 # The composite is drawn square at the print width. Its curves are drawn at
 # a width that suits a figure twice that size, so at print they take this
@@ -211,14 +214,17 @@ def composite_color_maps(
     return true_cmap, carve_cmap, comparison_cmap
 
 
-def carve_cluster_numbers(inputs: CompositeInputs) -> dict[int, int]:
+def carve_cluster_numbers(
+    inputs: "CompositeInputs | CusanovichInputs",
+) -> dict[int, int]:
     """The number CARVE's own figure prints for each id in inputs.carve_labels.
 
     carve_output_figure draws CARVE's own labels inside carve_labels_aligned
     and numbers each cluster by its id plus one. When the selected k differs
     from the number of reported labels, as on Levine, those ids are CARVE's
     own and not the aligned ids the composite colors by, so the two
-    labelings are matched through the cells they share.
+    labelings are matched through the cells they share. The Cusanovich
+    inputs carry the same fields and are matched the same way.
     """
     with carve_labels_aligned(inputs.carve, inputs.y):
         own = np.asarray(
@@ -252,10 +258,18 @@ def carve_output_cmap(inputs: CompositeInputs) -> ListedColormap:
     are the aligned ones, as on Klein, this is the palette's first k colors.
     """
     _, carve_cmap, _ = composite_color_maps(inputs)
-    color_of = {
-        number: carve_cmap[aligned_id]
-        for aligned_id, number in carve_cluster_numbers(inputs).items()
-    }
+    return carve_order_cmap(carve_cmap, carve_cluster_numbers(inputs))
+
+
+def carve_order_cmap(
+    colors: Mapping[int, str], numbers: Mapping[int, int]
+) -> ListedColormap:
+    """Colors keyed by aligned id, as the map CARVE's own panels index.
+
+    ``numbers`` is carve_cluster_numbers' result. Entry j of the map is the
+    color of the aligned id CARVE numbers j + 1.
+    """
+    color_of = {number: colors[aligned_id] for aligned_id, number in numbers.items()}
     return ListedColormap([color_of[number] for number in sorted(color_of)])
 
 
