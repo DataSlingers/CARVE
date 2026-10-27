@@ -66,6 +66,12 @@ METRIC_COLORS: dict[str, str] = {
     # and pipeline palettes must stay disjoint. RCSI is neither a CARVE
     # criterion nor a geometric CVI and must not be mistaken for either.
     "m3c_rcsi": "#332288",
+    # SC3's Tracy-Widom selection, in tab10 brown. The same hex is
+    # PIPELINE_COLORS[3], which only the Cusanovich figure draws; SC3 appears
+    # only in the Klein and Levine comparison figures, so the two never share
+    # a figure. test_no_pipeline_color_is_a_criterion_color allows this one
+    # overlap by value.
+    "sc3": "#8C564B",
     # Grey, not black: the published figures (Fig 4, S2 Fig) draw the oracle
     # reference as a grey dashed line, distinct from the black axis text and
     # spines it would otherwise be confused with.

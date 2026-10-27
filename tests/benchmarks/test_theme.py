@@ -284,10 +284,18 @@ class TestPipelinePalette:
         with a five-color CVD check is the fix if the ambiguity ever
         matters. Anything past this one entry overlapping would still be a
         bug.
+
+        SC3's tab10 brown (#8C564B) is the second allowed overlap. It is
+        PIPELINE_COLORS[3], which only the Cusanovich figure draws, and SC3
+        appears only in the Klein and Levine comparison figures, so the two
+        never share a figure.
         """
         pipeline = {color.lower() for color in PIPELINE_COLORS}
         metric = {color.lower() for color in METRIC_COLORS.values()}
-        assert pipeline & metric <= {"#0072b2"}
+        assert pipeline & metric <= {"#0072b2", "#8c564b"}
+
+    def test_sc3_is_tab10_brown(self):
+        assert METRIC_COLORS["sc3"] == "#8C564B"
 
     def test_the_two_criteria_have_their_own_line_styles(self):
         assert MEASURE_LINESTYLES == {"stability": "-", "generalizability": "--"}

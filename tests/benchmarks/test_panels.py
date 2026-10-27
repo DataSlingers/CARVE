@@ -67,6 +67,7 @@ AX_FIRST_FUNCTIONS = (
     "pipeline_lines",
     "cvi_lines",
     "m3c_lines",
+    "sc3_spectrum",
     "alluvial",
     "ari_lollipop",
     "runtime_lines",
@@ -1532,6 +1533,80 @@ def _selection_frame():
                     }
                 )
     return pd.DataFrame(rows)
+
+
+class TestSC3Spectrum:
+    @pytest.fixture
+    def spectrum(self):
+        return pd.DataFrame(
+            {
+                "index": np.arange(1, 9),
+                "eigenvalue": [1000.0, 500.0, 200.0, 50.0, 20.0, 10.0, 5.0, 1e-12],
+            }
+        )
+
+    @staticmethod
+    def _points(ax, label):
+        return next(c for c in ax.collections if c.get_label() == label).get_offsets()
+
+    def test_fills_exactly_the_points_above_the_bound(self, ax, spectrum):
+        from benchmarks._panels import sc3_spectrum
+
+        sc3_spectrum(ax, spectrum, bound=100.0, k=3)
+        assert len(self._points(ax, "Above the bound")) == 3
+
+    def test_draws_the_rest_hollow_and_leaves_out_numerical_zeros(self, ax, spectrum):
+        from benchmarks._panels import sc3_spectrum
+
+        sc3_spectrum(ax, spectrum, bound=100.0, k=3)
+        assert len(self._points(ax, "Below the bound")) == 4
+
+    def test_dashes_the_bound(self, ax, spectrum):
+        from benchmarks._panels import sc3_spectrum
+
+        sc3_spectrum(ax, spectrum, bound=100.0, k=3)
+        dashed = [line for line in ax.lines if line.get_linestyle() == "--"]
+        assert [line.get_ydata()[0] for line in dashed] == [100.0]
+
+    def test_uses_a_log_scale(self, ax, spectrum):
+        from benchmarks._panels import sc3_spectrum
+
+        sc3_spectrum(ax, spectrum, bound=100.0, k=3)
+        assert ax.get_yscale() == "log"
+
+    def test_names_k_in_the_annotation(self, ax, spectrum):
+        from benchmarks._panels import sc3_spectrum
+
+        sc3_spectrum(ax, spectrum, bound=100.0, k=3)
+        assert any("k = 3" in text.get_text() for text in ax.texts)
+
+    def test_colors_the_counted_points_in_sc3_s_color(self, ax, spectrum):
+        from benchmarks._panels import sc3_spectrum
+        from benchmarks._theme import METRIC_COLORS
+
+        sc3_spectrum(ax, spectrum, bound=100.0, k=3)
+        above = next(c for c in ax.collections if c.get_label() == "Above the bound")
+        np.testing.assert_allclose(
+            above.get_facecolor()[0], mcolors.to_rgba(METRIC_COLORS["sc3"])
+        )
+
+    def test_draws_the_leading_three_k_eigenvalues(self, ax):
+        from benchmarks._panels import sc3_spectrum
+
+        spectrum = pd.DataFrame(
+            {"index": np.arange(1, 101), "eigenvalue": np.geomspace(1e5, 1.0, 100)}
+        )
+        sc3_spectrum(ax, spectrum, bound=1e4, k=21)
+        assert sum(len(c.get_offsets()) for c in ax.collections) == 63
+
+    def test_draws_at_least_thirty_eigenvalues(self, ax):
+        from benchmarks._panels import sc3_spectrum
+
+        spectrum = pd.DataFrame(
+            {"index": np.arange(1, 101), "eigenvalue": np.geomspace(1e5, 1.0, 100)}
+        )
+        sc3_spectrum(ax, spectrum, bound=1e4, k=2)
+        assert sum(len(c.get_offsets()) for c in ax.collections) == 30
 
 
 class TestKHatHeatmap:

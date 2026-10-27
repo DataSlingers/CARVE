@@ -1065,6 +1065,86 @@ def m3c_lines(
     return style_axes(ax)
 
 
+#: Eigenvalues below this fraction of the largest are numerically zero: the
+#: cell-by-cell matrix SC3 thresholds has rank at most its feature count, so
+#: Levine's 32 markers leave every eigenvalue past the 31st at round-off.
+_SPECTRUM_FLOOR = 1e-8
+
+
+def sc3_spectrum(
+    ax: Axes,
+    spectrum: pd.DataFrame,
+    *,
+    bound: float,
+    k: int,
+    title: str | None = None,
+) -> Axes:
+    """Plot the eigenvalues SC3's Tracy-Widom estimate counts, and the bound.
+
+    sc3_estimate_k counts the eigenvalues that lie above the bound; that count
+    is SC3's k. They are drawn on a log scale, filled above the bound and
+    hollow below it, with the bound dashed, so the reader sees the k points
+    SC3 counted. Numerically zero eigenvalues are left out, and of the rest
+    the leading max(3k, 30) are drawn.
+    """
+    ordered = spectrum.sort_values("index")
+    index = ordered["index"].to_numpy()
+    values = ordered["eigenvalue"].to_numpy(dtype=float)
+    keep = values > values.max() * _SPECTRUM_FLOOR
+    n_shown = max(3 * int(k), 30)
+    index, values = index[keep][:n_shown], values[keep][:n_shown]
+    above = values > bound
+    color = metric_color("sc3")
+
+    ax.scatter(
+        index[above],
+        values[above],
+        s=18,
+        color=color,
+        zorder=3,
+        label="Above the bound",
+    )
+    ax.scatter(
+        index[~above],
+        values[~above],
+        s=18,
+        facecolors="none",
+        edgecolors=FALLBACK_COLOR,
+        linewidths=0.8,
+        zorder=3,
+        label="Below the bound",
+    )
+    ax.axhline(
+        bound,
+        color=color,
+        linestyle="--",
+        linewidth=1.0,
+        alpha=0.7,
+        label="Tracy-Widom bound",
+    )
+    ax.set_yscale("log")
+    ax.annotate(
+        f"k = {int(k)} eigenvalues above the bound",
+        xy=(0.97, 0.95),
+        xycoords="axes fraction",
+        ha="right",
+        va="top",
+        fontsize=FONT_SIZES["legend"],
+        color=FOREGROUND_COLOR,
+    )
+    ax.set_xlabel("Eigenvalue index", fontsize=FONT_SIZES["axis_label"])
+    ax.set_ylabel("Eigenvalue", fontsize=FONT_SIZES["axis_label"])
+    if title:
+        ax.set_title(title, fontsize=FONT_SIZES["title"])
+    ax.legend(
+        fontsize=FONT_SIZES["legend"],
+        frameon=False,
+        loc="upper right",
+        bbox_to_anchor=(1.0, 0.88),
+    )
+    return style_axes(ax)
+
+
 def _stack_segments(
     sizes: Sequence[int], gap_frac: float = 0.015
 ) -> list[tuple[float, float]]:
