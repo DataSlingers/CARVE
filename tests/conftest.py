@@ -21,25 +21,27 @@ _HAS_GRAPH = all(
 )
 
 
-def _has_r_m3c() -> bool:
-    """True when rpy2 imports and the R package M3C is installed.
+def _has_r_package(name: str) -> bool:
+    """True when rpy2 imports and the named R package is installed.
 
     Both halves are checked because they fail independently: the benchmarks
     CI job has neither, a developer machine may have rpy2 from the
-    [notebooks] extra without ever running `make m3c-setup`, and importing
-    rpy2 without a working R raises rather than returning False.
+    [notebooks] extra without ever running `make m3c-setup` or
+    `make sc3-setup`, and importing rpy2 without a working R raises rather
+    than returning False.
     """
     if importlib.util.find_spec("rpy2") is None:
         return False
     try:
         import rpy2.robjects as ro
 
-        return bool(ro.r('isTRUE(requireNamespace("M3C", quietly=TRUE))')[0])
+        return bool(ro.r(f'isTRUE(requireNamespace("{name}", quietly=TRUE))')[0])
     except Exception:
         return False
 
 
-_HAS_R_M3C = _has_r_m3c()
+_HAS_R_M3C = _has_r_package("M3C")
+_HAS_R_SC3 = _has_r_package("SC3")
 
 
 def pytest_collection_modifyitems(config, items):
@@ -51,6 +53,10 @@ def pytest_collection_modifyitems(config, items):
     if not _HAS_R_M3C:
         skips["requires_r"] = pytest.mark.skip(
             reason="requires rpy2 and the R package M3C (make m3c-setup)"
+        )
+    if not _HAS_R_SC3:
+        skips["requires_sc3"] = pytest.mark.skip(
+            reason="requires rpy2 and the R package SC3 (make sc3-setup)"
         )
     if not skips:
         return

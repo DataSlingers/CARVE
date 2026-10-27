@@ -6,6 +6,10 @@ r-setup:
 m3c-setup:
 	Rscript -e "if (!requireNamespace('BiocManager', quietly=TRUE)) install.packages('BiocManager', repos='https://cran.rstudio.com/'); BiocManager::install('M3C', ask=FALSE, update=FALSE)"
 
+.PHONY: sc3-setup
+sc3-setup:
+	Rscript -e "if (!requireNamespace('BiocManager', quietly=TRUE)) install.packages('BiocManager', repos='https://cran.rstudio.com/'); BiocManager::install('SC3', ask=FALSE, update=FALSE)"
+
 .PHONY: levine-setup
 levine-setup:
 	Rscript -e "if (!requireNamespace('BiocManager', quietly=TRUE)) install.packages('BiocManager', repos='https://cran.rstudio.com/'); BiocManager::install('HDCytoData', ask=FALSE, update=FALSE)"

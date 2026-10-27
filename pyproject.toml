@@ -126,6 +126,7 @@ filterwarnings = [
 markers = [
   "requires_graph: needs the [graph] extra (igraph + leidenalg); skipped without it",
   "requires_r: needs rpy2 and the R package M3C; skipped without them",
+  "requires_sc3: needs rpy2 and the R package SC3; skipped without them",
 ]
 
 [tool.coverage.run]
