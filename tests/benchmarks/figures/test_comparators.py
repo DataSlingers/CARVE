@@ -146,8 +146,25 @@ class TestAriRows:
         with pytest.raises(ValueError, match="every cell"):
             sc3_ari_rows(inputs, short)
 
+    def test_m3c_refuses_labels_that_do_not_match_the_recorded_rows(self, inputs, subsampled):
+        wrong = dataclasses.replace(subsampled, rows=subsampled.rows[:-1])
+        with pytest.raises(ValueError, match="rows"):
+            m3c_ari_rows(inputs, wrong)
+
 
 class TestFigure:
+    def test_panel_letters_e_and_a_share_one_figure_x(self, inputs, m3c_result, sc3_result):
+        fig = _draw(inputs, m3c_result, sc3_result)
+
+        def letter_fig_x(ax, letter):
+            text = next(t for t in ax.texts if t.get_text() == letter)
+            pos = ax.get_position()
+            return pos.x0 + text.get_position()[0] * pos.width
+
+        assert letter_fig_x(fig.axes[4], "E") == pytest.approx(
+            letter_fig_x(fig.axes[0], "A"), abs=1e-6
+        )
+
     def test_returns_a_figure_with_five_panels(self, inputs, m3c_result, sc3_result):
         fig = _draw(inputs, m3c_result, sc3_result)
         assert isinstance(fig, Figure)

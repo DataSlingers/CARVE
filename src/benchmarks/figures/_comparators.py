@@ -23,6 +23,7 @@ from sklearn.metrics import adjusted_rand_score
 
 from .._m3c import M3CResult
 from .._panels import (
+    PANEL_LETTER_X,
     aligned_color_maps,
     ari_lollipop,
     axis_arrows,
@@ -203,8 +204,13 @@ def figure_comparators(
         for ax in fig.get_axes():
             print_axes_text(ax)
             print_free_text(ax)
+        # E's axes start further right than A's, so its letter is placed at
+        # A's figure x rather than at the same fraction of its own width.
+        pos_a, pos_e = ax_a.get_position(), ax_e.get_position()
+        letter_x = pos_a.x0 + PANEL_LETTER_X * pos_a.width
         for letter, ax in zip("ABCDE", (ax_a, ax_b, ax_c, ax_d, ax_e)):
-            panel_letter(ax, letter, fontsize=PRINT_FONT_SIZES["panel_letter"])
+            x = (letter_x - pos_e.x0) / pos_e.width if ax is ax_e else PANEL_LETTER_X
+            panel_letter(ax, letter, x=x, fontsize=PRINT_FONT_SIZES["panel_letter"])
 
         # Saved inside the theme so savefig.pad_inches is the print theme's;
         # outside it the default padding widens the file past PRINT_WIDTH_IN.

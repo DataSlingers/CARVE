@@ -62,7 +62,10 @@ class SC3Result:
 
     labels are in the row order of the X that was passed. spectrum holds
     every eigenvalue sc3_estimate_k thresholds, largest first, with a 1-based
-    index; k of them lie above bound.
+    index; k of them lie above bound. runtime_s includes the bridge's own
+    values-only recomputation of the spectrum after SC3's steps, which takes
+    about as long as SC3's own estimate step (0.2 min on Klein, 0.5 min on
+    Levine).
     """
 
     labels: np.ndarray
@@ -339,7 +342,7 @@ def run_sc3(
         SC3's worker count; None is SC3's own default (all cores but one).
         It stays out of the cache key because SC3 draws its random numbers
         through doRNG, which assigns one stream per task rather than per
-        worker. TestRunLive checks that 2 and 3 cores agree on one fixture;
+        worker. TestSeedAndCores checks that 2 and 3 cores agree on one fixture;
         it does not prove the invariance in general.
     allow_install : bool, default=False
         Installing an R package is a side effect on the user's machine, so it
@@ -349,6 +352,12 @@ def run_sc3(
         process's messages are suppressed and file descriptors 1 and 2 are
         redirected to os.devnull while SC3 runs, which also silences its
         worker processes.
+
+    Notes
+    -----
+    The returned runtime_s covers the whole R call, including the values-only
+    eigen() recomputation of the spectrum after SC3's steps. That takes about
+    as long as SC3's own estimate step (0.2 min on Klein, 0.5 min on Levine).
     """
     X = check_input(X, gene_filter=gene_filter)
     if not _sc3_is_installed():
@@ -435,7 +444,8 @@ def run_sc3(
         raise RuntimeError(
             f"SC3's Tracy-Widom bound is {bound:.6f}, but the formula restated in "
             f"tracy_widom_bound gives {expected_bound:.6f} for {n_features_used} "
-            f"features and {n_cells} cells. SC3:::estkTW has changed."
+            f"features and {n_cells} cells. The bridge's R restatement and "
+            "tracy_widom_bound disagree."
         )
     labels = align_labels(raw_labels, names_from_r, cells, k=k)
     spectrum = pd.DataFrame(

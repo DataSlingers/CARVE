@@ -288,15 +288,14 @@ def ari_table(
 ) -> pd.DataFrame:
     """ARI of each selection against the reported labels.
 
-    Shared by the Levine and hECA figures, whose panel F is this table
-    rendered as a lollipop chart rather than an alluvial -- the ARI table is
-    the number both case studies exist to report, so a fix to one must reach
-    both rather than living in two copies that can drift apart.
+    Shared by the Levine figure (through ari_panel, where it is the bottom
+    panel's lollipop chart) and by figure_comparators, so a fix to the table
+    reaches both rather than living in two copies that can drift apart.
 
     extra_rows appends comparators that do not come out of best_df, which is
     the CVI sweep's own output and has no room for a tool that is not a CVI.
-    figure_comparators passes one M3C row and one SC3 row here. Levine and hECA pass
-    nothing and are unaffected.
+    figure_comparators passes one M3C row and one SC3 row here; ari_panel
+    passes none.
     """
     rows = [
         {
