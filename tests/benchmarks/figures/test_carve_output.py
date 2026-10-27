@@ -41,6 +41,7 @@ from benchmarks._theme import (
     PRINT_MAX_HEIGHT_IN,
     PRINT_WIDTH_IN,
     cluster_colors,
+    print_theme_context,
 )
 from benchmarks.figures._carve_output import PRINT_ROW_HEIGHT_IN, _PRINT_MARKER_SCALE
 from benchmarks.figures._cusanovich_results import (
@@ -286,14 +287,35 @@ class TestCarveOutputFigures:
         assert drawn == {color.lower() for color in ESTIMATOR_COLORS}
         plt.close(fig)
 
+    @pytest.mark.parametrize("measure", ["stability", "generalizability"])
+    def test_the_estimator_legend_sits_in_a_s_lower_left_corner(
+        self, inputs, measure
+    ):
+        inputs = dataclasses.replace(
+            inputs,
+            measure=measure,
+            carve_labels=np.asarray(inputs.carve.get_labels(measure=measure, rule="1se")),
+        )
+        fig = figure_carve_output_klein(inputs, save=False)
+        panel_a = _panel_by_letter(fig)["A"]
+        legend = panel_a.get_legend()
+        assert legend.get_title().get_text() == "Estimators"
+        texts = [text.get_text() for text in legend.get_texts()]
+        assert {"KMeans", "Ward agglomerative"} <= set(texts)
+        fig.canvas.draw()
+        box = legend.get_window_extent().transformed(panel_a.transAxes.inverted())
+        assert box.x0 < 0.1 and box.y0 < 0.1
+        assert box.x1 < 1.0 and box.y1 < 1.0
+        plt.close(fig)
+
     @pytest.mark.parametrize(
         ("measure", "letter", "other"),
         [("stability", "A", "B"), ("generalizability", "B", "A")],
     )
-    def test_the_estimator_legend_sits_on_the_curve_of_the_measure_shown(
+    def test_the_selection_is_named_on_the_curve_of_the_measure_shown(
         self, inputs, measure, letter, other
     ):
-        # Its dashed-line entry names the selection panels C to F show; at
+        # The dashed-line entry names the selection panels C to F show; at
         # this seed the two measures select different k.
         inputs = dataclasses.replace(
             inputs,
@@ -303,17 +325,11 @@ class TestCarveOutputFigures:
         selected_k = int(inputs.carve.get_k(measure=measure, rule="1se"))
         fig = figure_carve_output_klein(inputs, save=False)
         panels = _panel_by_letter(fig)
-        assert panels[other].get_legend() is None
-        legend = panels[letter].get_legend()
-        assert legend is not None
-        texts = [text.get_text() for text in legend.get_texts()]
-        assert f"Selected k (1-SE rule): {selected_k}" in texts
-        fig.canvas.draw()
-        box = legend.get_window_extent().transformed(
-            panels[letter].transAxes.inverted()
-        )
-        assert box.x0 < 0.1 and box.y0 < 0.1
-        assert box.x1 < 1.0 and box.y1 < 1.0
+        entry = f"Selected k (1-SE rule): {selected_k}"
+        assert entry in [text.get_text() for text in panels[letter].get_legend().get_texts()]
+        if panels[other].get_legend() is not None:
+            other_texts = [text.get_text() for text in panels[other].get_legend().get_texts()]
+            assert not any(text.startswith("Selected") for text in other_texts)
         plt.close(fig)
 
     def test_panel_a_is_stability_and_panel_b_is_generalizability(self, inputs):
@@ -739,6 +755,55 @@ class TestConsensusPanelAndSpacing:
         assert gutter == pytest.approx(0.2, abs=0.05)
         plt.close(fig)
 
+    def test_scatter_titles_sit_closer_under_c_and_d(self, inputs, draw):
+        fig = draw(inputs, save=False)
+        assert _scatter_row_gap(fig) == pytest.approx(0.15, abs=0.01)
+        plt.close(fig)
+
+    def test_scatter_letters_rise_as_far_above_their_axes_as_d_s(self, inputs, draw):
+        fig = draw(inputs, save=False)
+        fig.draw_without_rendering()
+        panels = _panel_by_letter(fig)
+        rises = {
+            letter: _letter_top(fig, panels[letter])
+            - _inches(fig, panels[letter].get_window_extent()).y1
+            for letter in "DEF"
+        }
+        assert rises["E"] == pytest.approx(rises["D"], abs=0.01)
+        assert rises["F"] == pytest.approx(rises["D"], abs=0.01)
+        plt.close(fig)
+
+    def test_c_s_letter_is_level_with_d_s(self, inputs, draw):
+        fig = draw(inputs, save=False)
+        fig.draw_without_rendering()
+        panels = _panel_by_letter(fig)
+        assert _letter_top(fig, panels["C"]) == pytest.approx(
+            _letter_top(fig, panels["D"]), abs=0.005
+        )
+        plt.close(fig)
+
+
+def _letter_top(fig, ax):
+    """Top of the panel letter drawn on ax, in inches."""
+    (letter,) = [
+        text for text in ax.texts if len(text.get_text()) == 1 and text.get_text() in "ABCDEF"
+    ]
+    return _inches(fig, letter.get_window_extent()).y1
+
+
+def _scatter_row_gap(fig):
+    """Inches between the lowest text under C and D and E's and F's tallest text.
+
+    Measured under the theme the figure is saved in; some text settings are
+    read at draw time.
+    """
+    with print_theme_context():
+        fig.draw_without_rendering()
+        panels = _panel_by_letter(fig)
+        bottom = min(_inches(fig, panels[letter].get_tightbbox()).y0 for letter in "CD")
+        top = max(_inches(fig, panels[letter].get_tightbbox()).y1 for letter in "EF")
+    return bottom - top
+
 
 class TestClusterIdsAgreeWithTheComposite:
     """Fig 3 and Fig 5 must call the same cluster "cluster 1".
@@ -943,6 +1008,13 @@ class TestCarveOutputOverResolution:
         assert f"Selected resolution (1-SE rule): {resolution:g}" in texts
         plt.close(fig)
 
+    def test_scatter_titles_sit_as_close_as_over_k(self, leiden_inputs):
+        # A and B's vertical tick labels set the one row spacing
+        # tight_layout gives every row, which left the most room under C-D.
+        fig = figure_carve_output_levine(leiden_inputs, save=False)
+        assert _scatter_row_gap(fig) == pytest.approx(0.15, abs=0.01)
+        plt.close(fig)
+
     def test_consensus_panel_names_the_selected_partition_s_k(self, leiden_inputs):
         fig = figure_carve_output_levine(leiden_inputs, save=False)
         k = len(np.unique(leiden_inputs.carve_labels))
@@ -1074,9 +1146,9 @@ class TestCarveOutputHeca:
         plt.close(fig)
 
     def test_a_names_the_settings_and_b_its_reference_lines(self, anchored_leiden):
-        # Panels C to F show the stability measure's pick at the pin, so
-        # the estimators' legend sits on A; one legend holding the two
-        # reference lines too was taller than the panel had room for.
+        # One legend holding the two reference lines too was taller than
+        # the panel had room for. The pin is the selection; the rule's line
+        # is named after the rule alone.
         carve, _, _ = anchored_leiden
         fig = _draw_heca(anchored_leiden)
         panels = _panel_by_letter(fig)
@@ -1087,9 +1159,24 @@ class TestCarveOutputHeca:
         assert texts["A"] == ["Leiden, 10 neighbors", "Leiden, 20 neighbors"]
         selected = float(carve.get_sweep_value(measure="generalizability"))
         assert sorted(texts["B"]) == [
-            f"Selected resolution (1-SE rule): {selected:g}",
-            f"Shown in C to F: {HECA_PIN:g}",
+            f"1-SE rule: {selected:g}",
+            f"Selected by inspection: {HECA_PIN:g}",
         ]
+        plt.close(fig)
+
+    def test_names_the_pin_selected_with_a_generalizability_measure_too(
+        self, anchored_leiden
+    ):
+        carve, _, _ = anchored_leiden
+        fig = _draw_heca(anchored_leiden, measure="generalizability")
+        panels = _panel_by_letter(fig)
+        assert [t.get_text() for t in panels["A"].get_legend().get_texts()] == [
+            "Leiden, 10 neighbors",
+            "Leiden, 20 neighbors",
+        ]
+        texts = [t.get_text() for t in panels["B"].get_legend().get_texts()]
+        assert f"Selected by inspection: {HECA_PIN:g}" in texts
+        assert not any(text.startswith("Selected resolution") for text in texts)
         plt.close(fig)
 
     @pytest.mark.parametrize("letter", ["A", "B"])

@@ -20,6 +20,7 @@ resolves the configuration through CARVE's _select_row, as the methods do,
 and calls the plotting functions behind them.
 """
 
+import re
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -108,6 +109,11 @@ _MAX_LEVEL_CLUSTER_NUMBERS = 15
 # CARVE's public scatter methods resolve these names for the gini source;
 # a subsample's scatters call the functions behind them and pass the same.
 _GINI_SCORES_NAME = "Gini Stability"
+
+# CARVE's legend entry for the rule's line, such as "Selected resolution
+# (1-SE rule): 0.01". When C to F show a value chosen from the curves, the
+# rule's line is renamed after the rule alone, "1-SE rule: 0.01".
+_RULE_LINE_LABEL = re.compile(r"Selected \S+ \((?P<rule>[^)]+ rule)\): (?P<value>.+)")
 
 
 def _print_curve_legend(
@@ -231,6 +237,36 @@ def _title_above_band(ax: Axes) -> None:
         pad=band + plt.rcParams["axes.titlepad"],
         fontsize=ax.title.get_fontsize(),
     )
+
+
+# The scatter row's titles sit this far under the row above, in inches, a
+# twentieth of an inch closer than the other rows. The other rows' titles
+# sit on a frame; the scatters have none, and their points start a margin
+# below the title, so at the same spacing the last gap reads as the widest.
+_SCATTER_ROW_GAP_IN = 0.15
+
+
+def _close_up_scatter_row(
+    fig: Figure, above: Sequence[Axes], scatters: Sequence[Axes]
+) -> None:
+    """Raise the scatters' tops until their titles sit _SCATTER_ROW_GAP_IN under C and D.
+
+    tight_layout spaces every row alike, by the boundary that needs the most
+    room. Over a resolution sweep that is the one under A and B, whose tick
+    labels are set vertically, and the room it needs is left over between
+    C-D and E-F. The scatters grow upward, so their bottoms, F's colorbar and
+    the figure size stay as laid out.
+    """
+    fig.draw_without_rendering()
+    to_inches = fig.dpi_scale_trans.inverted()
+    bottom = min(ax.get_tightbbox().transformed(to_inches).y0 for ax in above)
+    top = max(ax.get_tightbbox().transformed(to_inches).y1 for ax in scatters)
+    rise = (bottom - _SCATTER_ROW_GAP_IN - top) / fig.get_figheight()
+    for ax in scatters:
+        box = ax.get_position(original=True)
+        ax.set_position((box.x0, box.y0, box.width, box.height + rise))
+        # set_position takes an axes out of the layout; it stays in.
+        ax.set_in_layout(True)
 
 
 def _six_panel_grid(scatter_row_height: float) -> tuple[Figure, tuple[Axes, ...]]:
@@ -365,7 +401,8 @@ def _draw_six_panels(
 
     ``sweep_value`` makes C to F show the partition at that value of the
     swept parameter instead of the rule's selection, and marks it in A and
-    B with a dotted line beside the rule's dashed one. ``rows`` draws E and
+    B with a dotted line, "Selected by inspection", beside the rule's dashed
+    one, which is then named after the rule alone. ``rows`` draws E and
     F over a subsample, one ``embedding`` row per entry; it must include
     every cluster, since CARVE's scatters color and shape clusters by their
     position among the labels drawn.
@@ -402,9 +439,6 @@ def _draw_six_panels(
     with print_theme_context():
         fig, (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f) = _six_panel_grid(scatter_row_height)
 
-        # A and B draw the same estimators in the same colors, so one
-        # legend names them for both. It goes on the curve of the measure
-        # panels C to F show, whose selection its dashed-line entry names.
         for ax, curve_measure, title in (
             (ax_a, _MEASURE_STABILITY, f"Stability ARI over {over}"),
             (ax_b, _MEASURE_GENERALIZABILITY, f"Generalizability ARI over {over}"),
@@ -420,12 +454,16 @@ def _draw_six_panels(
                 show=False,
             )
             if sweep_value is not None:
+                for line in ax.get_lines():
+                    match = _RULE_LINE_LABEL.fullmatch(str(line.get_label()))
+                    if match:
+                        line.set_label(f"{match['rule']}: {match['value']}")
                 ax.axvline(
                     sweep_value,
                     color=FOREGROUND_COLOR,
                     linestyle=":",
                     linewidth=REFERENCE_LINEWIDTH,
-                    label=f"Shown in C to F: {sweep_value:g}",
+                    label=f"Selected by inspection: {sweep_value:g}",
                     zorder=0,
                 )
         if resolutions is not None:
@@ -434,15 +472,18 @@ def _draw_six_panels(
                 resolution_axis(ax, resolutions)
         for ax in (ax_a, ax_b):
             thin_lines(ax, _PRINT_CURVE_SCALE)
-        shown, other = (ax_a, ax_b) if measure == _MEASURE_STABILITY else (ax_b, ax_a)
-        if sweep_value is None:
-            legends = [(shown, _print_curve_legend(shown))]
+        # A and B draw the same estimators in the same colors, so one
+        # legend on A names them for both. A's dashed line joins it when it
+        # is the selection C to F show. Otherwise B names its own reference
+        # lines: the selection on B's curve, or the rule's line and the
+        # value selected by inspection, which under the estimators would
+        # make one legend too tall for the panel.
+        if sweep_value is None and measure == _MEASURE_STABILITY:
+            legends = [(ax_a, _print_curve_legend(ax_a))]
         else:
-            # Two reference lines under the estimators make one legend too
-            # tall for the panel, so the other panel names its own lines.
             legends = [
-                (shown, _print_curve_legend(shown, estimators=True)),
-                (other, _print_curve_legend(other, estimators=False, title=None)),
+                (ax_a, _print_curve_legend(ax_a, estimators=True)),
+                (ax_b, _print_curve_legend(ax_b, estimators=False, title=None)),
             ]
         carve.plot_consensus_matrix(
             **selection,
@@ -520,7 +561,7 @@ def _draw_six_panels(
         # only the six panels.
         for ax in (*fig.get_axes(), consensus_colorbar.ax):
             print_axes_text(ax)
-        for letter, ax in zip("ABDEF", (ax_a, ax_b, ax_d, ax_e, ax_f)):
+        for letter, ax in zip("ABD", (ax_a, ax_b, ax_d)):
             panel_letter(ax, letter, fontsize=PRINT_FONT_SIZES["panel_letter"])
 
         # CARVE writes a graph clusterer's full configuration into the curve
@@ -535,20 +576,34 @@ def _draw_six_panels(
         fig.tight_layout(h_pad=_PANEL_PAD, w_pad=_PANEL_PAD)
         # The layout resized the matrix, and with it the band.
         _title_above_band(ax_c)
+        _close_up_scatter_row(fig, (ax_c, ax_d), (ax_e, ax_f))
         for ax, legend in legends:
             _clear_legend(ax, legend)
-        # C's square matrix sits centered in its wider cell, and panel_letter
-        # places a letter relative to the axes it labels. Once the draw has
-        # sized the matrix, C's letter goes where A's is.
+        # panel_letter places a letter relative to the axes it labels, and
+        # raises it by a fraction of their height. C's square matrix sits
+        # centered in its wider cell and lower than D's top, so once the
+        # draw has sized it, C's letter goes as far left as A's and level
+        # with D's. The taller scatter row lifted E's and F's letters above
+        # their titles, so they go as far above their axes as D's goes.
         fig.draw_without_rendering()
+        (d_letter,) = [text for text in ax_d.texts if text.get_text() == "D"]
+        rise = (d_letter.get_position()[1] - 1.0) * ax_d.get_position().height
         above, matrix = ax_a.get_position(), ax_c.get_position()
         letter_x = above.x0 + PANEL_LETTER_X * above.width
         panel_letter(
             ax_c,
             "C",
             x=(letter_x - matrix.x0) / matrix.width,
+            y=(ax_d.get_position().y1 + rise - matrix.y0) / matrix.height,
             fontsize=PRINT_FONT_SIZES["panel_letter"],
         )
+        for letter, ax in (("E", ax_e), ("F", ax_f)):
+            panel_letter(
+                ax,
+                letter,
+                y=1.0 + rise / ax.get_position().height,
+                fontsize=PRINT_FONT_SIZES["panel_letter"],
+            )
 
         if save:
             save_figure(
@@ -704,7 +759,9 @@ def figure_carve_output_heca(
     """Build the hECA counterpart of Fig 3: CARVE's output at one resolution.
 
     Panels C to F show the partition at ``sweep_value``, a resolution the
-    caller chooses, rather than the rule's selection; A and B mark both.
+    caller selects by inspecting the curves, rather than the rule's
+    selection; A and B mark both, and B's legend names the first "Selected
+    by inspection" and the second after the rule alone.
     ``measure`` and ``rule`` pick between the settings fitted at
     ``sweep_value``. C is the anchor block, the consensus an anchored fit
     stores. D's violins take every cell's score, without CARVE's per-cell
