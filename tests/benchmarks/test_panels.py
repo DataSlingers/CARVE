@@ -1163,6 +1163,32 @@ class TestAriLollipop:
         ari_lollipop(ax, df, annotate_k=True)
         assert any("9" in t.get_text() for t in ax.texts)
 
+    @pytest.mark.parametrize("xlim_max", [1.0, 4.0])
+    def test_k_label_sits_beside_the_marker_at_any_axis_scale(self, ax, xlim_max):
+        # A label offset in data units (the old ari + 0.01) lands inside the
+        # marker on a wide axis range and drifts away from it on a narrow
+        # one. The label has to start just past the marker's edge, centered
+        # on its row, whatever the x range.
+        df = pd.DataFrame(
+            {"method": ["a", "b"], "ari": [0.36, 0.79], "k": [2, 4]}
+        )
+        ari_lollipop(ax, df)
+        ax.set_xlim(0, xlim_max)
+        fig = ax.figure
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        markers = ax.collections[1]
+        radius_pt = (
+            np.sqrt(markers.get_sizes()[0]) / 2 + markers.get_linewidth()[0] / 2
+        )
+        px_per_pt = fig.dpi / 72
+        for label, (ari, row) in zip(ax.texts, ((0.36, 0), (0.79, 1))):
+            center_x, center_y = ax.transData.transform((ari, row))
+            box = label.get_window_extent(renderer)
+            gap_pt = (box.x0 - center_x) / px_per_pt - radius_pt
+            assert 1.0 <= gap_pt <= 5.0
+            assert abs((box.y0 + box.y1) / 2 - center_y) < 1.0
+
     def test_hlines_and_markers_use_metric_colors_in_sorted_order(self, ax):
         # method and metric disagree on which name maps to a recognized
         # theme color here, so matching colors correctly proves they come

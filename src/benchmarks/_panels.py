@@ -1519,14 +1519,22 @@ def ari_lollipop(
     colors = [metric_color(str(m)) for m in color_key]
 
     ax.hlines(positions, 0, ordered["ari"].to_numpy(), color=colors, linewidth=2.0)
-    ax.scatter(ordered["ari"].to_numpy(), positions, color=colors, s=60, zorder=3)
+    markers = ax.scatter(
+        ordered["ari"].to_numpy(), positions, color=colors, s=60, zorder=3
+    )
 
     if annotate_k and "k" in ordered.columns:
+        # Offset in points from the marker's center: its radius, half its
+        # edge line, and a 3 pt gap. An offset in data units overlaps the
+        # marker on a wide x range and drifts off it on a narrow one.
+        edge_pt = float(markers.get_linewidth()[0])
+        offset_pt = np.sqrt(markers.get_sizes()[0]) / 2 + edge_pt / 2 + 3.0
         for position, (ari, k) in enumerate(zip(ordered["ari"], ordered["k"])):
-            ax.text(
-                ari + 0.01,
-                position,
+            ax.annotate(
                 f"k={int(k)}",
+                xy=(ari, position),
+                xytext=(offset_pt, 0),
+                textcoords="offset points",
                 va="center",
                 fontsize=FONT_SIZES["legend"],
             )
