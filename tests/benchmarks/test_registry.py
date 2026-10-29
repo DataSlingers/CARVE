@@ -21,7 +21,6 @@ from benchmarks._registry import (
     SCALING_TABLE_ROW_GROUPS,
     SCENARIOS,
     SIMILARITY_SEED_OFFSET,
-    SPIRAL_REFERENCE,
     TABLE_ROW_GROUPS,
     metric_measure,
     metric_rule,
@@ -279,12 +278,21 @@ class TestScenarios:
         assert SCENARIOS["swiss_rolls"].shared["distribution"] == "interleaved_spirals"
 
     @pytest.mark.parametrize("label", DIFFICULTY_AXIS.labels)
-    def test_swiss_rolls_anchors_scale_the_spiral_reference_jointly(self, label):
-        """One calibration multiplier moves arm length, thickness and twist
-        together, so each anchor is the reference times one common factor."""
-        anchor = SCENARIOS["swiss_rolls"].anchors[label]
-        ratios = [anchor[name] / value for name, value in SPIRAL_REFERENCE.items()]
-        assert ratios == pytest.approx([ratios[0]] * len(ratios))
+    def test_swiss_rolls_arms_are_half_a_turn_without_twist(self, label):
+        """Arm length and twist are fixed at every level: they made the arms
+        separable only when densely sampled, which the held-out set
+        generalizability clusters is not."""
+        kwargs = SCENARIOS["swiss_rolls"].sim_kwargs(axis_value=0, axis_label=label)
+        assert kwargs["spiral_turns"] == 0.5
+        assert kwargs["spiral_twist"] == 0.0
+
+    def test_swiss_rolls_band_widens_with_difficulty(self):
+        """The band is the only spiral parameter that moves, and a wider band
+        scores lower, so it must grow from easy to hard."""
+        anchors = SCENARIOS["swiss_rolls"].anchors
+        bands = [anchors[label]["spiral_band"] for label in DIFFICULTY_AXIS.labels]
+        assert bands == sorted(bands)
+        assert len(set(bands)) == len(bands)
 
     @pytest.mark.parametrize("label", DIFFICULTY_AXIS.labels)
     def test_swiss_rolls_anchors_carry_no_ignored_cluster_scale(self, label):

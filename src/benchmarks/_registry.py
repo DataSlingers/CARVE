@@ -322,34 +322,26 @@ PUBLISHED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
     },
 }
 
-# The swiss_rolls calibration multiplies this reference setting of the
-# interleaved-spirals arms: arm length in full turns, radial noise as a
-# fraction of the gap between arms, and the towel twist of the center in full
-# turns. Only the ratio between the three is a choice; the multiplier sets
-# the level.
-SPIRAL_REFERENCE: dict[str, float] = {
-    "spiral_turns": 0.5,
-    "spiral_band": 0.05,
-    "spiral_twist": 0.2,
-}
-
 # Regenerated 2026-10-16 at n_total = BENCHMARK_N_TOTAL (3000), against the
 # documented bands in TARGET_ARI_BANDS, by _calibrate.calibrate_anchor run
 # for each difficulty label with calibrate_scenario's defaults: n_seeds=20,
 # random_state=PUBLISHED_RANDOM_STATE (42), max_iter=25. Each knob was applied
 # to the same reference as in the n = 1500 calibrations of 2026-09-23 and
-# 2026-09-30: the published cluster_scale vector, the absolute embed_param,
-# and SPIRAL_REFERENCE. The achieved mean oracle ARI and its spread over the
-# 20 calibration datasets are recorded per anchor; the comparison with the
-# n = 1500 anchors is in docs/superpowers/notes/2026-10-16-calibration-n3000.md.
+# 2026-09-30: the published cluster_scale vector and the absolute
+# embed_param. swiss_rolls was recalibrated the same way on 2026-10-28 on
+# its new knob, the absolute spiral_band. The achieved mean oracle ARI and
+# its spread over the 20 calibration datasets are recorded per anchor; the
+# comparison with the n = 1500 anchors is in
+# docs/superpowers/notes/2026-10-16-calibration-n3000.md.
 #
 # Three knobs, because no single parameter controls difficulty on every
 # scenario -- see _calibrate.CALIBRATION_KNOBS. gaussians, t_dist and
 # t_dist_noise carry their published cluster_scale vector times a
 # multiplier, so the unequal per-cluster scales survive; circles and moons
-# carry an absolute embed_param; swiss_rolls multiplies arm length, arm
-# thickness and twist together. All eighteen anchors landed in their target
-# band on the first run at n = 3000; no knob range or band was widened.
+# carry an absolute embed_param; swiss_rolls carries an absolute spiral_band.
+# All eighteen anchors landed in their target band on the first run at
+# n = 3000, and swiss_rolls again on 2026-10-28; no knob range or band was
+# widened.
 CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
     # Knob: cluster_scale multiplier. The published vector was [4.0] * 5 at
     # easy, [4.5] * 5 at medium and [4.6] * 5 at hard.
@@ -471,35 +463,30 @@ CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
             "embed_param": 2.5625,
         },
     },
-    # Knob: multiplier on SPIRAL_REFERENCE, applied to arm length, arm
-    # thickness and twist together. Dirichlet alpha and AR(1) strength keep
-    # the published per-level values; embed_param is 5.0 at every level.
-    # Recalibrated 2026-09-30 when the scenario moved to interleaved spirals,
-    # and again at n = 3000 on 2026-10-16.
+    # Knob: spiral_band, absolute; arm length and twist are fixed in _SHARED.
+    # Dirichlet alpha and AR(1) strength keep the published per-level values;
+    # embed_param is 5.0 at every level. Recalibrated 2026-09-30 when the
+    # scenario moved to interleaved spirals, at n = 3000 on 2026-10-16, and
+    # on 2026-10-28 when the knob moved from a joint multiplier on arm
+    # length, band and twist to the band alone.
     "swiss_rolls": {
-        # multiplier 1.0, ARI 1.000 +/- 0.000
+        # spiral_band 0.09, ARI 1.000 +/- 0.000
         "easy": {
-            "spiral_turns": 0.5,
-            "spiral_band": 0.05,
-            "spiral_twist": 0.2,
+            "spiral_band": 0.09,
             "cluster_size_dirichlet_alpha": 0.9,
             "corr_strength": 0.1,
             "embed_param": 5.0,
         },
-        # multiplier 1.25, ARI 0.875 +/- 0.141
+        # spiral_band 0.11, ARI 0.826 +/- 0.154
         "medium": {
-            "spiral_turns": 0.625,
-            "spiral_band": 0.0625,
-            "spiral_twist": 0.25,
+            "spiral_band": 0.11,
             "cluster_size_dirichlet_alpha": 0.7,
             "corr_strength": 0.1,
             "embed_param": 5.0,
         },
-        # multiplier 1.3125, ARI 0.755 +/- 0.138
+        # spiral_band 0.115, ARI 0.769 +/- 0.148
         "hard": {
-            "spiral_turns": 0.65625,
-            "spiral_band": 0.065625,
-            "spiral_twist": 0.2625,
+            "spiral_band": 0.115,
             "cluster_size_dirichlet_alpha": 0.5,
             "corr_strength": 0.3,
             "embed_param": 5.0,
@@ -562,7 +549,9 @@ _SHARED: dict[str, dict[str, Any]] = {
     # "swiss_roll" drew each cluster as its own roll around its own center,
     # so the clusters were separated like Gaussian blobs and silhouette
     # matched the oracle; sharing the center is what makes the clusters
-    # non-convex.
+    # non-convex. The arms are half a turn long with no twist at every level;
+    # see _calibrate._SPIRAL_KNOB for why difficulty comes from the band
+    # alone.
     "swiss_rolls": {
         "distribution": "interleaved_spirals",
         "nonlinear": True,
@@ -570,6 +559,8 @@ _SHARED: dict[str, dict[str, Any]] = {
         "p": 50,
         "corr_type": "ar1",
         "embed_dim": 64,
+        "spiral_turns": 0.5,
+        "spiral_twist": 0.0,
     },
     # Axis is "p". n_total is BENCHMARK_N_TOTAL; embed_dim is the
     # SCALING_CONSTANTS value.

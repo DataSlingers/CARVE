@@ -100,19 +100,22 @@ _BANDWIDTH_KNOB = CalibrationKnob(
 )
 
 # swiss_rolls draws interleaved spiral arms in one shared plane, so there is
-# no per-cluster scale to multiply. Arm length, arm thickness and the towel
-# twist each lower the oracle ARI, and the knob multiplies all three together
-# from the reference in _registry.SPIRAL_REFERENCE (0.5 turns, band 0.05,
-# twist 0.2). Measured with spectral clustering over 20 datasets at band 0.05
-# and 0.5 turns: twist 0.1 scores 0.92-0.99, 0.2 scores 0.79-0.90, 0.25
-# scores 0.68-0.84, and a half-turn twist about 0.5. The interval spans that
-# range from arms too short to interleave to arms spectral cannot follow.
+# no per-cluster scale to multiply. The arms are fixed at half a turn with no
+# twist (_registry._SHARED), and the radial noise, spiral_band, sets the
+# level. Arm length and twist also lower the oracle ARI, but by making the
+# arms long and thin enough that separating them depends on how densely they
+# are sampled: spectral clustering of a 38% subsample, the held-out set
+# generalizability clusters, lost 0.35 to 0.68 ARI against the full data at
+# those settings, against 0.03 to 0.09 at band 0.105 to 0.115 without twist
+# (measured 2026-10-28, 12 datasets at medium's alpha and AR(1) strength).
+# ARI is 1.000 at band 0.06 and 0.08 and 0.57 at 0.125, so the interval is
+# bounded to that transition, as the bandwidth knob is.
 _SPIRAL_KNOB = CalibrationKnob(
-    parameter=("spiral_turns", "spiral_band", "spiral_twist"),
-    low=0.5,
-    high=1.5,
+    parameter="spiral_band",
+    low=0.05,
+    high=0.13,
     increasing=False,
-    multiplier=True,
+    multiplier=False,
 )
 
 CALIBRATION_KNOBS: dict[str, CalibrationKnob] = {

@@ -109,17 +109,18 @@ class TestKnobs:
             assert knob.increasing is False
             assert knob.multiplier is True
 
-    def test_swiss_rolls_scales_its_three_arm_parameters_together(self):
-        """The interleaved spirals have no per-cluster scale to multiply.
-
-        Difficulty rises with arm length, arm thickness and twist alike, so
-        the knob multiplies all three by one factor; a larger factor scores
-        lower.
+    def test_swiss_rolls_calibrates_on_the_band_alone(self):
+        """Arm length and twist made the arms separable only when densely
+        sampled: a 38% subsample, the held-out set generalizability
+        clusters, lost 0.35 to 0.68 ARI against the full data. Radial noise
+        lowers the oracle ARI without that loss, so the band is the knob, set
+        absolutely and bounded to its transition; a wider band scores lower.
         """
         knob = knob_for("swiss_rolls")
-        assert knob.parameter == ("spiral_turns", "spiral_band", "spiral_twist")
+        assert knob.parameter == "spiral_band"
         assert knob.increasing is False
-        assert knob.multiplier is True
+        assert knob.multiplier is False
+        assert (knob.low, knob.high) == (0.05, 0.13)
 
     def test_knob_for_rejects_an_unregistered_scenario(self):
         with pytest.raises(KeyError, match="gaussians_samples"):
