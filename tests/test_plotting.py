@@ -59,8 +59,7 @@ def _two_method_df():
     """Two methods x three sweep values, one with an all-NaN param column.
 
     Mirrors a custom grid mixing KMeans (no ``affinity``) with spectral
-    clustering, which is where the old substring-heuristic grouping used
-    to fragment curves.
+    clustering.
     """
     df = pd.DataFrame(
         {
@@ -98,7 +97,7 @@ def _two_method_df():
 
 
 class TestBuildEstimatorLabel:
-    """The label is now produced by the runner and carried on the row.
+    """The label is produced by the runner and carried on the row.
 
     The formatting rules themselves live in ``_sweep.format_method_label``
     and are tested in ``test_sweep.py``.
@@ -259,10 +258,8 @@ class TestPlotMetricOverNClusters:
         )
 
     def test_mixed_estimators_single_nan_group_col(self):
-        """Regression: 2 estimators, one with an all-NaN param column.
-
-        Grouping is on ``method_id``, so a column that is NaN for one
-        estimator can no longer fragment or drop a curve.
+        """Two estimators, one with an all-NaN param column: grouping is on
+        ``method_id``, so the column does not split or drop a curve.
         """
         df = _two_method_df()
         ax = plot_metric_over_n_clusters(df, measure="stability")
@@ -320,8 +317,6 @@ class TestPlotMetricOverNClusters:
         assert ax.get_ylabel() == "Score"
 
     def test_marker_label_and_default_ylabel(self, resolution_results_df):
-        # Pins the text _draw_metric_lines built itself before its callers
-        # passed y_col, ylabel and selection_label in.
         ax = plot_metric_over_n_clusters(
             resolution_results_df, measure="stability", rule="max"
         )
@@ -339,8 +334,7 @@ def _pipeline_results_df():
     """A preprocessing_results_ table over two configurations.
 
     m0 has two pipelines whose values peak at k=3. m1 has a third pipeline,
-    a decoy peaking at k=4 above anything in m0, so a plot or a selection
-    that reads the whole table instead of m0's rows is visibly wrong.
+    a decoy peaking at k=4 above anything in m0.
     """
     curves = {
         ("m0", "identity | identity"): [0.70, 0.90, 0.60],
@@ -1190,8 +1184,8 @@ def test_plot_consensus_matrix_under_anchoring(anchored):
 
 def test_sample_level_plots_work_under_anchoring(anchored):
     X, c = anchored
-    # The property the whole feature rests on: consensus matrices shrink to
-    # the anchor block, but every per-sample array stays length n.
+    # Consensus matrices shrink to the anchor block, but every per-sample
+    # array stays length n.
     assert c.stability_gini_scores_.shape[1] == X.shape[0]
     assert c.stability_ce_scores_.shape[1] == X.shape[0]
     assert c.generalizability_scores_[0].shape == (X.shape[0],)

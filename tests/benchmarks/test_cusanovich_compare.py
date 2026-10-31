@@ -54,8 +54,7 @@ class TestBestPipeline:
         # Two pipelines at two resolutions of one configuration. At the
         # selected resolution, 0.5, B has the higher stability and A the
         # higher generalizability. Resolution 1.0 holds a decoy that beats
-        # both on both criteria, which a function ignoring the selected
-        # configuration would pick.
+        # both on both criteria.
         table = pd.DataFrame(
             [
                 _row("m0", "A", 0.5, 0.60, 0.80, 8.0),
@@ -110,8 +109,7 @@ class TestSourceOperatingPoint:
     def carve(self):
         # Configuration m0's pooled counts rise with resolution, listed out of
         # order. Configuration m1 hits 30 exactly, and so does one pipeline of
-        # m0 at 0.2, where the pooled count is 12; a function reading another
-        # configuration, or a single pipeline, would return one of those.
+        # m0 at 0.2, where the pooled count is 12.
         per_pipeline = pd.DataFrame([_row("m0", "tsne", 0.2, 0.5, 0.5, 30.0)])
         pooled = pd.DataFrame(
             {

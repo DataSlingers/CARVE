@@ -134,11 +134,10 @@ class TestOptionalOutputs:
     def test_partial_modes_omit_columns_without_raising(
         self, adata_three_clusters, mode, measure, absent
     ):
-        """A skipped analysis drops its column rather than writing garbage.
+        """A skipped analysis drops its column.
 
         ``measure`` has to match ``mode``: a generalizability-only run has no
-        stability metrics to select on, so pairing them is a user error rather
-        than something tl.carve should paper over.
+        stability metrics to select on.
         """
         with pytest.warns(RuntimeWarning, match="Non-default mode is experimental"):
             _run(adata_three_clusters, mode=mode, measure=measure)
@@ -201,7 +200,7 @@ class TestSignature:
         assert not missing, f"tl.carve is missing: {sorted(missing)}"
 
     def test_no_var_keyword(self):
-        """**kwargs would defeat 'document every parameter'."""
+        """tl.carve takes no **kwargs, so every parameter is documented."""
         params = inspect.signature(carve.tl.carve).parameters.values()
         assert not any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params)
 
@@ -232,12 +231,9 @@ class TestAttachResults:
             carve.tl.attach_results(adata_three_clusters, CARVE())
 
     def test_size_mismatch_raises(self, adata_three_clusters):
-        # Genuine fitted-on-different-data mismatch: attach_results must
-        # still raise, not mistake this for the anchored case. In practice
-        # this fires from the per-cell length check on labels, before the
-        # consensus-matrix shape is ever inspected -- see
-        # test_matrix_shape_mismatch_still_raises_with_original_message for
-        # a test isolating that specific guard.
+        # A model fitted on other data. attach_results raises from the
+        # per-cell length check on labels; the consensus-shape guard is
+        # isolated in test_matrix_shape_mismatch_still_raises_with_original_message.
         model = CARVE(n_clusters=np.arange(2, 5), n_resamples=4, random_state=0).fit(
             adata_three_clusters, use_rep="X_pca"
         )
@@ -250,20 +246,12 @@ class TestAttachResults:
     def test_matrix_shape_mismatch_still_raises_with_original_message(
         self, adata_three_clusters, monkeypatch
     ):
-        """The pre-existing "Consensus matrix has shape ..." guard must
-        still raise, unchanged, for a genuine mismatch that is not the
-        anchored case.
+        """The "Consensus matrix has shape ..." guard raises for a mismatch
+        that is not the anchored case.
 
-        This branch cannot be reached honestly through fit() + attach_results:
-        the per-cell length check on labels runs first, and both labels and
-        the consensus matrix are read from the same fitted model, so a real
-        mismatch on one implies a mismatch on the other and the labels check
-        fires first (see test_size_mismatch_raises). To isolate this guard
-        specifically, get_labels is monkeypatched to return correctly-sized
-        labels while the stored consensus matrix for the selected
-        configuration is corrupted independently -- exactly what an internal
-        inconsistency in a fitted model would look like, as opposed to
-        anchoring (consensus_anchors_ stays None here).
+        Through fit() and attach_results the labels length check fires first,
+        so get_labels is patched to return correctly sized labels while the
+        stored consensus matrix is corrupted (consensus_anchors_ stays None).
         """
         model = CARVE(n_clusters=np.arange(2, 5), n_resamples=4, random_state=0).fit(
             adata_three_clusters, use_rep="X_pca"
@@ -322,21 +310,13 @@ class TestAnchoringProvenance:
 
 
 class TestAnchoredConsensusObspGuard:
-    """obsp is contractually n_obs-by-n_obs. Under anchored consensus the
-    selected matrix is an m-by-m anchor block, which cannot be written there.
-
-    Regression coverage for the crash where tl.carve raised ValueError under
-    anchoring with the default store_consensus=True, reporting "The model
-    was fitted on different data" even though it was fitted on exactly the
-    data passed in -- only the stored matrix was a subset block.
+    """obsp is n_obs-by-n_obs. Under anchored consensus the selected matrix
+    is an m-by-m anchor block, so it is not written there.
     """
 
     def test_default_store_consensus_survives_anchoring(self, adata_three_clusters):
-        """Regression test for the ValueError crash under anchoring with the
-        default store_consensus=True. Before the fix this raised
-        ValueError("Consensus matrix has shape (40, 40), but adata has 90
-        observations. The model was fitted on different data.") instead of
-        completing with a warning.
+        """With anchoring and the default store_consensus=True, tl.carve
+        completes with a warning.
         """
         with (
             pytest.warns(RuntimeWarning, match="anchored consensus"),

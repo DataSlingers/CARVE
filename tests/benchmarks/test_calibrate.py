@@ -290,16 +290,11 @@ class TestCalibrateAnchor:
 
 class TestDirection:
     def test_an_increasing_knob_bisects_the_other_way(self, rising_scenario):
-        """A bisection that assumes ARI falls with the knob walks away from
-        the band when it rises. calibrate_anchor must read the direction off
-        the knob rather than assuming it.
+        """calibrate_anchor takes the bisection's direction from the knob.
 
         The interval is narrower than embed_param's full transition
-        (0.5-6.0) so the first bisection midpoint (1.75) lands below the
-        target band: measured over this scenario's shape, ARI at 1.75 is
-        roughly 0.8, and the band is (0.9, 1.0). A midpoint that already
-        landed in band would pass even under the wrong direction, on the
-        first iteration, and prove nothing.
+        (0.5-6.0), so the first midpoint (1.75, ARI about 0.8) lands below the
+        target band (0.9, 1.0) and the bisection has to move.
         """
         knob = CalibrationKnob(
             parameter="embed_param",
@@ -345,9 +340,8 @@ class TestCalibrateAnchorResult:
 
 
 class TestPublishedRandomStateDefault:
-    """The module docstring claims calibration reuses the benchmark's seed
-    derivation, which is only true when the default random_state matches the
-    published run (PUBLISHED_RANDOM_STATE = 42, not 0)."""
+    """Calibration reuses the benchmark's datasets only at the default
+    random_state, PUBLISHED_RANDOM_STATE."""
 
     def test_mean_oracle_ari_defaults_to_the_published_random_state(self):
         import inspect

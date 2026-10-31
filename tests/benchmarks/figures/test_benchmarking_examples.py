@@ -33,13 +33,7 @@ class TestFigureBenchmarkingExamples:
         plt.close(fig)
 
     def test_uses_the_swiss_roll_estimator_the_benchmark_actually_ran(self):
-        """S1 was drawn with spectral; swiss_rolls now runs spectral too.
-
-        The published mismatch (S1 drawn with spectral, Table S7 built from
-        agglomerative/Ward) was the which="SM" eigensolver failing to
-        converge, not two legitimate choices -- see _registry.py's
-        _ESTIMATORS comment.
-        """
+        """The examples are drawn with the estimator the benchmark runs."""
         assert REGISTRY["swiss_rolls"].estimator.name == "spectral"
 
     def test_is_deterministic_for_a_fixed_seed(self):
@@ -59,14 +53,9 @@ class TestFigureBenchmarkingExamples:
         assert default == PUBLISHED_RANDOM_STATE
 
     def test_seed_derivation_matches_the_runners_formula(self, monkeypatch):
-        """benchmark_seed must equal _run.py's run_cell formula exactly:
-        seed + axis_idx * 10000 + random_state.
-
-        A hardcoded expected list (e.g. 42, 10042, 20042) would still pass if
-        the random_state term were silently dropped and random_state's
-        default were coincidentally 0 elsewhere. Deriving the expectation
-        from the same arithmetic, applied to arbitrary seed/random_state
-        arguments, catches that regardless of what any default happens to be.
+        """benchmark_seed must equal _run.py's run_cell formula,
+        seed + axis_idx * 10000 + random_state, for arbitrary seed and
+        random_state.
         """
         captured_seeds = []
         original_simulate = _benchmarking_examples.simulate

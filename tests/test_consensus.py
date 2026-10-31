@@ -219,8 +219,7 @@ class TestStabilityFromConsensus:
 
     def test_isolated_sample_scores_nan_without_warning(self):
         # Sample 2 was never co-sampled with anyone: its off-diagonal row is
-        # all NaN, so it has no partners to average over. NaN is the right
-        # score; the old nanmean call warned "Mean of empty slice" here.
+        # all NaN, so it has no partners to average over and scores NaN.
         M = np.array(
             [
                 [1.0, 0.8, np.nan],
@@ -370,8 +369,7 @@ class TestConsensusAnchorBlock:
         )
 
     def test_values_are_not_all_identical(self):
-        # A block of constant values would satisfy a shape-only assertion,
-        # so pin that the fixture actually varies.
+        # The fixture's values vary.
         n = 200
         runs = _make_runs(n)
         anchors = np.arange(0, n, 5)
@@ -443,26 +441,15 @@ class TestStabilityFromRunsAnchored:
         assert np.allclose(default[1], explicit[1])
 
     def test_default_chunk_size_binds_at_a_large_anchor_count(self):
-        # At m = 60 (the test above) the 8192 ceiling wins and the
-        # derivation never engages the 2**23-element budget that is the
-        # actual memory fix -- that test would pass unchanged even if the
-        # budget were relaxed to something far larger. Pin the derivation
-        # directly at an m large enough for the budget to bind instead.
-        #
-        # 2**23 // 5000 = 1677, which is below the 8192 ceiling, so this is
-        # the concrete value the documented rule produces at m = 5000; there
-        # is no way to state the expectation here without restating that
-        # same arithmetic, so the value is pinned outright.
+        # At m = 60 (the test above) the 8192 ceiling binds; at m = 5000 the
+        # 2**23-element budget does: 2**23 // 5000 = 1677.
         assert _default_anchor_chunk_size(5000) == 1677
 
-        # And, regardless of the exact constant, the per-chunk (chunk_size,
-        # m) float64 transient this rule bounds stays within the intended
-        # element budget rather than growing with m unchecked.
+        # The per-chunk (chunk_size, m) float64 transient stays within the
+        # element budget.
         assert _default_anchor_chunk_size(5000) * 5000 <= 2**23
 
     def test_scores_vary_across_samples(self):
-        # Guards against an implementation that returns a constant vector,
-        # which every shape assertion above would still accept.
         n = 300
         runs = _make_runs(n, seed=8)
         anchors = np.arange(0, n, 4)
@@ -482,11 +469,10 @@ class TestStabilityFromRunsAnchored:
         assert np.corrcoef(gini, exact_gini)[0, 1] > 0.95
 
     def test_unsorted_run_indices_match_sorted_indices(self):
-        # Regression test: the runner's per-resample sample_idx arrays are
-        # unsorted permutations (rng.choice without sorting), not the sorted
-        # arrays _make_runs happens to produce. Shuffle each run's indices
-        # (permuting its labels the same way, so the pairing is preserved)
-        # and require a multi-chunk pass to match the sorted-input result.
+        # The runner's per-resample sample_idx arrays are unsorted
+        # (rng.choice), while _make_runs produces sorted ones. Each run's
+        # indices and labels are shuffled together, and a multi-chunk pass
+        # must match the sorted-input result.
         n = 200
         sorted_runs = _make_runs(n, n_runs=10, k=3, seed=11)
 

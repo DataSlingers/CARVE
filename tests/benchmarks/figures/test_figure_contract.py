@@ -32,13 +32,8 @@ EXPECTED = (
     "figure_guidance_clusters",
 )
 
-# Figures not yet implemented. Tasks 9 through 12 each removed their own
-# figures from this set as they landed; it is now empty, since all fourteen
-# manuscript figures exist, as does the case-study reference-label overview
-# (figure_reference_scatter), a notebook figure held to the same contract.
-# It is a one-way ratchet from here: re-adding a name would silence that
-# figure's contract checks below, so doing so must be a deliberate, visible
-# act, never an incidental append to a list.
+# Figure functions exempt from the contract checks below. Empty: every
+# manuscript figure, and figure_reference_scatter, is implemented.
 NOT_YET_IMPLEMENTED = frozenset()
 
 

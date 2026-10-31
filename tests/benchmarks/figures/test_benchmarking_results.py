@@ -114,7 +114,7 @@ class TestFigureBenchmarkingResults:
     def test_carries_one_deduplicated_figure_legend(self, results):
         """One Legend, not one per metric family positioned by hand.
 
-        Blank entries pad the short columns, so the count is of the labelled
+        Blank entries pad the short columns, so the count is of the labeled
         ones rather than of every text the legend holds.
         """
         fig = figure_benchmarking_results(results, metrics=METRICS, save=False)
@@ -212,9 +212,7 @@ class TestFigureBenchmarkingResults:
     def test_panels_are_ordered_by_the_canonical_reading_order(self, full_results):
         """Not by the caller's mapping order.
 
-        The notebook builds its mapping by iterating SCENARIOS, whose order
-        exists for the runner. Passing the families in a deliberately wrong
-        order here proves the figure imposes its own.
+        The families are passed out of order here.
         """
         from benchmarks.figures._benchmarking_examples import SCENARIO_TITLES
 
@@ -237,10 +235,8 @@ class TestFigureBenchmarkingResults:
     def test_rejects_a_scaling_frame_instead_of_mislabeling_its_axis(self, results):
         """The x ticks are relabeled easy/medium/hard unconditionally.
 
-        Handed a scaling sweep, this function would draw n_total on an axis
-        reading "Difficulty" with ticks reading easy/medium/hard -- a wrong
-        figure that looks right. figure_scaling_ari and
-        figure_scenario_overview are the paths that handle those sweeps.
+        A scaling sweep is rejected; figure_scaling_ari and
+        figure_scenario_overview draw those.
         """
         scaling = _frame("gaussians_samples").assign(
             axis_name="n_total", axis_value=1000

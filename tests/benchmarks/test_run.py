@@ -41,9 +41,7 @@ from benchmarks._types import Axis, EstimatorSpec, Scenario
 
 # The tiny scenario's hard axis point leaves no configuration inside the
 # best score's quantile band for some seeds, so carve's quantile rule warns
-# and falls back to max. That is the rule working as documented, not a
-# defect in the runner, and it is data-dependent: pin the message, not the
-# category, so any other RuntimeWarning still fails the test.
+# and falls back to max. The filter matches that message only.
 pytestmark = pytest.mark.filterwarnings(
     "ignore:No estimators within quantile thresholds:RuntimeWarning"
 )
@@ -183,9 +181,9 @@ class TestRunCell:
     ):
         """Generalizability selects a configuration; the labels stay stability's.
 
-        The generalizability consensus is sabotaged to a single cluster
-        (ARI 0), so a runner that cut the generalizability metrics' labels
-        from it would give those rows a different consensus_ari_at_k.
+        The generalizability consensus is set to a single cluster (ARI 0),
+        so the generalizability rows' consensus_ari_at_k shows which
+        consensus their labels came from.
         """
         import benchmarks._run as run_module
 
@@ -216,11 +214,8 @@ class TestRunCell:
         assert [r["metric_value"] for r in first] == [r["metric_value"] for r in second]
 
     def test_carve_receives_the_scenario_n_trees(self, tiny_scenario, recording_carve):
-        """n_trees=100 is also Scenario's dataclass default, so a regression
-        that hardcoded n_trees=100 in run_cell instead of threading
-        scenario.n_trees through would pass every other test in this file.
-        Built a scenario at n_trees=500 -- the published value for
-        circles/moons/swiss_rolls -- and checked CARVE actually received it.
+        """CARVE receives the scenario's n_trees (500 here, not the dataclass
+        default of 100).
         """
         scenario = dataclasses.replace(tiny_scenario, n_trees=500)
         run_cell(scenario, n_resamples=20, **CELL_KWARGS)
@@ -296,13 +291,8 @@ class TestRunScenario:
     def test_resume_with_a_corrupt_manifest_warns_and_completes(
         self, tiny_scenario, run_copy
     ):
-        """A truncated or otherwise unparseable manifest.json must not be
-        fatal. Corrupts the manifest of a real, fully completed run -- so
-        the cell checkpoints are genuinely resumable and this invocation has
-        nothing left to compute -- then resumes. run_scenario must warn and
-        fall back to fresh provenance rather than raising
-        json.JSONDecodeError, so a run can still resume unattended after a
-        process was killed mid-write of the manifest.
+        """A corrupt manifest.json is not fatal: resuming a completed run
+        whose manifest is corrupt warns and falls back to fresh provenance.
         """
         root, rd = run_copy
         (rd / "manifest.json").write_text("{not valid json")
@@ -326,10 +316,7 @@ class TestRunScenario:
     def test_manifest_exists_before_the_pool_finishes(self, tiny_scenario, tmp_path):
         """An interrupted scenario must still leave a readable manifest.
 
-        Run directories are located by their manifest, so a scenario killed
-        mid-pool otherwise leaves checkpoints the notebook cannot open. The
-        ablation runner was fixed for this in e720073; the scenario runner
-        was not.
+        Run directories are located by their manifest.
         """
         seen = {}
 
@@ -387,10 +374,7 @@ class TestRunScenario:
 
         Deletes one cell checkpoint so the resume has pending work, then
         patches Parallel to capture the on-disk manifest and abort before
-        any cell runs. It resumes the same configuration: two runs at
-        different n_seeds always land in different content-addressed
-        directories, since config_hash includes n_seeds, so comparing them
-        could never fail.
+        any cell runs. It resumes the same configuration.
         """
         root, rd = run_copy
         first_run_id = json.loads((rd / "manifest.json").read_text())["run_id"]
@@ -410,13 +394,9 @@ class TestRunScenario:
         assert seen["manifest"]["run_id"] == first_run_id
 
     def test_resuming_onto_different_code_raises(self, tiny_scenario, tmp_path):
-        """read_run concatenates whatever checkpoints it finds.
-
-        A run directory is content-addressed on configuration only, so
-        re-running the same config on newer code resumes into the old
-        directory and mixes two code versions' rows in one frame with
-        nothing marking it. git_sha was already recorded and never checked;
-        this is what left the ablation dev run unreadable.
+        """A run directory is content-addressed on configuration only, so a
+        resume on newer code would mix two code versions' rows; the
+        manifest's git_sha is checked.
 
         n_resamples=10: see the comment on
         test_manifest_is_complete_after_the_pool -- these tests run every
@@ -521,31 +501,12 @@ class TestProgress:
 
 
 def test_compute_modules_do_not_import_matplotlib_directly():
-    """Checks each compute module's source for a direct matplotlib import,
-    rather than importing the module and inspecting sys.modules.
+    """Checks each compute module's source for a direct matplotlib import.
 
-    An import-based check cannot express this constraint: benchmarks._run
-    imports carve, and carve/__init__.py does `from . import pl`, which
-    pulls in matplotlib transitively no matter what this package itself
-    imports. So "matplotlib ends up in sys.modules after importing
-    benchmarks._run" is true regardless of whether _run.py imports it
-    directly, and a test asserting the negation would simply fail -- that
-    was verified separately, which is why this checks source text via ast
-    instead of import behavior. It also avoids a plain substring search,
-    which would be tripped by a mention in a comment or docstring rather
-    than an actual import statement.
-
-    The module list is derived by globbing the package directory rather
-    than hardcoded, so a new compute module is covered automatically
-    instead of silently falling outside the guard. Two names are
-    subtracted from that glob: _theme.py and _panels.py. Those are the
-    reporting layer -- palette/rcParams/figure-saving and the ax-in/
-    ax-out drawing primitives -- and importing matplotlib is their entire
-    job. The guard exists to keep the *compute* layer free of matplotlib,
-    not to ban matplotlib from the package outright, so a new reporting
-    module needs to be added to this exclusion set explicitly; a new
-    compute module does not, and keeps tripping the guard automatically
-    if it ever imports matplotlib.
+    carve/__init__.py imports carve.pl, so matplotlib is in sys.modules after
+    importing any module here; the check reads import statements with ast
+    instead. The module list is globbed from the package directory, minus
+    the reporting modules _theme.py and _panels.py.
     """
     import ast
 
@@ -587,11 +548,9 @@ def _cell(scenario, **overrides):
         seed=0,
         run_id="r1",
         random_state=0,
-        # Below roughly 7 resamples, consensus_gini_stability and
-        # consensus_ce_stability come back all-NaN and CARVE.get_k raises
-        # ValueError: Encountered all NA values (see MIN_SAFE_N_RESAMPLES in
-        # test_ci_config.py). 10 keeps a margin above that measured boundary
-        # while staying small enough to fit quickly.
+        # Below about 7 resamples the stability measures come back all-NaN
+        # and CARVE.get_k raises (see MIN_SAFE_N_RESAMPLES in
+        # test_ci_config.py).
         n_resamples=10,
     )
     kwargs.update(overrides)
@@ -631,13 +590,8 @@ class TestRuntimeCapture:
         assert runtime["t_generalizability_s"] > 0.0
 
     def test_timed_fits_receive_the_scenario_n_trees(self, tiny_scenario, recording_carve):
-        """The mode-specific timed fits must use the scenario's forest size,
-        not CARVE's dataclass default of 100 -- otherwise t_stability_s and
-        t_generalizability_s are timed against a different-sized random
-        forest than t_default_s, silently, for any scenario with a
-        non-default n_trees (circles/moons/swiss_rolls run at 500). Mirrors
-        test_carve_receives_the_scenario_n_trees, but with timing_fits=True
-        so it actually reaches the timed-fit branch.
+        """The mode-specific timed fits use the scenario's forest size, as
+        the default fit does.
         """
         scenario = dataclasses.replace(tiny_scenario, n_trees=500)
         _cell(scenario, timing_fits=True)
@@ -648,8 +602,7 @@ class TestRuntimeCapture:
     def test_timed_fits_receive_the_scenario_classifier(
         self, tiny_scenario, recording_carve
     ):
-        """Otherwise t_generalizability_s would time the forest while
-        t_default_s timed the scenario's classifier."""
+        """t_generalizability_s and t_default_s time the same classifier."""
         scenario = dataclasses.replace(tiny_scenario, classifier="lda")
         _cell(scenario, timing_fits=True)
         assert [
@@ -800,8 +753,7 @@ class TestScenarioNJobs:
             assert scenario_n_jobs(SCENARIOS[name], None) == 1
 
     def test_a_difficulty_scenario_takes_every_worker(self):
-        """--all previously defaulted to 1 for every scenario, which turns
-        a seven-hour job into a three-day one."""
+        """A difficulty scenario's n_jobs resolves to every core."""
         assert scenario_n_jobs(SCENARIOS["gaussians"], None) == -1
 
     def test_an_explicit_request_overrides_both(self):

@@ -33,7 +33,7 @@ SACCT = (
 
 # A whole-job capture (sacct -j <job>, no step suffix): the job's own row,
 # a batch step and an extern step, each with different numbers from the
-# fit's actual .0 step, so a test that silently read the wrong row fails.
+# fit's .0 step.
 WHOLE_JOB_SACCT = (
     "JobID|Elapsed|TotalCPU|MaxRSS|AveRSS|NCPUS\n"
     "456|1-02:00:00|19-23:50:00|199G|179G|48\n"

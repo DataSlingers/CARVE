@@ -103,13 +103,11 @@ class TestFigureScalingAri:
         plt.close(fig)
 
     def test_marker_and_line_geometry_are_unscaled(self, results):
-        """One theme means Fig 4 and this figure match without a fudge factor.
+        """Fig 4 and this figure draw their lines at the same scale.
 
-        The old test grepped the module source for a literal scale factor,
-        which any other literal would have satisfied. This reads the
-        errorbar data lines that were actually drawn: metric_lines multiplies
-        markersize 5.0 and the theme linewidth by element_scale, so any
-        scale other than 1.0 changes both.
+        metric_lines multiplies markersize 5.0 and the theme linewidth by
+        element_scale, so the drawn errorbar lines show any scale other than
+        1.0.
         """
         fig = figure_scaling_ari(results, metrics=METRICS, save=False)
         widths = {m: metric_linewidth(m) for m in METRICS}
@@ -159,8 +157,8 @@ class TestFigureScalingRuntime:
         # ax.errorbar(..., label=...) attaches the label to the returned
         # ErrorbarContainer, not to the constituent Line2D objects it adds to
         # ax.lines -- those keep matplotlib's default "_nolegend_" label
-        # regardless of what label was passed. Checking ax.containers is the
-        # only way to see the two labelled curves this figure actually draws.
+        # regardless of what label was passed. The two labeled curves are
+        # found through ax.containers.
         fig = figure_scaling_runtime(runtimes, save=False)
         drawn = [ax for ax in fig.get_axes() if ax.lines]
         for ax in drawn:

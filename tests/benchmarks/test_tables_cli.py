@@ -43,13 +43,10 @@ def _frame(scenario):
 def _write_run_dir(root, scenario, cfg_hash, frame):
     """Write a cell__*.parquet checkpoint plus a manifest.json.
 
-    read_run itself only needs the checkpoint -- it globs cell__*.parquet
-    and concatenates them -- but the --tables CLI now locates a run
-    directory through widest_run, which reads the manifest to compare
-    sweep widths and requires status "complete". n_seeds and n_resamples
-    are fixed placeholders: no test here needs two directories to differ
-    in width, since widest_run's own width-selection behavior is covered
-    directly in test_artifacts.py.
+    read_run only needs the checkpoint, but the --tables CLI locates a run
+    directory through widest_run, which reads the manifest and requires
+    status "complete". n_seeds and n_resamples are fixed placeholders;
+    widest_run's width selection is tested in test_artifacts.py.
     """
     rd = root / scenario / cfg_hash
     rd.mkdir(parents=True, exist_ok=True)
@@ -82,11 +79,8 @@ class TestTableNames:
 
 
 def test_dimensionality_caption_names_the_feature_dimension():
-    """The axis is p, the ambient feature dimension, not embed_dim.
-
-    _registry's comment on _AXES says so and the manuscript's S3 Fig says
-    "feature dimension p"; the caption said "embedding dimension", which is
-    a different quantity that this scenario holds fixed at 64.
+    """The axis is p, the ambient feature dimension, not embed_dim, which
+    this scenario holds at 64.
     """
     from benchmarks.tables import TABLE_CAPTIONS
 
@@ -211,10 +205,8 @@ class TestExcludedMetrics:
 
 
 class TestTablesCli:
-    """--tables is the only path a user takes to these tables, so it needs
-    its own coverage rather than relying on write_all_tables being called
-    correctly by main -- that wiring, and the run-directory discovery it
-    does via read_run, is untested by TestWriteAllTables above.
+    """--tables, the path a user takes to these tables, with its
+    run-directory discovery.
     """
 
     def test_writes_fragments_from_a_run_directory(self, tmp_path):

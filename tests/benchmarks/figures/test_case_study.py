@@ -99,15 +99,10 @@ class _Groups(ClusterMixin, BaseEstimator):
 def _two_method_results(ks):
     """estimator_results_ for two method_ids swept over the same ks.
 
-    Mirrors a real case study that sweeps two estimators (Klein sweeps Ward
-    agglomerative clustering and spectral clustering), the shape that
-    exposed carve_lines' original interleaving bug: a single line drawn
-    from every row, not just the selected configuration's own sweep.
-    Columns follow the canonical estimator_results_ schema -- ari_stability
-    and ari_generalizability plus their _se variants, plus method_id/
-    method_label -- since carve_lines reads exactly those names. An earlier
-    alias ("stability" without the "ari_" prefix) was tried elsewhere in
-    this plan and was a latent KeyError.
+    As in a real case study that sweeps two estimators (Klein: Ward and
+    spectral). Columns follow the canonical estimator_results_ schema
+    (ari_stability and ari_generalizability, their _se variants, method_id
+    and method_label), which carve_lines reads.
     """
     ks = list(ks)
     return pd.DataFrame(
@@ -272,7 +267,7 @@ class TestKleinFigure:
         plt.close(fig)
 
     def test_builds_exactly_two_panel_legends(self, inputs):
-        """The original built legend D twice and discarded the first."""
+        """Legend D is built once."""
         fig = figure_klein_results(inputs, save=False)
         legend_axes = [ax for ax in fig.get_axes() if ax.get_legend() is not None]
         assert len(legend_axes) == 2
@@ -290,9 +285,7 @@ class TestKleinFigure:
 
     def test_panel_d_lines_use_one_configurations_k_values_not_both(self, inputs):
         # inputs.carve (a StubCarve) carries two method_ids swept over the
-        # same k values -- the shape that exposed carve_lines' original
-        # interleaving bug. Panel D must show one estimator's own sweep per
-        # measure, not both method_ids' rows concatenated.
+        # same k values; panel D shows one estimator's sweep per measure.
         fig = figure_klein_results(inputs, save=False)
         panel_d = self._panel_d(fig)
         data_lines = [ln for ln in panel_d.lines if ln.get_marker() == "o"]
@@ -305,8 +298,8 @@ class TestKleinFigure:
         plt.close(fig)
 
     def test_panel_d_selected_k_marker_moves_with_not_two(self, inputs):
-        # composite_figure's own carve_lines call must forward
-        # CompositeInputs.not_two, not silently default it to False.
+        # composite_figure's carve_lines call forwards
+        # CompositeInputs.not_two.
         from dataclasses import replace
 
         default_fig = figure_klein_results(inputs, save=False)
@@ -398,7 +391,7 @@ class TestLevineFigure:
         self, resolution_inputs
     ):
         # The resolution ticks stand upright and take most of the legend
-        # strip, so a centered three-entry legend reached up into "Resolution".
+        # strip.
         fig = figure_levine_results(resolution_inputs, save=False)
         fig.canvas.draw()
         renderer = fig.canvas.get_renderer()
@@ -413,8 +406,6 @@ class TestLevineFigure:
     def test_curve_legends_start_right_under_the_resolution_labels(
         self, resolution_inputs
     ):
-        # Bottom-aligned in a strip 0.55 rows tall, the legends left most of
-        # an inch blank under "Resolution".
         fig = figure_levine_results(resolution_inputs, save=False)
         fig.canvas.draw()
         renderer = fig.canvas.get_renderer()
@@ -462,8 +453,7 @@ class TestEstimatorSpecFromModelLabel:
 
     def test_rejects_a_bare_class_name(self):
         # cvi_sweep never renders one: every registered estimator has fixed
-        # defaults, so its label always carries them. Accepting a prefix
-        # here is what let ward and single linkage collapse into one spec.
+        # defaults, so its label always carries them.
         with pytest.raises(ValueError, match="Cannot map model label"):
             _estimator_spec_from_model_label("AgglomerativeClustering")
 
@@ -484,8 +474,6 @@ class TestEstimatorSpecFromModelLabel:
         )
 
     def test_distinguishes_single_from_ward_linkage(self):
-        # A class-name prefix match sent both linkages to the ward spec, so a
-        # single-linkage CVI winner would have been refit with Ward in panel C.
         assert (
             _estimator_spec_from_model_label("AgglomerativeClustering (linkage=single)").name
             == "agglomerative_single"
@@ -599,14 +587,10 @@ class TestPrepareComposite:
     def test_labels_come_back_aligned_to_the_reported_labels(self):
         """Cluster i must mean "the cluster matching reported label i".
 
-        Two things have to line up, and the data here separates them. The
-        stub's clustering is a perfect but *permuted* copy of the reported
-        labels, so alignment has to happen at all; and the reported labels
-        appear in the order "b" then "a", so their first-occurrence order is
-        the reverse of their sorted order. Only sorted order is right --
-        aligned_color_maps hands out the palette in sorted category order --
-        so aligning against first occurrence would give every cluster the
-        wrong label's colour while still looking "aligned".
+        The stub's clustering is a permuted copy of the reported labels, and
+        the reported labels appear as "b" then "a", so first-occurrence order
+        is the reverse of sorted order. Alignment follows sorted order, the
+        order aligned_color_maps hands out the palette in.
         """
         n = 40
         y = np.array(["b"] * (n // 2) + ["a"] * (n // 2))
@@ -633,9 +617,8 @@ class TestPrepareComposite:
         # Unaligned, the labels would be the permutation the stub returned.
         assert not np.array_equal(inputs.carve_labels, permuted)
 
-        # The invariant the scatter panels rest on, end to end: the colour
-        # panel B gives a cluster is the colour panel A gives the reported
-        # label that cluster was matched to.
+        # The color panel B gives a cluster is the color panel A gives the
+        # reported label that cluster was matched to.
         true_cmap, carve_cmap, _ = composite_color_maps(inputs)
         for code, category in enumerate(categorical.categories):
             assert carve_cmap[code] == true_cmap[category]
@@ -715,11 +698,8 @@ class TestPrepareComposite:
         self, monkeypatch
     ):
         """Klein's grid sweeps Ward agglomerative and spectral, never
-        KMeans, so a comparison estimator hardcoded to KMeans is not even in
-        the sweep best_df describes. best_df's model column here names
-        AgglomerativeClustering (Ward) as silhouette's winner; build_estimator
-        must be called with that estimator's spec, not a hardcoded
-        EstimatorSpec(name="kmeans").
+        KMeans. best_df names AgglomerativeClustering (Ward) as silhouette's
+        winner, so build_estimator is called with that estimator's spec.
         """
         from benchmarks import _estimators
 
@@ -779,9 +759,8 @@ class TestPrepareComposite:
                 "ari": [0.5],
             }
         )
-        # Distinguishable from each other and from the defaults ("stability",
-        # "1se", False), so a transposed or dropped forward is detectable --
-        # measure and rule cannot be confused for one another here.
+        # Values distinct from each other and from the defaults
+        # ("stability", "1se", False).
         prepare_composite(
             X,
             y,

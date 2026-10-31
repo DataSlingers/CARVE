@@ -20,7 +20,7 @@ def test_an_unknown_stage_is_rejected():
 # ~69-cell training split fragments every cell into its own cluster. sklearn
 # then warns that the cluster labels look more like a regression target than
 # a classification one when scoring ARI. Real hECA scale never approaches
-# one cluster per cell, so this is a toy-scale artifact, not a defect.
+# one cluster per cell.
 @pytest.mark.filterwarnings(
     "ignore:The number of unique classes is greater than 50% "
     "of the number of samples:UserWarning"

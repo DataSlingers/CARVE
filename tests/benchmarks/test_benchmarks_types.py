@@ -132,9 +132,8 @@ class TestScenario:
             _scenario(k_star=99)
 
     def test_rejects_a_shared_key_matching_a_non_simulator_axis_name(self):
-        # difficulty_level is the axis name but not a simulate_clusters
-        # parameter; putting it in shared must not be silently accepted, or
-        # it would reach simulate_clusters as an unknown keyword at run time.
+        # difficulty_level is the axis name, not a simulate_clusters
+        # parameter, so shared rejects it.
         with pytest.raises(ValueError, match="difficulty_level"):
             _scenario(shared={"n_total": 120, "p": 4, "difficulty_level": 1})
 

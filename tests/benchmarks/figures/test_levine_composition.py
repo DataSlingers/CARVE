@@ -33,7 +33,7 @@ from tests.benchmarks._helpers import StubCarve, resolution_results
 SIZES = [1265, 965, 187, 108, 25, 294, 793, 16, 1013, 59, 58, 44, 158, 15]
 
 # Levine_32dim's 32 type markers, as load_levine32 returns them in
-# meta["markers"] (read from HDCytoData 1.28.0 on 2026-10-14).
+# meta["markers"] (HDCytoData 1.28.0).
 MARKERS = [
     "CD45RA", "CD133", "CD19", "CD22", "CD11b", "CD4", "CD8", "CD34",
     "Flt3", "CD20", "CXCR4", "CD235ab", "CD45", "CD123", "CD321", "CD14",
@@ -224,9 +224,8 @@ class TestMarkerMedians:
 
     def test_scaling_uses_the_1st_and_99th_percentiles_and_clips(self):
         # A ramp 0..199 with a top group above the 99th percentile and a
-        # middle group. Min/max scaling would put the middle median at
-        # 50/199 and leave the top median below 1; unclipped percentile
-        # scaling would put the top median above 1.
+        # middle group; the expected medians hold only for clipped
+        # percentile scaling.
         ramp = np.arange(200.0)
         groups = np.where(ramp >= 198, "top", np.where(np.abs(ramp - 50) <= 1, "mid", "rest"))
         medians = marker_medians(
@@ -302,7 +301,7 @@ class TestMarkerTable:
     def test_each_row_holds_the_medians_of_the_cells_it_names(self, levine_like):
         # Expected rows come from the stub's own labels, the reported
         # populations and the comparison labels, not from the figure's
-        # partitions, so a row cannot carry another row's medians unseen.
+        # partitions.
         table = marker_table(levine_like, MARKERS)
         columns = list(table.columns)
         X, y = levine_like.X, levine_like.y

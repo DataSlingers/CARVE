@@ -664,8 +664,8 @@ class TestResolveAnchors:
         assert idx.min() >= 0 and idx.max() < 6000
 
     def test_no_discontinuity_across_the_threshold(self):
-        # 4000 -> 4000 effective anchors (exact); 6000 -> 5000. The count must
-        # not fall as n grows, which a flat default would cause.
+        # 4000 -> 4000 effective anchors (exact); 6000 -> 5000. The count does
+        # not fall as n grows.
         below = resolve_anchors(
             4000, consensus_anchors=None, anchor_threshold=5000, random_state=0
         )
@@ -723,16 +723,13 @@ class TestResolveAnchors:
             )
 
     def test_tiny_n_is_exact_rather_than_an_error(self):
-        # The default resolves to m = n_samples here, so the run is exact. It
-        # used to raise about consensus_anchors, a parameter the caller in
-        # this case never set.
+        # The default resolves to m = n_samples here, so the run is exact.
         assert resolve_anchors(
             1, consensus_anchors=None, anchor_threshold=5000, random_state=0
         ) is None
 
     def test_degenerate_default_message_names_anchor_threshold(self):
-        # A threshold below 2 is the caller's own doing, but the old message
-        # blamed consensus_anchors for it.
+        # A threshold below 2 is named in the message.
         with pytest.raises(ValueError, match=r"anchor_threshold=1"):
             resolve_anchors(
                 9000, consensus_anchors=None, anchor_threshold=1, random_state=0
@@ -751,12 +748,8 @@ class TestResolveAnchors:
 
 
 class TestDefaultGeneralizabilityClassifier:
-    """Pin the construction both call sites share.
-
-    _runner's generalizability path and CARVE.get_labels' anchored label
-    extension must build the same classifier. They diverged once, on
-    max_depth, while a comment was the only thing asking them not to. These
-    assertions replace the comment.
+    """The classifier that _runner's generalizability path and
+    CARVE.get_labels' anchored label extension both build.
     """
 
     def test_default_is_a_random_forest_with_the_documented_parameters(self):
@@ -771,9 +764,8 @@ class TestDefaultGeneralizabilityClassifier:
         assert clf.n_jobs == 3
 
     def test_n_jobs_is_required(self):
-        # The forest used to hardcode n_jobs=-1, which oversubscribed under
-        # any outer parallelism. Both call sites must now pass the thread
-        # count they were budgeted, so there is no default to fall back on.
+        # Both call sites pass the thread count they were budgeted; there is
+        # no default.
         with pytest.raises(TypeError, match="n_jobs"):
             default_generalizability_classifier(
                 classifier=None, n_features=16, n_trees=37, random_state=5
@@ -828,8 +820,7 @@ class TestDefaultGeneralizabilityClassifier:
         assert clf.n_estimators == 7
 
     def test_supplied_classifier_with_n_jobs_receives_the_budget(self):
-        # A user's forest built with n_jobs=-1 would oversubscribe exactly as
-        # the old default did, so the budget overrides what it was built with.
+        # The budget overrides a user forest's n_jobs=-1.
         supplied = RandomForestClassifier(n_estimators=7, n_jobs=-1)
         clf = default_generalizability_classifier(
             classifier=supplied, n_features=4, n_trees=500, random_state=0, n_jobs=2
@@ -845,8 +836,7 @@ class TestDefaultGeneralizabilityClassifier:
         assert "n_jobs" not in clf.get_params()
 
     def test_matches_the_runner_construction_it_replaced(self):
-        # The literal parameters the generalizability path built before the
-        # extraction, spelled out so a change here has to be deliberate.
+        # The generalizability forest's parameters, spelled out.
         n_features, n_trees, seed = 12, 100, 3
         clf = default_generalizability_classifier(
             classifier=None,
@@ -871,12 +861,8 @@ class TestDefaultGeneralizabilityClassifier:
 
 
 class TestResolveCoreBudget:
-    """Pin the split of n_jobs into resample workers and threads per worker.
-
-    Measured before this rule existed: inside loky workers the default
-    forest's hardcoded n_jobs=-1 still started one thread per core whatever
-    the outer n_jobs, so CARVE(n_jobs=-1) on 11 cores ran 11 x 14 threads.
-    The budget makes outer x inner the machine, never more.
+    """The split of n_jobs into resample workers and threads per worker;
+    outer x inner never exceeds the machine.
     """
 
     @pytest.fixture(autouse=True)
@@ -884,8 +870,7 @@ class TestResolveCoreBudget:
         monkeypatch.setattr(carve_utils, "cpu_count", lambda: 11)
 
     def test_one_worker_gives_the_classifier_every_core(self):
-        # n_jobs=1 is today's default configuration: one worker, forest on
-        # every core. The budget must not slow that down.
+        # n_jobs=1, the default: one worker, forest on every core.
         assert resolve_core_budget(1, n_resamples=100) == (1, 11)
 
     def test_all_cores_gives_one_thread_per_worker(self):
@@ -931,7 +916,7 @@ class TestNoiseMask:
         scores = np.linspace(0.0, 1.0, 101)
         cut = noise_mask(scores, quantile=0.05)
         # The 0.05 quantile is exactly scores[5]; the strict comparison keeps
-        # it labeled, so a <= rule would flag six samples here.
+        # it labeled.
         np.testing.assert_array_equal(np.flatnonzero(cut.mask), [0, 1, 2, 3, 4])
         assert cut.n_target == 5
         assert cut.cutoff == pytest.approx(0.05)
@@ -985,7 +970,7 @@ class TestNoiseMask:
         scores = np.array([1.0] * 96 + [0.95] * 2 + [0.5] * 2)
         cut = noise_mask(scores, quantile=0.05)
         # The cutoff lies above 0.95, so the margin decides. 1.0 - 0.05 is
-        # exactly 0.95 in float64; a <= comparison would also flag 96 and 97.
+        # exactly 0.95 in float64.
         assert 1.0 - NOISE_MARGIN == 0.95
         assert cut.cutoff > 0.95
         np.testing.assert_array_equal(np.flatnonzero(cut.mask), [98, 99])

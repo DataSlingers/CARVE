@@ -227,7 +227,6 @@ class TestSeeds:
     def test_publication_seed_windows_of_different_replicates_never_meet(self):
         # A sweep over every publication cell: sort the windows and check
         # that any two that overlap belong to the same replicate index.
-        # Setting REPLICATE_SEED_SPACING to 100 makes this fail.
         windows = []
         for cell in enumerate_cells(RHO_B, "publication"):
             start = carve_seed(cell, ablation=RHO_B)

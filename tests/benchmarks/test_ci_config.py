@@ -8,12 +8,9 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 
-# Below roughly 7 resamples, consensus_gini_stability and
-# consensus_ce_stability come back all-NaN, and CARVE.get_k then raises
-# ValueError: Encountered all NA values from idxmax. 7 is the measured
-# boundary on a small fixture; the workflow is asserted to stay above it
-# with margin rather than pinned to a specific literal, so the value can be
-# tuned upward later without a spurious test failure.
+# Below about 7 resamples, consensus_gini_stability and
+# consensus_ce_stability come back all-NaN on a small fixture, and
+# CARVE.get_k raises from idxmax. The workflow must stay above this.
 MIN_SAFE_N_RESAMPLES = 7
 
 
@@ -31,9 +28,8 @@ def test_nightly_runs_a_real_benchmark_not_only_plotting():
     assert matches, "no 'Benchmark smoke run' step found in nightly-notebooks.yml"
     step = matches[0]
 
-    # A step gated behind `if: false` (or any other disabling condition)
-    # would satisfy every check below while running nothing -- the same
-    # silently-useless nightly job this task exists to remove.
+    # A step gated behind `if:` could be disabled while every check below
+    # still passes.
     assert "if" not in step, (
         "the smoke step carries an 'if:' key and can be disabled without "
         "failing any other assertion here"

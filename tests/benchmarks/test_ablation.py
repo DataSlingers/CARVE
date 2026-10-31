@@ -154,9 +154,7 @@ class TestSimilarityRows:
 
         # Independently recompute one (estimator, k, draw) row: the row's
         # ari must be the draw's subsample clustering scored against the
-        # base full-data fit restricted to the draw -- not against the
-        # truth labels or an unrestricted reference, which the count and
-        # range assertions above would not catch.
+        # base full-data fit restricted to the draw.
         X, y, scenario, base = _simulated(cell, TINY_ABLATION, "dev")
         X = np.asarray(X)
         k = scenario.candidate_k[0]
@@ -213,7 +211,7 @@ class TestSimilarityRows:
         # 7 neighbors on the 120 full rows. A draw of 74 rows gets
         # round(7 * 74 / 120) = 4 and one of 24 rows the floor of 2, which is
         # what carve._runner's fit_labels gives a subsample of that size. The
-        # full-data fit keeps 7. Unscaled, the draws would record 7.
+        # full-data fit keeps 7.
         rows, calls, n_k = self._spectral_calls(monkeypatch, rho)
         draws = TINY_SCALE.similarity_draws
         assert len(rows) == n_k * draws
@@ -293,7 +291,6 @@ class TestCellRows:
         # test set (a tenth of the samples) leaves most pairs never
         # co-tested while the training subsamples cover almost every pair,
         # so the generalizability fraction must be the larger one by far.
-        # A cell_rows that recorded the stability matrix twice would fail.
         unit = Unit("cell", Cell("tiny", "easy", 0, 0.9, 8, 0))
         rows = cell_rows(unit, ablation=TINY_ABLATION, scale="dev", data=None, thread_cap=None)
         row = rows["cells"][0]
@@ -312,17 +309,11 @@ class TestCellRows:
 
 
 class TestCellRowsAllNaNMeasure:
-    """Cell("tiny", "easy", 0, 0.5, 8, 1) is a known trigger: at B=8, one of
-    120 simulated samples is never included in any resample draw (chance
-    ~0.5**8 per sample), leaving its consensus-matrix row all-NaN. CARVE
-    sums that into consensus_gini_stability/consensus_ce_stability with
-    .mean(), not .nanmean() (src/carve/api.py), so both measures come back
-    NaN for every configuration of this cell. select_best_row_by_rule's
-    idxmax used to raise ValueError("Encountered all NA values") on that
-    column; cell_rows must record an unselected row for the metric instead
-    of crashing the run, while the ARI-based metrics -- unaffected by the
-    missing sample's consensus row, since they never depend on gini/CE --
-    keep selecting normally.
+    """Cell("tiny", "easy", 0, 0.5, 8, 1) leaves one of its 120 samples out
+    of every resample draw at B=8, so that sample's consensus row is all NaN
+    and consensus_gini_stability and consensus_ce_stability are NaN for every
+    configuration. cell_rows records an unselected row for those metrics,
+    and the ARI-based metrics select normally.
     """
 
     @pytest.fixture(scope="class")
@@ -335,10 +326,7 @@ class TestCellRowsAllNaNMeasure:
             )
 
     def test_gini_curve_is_genuinely_all_nan(self, degenerate):
-        # Exercise the path for real: if CARVE ever stops producing an
-        # all-NaN gini column for this cell, this fails loudly rather than
-        # letting the rest of the test pass on a scenario that no longer
-        # occurs.
+        # The cell must still produce an all-NaN gini column.
         curves = pd.DataFrame(degenerate["curves"])
         gini = curves.loc[curves["metric_name"] == "consensus_gini_stability", "metric_value"]
         assert gini.notna().sum() == 0

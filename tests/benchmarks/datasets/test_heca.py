@@ -82,10 +82,7 @@ class TestLoadHeca:
         assert meta["n_cells"] < meta["n_cells_full"]
 
     def test_unclassified_cells_are_dropped_even_with_the_organ_label(self, heca):
-        # "organ" is never "Unclassified", so a filter that checks
-        # label_column instead of a fixed annotation column would silently
-        # keep every cell_type-Unclassified cell whenever label_column is
-        # left at its default. Drop must happen regardless of label_column.
+        # Unclassified cell types are dropped whatever label_column is.
         _, _, meta = load_heca(
             root=heca, organs=["Lung"], n_top_peaks=50, n_components=5
         )
@@ -113,9 +110,7 @@ class TestLoadHeca:
         assert adjusted_rand_score(y, labels) > 0.7
 
     def test_random_state_controls_the_pca_embedding(self, heca):
-        # cache=False on every call: a cache hit would serve the first
-        # call's stored embedding regardless of random_state and mask a
-        # real difference (or a real absence of one).
+        # cache=False, so every call computes its own embedding.
         kwargs = dict(
             root=heca,
             organs=["Lung", "Brain"],
@@ -166,10 +161,7 @@ class TestLoadHeca:
 
     def test_mismatched_peak_reference_across_organs_is_rejected(self, heca):
         # Lung and Brain (the `heca` fixture) share one var index. A third
-        # organ with the same peak count but a different order must be
-        # caught before pooling silently mixes different peaks across
-        # organs -- total_counts + counts only checks length, so it would
-        # not notice on its own.
+        # organ with the same peak count in a different order must raise.
         adata = ad.AnnData(
             X=sparse.csr_matrix(np.zeros((10, N_PEAKS), dtype=np.int32)),
             obs=pd.DataFrame(
@@ -198,12 +190,9 @@ class TestLoadHeca:
             load_heca(root=heca, organs=["Pancreas"], n_top_peaks=50)
 
     def test_missing_organ_names_a_path_that_resolves_correctly(self, heca, monkeypatch):
-        # load_heca takes no root in the notebooks, so a relative "data/"
-        # resolves against the process's cwd at call time -- the notebook's
-        # own directory when run via nbconvert, not the repository root. A
-        # message that just repeats "data/hECA/" reads correctly only from
-        # the repo root; the resolved absolute path is correct regardless
-        # of where the process actually started.
+        # The notebooks pass no root, so "data/" resolves against the
+        # notebook's own directory under nbconvert; the message names the
+        # resolved absolute path.
         monkeypatch.chdir(heca.parent)
         with pytest.raises(FileNotFoundError) as excinfo:
             load_heca(root=Path("data"), organs=["Pancreas"], n_top_peaks=50)
@@ -212,10 +201,8 @@ class TestLoadHeca:
 
     def test_truncated_organ_file_names_the_file_and_the_fix(self, heca):
         # A download that stopped short leaves a file HDF5 can open but not
-        # read: h5py's own error ("free block size is zero?", "bad symbol
-        # table node signature") surfaces from ten frames deep and names
-        # neither the file nor what to do. The real ATAC-Brain.h5ad failed
-        # exactly this way after an interrupted download.
+        # read, and h5py's own error ("free block size is zero?", "bad symbol
+        # table node signature") names neither the file nor what to do.
         path = heca / "hECA" / "ATAC-Brain.h5ad"
         data = path.read_bytes()
         path.write_bytes(data[: len(data) // 2])
@@ -227,9 +214,7 @@ class TestLoadHeca:
         assert "md5" in message
 
     def test_open_fraction_that_empties_every_peak_raises(self, heca):
-        # A threshold above 1.0 can never be met, so the pass-1 accumulator
-        # must reject it rather than silently handing PCA a zero-feature
-        # matrix and reporting a preprocessing chain that never ran.
+        # A threshold above 1.0 can never be met and raises.
         with pytest.raises(ValueError, match="open_fraction"):
             load_heca(
                 root=heca,
@@ -241,10 +226,6 @@ class TestLoadHeca:
 
 
 class TestCache:
-    # The interface's signature carries cache: bool = True, but the plan's
-    # own implementation sketch never used it, so this fills the gap and
-    # verifies it actually skips recomputation rather than being a dead
-    # parameter.
 
     def test_cache_survives_source_deletion(self, heca):
         first_X, first_y, first_meta = load_heca(
@@ -263,9 +244,7 @@ class TestCache:
 
     def test_changing_n_top_peaks_invalidates_the_cache(self, heca):
         # n_top_peaks is part of _cache_key alongside organs, open_fraction,
-        # n_components, and label_column. A change to it must miss the
-        # cache and recompute -- not silently serve the previous call's
-        # cached embedding, selected under a different peak count.
+        # n_components and label_column, so changing it recomputes.
         first_X, _, first_meta = load_heca(
             root=heca, organs=["Lung"], n_top_peaks=50, n_components=5
         )
@@ -309,14 +288,12 @@ def _annotated_per_organ(root, organs):
 
 
 class TestSubsampleBeforeEmbedding:
-    """The dev-scale path: draw the rows first, embed only those.
+    """The subsample-first path: draw the rows first, embed only those.
 
     The pooled pass holds the whole cells-by-kept-peaks matrix in memory
-    (tens of GB on the real five organs), and the subsample was drawn from
-    the pooled embedding afterwards, so even SCALE="dev" could not load on
-    a laptop without a cache. With subsample_before_embedding=True the rows
-    are drawn from the organ files and the preprocessing chain runs on those
-    rows only. The pooled embedding still wins whenever it is cached.
+    (tens of GB on the real five organs). With subsample_before_embedding=True
+    the rows are drawn from the organ files and the preprocessing chain runs
+    on those rows only. The pooled embedding still wins whenever it is cached.
     """
 
     def test_embeds_only_the_drawn_rows_and_never_runs_the_pooled_pass(self, heca):

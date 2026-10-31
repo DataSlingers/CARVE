@@ -254,12 +254,8 @@ class TestNonConvex:
         assert ari > 0.90
 
     def test_sparse_path_is_reproducible_for_a_fixed_seed(self):
-        """n=1000 is the first size that takes the eigsh branch.
-
-        test_regression.py records that ARPACK draws its start vector from
-        the global NumPy RNG, so two fits could disagree. Under scipy 1.16
-        they do not; if this ever fails, mark it xfail(strict=True) with the
-        scipy version in the reason rather than loosening it.
+        """n=1000 is the first size that takes the eigsh branch; two fits
+        with one seed agree.
         """
         X, _ = make_moons(1000, noise=0.05, random_state=0)
         first = SpectralClustering(n_clusters=2, random_state=0).fit_predict(X)
@@ -282,14 +278,10 @@ class TestNonConvex:
         self, monkeypatch
     ):
         """Shift-invert at sigma=0 factors L_sym itself, whose smallest
-        eigenvalue is exactly 0.
-
-        On Klein's 1,038-cell held-out sets the LU hit an exact zero pivot
-        and eigsh raised RuntimeError("Factor is exactly singular"), which
-        the ArpackNoConvergence handler did not catch. No small synthetic
-        input reproduces that pivot, so eigsh raises the same error here.
-        The R port falls back to a dense eigendecomposition on any solver
-        error; this pins the same.
+        eigenvalue is exactly 0, so the LU can hit an exact zero pivot
+        (RuntimeError("Factor is exactly singular")). No small input
+        reproduces that pivot, so eigsh is patched to raise it, and the fit
+        falls back to the dense solver.
         """
         import carve.cluster as cluster_module
 
@@ -322,16 +314,8 @@ class TestNonConvex:
             np.testing.assert_array_equal(first, repeat)
 
     def test_sparse_path_converges_on_well_separated_five_cluster_blobs(self):
-        """n=1500, k=5, well-separated blobs: the broken solver both flips
-        and undershoots the true partition, not just flips between two
-        otherwise-good answers.
-
-        Measured over 10 repeated fits with which='SM' (no start vector):
-        ARI ranged 0.67-1.00 and 7 of 10 partitions differed from the first
-        fit. Shift-invert at sigma=0 scored ARI=1.0000 on all 10 repeats,
-        identical partitions throughout. A circles dataset does not separate
-        the two solvers on this toolchain (ARI=1.0 on both, every repeat);
-        this dataset does.
+        """n=1500, k=5, well-separated blobs: repeated fits recover the
+        planted partition exactly.
         """
         from sklearn.datasets import make_blobs
 
@@ -554,9 +538,8 @@ class TestLouvainClustering:
         """community_multilevel visits nodes in a random order.
 
         On points without cluster structure, unseeded fits of one graph
-        give a different partition almost every time (10 of 10 distinct
-        when this test was written), so equal labels here mean the seed
-        reached igraph.
+        give a different partition almost every time, so equal labels here
+        mean the seed reached igraph.
         """
         X = np.random.default_rng(0).uniform(size=(600, 2))
         np.testing.assert_array_equal(

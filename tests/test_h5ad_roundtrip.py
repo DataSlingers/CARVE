@@ -1,6 +1,6 @@
 """Persistence tests: CARVE results must survive an h5ad round trip.
 
-The load-bearing case is a *heterogeneous* estimator grid. KMeans has no
+The case that matters is a heterogeneous estimator grid. KMeans has no
 ``linkage`` and agglomerative clustering has no ``affinity``, so
 ``DataFrame.from_records`` fills the gaps with NaN. On pandas 2.3 -- the
 dependency floor, since anndata 0.13 requires pandas >= 2.3 -- those columns
@@ -88,13 +88,9 @@ class TestSanitisation:
         assert set(kmeans_rows["linkage"]) == {""}
 
     def test_sanitiser_is_load_bearing(self, heterogeneous_grid, tmp_path):
-        """The raw frame is what breaks; ours is what fixes it.
-
-        On pandas 2.3 writing the unsanitised frame raises
-        ``TypeError: Can't implicitly convert non-string objects to strings``.
-        On pandas 3 the new ``str`` dtype makes it succeed, so the assertion is
-        conditioned on the pandas major version rather than pretending the
-        failure is universal. Either way the sanitised frame must write.
+        """On pandas 2.3 writing the raw frame raises
+        ``TypeError: Can't implicitly convert non-string objects to strings``;
+        on pandas 3 it writes. The sanitized frame writes on both.
         """
         rng = np.random.RandomState(0)
         X = np.vstack([rng.randn(20, 5) + 9, rng.randn(20, 5) - 9]).astype(np.float32)

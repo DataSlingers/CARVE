@@ -17,11 +17,9 @@ from carve import CARVE
 N = 5000
 GRIDS = [(KMeans, {"n_clusters": [2, 3, 4], "n_init": [10]})]
 
-# The design document names m in {500, 1000, 2000, 5000}. At N = 5000 the
-# fourth value is the exact path by definition, since resolve_anchors returns
-# None once m reaches n; that identity is already covered by
-# tests/test_consensus.py::TestConsensusAnchorBlock. The three values below
-# are the ones that actually exercise the approximation.
+# m in {500, 1000, 2000} exercises the approximation. m = 5000 = N is the
+# exact path, since resolve_anchors returns None once m reaches n
+# (tests/test_consensus.py::TestConsensusAnchorBlock).
 
 
 def _data(seed=0):
@@ -34,11 +32,8 @@ def _data(seed=0):
 
 def _fit(X, *, anchors):
     # The anchored fits raise anchor_threshold above N so the anchored path
-    # runs at all at this n. The exact fit does not need that and does not
-    # get it: it runs under the default threshold, which is exactly N, so it
-    # is a genuine boundary fit and covers the configuration the published
-    # Levine case study sits on. resolve_anchors returns None for either
-    # threshold at this n, so the numbers below are unaffected.
+    # runs at this n. The exact fit runs under the default threshold, which
+    # is exactly N, so it is a real boundary fit.
     kwargs = (
         {}
         if anchors is None
@@ -48,10 +43,8 @@ def _fit(X, *, anchors):
         estimator_param_grids=GRIDS, n_resamples=25, random_state=0, **kwargs
     )
     with warnings.catch_warnings():
-        # warnings.filterwarnings matches from the start of the message, and
-        # the message here leads with the reason, not "anchored consensus"
-        # (which only appears mid-sentence) -- anchor the pattern on the
-        # actual leading text this test always triggers.
+        # warnings.filterwarnings matches from the start of the message,
+        # which here leads with the reason.
         warnings.filterwarnings(
             "ignore",
             message=r"consensus_anchors=\d+ opts this run in regardless of anchor_threshold",
@@ -126,6 +119,5 @@ def test_accuracy_improves_with_more_anchors(exact, anchored_fits):
         for m in (500, 2000)
     ]
     # Variance of the row-mean estimator falls as 1/m, so more anchors must
-    # track the exact answer better. A flat result would mean the anchor
-    # count is not actually being honored.
+    # track the exact answer better.
     assert correlations[1] > correlations[0]

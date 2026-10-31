@@ -726,11 +726,9 @@ class TestRunValidationAnchors:
     def test_summaries_are_full_length_under_anchoring(self):
         rng = np.random.default_rng(0)
         n = 60
-        # A mild gap, not the well-separated blobs used elsewhere: with a
-        # clean 6-sigma split, k=2 recovers the identical partition on every
-        # resample and the per-sample scores are trivially constant at 1,
-        # which would defeat the "not constant" check below. This overlap
-        # keeps some samples near the boundary so scores genuinely vary.
+        # A mild gap: with a clean 6-sigma split, k=2 recovers the same
+        # partition on every resample and every per-sample score is 1. This
+        # overlap keeps some samples near the boundary.
         X = np.vstack([rng.normal(0, 1, (n // 2, 4)), rng.normal(2, 1, (n // 2, 4))])
         anchors = np.sort(rng.choice(n, 20, replace=False))
 
@@ -788,8 +786,8 @@ class TestRunValidationAnchors:
         for summary in summaries:
             assert summary.gini.shape == (n,)
 
-        # The claim under test: the runner's exact-path summaries equal what
-        # the old api.fit code path computed post-hoc from the same matrices.
+        # The runner's exact-path summaries equal compute_consensus_metrics
+        # on the same matrices.
         gini_list, ce_list, pac_list = compute_consensus_metrics(matrices)
         for summary, gini, ce, pac in zip(summaries, gini_list, ce_list, pac_list):
             assert np.allclose(summary.gini, gini)

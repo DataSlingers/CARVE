@@ -113,8 +113,7 @@ class TestSyntheticFrames:
         # The premise of every figure test below: the frames went through
         # parquet and read_frames, so one undefined selection has made
         # selected_k float64 for the whole run while at_k stays typed past
-        # the study cells' empty files. A helper that handed the figure
-        # in-memory frames again would fail here.
+        # the study cells' empty files.
         selection = frames["selection"]
         assert selection["selected_k"].dtype.kind == "f"
         assert selection["selected_k"].isna().sum() == 1
@@ -312,9 +311,7 @@ class TestFigureAblation:
         self, without_study, figure, letter
     ):
         # The synthetic frames draw the two scenarios' values independently,
-        # so a figure that pooled them or swapped rows would miss these. They
-        # also draw ari_selected and at_k independently, so a figure that
-        # plotted the stored ari_selected would miss them too.
+        # and ari_selected independently of at_k.
         ablation, frames = without_study
         study, arm, x = ARI_PANELS[letter]
         ax = _panels(figure)[letter]
@@ -337,8 +334,8 @@ class TestFigureAblation:
         assert list(upper) == pytest.approx(list(mean + Z_95 * sem))
 
     def test_one_line_per_selector_and_no_seed_lines(self, figure):
-        # The B arm of the test scale runs two seeds; a line per seed would
-        # add two more lines per selector.
+        # The B arm of the test scale runs two seeds, drawn as one line per
+        # selector.
         for letter, ax in _panels(figure).items():
             colors = [to_hex(line.get_color()) for line in _drawn_lines(ax)]
             assert sorted(colors) == sorted(SELECTOR_COLORS), letter
@@ -373,9 +370,8 @@ class TestFigureAblation:
 
     def test_oracle_reads_only_the_datasets_the_arm_ran(self, tmp_path):
         # As in the registry, the B arm runs a subset of the rho arm's
-        # datasets. Dataset 1, which only the rho arm runs, gets an oracle
-        # of 0: a figure that averaged over every dataset would draw B's
-        # oracle at 0.45 rather than 0.9, and A's must include it.
+        # datasets. Dataset 1, which only the rho arm runs, gets an oracle of
+        # 0, so B's oracle is 0.9 and A's includes dataset 1.
         scale = NO_STUDY.scales["test"]
         ablation = dataclasses.replace(
             NO_STUDY,
@@ -564,8 +560,7 @@ class TestFigureAblationResampling:
 
     def test_proportion_panels_are_fitted_to_what_they_draw(self, resampling):
         # Recall and subsample-versus-full ARI, each on its own axis fitted
-        # to its error bars and reference line; the old recall panel ran to
-        # 1.32 to hold an in-panel key.
+        # to its error bars and reference line.
         for letters in RESAMPLING_PANELS.values():
             for letter in letters[1:]:
                 ax = _panels(resampling)[letter]

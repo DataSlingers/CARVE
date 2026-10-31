@@ -61,9 +61,8 @@ class TestLineStyle:
             assert metric_linestyle(metric) == "-"
 
     def test_the_oracle_and_every_index_are_dashed(self):
-        # Not "== '--'": a comparator's own style is now its (offset, dashes)
-        # pair (see TestComparatorDashes), so "dashed" means "not solid"
-        # rather than one shared literal.
+        # A comparator's style is its own (offset, dashes) pair (see
+        # TestComparatorDashes), so "dashed" means "not solid".
         for metric in ("baseline_oracle", *CVI_METRICS):
             assert metric_linestyle(metric) != "-"
 
@@ -75,7 +74,7 @@ class TestLineStyle:
             assert metric_linewidth(metric) < metric_linewidth("ari_stability_1se")
 
     def test_the_two_weights_are_the_chosen_values(self):
-        """Pinned so a later edit cannot drift the emphasis silently."""
+        """CARVE's curves at 1.8 points, the reference series at 1.2."""
         assert metric_linewidth("ari_stability_1se") == 1.8
         assert metric_linewidth("silhouette") == 1.2
 
@@ -86,7 +85,7 @@ class TestLineStyle:
         """The prefix rule has to cover the whole CARVE vocabulary.
 
         A consensus_* measure is a CARVE quantity but not an ARI curve, so
-        it is deliberately not solid; only the ari_* selection curves are.
+        it is not solid; only the ari_* selection curves are.
         """
         for metric in CARVE_METRICS_ALL:
             if metric.startswith("ari_"):
@@ -112,13 +111,8 @@ class TestPalette:
         assert len(set(colors)) == len(colors)
 
     def test_the_comparator_hues_are_the_re_stepped_values(self):
-        """Silhouette keeps its published pink. The other three move.
-
-        The published set failed the normal-vision separation floor on the
-        Silhouette/Davies-Bouldin pair (dE 13.6 against a floor of 15) and
-        the 3:1 contrast floor on Gap. Each replacement stays inside the
-        comparator family -- pink, purple, red, orange -- so the figure
-        remains recognizable.
+        """Silhouette keeps its published pink; the other three are darker
+        steps of their published hues.
         """
         assert METRIC_COLORS["silhouette"] == "#E0457B"
         assert METRIC_COLORS["davies_bouldin"] == "#6A2C91"
@@ -153,10 +147,8 @@ class TestPalette:
             assert metric_color(metric).startswith("#")
 
     def test_cluster_colors_extends_beyond_the_palette_length(self):
-        # Cycles CLUSTER_PALETTE from the start past its own length -- see
-        # cluster_colors' docstring -- just checking it still returns n
-        # colors past the palette's own length here; the cycling pattern
-        # itself is pinned by the adjacent-duplicate tests below.
+        # n colors, also past the palette's length; the cycling is tested
+        # below.
         assert len(cluster_colors(3)) == 3
         assert len(cluster_colors(len(CLUSTER_PALETTE) + 5)) == len(CLUSTER_PALETTE) + 5
 
@@ -167,9 +159,7 @@ class TestPalette:
         """Figures with at most ten clusters keep the hues they were drawn in.
 
         The Klein composite's four timepoints are tab10's first four hues.
-        Compared against Matplotlib's own tab10 rather than CLUSTER_PALETTE,
-        so an edit to the palette's head cannot pass by also editing the
-        expectation.
+        Compared against Matplotlib's own tab10.
         """
         tab10 = plt.get_cmap("tab10")
         assert cluster_colors(10) == [to_hex(tab10(i)) for i in range(10)]
@@ -187,31 +177,19 @@ class TestPalette:
 
     @pytest.mark.parametrize("n", [1, 3, 10, 30])
     def test_cluster_colors_is_the_palette_in_order(self, n):
-        """Cluster i is palette entry i, not a resampled spread over the map.
-
-        This is what puts four clusters on tab10's first four hues, which is
-        what the published composites draw and what a C1..C4 legend reads as.
-        Resampling a registered ten-color map to n instead spreads n samples
-        across the whole palette --
-        four clusters landed on entries 0, 3, 6 and 9. Pinned so it cannot
-        drift back.
+        """Cluster i is palette entry i, so four clusters take tab10's first
+        four hues.
         """
         assert cluster_colors(n) == [to_hex(c) for c in CLUSTER_PALETTE[:n]]
 
     @pytest.mark.parametrize("n", [1, 3, 4, 10, 30])
     def test_cluster_cmap_agrees_under_both_indexing_styles(self, n):
-        """The cross-panel agreement cluster_cmap exists to buy.
+        """Integer and imshow-normalized lookups into cluster_cmap(n) agree
+        with each other and with cluster_colors(n).
 
-        CARVE's own panels resolve a cluster's color two different ways:
         plot_cluster_violin and plot_cluster_scatter index the colormap by
-        plain integer, while plot_consensus_matrix's cluster band goes
-        through imshow, which normalizes the index to [0, 1] first. Handing
-        them a map of exactly n colors makes both land on the same entry --
-        and on the same entry cluster_colors gives every other figure.
-
-        Against the unsliced ten-color map the two styles disagree for any
-        n < 10, which is the defect that put one cluster in two colors
-        inside a single figure.
+        integer, while plot_consensus_matrix's cluster band goes through
+        imshow, which normalizes the index to [0, 1] first.
         """
         cmap = cluster_cmap(n)
         by_index = [to_hex(cmap(i)) for i in range(n)]
@@ -225,10 +203,7 @@ class TestPalette:
     ):
         """Past its own length the palette cycles from the start, so every
         repeat falls exactly len(CLUSTER_PALETTE) indices apart and two
-        adjacent cluster indices are never the same color. An earlier version
-        of this function resampled the registered colormap instead, which put
-        duplicates on adjacent indices (measured: 7 of 16 adjacent pairs
-        identical at n=17 against the ten-color map).
+        adjacent cluster indices are never the same color.
         """
         colors = cluster_colors(len(CLUSTER_PALETTE) + extra)
         assert all(a != b for a, b in zip(colors, colors[1:]))
@@ -268,27 +243,13 @@ class TestPipelinePalette:
         assert len(set(colors)) == n
 
     def test_no_pipeline_color_is_a_criterion_color(self):
-        """Disjoint except the one deliberate, documented overlap.
+        """Disjoint except two overlaps.
 
-        CARVE generalizability moved onto Okabe-Ito's blue (#0072B2) to
-        clear the 3:1 contrast floor -- the same hue PIPELINE_COLORS
-        already used as its first entry, for the same reason (the safest
-        blue in the eight-color set). The collision is visible:
-        figures/_cusanovich_results.py draws carve_lines (metric colors)
-        and pipeline_lines (this palette) in separate panels of the same
-        Figure, so blue names CARVE Generalizability in one panel and the
-        first pipeline in the panel beside it. Accepted here rather than
-        fixed: generalizability's color is fixed by the benchmark figures'
-        contrast requirement, and the pipeline palette belongs to the
-        Cusanovich case-study figure alone; re-stepping PIPELINE_COLORS[0]
-        with a five-color CVD check is the fix if the ambiguity ever
-        matters. Anything past this one entry overlapping would still be a
-        bug.
-
-        SC3's tab10 brown (#8C564B) is the second allowed overlap. It is
-        PIPELINE_COLORS[3], which only the Cusanovich figure draws, and SC3
-        appears only in the Klein and Levine comparison figures, so the two
-        never share a figure.
+        CARVE generalizability and PIPELINE_COLORS[0] share Okabe-Ito blue
+        (#0072B2); the Cusanovich figure draws both, in separate panels.
+        SC3's tab10 brown (#8C564B) is PIPELINE_COLORS[3], which only the
+        Cusanovich figure draws, while SC3 appears only in the Klein and
+        Levine comparison figures.
         """
         pipeline = {color.lower() for color in PIPELINE_COLORS}
         metric = {color.lower() for color in METRIC_COLORS.values()}
@@ -328,8 +289,7 @@ class TestRcParams:
         # Runs after test_apply_theme_actually_mutates_rcparams in file
         # order. apply_theme sets axes.spines.top to False for the whole
         # process; the autouse rc_context fixture in tests/conftest.py must
-        # have undone that before this test started. Before that fixture
-        # existed this assertion failed.
+        # have undone that before this test started.
         assert plt.rcParams["axes.spines.top"] is True
         assert plt.rcParams["pdf.fonttype"] == 3
 

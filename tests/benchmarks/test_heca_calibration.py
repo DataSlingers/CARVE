@@ -169,7 +169,7 @@ class TestForestCosts:
         assert costs["a"]["forest_predict_s"] == pytest.approx(2.0)
 
     def test_a_calibration_without_the_fine_forest_uses_the_middle_one(self):
-        # A calibration.json written before the fine-end forest was timed.
+        # A calibration.json without the fine-end forest timing.
         costs = calibration_costs(self.CALIBRATION, self.SCAN, resolutions=(1.0,))
         assert costs["a"]["forest_fit_s"] == pytest.approx(30.0)
         assert costs["a"]["forest_predict_s"] == pytest.approx(1.0)

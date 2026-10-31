@@ -44,9 +44,7 @@ class StubCarve:
     Column names are the canonical estimator_results_ names a real fitted
     model uses (ari_stability and ari_generalizability plus their _se
     variants, method_id, method_label, n_clusters). "stability" and
-    "generalizability" are only measure aliases, never column names; a stub
-    that named its columns after the aliases would let carve_lines index the
-    alias directly and still pass.
+    "generalizability" are only measure aliases, never column names.
 
     Parameters
     ----------
@@ -284,7 +282,7 @@ def small_ablation(ablation, *, study=None, scenarios=None):
     publication run's units make every such test slow. The registry
     declares no small scale, so no real run can use it. study adds a case
     study (two replicates per setting) so the study panels and columns,
-    which the registry's ablation no longer runs, stay covered. scenarios
+    which the registry's ablation does not run, stay covered. scenarios
     replaces the ablation's own, so the one-block-per-scenario layout stays
     covered while the registry runs a single scenario.
     """
@@ -318,8 +316,7 @@ def write_heca_organ(path, name, n_cells, seed, *, study_id="10.1000/x"):
     CSR raw counts, cells by cPeaks, annotations in obs, an empty obsm. An
     organ-specific block plus a shared background gives the embedding
     structure that clustering can recover. The random draws are made in the
-    order the loader tests were written against, so their numbers do not
-    move.
+    order the loader tests expect.
     """
     import anndata as ad
     from scipy import sparse
@@ -359,11 +356,10 @@ def synthetic_ablation_frames(
     file; similarity per rho-arm dataset, including the refit reference).
     Each unit's rows go through write_frame to the paths unit_paths gives
     it, and the frames come back through read_frames, so they carry what a
-    real run directory produces rather than what an in-memory DataFrame
-    would: an empty at_k part per study cell, and one undefined selection
-    (the all-NaN guard's row shape, on a non-headline metric of a B-arm
-    cell, the study's when there is one) that makes selected_k float64 for the whole run. Figures
-    and tables are then exercised against the frames they will meet.
+    real run directory produces: an empty at_k part per study cell, and one
+    undefined selection (the all-NaN guard's row shape, on a non-headline
+    metric of a B-arm cell, the study's when there is one) that makes
+    selected_k float64 for the whole run.
 
     tmp_path is the directory the checkpoints are written to; None uses a
     temporary directory that is removed once the frames are in memory.

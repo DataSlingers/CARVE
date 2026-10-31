@@ -119,7 +119,7 @@ def test_every_registry_key_resolves_to_an_option_carve_fits(role, key, grid, wi
     X = np.random.default_rng(0).normal(size=(40, 6))
     with warnings.catch_warnings():
         # umap-learn warns that a seed disables its parallelism; carve seeds
-        # every transformer on purpose (see _runner.embed_resample).
+        # every transformer (see _runner.embed_resample).
         warnings.filterwarnings(
             "ignore",
             message=r"n_jobs value .* overridden to 1 by setting random_state",

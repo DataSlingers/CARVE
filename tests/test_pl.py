@@ -133,8 +133,8 @@ PL_FUNCTIONS = [
 
 class TestMatchesTheModelMethods:
     """pl.* reads the stored artifacts; CARVE.plot_* re-selects from the
-    fitted model. With the recorded measure and rule they must agree on the
-    drawn data, not merely both return an Axes.
+    fitted model. With the recorded measure and rule they draw the same
+    data.
     """
 
     def test_metric_lines(self, written, model):
@@ -403,9 +403,7 @@ class TestMetricByPipeline:
         # randomized_written is module-scoped and shared with other tests in
         # this class, so every mutation below goes through a fresh .copy().
         # The recorded params are set to non-default values here
-        # (measure="generalizability", rule="max", not_two=True) so that a
-        # pl.metric_by_pipeline that hard-coded "stability"/"1se"/False
-        # instead of reading params could not pass this test by accident.
+        # (measure="generalizability", rule="max", not_two=True).
         seen = {}
 
         def spy(table, **kwargs):
@@ -501,9 +499,7 @@ class TestNClustersOverSweep:
     def test_defaults_come_from_the_recorded_selection(
         self, sweep_written, monkeypatch
     ):
-        # The recorded params are set to non-default values so that a
-        # wrapper hard-coding "stability", "1se" and False could not pass by
-        # accident.
+        # The recorded params are set to non-default values.
         seen = {}
 
         def spy(table, **kwargs):

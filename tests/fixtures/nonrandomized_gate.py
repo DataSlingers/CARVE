@@ -5,9 +5,8 @@ randomize_preprocessing=False, so a change to the randomized path can be
 checked against it. tests/test_api.py::TestNonRandomizedRegressionGate
 refits the same model and compares.
 
-The fixture was written from commit 1dea71d, before the 2026-09-13
-randomized-preprocessing redesign. Regenerate it only on purpose, from a
-commit whose non-randomized numbers are known good:
+Regenerate it only from a commit whose non-randomized numbers are known
+good:
 
     .venv/bin/python -m tests.fixtures.nonrandomized_gate
 """
@@ -37,7 +36,7 @@ def gate_dataset() -> np.ndarray:
     Offsets of 3 rather than 6 leave points near the boundaries, so a change
     in the feature space the clusterers see moves at least some labels. A
     fully separated dataset gives the same partition under almost any
-    preprocessing and could not detect the mutation the gate exists for.
+    preprocessing.
     """
     rng = np.random.RandomState(7)
     return np.vstack(

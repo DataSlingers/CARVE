@@ -14,8 +14,7 @@ AXIS_LABELS = ("t-SNE 1", "t-SNE 2")
 @pytest.fixture
 def embedding():
     rng = np.random.default_rng(0)
-    # Deliberately not in sorted order, so a legend or color map that keyed
-    # on first occurrence would disagree with the composite's sorted one.
+    # Not in sorted order, so first-occurrence and sorted order differ.
     y = np.repeat(["Spleen", "Liver", "Lung"], N // 3)
     centers = np.array([[0.0, 0.0], [6.0, 0.0], [0.0, 6.0]])
     Z = centers[np.searchsorted(["Liver", "Lung", "Spleen"], y)] + rng.normal(
@@ -150,8 +149,8 @@ def test_legend_lists_each_label_once_in_sorted_order(embedding, tmp_path):
 
 def test_legend_order_follows_the_palette_order_for_integer_labels(tmp_path):
     # aligned_color_maps assigns the palette in sorted order of the raw
-    # label values. The legend must walk the same order, so sorting the
-    # string form ("1", "10", "2") would put the palette out of sequence.
+    # label values, and the legend walks the same order, not the string
+    # order ("1", "10", "2").
     rng = np.random.default_rng(0)
     y = np.repeat([10, 2, 1], 20)
     Z = rng.normal(size=(60, 2))

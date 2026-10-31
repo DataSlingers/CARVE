@@ -1211,8 +1211,7 @@ class TestMinClusterSizeMode:
         # inside one standard error of the peak, and size 8's count is two
         # clusters. So the default call marks 3; generalizability under "max"
         # marks 8, where "1se" would mark the finer 5; and not_two=True
-        # excludes 8 and marks 5. A method that drops measure, rule or
-        # not_two marks the wrong size in one of the three calls.
+        # excludes 8 and marks 5.
         carve = copy.deepcopy(fitted_hdbscan)
         results = carve.estimator_results_
         size = results["sweep_value"]
@@ -1252,7 +1251,7 @@ class TestMinClusterSizeMode:
         "ignore:All points in a subsample were labelled as noise:UserWarning"
     )
     def test_all_noise_resample_does_not_crash(self, X_res_blobs):
-        """Regression: a held-out split labelled entirely as noise.
+        """A held-out split labeled entirely as noise.
 
         Under noise_policy="drop" such a resample yields no predicted
         labels at all. Those resamples must be skipped when aggregating,
@@ -1296,7 +1295,7 @@ class TestMinClusterSizeMode:
 
     def test_save_load_round_trips_the_inverted_sweep(self, fitted_hdbscan, tmp_path):
         # min_cluster_size is the one registry axis whose rank runs
-        # backwards; a rank bug after reload would invert selection.
+        # backwards.
         path = tmp_path / "hdbscan.carve"
         fitted_hdbscan.save(path)
         loaded = CARVE.load(path)
@@ -1351,8 +1350,7 @@ def fitted_identity_single():
 
     ``select_best_row_1se`` breaks ties with ``idxmax``, which follows the
     frame's current row order. With several methods the top metric can tie
-    across them, and a shuffle would then legitimately select a different
-    row -- masking, rather than testing, the config_id join. One method
+    across them, and a shuffle would then select a different row. One method
     over three k values gives exactly one qualifying row.
     """
     rng = np.random.RandomState(42)
@@ -1384,8 +1382,7 @@ class TestRowIdentity:
         best = df["ari_stability"].max()
         threshold = best - df.loc[df["ari_stability"].idxmax(), "ari_stability_se"]
         assert (df["ari_stability"] >= threshold).sum() == 1
-        # ...and the selected row is not at position 0, so a label/position
-        # mix-up would actually show up.
+        # ...and the selected row is not at position 0.
         assert fitted_identity_single.get_k() == 3
 
     def test_config_id_indexes_the_artifact_containers(self, fitted_identity):
@@ -1396,22 +1393,16 @@ class TestRowIdentity:
 
     @staticmethod
     def _reindexed(df):
-        """Reorder rows AND relabel the index.
-
-        ``sample(frac=1)`` alone preserves index labels, so the old
-        ``int(row.name)`` lookup would still land on the right artifact and
-        the test would prove nothing. Dropping the index is what actually
-        divorces label from position.
+        """Reorder rows and relabel the index, so index labels and
+        positions differ.
         """
         return df.sort_values("ari_stability").reset_index(drop=True)
 
     def test_reindexing_actually_divorces_label_from_position(
         self, fitted_identity_single
     ):
-        """Non-vacuity guard for the three tests below.
-
-        If the selected row's index label still equalled its config_id,
-        those tests would pass even with the bug reinstated.
+        """After reindexing, the selected row's index label differs from its
+        config_id, which the three tests below rely on.
         """
         reindexed = self._reindexed(fitted_identity_single.estimator_results_)
         row, config_id, _, _ = fitted_identity_single._select_row(
@@ -1424,11 +1415,8 @@ class TestRowIdentity:
     def test_select_row_joins_on_config_id_not_index_label(
         self, fitted_identity_single, monkeypatch
     ):
-        """The regression this whole change exists for.
-
-        Before config_id, artifact lookups used the row's index *label* as
-        a list position, so any reordering silently returned the wrong
-        consensus matrix -- with no error, and plausible-looking output.
+        """Artifact lookups go through config_id, so reordered rows still
+        find their own consensus matrix.
         """
         _, before_id, _, _ = fitted_identity_single._select_row(
             measure="stability", rule="1se"
@@ -1617,8 +1605,8 @@ class TestAnchoredConsensus:
             anchor_threshold=1000,
             consensus_anchors=25,
         )
-        # n=60 is far below anchor_threshold=1000, so a message blaming the
-        # threshold would be false. The opt-in is what engaged anchoring.
+        # n=60 is far below anchor_threshold=1000; the opt-in is what
+        # engaged anchoring.
         with pytest.warns(
             RuntimeWarning,
             match=r"consensus_anchors=25 opts this run in regardless of "
@@ -1661,11 +1649,9 @@ class TestAnchoredConsensus:
         assert c.stability_gini_scores_.shape[0] == n_rows
 
     def test_every_configuration_indexes_the_same_anchors(self):
-        # Configurations must be comparable across k, so one draw is reused.
-        # If each config drew its own anchors, blocks at different k would
-        # index different samples and cross-k comparison would be meaningless.
-        # Two configs are fitted here, so identical off-diagonal NaN masks are
-        # evidence they were built over the same co-sampled pairs.
+        # One anchor draw serves every configuration, so blocks at different
+        # k index the same samples. Two configs are fitted here, and identical
+        # off-diagonal NaN masks show the same co-sampled pairs.
         X = _blobs(60)
         c = CARVE(
             estimator_param_grids=_grids(),
@@ -1703,8 +1689,7 @@ class TestAnchoredLabels:
         assert labels.dtype == np.int32
 
     def test_labels_recover_the_planted_structure(self):
-        # _blobs plants two well separated groups, so an extension that
-        # assigned arbitrary labels would fail this even with a valid shape.
+        # _blobs plants two well separated groups.
         X, c = self._fitted()
         truth = np.repeat([0, 1], X.shape[0] // 2)
         assert adjusted_rand_score(truth, c.get_labels(k=2)) > 0.9
@@ -1714,14 +1699,8 @@ class TestAnchoredLabels:
         anchors = c.consensus_anchors_
         planted = np.arange(anchors.size) % 2
 
-        # A RandomForest fitted on the anchors and asked to predict those
-        # same anchors tends to reproduce their labels regardless of whether
-        # the implementation wrongly overwrote them, so whether it memorizes
-        # is a probabilistic margin rather than a guarantee. That would make
-        # the assertion below an unreliable check for the one defect this
-        # test exists to catch. A constant classifier cannot reproduce an
-        # alternating cut, so an overwrite is visible, and the mutation kill
-        # is exact and deterministic.
+        # A constant classifier cannot reproduce an alternating cut, so the
+        # anchors keep their cut labels only if they are not predicted.
         c.classifier = DummyClassifier(strategy="constant", constant=0)
 
         extended = c._extend_anchor_labels(planted)
@@ -1861,15 +1840,9 @@ class TestExactPathUnchanged:
 
     def test_results_are_identical_with_and_without_the_feature_present(self):
         # Two fits differing only in anchor_threshold, neither of which
-        # anchors. The first sets anchor_threshold=80, exactly n, so it
-        # exercises the inclusive n == anchor_threshold boundary through
-        # fit() itself rather than only through a resolve_anchors unit call;
-        # the second sets a threshold far above n as a plain control. Both
-        # are expected to take the exact path and agree on every value below.
-        # This does not detect an exclusive-comparison mutation of
-        # resolve_anchors: at m == n the anchored computation reproduces the
-        # exact one exactly, so no threshold pair at this n can distinguish
-        # them by value.
+        # anchors: 80, exactly n, exercises the inclusive n == anchor_threshold
+        # boundary through fit(), and 10,000 is a control. Both take the exact
+        # path and agree on every value below.
         X, a = self._fit(80, anchor_threshold=80)
         _, b = self._fit(80, anchor_threshold=10_000)
 
@@ -2230,9 +2203,8 @@ class TestShowProgress:
 
 
 class TestNonRandomizedRegressionGate:
-    """The non-randomized path must compute exactly what it did before the
-    randomized path was redesigned. The fixture was captured from the start
-    commit of that work; see tests/fixtures/nonrandomized_gate.py.
+    """The non-randomized path must match the captured fixture
+    (tests/fixtures/nonrandomized_gate.py).
     """
 
     def test_matches_the_captured_fixture(self):
@@ -2279,8 +2251,8 @@ class TestSampleScores:
     @pytest.mark.parametrize("source", ["gini", "ce", "accuracy"])
     def test_returns_the_entry_at_config_id(self, fitted_identity, source):
         # Fitted scores can coincide across configurations (accuracy is often
-        # 1.0 everywhere on separated blobs), which would hide a wrong lookup.
-        # Each configuration gets its own constant instead.
+        # 1.0 everywhere on separated blobs), so each configuration gets its
+        # own constant.
         model = copy.deepcopy(fitted_identity)
         n_configs = len(model.consensus_matrices_)
         n_samples = model.X_.shape[0]

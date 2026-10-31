@@ -79,8 +79,7 @@ class TestPanelsReadTheirOwnColumn:
     its column names, and nothing else.
 
     The synthetic frame draws its values at random per axis point, so the
-    columns differ; each test checks that first, since a panel drawn from
-    the wrong column would otherwise still match.
+    columns differ; each test checks that first.
     """
 
     def test_each_heatmap_draws_its_own_columns_selections(self, gaussians_frame):
@@ -149,14 +148,8 @@ class TestPanelsReadTheirOwnColumn:
 
 
 class TestCriterionReferenceLegend:
-    """The reference line in criterion_curves has no name on its own.
-
-    metric_legend's _legend_groups only classifies handles by metric name
-    (see _legend_groups in .._panels), so a free-form label like
-    CRITERION_REFERENCE_LABEL can never surface through the shared foot
-    legend. Naming it needs its own legend, on the leftmost criterion panel
-    only, so the label appears exactly once rather than once per axis
-    point.
+    """The reference line in criterion_curves is named once, on the
+    leftmost criterion panel, since metric_legend only groups metric names.
     """
 
     def test_leftmost_criterion_panel_names_the_reference_line(
@@ -181,16 +174,7 @@ class TestCriterionReferenceLegend:
     def test_the_reference_legend_sits_outside_the_axes_data_rectangle(
         self, gaussians_frame
     ):
-        """A legend placed inside the panel can be crossed by a curve.
-
-        candidate_k is centered on k_star for every registered scenario, so
-        an in-panel "lower center" placement sits exactly on the one k
-        every criterion's curve is normalized toward: a criterion that
-        fails to prefer k* troughs there, and min-max normalization puts
-        every such curve at 0 simultaneously, right where the legend text
-        would be. Anchoring the legend below the axes' own data rectangle
-        rules that out regardless of what the curves do.
-        """
+        """The legend sits below the axes, where no curve can cross it."""
         fig = figure_scenario_dashboard("gaussians", gaussians_frame)
         fig.canvas.draw()
         n_points = len(SCENARIOS["gaussians"].axis)
@@ -230,11 +214,8 @@ class TestGuards:
             figure_scenario_dashboard("gaussians", pd.DataFrame())
 
     def test_rejects_a_frame_from_a_different_axis(self, gaussians_frame):
-        """A run directory is content-addressed on its config, so an older
-        run whose axis has since been redefined is still readable. The
-        example panels come from the registry and the curves from the
-        artifact, so a mismatch would draw two different experiments in one
-        figure with the x ticks hiding it."""
+        """The example panels come from the registry and the curves from
+        the artifact, so a run whose axis has since changed is rejected."""
         frame = gaussians_frame.copy()
         frame["axis_value"] = frame["axis_value"] + 100
         with pytest.raises(ValueError, match="Re-run this scenario"):

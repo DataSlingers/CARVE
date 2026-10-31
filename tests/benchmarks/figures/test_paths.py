@@ -19,10 +19,8 @@ def test_vis_root_is_the_repo_root_vis_directory():
 
 
 def test_vis_root_survives_a_working_directory_change(monkeypatch, tmp_path):
-    # nbconvert executes a notebook with that notebook's own directory as
-    # the working directory, so VIS_ROOT must not depend on it -- a
-    # CWD-relative definition would resolve to tmp_path/vis here instead of
-    # the repository's vis/ tree.
+    # nbconvert runs a notebook in its own directory, so VIS_ROOT must not
+    # depend on the working directory.
     monkeypatch.chdir(tmp_path)
     assert _paths.VIS_ROOT.resolve() == REPO_ROOT / "vis"
 

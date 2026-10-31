@@ -1,7 +1,7 @@
 """Structural checks on the notebooks.
 
-These do not execute the notebooks; they assert that the code the rebuild
-moved into the package is no longer duplicated in notebook cells.
+These do not execute the notebooks; they check that code living in the
+package is not duplicated in notebook cells.
 """
 
 import json
@@ -12,11 +12,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Modules the pre-rebuild notebooks pulled code from, either as
-# `import benchmarking_runners` or `from benchmarking_runners import ...`.
-# Checking for one fixed spelling of the import missed whichever spelling a
-# given notebook actually used, so this checks for the module name itself,
-# under either import form.
+# Retired modules no notebook may import, in either import form.
 FORBIDDEN_MODULES = (
     "benchmarking_code",
     "case_study_plotting",
@@ -81,11 +77,7 @@ def test_benchmarking_uses_the_shared_run_resolver():
 
 
 def test_benchmarking_draws_a_dashboard_per_scenario():
-    # A plain substring count of "scenario_dashboard(" also matches the
-    # helper's `def scenario_dashboard(` and the imported
-    # `figure_scenario_dashboard(`, so six section cells (not eight) would
-    # still pass a >= 8 threshold. Assert each scenario has its own literal
-    # call instead.
+    # Each scenario has its own literal scenario_dashboard call.
     from benchmarks._registry import SCENARIOS
 
     source = _code(NOTEBOOKS["benchmarking"])
@@ -119,20 +111,14 @@ def test_no_get_n_jobs_boilerplate(name):
     assert "def get_n_jobs" not in _code(NOTEBOOKS[name])
 
 
-# Rulings 41 and 53 had to fix these call-site values by hand -- and the
-# Levine/Motivation pair drifted from the manuscript again (Fix 3) after
-# that -- so they get their own pinned assertions rather than relying on a
-# human to notice a re-hardcoded default the next time a case-study
-# notebook is edited. Every value here traces to a manuscript line or a
-# sibling committed configuration (STUDIES["klein"] in _studies.py):
+# Call-site values pinned to the manuscript or to STUDIES:
 #   - Klein and Levine load through load_study, so their sizes are their
-#     studies' publication scales (every Klein cell; 5,000 Levine cells,
-#     manuscript line 627) rather than notebook literals.
-#   - Motivation subsample=5000: manuscript line 627 (a stratified
-#     subsample of 5,000 cells).
+#     studies' publication scales (every Klein cell; 5,000 Levine cells).
+#   - Motivation subsample=5000: the manuscript's stratified subsample of
+#     5,000 cells.
 #   - Klein's prepare_composite selection (generalizability, 1se,
 #     not_two=True): the manuscript's headline Ward-agglomerative-at-k=4
-#     result (line 624), threaded through CompositeInputs by Fix 4.
+#     result.
 def test_klein_loads_its_data_through_the_study():
     source = _code(NOTEBOOKS["klein"])
     assert "load_study(study)" in source
@@ -208,13 +194,8 @@ def test_klein_notebook_not_two_agrees_with_the_study():
 
 
 def test_klein_draws_and_analyzes_the_same_embedding():
-    # The notebook fits one PCA, draws it as the reference scatter, and hands
-    # it to prepare_composite. Dropping the embedding= argument would make
-    # prepare_composite fit its own PCA: same algorithm, same seed, so the two
-    # figures would still look right side by side and nothing would fail --
-    # which is why this is pinned rather than left to inspection. The reference
-    # scatter must draw what the composite analyzes, not a second projection
-    # that happens to agree today.
+    # The notebook fits one PCA, draws it as the reference scatter and hands
+    # it to prepare_composite, so both figures show the same projection.
     source = _code(NOTEBOOKS["klein"])
     assert "Z = PCA(n_components=2, random_state=RANDOM_SEED)" in source
     assert "figure_reference_scatter(\n        Z," in source
@@ -235,10 +216,8 @@ def test_levine_notebook_not_two_agrees_with_the_study():
 
 
 def test_levine_draws_and_analyzes_the_same_embedding():
-    # Klein's pin, for Levine's t-SNE: the reference scatter draws the
-    # embedding prepare_composite is handed. Without embedding=, the composite
-    # would fit a PCA of its own and Fig 6 would draw a different projection
-    # from the one the notebook shows first.
+    # As for Klein, with Levine's t-SNE: the reference scatter draws the
+    # embedding prepare_composite is handed.
     source = _code(NOTEBOOKS["levine"])
     assert "Z = TSNE(random_state=RANDOM_SEED)" in source
     assert "figure_reference_scatter(\n        Z," in source
@@ -247,8 +226,7 @@ def test_levine_draws_and_analyzes_the_same_embedding():
 
 def test_cusanovich_notebook_reads_its_config_from_studies():
     source = _code(NOTEBOOKS["cusanovich"])
-    # Configuration must be read from STUDIES, not restated. Four manuscript
-    # mismatches on this project came from re-derivation at the call site.
+    # Configuration is read from STUDIES, not restated.
     assert 'STUDIES["cusanovich"]' in source
     assert "study_resolution_grids(study)" in source
     assert "n_resamples=study.n_resamples" in source
@@ -269,15 +247,14 @@ def test_cusanovich_notebook_reads_its_config_from_studies():
     ],
 )
 def test_cusanovich_notebook_no_longer_runs_the_k_based_comparison(retired):
-    # The CVI sweep, the k-based fit and the CompositeInputs figures left the
-    # study with the move to randomized preprocessing (case-study spec,
-    # section 6).
+    # The CVI sweep, the k-based fit and the CompositeInputs figures are not
+    # part of the randomized-preprocessing study.
     assert retired not in _code(NOTEBOOKS["cusanovich"])
 
 
 def test_cusanovich_notebook_draws_carve_s_output_from_its_own_inputs():
-    # The six-panel CARVE output came back on the randomized fit's
-    # CusanovichInputs, not on CompositeInputs.
+    # The six-panel CARVE output draws from the randomized fit's
+    # CusanovichInputs.
     assert "figure_carve_output_cusanovich(inputs" in _code(NOTEBOOKS["cusanovich"])
 
 
@@ -317,8 +294,8 @@ def test_cusanovich_notebook_draws_the_source_tsne_and_writes_its_tables():
 
 
 def test_cusanovich_notebook_measures_runtime_with_the_studys_configuration():
-    # S17 Table and S13 Text come from this section, so a fresh run of the
-    # notebook regenerates them on the reader's machine.
+    # The supplementary runtime table and text come from this section, so a
+    # fresh run of the notebook regenerates them on the reader's machine.
     source = _code(NOTEBOOKS["cusanovich"])
     assert "measure_or_load_runtime(\n    study, X, y," in source
     assert "save_runtime_tables(runtime, OUT_DIR, prefix=study.name)" in source

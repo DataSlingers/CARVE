@@ -210,7 +210,6 @@ class TestBiasSummary:
         # Stability at 0.2 selects k=3 (replicate 0) and k=4 (replicate 1)
         # against k* = 5 on both datasets: -2 and -1, so each dataset's
         # mean is -1.5 and the standard error over the two datasets is 0.
-        # Over the four fits it would be 0.29.
         out = bias_summary(_selection(), x=X)
         stab = out[(out["study"] == "gaussians") & (out["metric_name"] == STAB) & (out[X] == 0.2)].iloc[0]
         assert stab["bias_mean"] == pytest.approx(-1.5)
@@ -336,12 +335,10 @@ class TestUndefinedSelections:
 
     def test_study_selection_shares_count_only_defined_rows(self):
         # At 0.618 one replicate is defined and one undefined: n is 1 and
-        # the one share is 1.0, not n = 2 and a share of 0.5 that would
-        # leave the setting's shares summing below one. The all-undefined
-        # setting emits no row. selected_k comes back as an int although
-        # the input column is float64 (the NaN rows force that dtype, as
-        # read_frames does on a run with one undefined cell): the figure
-        # labels bars from it and must not read "k=5.0".
+        # the one share is 1.0. The all-undefined setting emits no row.
+        # selected_k comes back as an int although the input column is
+        # float64 (as read_frames gives on a run with one undefined cell),
+        # since the figure labels bars with it.
         rows = _undefined_gini_rows()
         assert rows["selected_k"].dtype.kind == "f"
         out = study_selection_shares(
@@ -358,10 +355,8 @@ class TestUndefinedSelections:
 
 class TestSpreadSummary:
     def test_mean_sd_across_replicates(self):
-        # k=3 and k=4 carry different replicate spreads, so the mean over k
-        # is only right if both per-k standard deviations were computed
-        # (equal per-k spreads by construction could pass "averaged over k"
-        # without ever exercising the average).
+        # k=3 and k=4 carry different replicate spreads, so both per-k
+        # standard deviations enter the mean.
         rows = [
             {**_key(rep=0), "metric_name": STAB, "estimator": "KMeans", "k": 3,
              "metric_value": 0.5, "metric_se": 0.02},
@@ -439,7 +434,7 @@ class TestRareRecallSummary:
         # Two datasets with two replicates each. Dataset 0 selects k=4 on
         # both replicates (recall 0) and dataset 1 k=5 (recall 1), so the
         # dataset means are 0 and 1: the standard error over datasets is
-        # 0.5, while over the four fits it would be about 0.29.
+        # 0.5.
         selection = pd.DataFrame([
             {**_key(dataset=d, rep=r), "metric_name": STAB, "selected_estimator": "KMeans",
              "selected_k": 4 if d == 0 else 5, "k_star": 5.0, "ari_selected": 0.8}
@@ -484,9 +479,8 @@ class TestSimilaritySummary:
         assert out["n"].iloc[0] == 4
 
     def test_groups_by_rho_estimator_and_k_separately(self):
-        # A single (subsample_ratio, estimator, k) combination cannot tell
-        # the documented four-column group key apart from a narrower one
-        # that happens to collapse to the same single group.
+        # Several (subsample_ratio, estimator, k) combinations, so the
+        # four-column group key matters.
         rows = []
         for d in (0, 1):
             for m in (0, 1):
@@ -568,10 +562,8 @@ class TestStudySelectionShares:
 
 class TestStudyAriSummary:
     def test_mean_and_sem_over_replicates(self):
-        # The fixture's Klein ari_selected is a constant 0.7; mutate one
-        # replicate's value so the mean and standard error can actually
-        # move (and so a broken implementation that ignored replicate 1
-        # could fail this test).
+        # The fixture's Klein ari_selected is a constant 0.7; one
+        # replicate's value is changed so the mean and standard error move.
         selection = _selection().copy()
         mask = (
             (selection["study"] == "klein")
@@ -597,11 +589,9 @@ class TestStudyAriSummary:
         assert unchanged["n"] == 2
 
     def test_excludes_other_studies(self):
-        # The gaussians rows share the x set {0.2, 0.618} with klein, so
-        # the settings alone cannot tell a filtered summary from an
-        # unfiltered one. n and the mean can: klein has two replicates at
-        # 0.7 per (x, metric); without the study filter each row would also
-        # count the four gaussians rows at 0.5 or 0.9.
+        # The gaussians rows share the x set {0.2, 0.618} with klein. klein
+        # has two replicates at 0.7 per (x, metric), and gaussians four rows
+        # at 0.5 or 0.9, so n and the mean show the study filter.
         out = study_ari_summary(_selection(), x=X, study="klein", metrics=HEADLINE_METRICS)
         assert set(out[X]) == {0.2, 0.618}
         assert len(out) == 4
@@ -629,10 +619,8 @@ class TestStudyAriSummary:
 class TestDiagnosticsSummary:
     def test_means_per_setting_and_study(self):
         # fit_seconds and both NaN fractions differ between the two
-        # replicates being averaged, so "take first" and "mean" disagree
-        # and the assertions can tell them apart. The generalizability
-        # fraction is set well above the stability one, as it is on a real
-        # fit, so a summary that read the wrong column would also fail.
+        # replicates being averaged, and the generalizability fraction is
+        # well above the stability one, as on a real fit.
         cells = pd.DataFrame([
             {**_key(rho=0.2, rep=0), "carve_random_state": 1, "n_samples": 100,
              "fit_seconds": 1.0, "consensus_nan_fraction": 0.08,
@@ -680,8 +668,7 @@ class TestTableRows:
         # A schema-shaped, zero-row selection frame is what read_frames
         # returns before any checkpoint for that arm exists (a fresh or
         # interrupted run). study_selection_shares then returns empty for
-        # every metric, leaving modal == [] for the merge; table_rows must
-        # not raise KeyError building that merge's frame.
+        # every metric, leaving modal == [] for the merge.
         view = {
             "selection": pd.DataFrame(columns=list(ABLATION_SELECTION_SCHEMA)),
             "at_k": pd.DataFrame(columns=list(ABLATION_AT_K_SCHEMA)),
@@ -691,13 +678,11 @@ class TestTableRows:
         assert out.empty
 
     def test_simulated_only_frame_has_no_row_for_the_requested_study(self):
-        # Every row belongs to a simulated study ("gaussians"); none belong
-        # to the requested study ("klein"). study_selection_shares(study=
-        # "klein") is then empty for every metric (same root cause as the
-        # fully-empty case), but ari_summary/agreement_summary still have
-        # real pooled data from "gaussians" to report: the correct result
-        # keeps those (setting, metric) rows with study_modal and
-        # study_share as NaN, rather than being empty outright.
+        # Every row belongs to "gaussians", none to the requested "klein".
+        # study_selection_shares(study="klein") is empty for every metric,
+        # while ari_summary and agreement_summary still report the pooled
+        # gaussians rows, so those (setting, metric) rows stay with
+        # study_modal and study_share NaN.
         selection = pd.DataFrame([
             {**_key(rho=rho, rep=rep), "metric_name": metric, "selected_estimator": "KMeans",
              "selected_k": 5, "k_star": 5.0, "ari_selected": 0.9}

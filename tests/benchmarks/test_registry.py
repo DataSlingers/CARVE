@@ -90,9 +90,8 @@ class TestAxes:
         assert SCALING_AXES["embed_dim"].values == (10, 255, 500)
 
     def test_scaling_axes_include_the_p_axis_even_though_it_is_the_only_one_swept(self):
-        # SCALING_RANGES defines three axes; the registry keeps all three
-        # available even though only p and n_total are actually swept by a
-        # registered scenario.
+        # All three scaling axes stay available, though only p and n_total
+        # are swept by a registered scenario.
         assert SCALING_AXES["p"].values == (50, 525, 1000)
 
     def test_moons_has_no_scaling_scenario(self):
@@ -140,12 +139,8 @@ class TestSampleSize:
 
     def test_the_benchmark_sample_size_is_3000(self):
         """Generalizability clusters the held-out (1 - rho) * n rows on their
-        own. At n=1500 that is 573 rows, and spectral clustering of 573 rows
-        on circles, moons and swiss rolls agreed with the full-data fit 0.17
-        to 0.32 ARI less than a clustering of 927 rows; at n=3000 the loss
-        was 0.05 to 0.17 at the same anchors (measured 2026-10-16), but
-        those anchors were also easier then (oracle ARI 1.0 on all three),
-        which is why they were recalibrated."""
+        own, and at n=1500 spectral clustering of circles, moons and swiss
+        rolls lost too much agreement with the full-data fit on them."""
         assert BENCHMARK_N_TOTAL == 3000
 
     @pytest.mark.parametrize("name", (*DIFFICULTY_SCENARIOS, "gaussians_dimensionality"))
@@ -165,20 +160,15 @@ class TestAnchors:
         assert ACTIVE_ANCHOR_SET_NAME in {"PUBLISHED_ANCHORS", "CALIBRATED_ANCHORS"}
 
     def test_active_anchors_are_the_calibrated_set(self):
-        """Every difficulty anchor is regenerated through _calibrate.py.
-
-        The published anchors missed their own documented bands on circles
-        and moons, and the eigensolver fix moved the three RFF scenarios
-        further. A half-published, half-calibrated set would leave "easy"
-        meaning a different ARI on different scenarios, which is the
-        inconsistency this removes.
+        """Every difficulty anchor comes from _calibrate.py, so "easy" means
+        the same ARI band on every scenario.
         """
         assert ACTIVE_ANCHORS is CALIBRATED_ANCHORS
         assert ACTIVE_ANCHOR_SET_NAME == "CALIBRATED_ANCHORS"
 
     def test_published_anchors_are_kept_for_comparison(self):
-        """PUBLISHED_ANCHORS stays in the file so the calibration can be
-        compared against what the manuscript reported, and reverted to."""
+        """PUBLISHED_ANCHORS stays for comparison with the first manuscript
+        version."""
         assert set(PUBLISHED_ANCHORS) == set(SCENARIOS)
         assert PUBLISHED_ANCHORS is not CALIBRATED_ANCHORS
 
@@ -210,14 +200,7 @@ class TestScenarios:
 
     @pytest.mark.parametrize("name", ("circles", "moons", "swiss_rolls"))
     def test_the_rff_family_shares_one_estimator(self, name):
-        """All three RFF-embedded scenarios run self-tuning spectral.
-
-        swiss_rolls ran Ward because spectral lost to it by 0.22 ARI at the
-        easy anchor -- which was the which='SM' eigensolver failing to
-        converge, not a property of the data. With the shift-invert solver,
-        oracle ARI at k*=5 over 20 datasets is 1.000/0.900/0.834 for spectral
-        against 0.982/0.860/0.752 for Ward, and spectral is 30x faster.
-        """
+        """All three RFF-embedded scenarios run self-tuning spectral."""
         assert SCENARIOS[name].estimator.name == "spectral"
 
     def test_gaussians_uses_kmeans(self):
@@ -238,42 +221,25 @@ class TestScenarios:
 
     @pytest.mark.parametrize("name", DIFFICULTY_SCENARIOS + SCALING_SCENARIOS)
     def test_n_trees_is_500_everywhere(self, name):
-        """One forest size for every scenario.
-
-        The published benchmark ran 500 trees on circles, moons and swiss
-        rolls and 100 elsewhere, decided by which notebook cell happened to
-        pass the argument rather than by anything about the data. 500 is the
-        better generalizability estimate and the cost is linear in a term
-        that is not the bottleneck.
-        """
+        """One forest size for every scenario."""
         assert SCENARIOS[name].n_trees == 500
 
     @pytest.mark.parametrize("name", sorted(SCENARIOS))
     def test_lda_scores_exactly_the_k_means_scenarios(self, name):
         """The classifier has to be able to draw the boundaries the
-        clustering draws. k-means partitions are linear: at p=50 the forest
-        reproduced a held-out k-means partition 0.18 ARI worse than the
-        training clustering agreed with the full-data fit, shrinkage LDA 0.01
-        worse, and at p=1000 the forest scored 0.25 against LDA's 0.95. For
-        Ward and spectral clustering the forest's loss was 0.00 to 0.03 and
-        LDA did no better (measured 2026-10-16)."""
+        clustering draws: shrinkage LDA for the linear k-means partitions,
+        the forest for Ward and spectral clustering."""
         scenario = SCENARIOS[name]
         expected = "lda" if scenario.estimator.name == "kmeans" else "random_forest"
         assert scenario.classifier == expected
 
     def test_swiss_rolls_does_not_restate_the_simulator_default(self):
-        """center_box=3.0 is simulate_clusters's own default.
-
-        Restating it made the key read as a deliberate choice for this
-        scenario when it is not one, and it was the only scenario that set
-        it.
-        """
+        """center_box is left at simulate_clusters's own default."""
         assert "center_box" not in SCENARIOS["swiss_rolls"].shared
 
     def test_swiss_rolls_draws_interleaved_arms_of_one_spiral(self):
-        """Each cluster used to be its own roll around its own center, so the
-        clusters were separated like Gaussian blobs and the geometric indices
-        scored as well as the oracle. The arms now share one center and plane.
+        """The arms share one center and plane, so the clusters are
+        non-convex.
         """
         assert SCENARIOS["swiss_rolls"].shared["distribution"] == "interleaved_spirals"
 
@@ -330,8 +296,6 @@ class TestAblationRegistry:
         assert ABLATIONS["rho_b"].b_default == defaults["n_resamples"]
 
     def test_runs_gaussians_only_and_no_case_study(self):
-        # gaussians alone from 2026-09-26; circles ran beside it from
-        # 2026-10-20 to 2026-10-21.
         ablation = ABLATIONS["rho_b"]
         assert ablation.scenarios == ("gaussians",)
         assert ablation.study is None
@@ -339,8 +303,6 @@ class TestAblationRegistry:
     def test_publication_scale_runs_ten_seeds_on_both_arms(self):
         # Twenty datasets are the main benchmark's twenty medium gaussians
         # datasets, so the rho arm's default column reproduces those fits.
-        # The rho arm ran one seed until 2026-10-20, both arms three until
-        # 2026-10-21.
         scale = ABLATIONS["rho_b"].scales["publication"]
         assert scale.rho_arm == ArmScale(("medium",), tuple(range(20)), 10, 0)
         assert scale.b_arm == ArmScale(("medium",), tuple(range(10)), 10, 0)
@@ -354,8 +316,7 @@ class TestAblationRegistry:
             assert len(scale.rho_arm.datasets) == SCENARIOS[name].n_seeds, name
 
     def test_publication_is_the_only_scale(self):
-        # A second scale is a way to run the ablation at a size that is not
-        # reported; development is over, so none is declared.
+        # Only the reported scale is declared.
         assert set(ABLATIONS["rho_b"].scales) == {"publication"}
 
     def test_default_scale_is_publication(self):
@@ -409,11 +370,7 @@ class TestAblationRegistry:
 
 class TestTableRowGroups:
     def test_the_groups_reproduce_the_committed_s2_table(self):
-        """Row order and grouping are part of the manuscript's layout.
-
-        Deriving them from a sorted set, which is what table_metrics did,
-        means a new metric silently reorders every supplementary table.
-        """
+        """Row order and grouping follow the manuscript's layout."""
         assert TABLE_ROW_GROUPS == (
             ("baseline_oracle",),
             ("ari_stability_1se", "ari_generalizability_1se"),
@@ -439,7 +396,7 @@ class TestTableRowGroups:
 
     def test_the_excluded_metrics_are_absent(self):
         """EXCLUDED_METRICS drops the three ari_average variants, PAC and
-        CE, which is why the published tables do not carry them."""
+        CE."""
         from benchmarks.tables import EXCLUDED_METRICS
 
         flat = {m for group in TABLE_ROW_GROUPS for m in group}
@@ -466,8 +423,8 @@ class TestScalingTableRowGroups:
         )
 
     def test_the_scaling_tables_carry_the_same_rows_as_s2(self):
-        """Only the order differs. A metric added to one declaration and not
-        the other would silently drop a row from one family of tables."""
+        """The two declarations hold the same metrics; only the order
+        differs."""
         assert [set(g) for g in SCALING_TABLE_ROW_GROUPS] == [
             set(g) for g in TABLE_ROW_GROUPS
         ]

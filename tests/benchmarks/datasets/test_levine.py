@@ -233,13 +233,13 @@ class TestLoadFromR:
         assert meta["r_version"].startswith("R version")
 
     def test_scaled_subsample_is_the_matrix_behind_the_submitted_results(self):
-        # The digest of the 5,000-cell matrix the KMeans fit of 2026-10-15
-        # was cached against, the preprocessing of the submitted manuscript.
+        # The digest of the 5,000-cell matrix under the first manuscript
+        # version's preprocessing.
         X, _, _ = load_levine32(subsample=5000, scale=True)
         assert fingerprint(X) == "71ec99b815236d4374a80da50959c2d0e2bfc7d8"
 
     def test_default_subsample_is_the_arcsinh_only_matrix(self):
-        # The digest of the 5,000-cell matrix the arcsinh-only Leiden and
-        # KMeans fits of 2026-10-16 were cached against.
+        # The digest of the 5,000-cell arcsinh-only matrix the Levine fits
+        # are cached against.
         X, _, _ = load_levine32(subsample=5000)
         assert fingerprint(X) == "95708dfee6c528bf0809fa6efcb373f161f06032"

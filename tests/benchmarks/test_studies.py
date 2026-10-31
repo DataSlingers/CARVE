@@ -51,8 +51,7 @@ class TestCviSweep:
     def test_gap_reference_fits_use_the_cells_own_linkage(self, blobs, monkeypatch):
         """A grid sweeping linkage over ward and single produces two model
         labels, and the gap statistic must refit its reference datasets with
-        the same linkage the cell used. Mapping the class alone back to a
-        spec sent every AgglomerativeClustering cell to the ward defaults.
+        the same linkage the cell used.
         """
         import benchmarks._cvi as cvi_module
 
@@ -77,8 +76,8 @@ class TestCviSweep:
         assert seen == {"agglomerative", "agglomerative_single"}
 
     def test_gap_reference_fits_use_the_cells_own_restarts(self, blobs, monkeypatch):
-        """The same failure for KMeans: a cell fit with 100 restarts must have
-        its gap references refit with 100, not the 10 of the kmeans spec."""
+        """A KMeans cell fit with 100 restarts has its gap references refit
+        with 100, not the 10 of the kmeans spec."""
         import benchmarks._cvi as cvi_module
 
         X, y = blobs
@@ -117,19 +116,11 @@ class TestCviSweep:
         assert set(best["metric"]) == set(CVI_SWEEP_METRICS)
 
     def test_gap_uses_tibshirani_not_argmax(self, blobs, monkeypatch):
-        """The selected k must come from select_k's Tibshirani rule, not a
-        plain argmax of the score column.
+        """The selected k comes from select_k's Tibshirani rule, not a plain
+        argmax of the score column.
 
-        select_k's own unit tests (test_cvi.py::TestSelectK) already
-        fabricate a gap curve where Tibshirani and argmax disagree; this
-        test is about cvi_sweep's integration with select_k rather than the
-        rule itself, so the real gap-statistic computation is monkeypatched
-        here with exactly that same fabricated curve rather than hoping the
-        geometry of the ``blobs`` fixture happens to produce a divergence --
-        an assertion like ``selected_k <= argmax_k`` is satisfied by a
-        plain-argmax implementation too (equality is not "less than"), so it
-        can never fail even when cvi_sweep silently drops the Tibshirani
-        rule.
+        The gap computation is monkeypatched with the curve from
+        test_cvi.py::TestSelectK, where the two rules disagree.
         """
         X, y = blobs
         grids = param_grids(EstimatorSpec(name="kmeans"), (3, 4, 5, 6))
@@ -225,8 +216,8 @@ class TestCviResolutionSweep:
         )
 
     def test_every_index_selects_the_blobs_over_their_random_halves(self, blobs):
-        # Davies-Bouldin is lower for the blobs, so a selection by its raw
-        # value instead of its minimum would pick the halves at 1.0.
+        # Davies-Bouldin is lower for the blobs than for the halves at 1.0,
+        # and its minimum wins.
         X, y = blobs
         _, best = cvi_resolution_sweep(X, y, model_grids=_by_resolution_grid([0.1, 1.0]))
         assert dict(zip(best["metric"], best["resolution"])) == {
@@ -311,9 +302,7 @@ class TestFitOrLoadCarveFingerprint:
     """A cached fit is only valid for the X it was fit on.
 
     fit_or_load_carve restores X_ onto whatever it loads, so a fit taken on
-    one embedding served against another would misreport silently. The hECA
-    development embedding changes under the same scale name (subsample-first
-    now, pooled once that cache exists), which is exactly that case.
+    one embedding must not be served against another.
     """
 
     def test_loading_against_a_different_x_raises(self, blobs, tmp_path):
@@ -347,9 +336,7 @@ class TestFitOrLoadCarveFingerprint:
         "ignore:Setting the shape on a NumPy array:DeprecationWarning"
     )
     def test_a_cache_without_a_fingerprint_warns_and_loads(self, blobs, tmp_path):
-        # Fits cached before the fingerprint existed have no record to
-        # check against; refusing them would throw away hours of compute,
-        # and silently trusting them is the failure this guards against.
+        # A fit cached without a fingerprint is served with a warning.
         X, y = blobs
         grids = param_grids(EstimatorSpec(name="kmeans"), (2, 3))
         cache = tmp_path / "demo.carve"
@@ -695,11 +682,9 @@ class TestPreprocessingForwarding:
 
 
 class TestDenseEstimatorGuard:
-    """cvi_sweep and fit_or_load_carve both bring X and model_grids together
-    before handing them to a real estimator, which is why the O(n^2)-
-    estimator guard lives in each of them rather than in study_model_grids --
-    which never sees n, and which a caller assembling model_grids by hand
-    would not even go through.
+    """cvi_sweep and fit_or_load_carve both bring X and model_grids
+    together, so each holds the O(n^2)-estimator guard; study_model_grids
+    never sees n.
     """
 
     def test_cvi_sweep_rejects_spectral_at_large_n(self):
@@ -824,8 +809,8 @@ class TestStudies:
 class TestStudyModelGrids:
     """Pins the case-study estimators to the manuscript.
 
-    Manuscript line 624/1501: Klein sweeps Ward agglomerative clustering and
-    spectral clustering with self-tuning affinity. Levine sweeps Leiden
+    Klein sweeps Ward agglomerative clustering and spectral clustering with
+    self-tuning affinity. Levine sweeps Leiden
     resolution (TestNewStudies), not k.
     """
 
@@ -867,9 +852,7 @@ class TestStudyModelGrids:
 
     def test_grid_varies_with_study_estimator_not_study_name(self):
         """Two Study objects differing only in estimator must produce
-        different grids. This is stronger than checking the two live STUDIES
-        entries, which would still pass if someone re-hardcoded a branch on
-        study.name instead of reading study.estimator.
+        different grids.
         """
 
         def _unused_loader(subsample):
@@ -903,8 +886,8 @@ class TestStudyModelGrids:
 class TestLoaderSubsampling:
     """Pins the loader calls to the manuscript's reported sample sizes.
 
-    Klein: every one of the 2,717 preprocessed cells. Levine (manuscript
-    line 627): a stratified subsample of 5,000 cells. Real data is never
+    Klein: every one of the 2,717 preprocessed cells. Levine: a
+    stratified subsample of 5,000 cells. Real data is never
     loaded here; the dataset loader is patched out and the call arguments
     are inspected instead.
     """
@@ -1010,11 +993,8 @@ class TestCarveCachePath:
         assert a != b
 
     def test_editing_a_scales_resolved_size_changes_the_path(self, tmp_path):
-        # Same study name, same scale name ("dev"), different resolved size
-        # -- as if STUDIES[...].scales["dev"] were edited from 25,000 to
-        # 50,000. Keying only on the scale name would leave this path
-        # unchanged and fit_or_load_carve would silently serve the fit taken
-        # at the old size.
+        # Same study name, same scale name ("dev"), different resolved size,
+        # as if STUDIES[...].scales["dev"] were edited from 25,000 to 50,000.
         small = _study(scales={"dev": 100, "publication": None})
         big = _study(scales={"dev": 50_000, "publication": None})
         a = carve_cache_path(small, scale="dev", root=tmp_path)
@@ -1029,17 +1009,14 @@ class TestCarveCachePath:
         assert a == b
 
     def test_default_runs_keep_their_existing_filenames(self, tmp_path):
-        # A study's default k-based run was written before run keys existed,
-        # so it must resolve to the same name as before, byte for byte.
-        # Klein's publication scale is every cell, so its name carries that
-        # size's hash: Klein's half-subsample cache (1b390cd5) is never
-        # served for it.
+        # A study's default k-based run has no run key. Klein's publication
+        # scale is every cell, so its name carries that size's hash.
         klein = carve_cache_path(STUDIES["klein"], root=tmp_path)
         assert klein.name == "carve_klein_publication_6eef6648.carve"
 
     def test_levine_resolution_run_never_takes_the_kmeans_cache_name(self, tmp_path):
-        # carve_levine32_publication_f8237d89.carve holds the submitted
-        # KMeans and spectral fit on the scaled input. The Leiden run must
+        # carve_levine32_publication_f8237d89.carve holds the first
+        # manuscript version's KMeans and spectral fit. The Leiden run must
         # carry a run key so that file is never served for it.
         study = STUDIES["levine32"]
         path = carve_cache_path(
@@ -1131,8 +1108,7 @@ class TestRegisteredStudiesCarryScales:
         assert STUDIES["levine32"].scales["publication"] == 5000
 
     def test_only_reported_scales_are_declared(self):
-        # Development is over: every declared scale is one a reported run
-        # uses, so no call site can load a study at a development size.
+        # Every declared scale is one a reported run uses.
         assert {name: set(study.scales) for name, study in STUDIES.items()} == {
             "klein": {"publication"},
             "levine32": {"publication"},
@@ -1224,9 +1200,8 @@ class TestNewStudies:
     def test_cusanovich_cache_never_resolves_to_the_invalid_pre_fix_cache(
         self, tmp_path
     ):
-        # carve_cusanovich_dev_7841fb1f.carve was fit before the cell-order
-        # fix (1dea71d) and must never be served again. The default scale is
-        # now the atlas, whose size hash (every cell) differs as well.
+        # carve_cusanovich_dev_7841fb1f.carve holds a fit on misaligned cell
+        # labels and must never be served.
         study = STUDIES["cusanovich"]
         path = carve_cache_path(
             study,

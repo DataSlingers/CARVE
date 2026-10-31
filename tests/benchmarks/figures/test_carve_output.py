@@ -1,22 +1,12 @@
-"""Tests for the two CARVE-output figures (Fig 3 / S4 Fig).
+"""Tests for the CARVE-output figures (Fig 3 and its SI counterparts).
 
-The composed module (``_carve_output.py``) never resolves config_id itself
--- it only calls the five plotting methods CARVE already ships on a fitted
-object and lets them resolve their own selection. That is exactly why these
-tests fit a tiny, real CARVE instead of hand-building a stub: a stub would
-have to reimplement _select_row/get_labels/get_k correctly to be trustworthy,
-which is the same duplication this restructure exists to remove. A real fit
-is fast enough here (a few seconds, module-scoped so it runs once) and
-guarantees every plotting call below exercises CARVE's actual selection and
-labeling code, not a guess at it.
+The figure module only calls the plotting methods CARVE ships on a fitted
+object, so these tests fit a small real CARVE (module-scoped, a few seconds)
+and every plotting call runs CARVE's own selection and labeling code.
 
-The fixture's data-generating seed (2, not the more common 0) is chosen
-deliberately: at this seed, stability's 1-SE rule selects k=3 while
-generalizability's 1-SE rule selects k=4. That divergence is what lets the
-tests below tell panel A (stability) apart from panel B (generalizability)
-by more than a coincidentally-matching selected k, and is the most direct
-guard against the restructure's most likely regression: swapping the two
-measures between those panels.
+The fixture's data seed is 2: there stability's 1-SE rule selects k=3 and
+generalizability's selects k=4, which tells panel A (stability) from panel B
+(generalizability).
 """
 
 import dataclasses
@@ -103,19 +93,13 @@ def _line_matching(ax, y_values, x_values):
 
 @pytest.fixture(scope="module")
 def fitted_carve():
-    """A tiny, real, already-fitted CARVE (module-scoped so it fits once).
+    """A small, real, fitted CARVE (module-scoped so it fits once).
 
-    Sweeps two estimators (KMeans and Ward agglomerative clustering), the
-    shape a real case study uses -- Klein sweeps Ward agglomerative
-    clustering and spectral clustering. At this fixture's seed, KMeans
-    (method_id "m0") remains the winning configuration for both stability
-    and generalizability with Agglomerative added, so the k=3/k=4
-    divergence the rest of this module's tests and docstring rely on is
-    unchanged; verified against carve._select_row directly while writing
-    this fixture. estimator_results_ having two method_ids is what
-    exercises CARVE's own plot_metric_over_n_clusters grouping by
-    method_id, rather than a fixture shape where "one line" and "every
-    row" happen to be the same thing.
+    Sweeps two estimators (KMeans and Ward agglomerative clustering), as a
+    real case study does. At this seed KMeans (method_id "m0") wins for both
+    stability and generalizability, with the k=3/k=4 split the module
+    docstring describes. The two method_ids exercise
+    plot_metric_over_n_clusters' grouping by method_id.
     """
     rng = np.random.RandomState(2)
     n_per = 15
@@ -333,20 +317,15 @@ class TestCarveOutputFigures:
         plt.close(fig)
 
     def test_panel_a_is_stability_and_panel_b_is_generalizability(self, inputs):
-        """The restructure's most likely regression: swapping A and B.
+        """Panel A draws stability and panel B generalizability.
 
-        The fixture is built so stability and generalizability genuinely
-        differ in value at every k (not just in which k each one selects),
-        so a test that only checked panel titles or the selected-k line
-        could still pass with the two measures swapped. Matching the full
-        drawn curve against each measure's actual column values cannot.
+        The two measures differ at every k in this fixture, so each drawn
+        curve is matched against its measure's column values.
         """
         fig = figure_carve_output_klein(inputs, save=False)
         panels = _panel_by_letter(fig)
-        # The fixture now sweeps two estimators (method_id "m0"/KMeans and
-        # "m1"/Agglomerative); restrict to "m0", the one both measures
-        # select at this seed, so the expected curve is one estimator's own
-        # three-point sweep and not the two concatenated.
+        # Restrict to "m0", the configuration both measures select at this
+        # seed, so the expected curve is one estimator's three-point sweep.
         all_results = inputs.carve.estimator_results_
         results = all_results.loc[all_results["method_id"] == "m0"].sort_values(
             "n_clusters"
@@ -355,8 +334,7 @@ class TestCarveOutputFigures:
         stability_y = results["ari_stability"].to_numpy(dtype=float)
         generalizability_y = results["ari_generalizability"].to_numpy(dtype=float)
 
-        # Sanity check on the fixture itself: if these coincided, the
-        # assertions below could pass by accident.
+        # The fixture's two curves must differ.
         assert not np.allclose(stability_y, generalizability_y)
 
         assert _line_matching(panels["A"], stability_y, x)
@@ -368,13 +346,8 @@ class TestCarveOutputFigures:
     def test_panel_a_draws_a_separate_line_per_estimator_not_one_combined_line(
         self, inputs
     ):
-        """The fixture sweeps two estimators (KMeans and Agglomerative
-        ward), the shape a real case study uses. CARVE's own
-        plot_metric_over_n_clusters groups by method_id already; this pins
-        that panel A shows two three-point lines, one per estimator, rather
-        than one six-point line formed by concatenating both estimators'
-        rows -- the interleaving defect fixed elsewhere in this plan for
-        the benchmarks package's own carve_lines primitive.
+        """Panel A shows one three-point line per estimator (KMeans and
+        Ward), grouped by method_id.
         """
         fig = figure_carve_output_klein(inputs, save=False)
         panel_a = _panel_by_letter(fig)["A"]
@@ -391,17 +364,10 @@ class TestCarveOutputFigures:
     ):
         """Panel C draws stability's consensus matrix, not generalizability's.
 
-        Checking only the title text was not enough here: this module's
-        title is built from a separate carve.get_k(measure="stability", ...)
-        call rather than from whatever plot_consensus_matrix actually drew,
-        so a title-only check kept passing even when plot_consensus_matrix
-        itself was mutated to measure="generalizability" -- caught while
-        mutation-testing this test, not by inspection. Comparing the drawn
-        pixel array against a matrix independently rendered with
-        measure="stability" (and confirming it disagrees with
-        measure="generalizability", which is a different matrix at this
-        fixture's seed) verifies the data actually plotted, not just a label
-        that happens to be computed the same way today.
+        The panel title comes from a separate get_k call, so the drawn
+        pixel array is compared with matrices rendered independently with
+        measure="stability" and measure="generalizability", which differ at
+        this fixture's seed.
         """
         fig = figure_carve_output_klein(inputs, save=False)
         ax_c = _panel_by_letter(fig)["C"]
@@ -414,11 +380,8 @@ class TestCarveOutputFigures:
         assert stability_k != generalizability_k
         assert ax_c.get_title() == f"Consensus matrix ($k={stability_k}$)"
 
-        # The references are drawn under the same label alignment the
-        # figure draws under (see carve_labels_aligned): the matrix is
-        # ordered by cluster, so an unaligned reference differs from the
-        # drawn panel by a permutation of samples and nothing here would be
-        # comparable.
+        # The references are drawn under the figure's label alignment
+        # (carve_labels_aligned), since the matrix is ordered by cluster.
         with carve_labels_aligned(carve, inputs.y):
             reference_fig, reference_ax = plt.subplots()
             carve.plot_consensus_matrix(
@@ -448,14 +411,9 @@ class TestCarveOutputFigures:
         plt.close(fig)
 
     def test_panel_d_reports_gini_stability_not_a_different_source(self, inputs):
-        """plot_cluster_violin's ``source`` selects gini/ce/accuracy scores,
-        all of which produce a violin body per cluster -- the previous test
-        cannot tell them apart, so a ``source="accuracy"`` regression would
-        slip through it silently. The caption is specifically about
-        stability, so this checks the ylabel plot_cluster_violin derives
-        from ``source`` and the actual violin body shapes against a
-        reference gini render (and against an accuracy render, which is a
-        different shape at this fixture's seed).
+        """Panel D shows gini stability: the ylabel plot_cluster_violin
+        derives from ``source``, and violin shapes that match a gini render
+        and differ from an accuracy render.
         """
         fig = figure_carve_output_klein(inputs, save=False)
         ax_d = _panel_by_letter(fig)["D"]
@@ -495,10 +453,8 @@ class TestCarveOutputFigures:
         plt.close(fig)
 
     def test_panels_e_and_f_use_different_encodings(self, inputs):
-        """E encodes score via size (one collection); F via shape (one per
-        cluster, fixed size) -- the caption's actual distinction between
-        them. A test only checking "both have a scatter" cannot tell them
-        apart; this checks the encoding each caption describes.
+        """E encodes the score by size (one collection); F by shape (one
+        collection per cluster, fixed size).
         """
         fig = figure_carve_output_klein(inputs, save=False)
         panels = _panel_by_letter(fig)
@@ -520,12 +476,8 @@ class TestCarveOutputFigures:
         plt.close(fig)
 
     def test_panel_e_reports_gini_stability_not_a_different_source(self, inputs):
-        """Mirrors the panel D source guard for plot_cluster_scatter.
-
-        ``source`` selects which per-sample score panel E encodes as marker
-        size; a ``source="accuracy"`` regression would still draw one scatter
-        with varying sizes (the previous test's only check). E's sizes must
-        match a gini rendering and differ from an accuracy one.
+        """Panel E's marker sizes match a gini rendering and differ from an
+        accuracy one.
         """
         fig = figure_carve_output_levine(inputs, save=False)
         drawn = np.sort(_panel_by_letter(fig)["E"].collections[0].get_sizes())
@@ -614,12 +566,8 @@ class TestCarveOutputFigures:
         plt.close(fig)
 
     def test_palette_colors_come_from_the_theme_not_accent(self, inputs):
-        """The point of the palette work: assert it, not just assume it.
-
-        The expected colors are cluster_colors(n) -- the palette's first n
-        entries -- which is exactly what cluster_cmap(n) hands CARVE's own
-        plotting methods here, so a violin's color, the consensus band's,
-        and the composite figure's are one list rather than three.
+        """The violins take cluster_colors(n), the palette's first n entries,
+        which cluster_cmap(n) hands to CARVE's plotting methods.
         """
         fig = figure_carve_output_klein(inputs, save=False)
         ax_d = _panel_by_letter(fig)["D"]
@@ -956,9 +904,8 @@ class TestCarveOutputOverResolution:
         plt.close(fig)
 
     def test_curve_panels_keep_a_third_of_the_figure_width(self, leiden_inputs):
-        # tight_layout sizes each column for E's and F's notes; a one-line
-        # "Leiden, ..., (resolution = ..., k ≈ ...)" halved A and B and piled
-        # up their resolution labels. The k-based figure gives them a third.
+        # tight_layout sizes each column for E's and F's notes; A and B keep
+        # about a third of the width, as in the k-based figure.
         fig = figure_carve_output_levine(leiden_inputs, save=False)
         panels = _panel_by_letter(fig)
         for letter in ("A", "B"):
@@ -966,22 +913,19 @@ class TestCarveOutputOverResolution:
         plt.close(fig)
 
     def test_columns_meet_without_a_legend_gap(self, leiden_inputs):
-        # E's cluster legend once widened the left column's margin, leaving
-        # a fifth of the figure blank between A and B.
         fig = figure_carve_output_levine(leiden_inputs, save=False)
         panels = _panel_by_letter(fig)
         gap = panels["B"].get_position().x0 - panels["A"].get_position().x1
         # In inches: B's tick labels and y label keep their point size, so at
         # the print width the same margin is a larger fraction of the figure.
-        # A legend gap took a fifth of a 13-inch figure.
         assert gap * fig.get_figwidth() < 1.25
         plt.close(fig)
 
     def test_consensus_letter_lines_up_with_a_and_the_matrix_stays_centered(
         self, leiden_inputs
     ):
-        # The square matrix sits centered in its wider cell; its letter, placed
-        # relative to the matrix, fell right of A's and E's.
+        # The square matrix sits centered in its wider cell, and its letter
+        # lines up with A's.
         fig = figure_carve_output_levine(leiden_inputs, save=False)
         fig.draw_without_rendering()
         panels = _panel_by_letter(fig)
@@ -1009,8 +953,6 @@ class TestCarveOutputOverResolution:
         plt.close(fig)
 
     def test_scatter_titles_sit_as_close_as_over_k(self, leiden_inputs):
-        # A and B's vertical tick labels set the one row spacing
-        # tight_layout gives every row, which left the most room under C-D.
         fig = figure_carve_output_levine(leiden_inputs, save=False)
         assert _scatter_row_gap(fig) == pytest.approx(0.15, abs=0.01)
         plt.close(fig)
@@ -1146,9 +1088,8 @@ class TestCarveOutputHeca:
         plt.close(fig)
 
     def test_a_names_the_settings_and_b_its_reference_lines(self, anchored_leiden):
-        # One legend holding the two reference lines too was taller than
-        # the panel had room for. The pin is the selection; the rule's line
-        # is named after the rule alone.
+        # The pin is the selection; the rule's line is named after the rule
+        # alone.
         carve, _, _ = anchored_leiden
         fig = _draw_heca(anchored_leiden)
         panels = _panel_by_letter(fig)
@@ -1242,8 +1183,7 @@ class TestCarveOutputHeca:
         self, anchored_leiden
     ):
         """Every drawn point is a subsample row, colored by that row's
-        cluster at the pin. A figure that drew the rule's labels, or the
-        labels of the wrong rows, gives at least one point the wrong color.
+        cluster at the pin.
         """
         carve, rows, embedding = anchored_leiden
         labels = carve.get_labels(sweep_value=HECA_PIN)[rows]

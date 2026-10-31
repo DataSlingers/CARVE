@@ -131,9 +131,8 @@ class TestConfigHash:
         )
 
     def test_the_default_classifier_is_left_out_of_the_identity(self):
-        """Every run made before Scenario had a classifier used the forest.
-        Leaving the default out keeps those runs' hashes, and the directories
-        named by them, where they were."""
+        """The default forest is left out of the hash, so runs with the
+        forest keep their hashes and directories."""
         s = dataclasses.replace(SCENARIOS["gaussians"], classifier="random_forest")
         assert "classifier" not in scenario_identity(s)
         lda = dataclasses.replace(s, classifier="lda")
@@ -178,8 +177,8 @@ class TestCheckpoints:
     def test_read_run_rejects_a_checkpoint_from_before_the_consensus_column(
         self, tmp_path
     ):
-        # A checkpoint without consensus_ari_at_k scored CARVE on its own
-        # labels in ari_at_k; reading it as the full-data fit would be wrong.
+        # A checkpoint without consensus_ari_at_k has the older schema, whose
+        # ari_at_k scored CARVE's own labels.
         rd = run_dir(tmp_path, "demo", "abc123def456")
         old = pd.DataFrame([_row(metric_name="ari_stability_1se")])
         old.drop(columns="consensus_ari_at_k").to_parquet(
@@ -217,9 +216,7 @@ class TestManifest:
         )
         path = write_manifest(rd, manifest)
         payload = json.loads(path.read_text())
-        # build_manifest reads whichever anchor set is active, not a fixed
-        # name -- this test's intent is that provenance tracks that switch,
-        # not that the published set stays active forever.
+        # build_manifest records whichever anchor set is active.
         assert payload["anchor_set"] == ACTIVE_ANCHOR_SET_NAME
         assert payload["peak_rss_unit"] == "bytes"
         assert payload["config"]["k_star"] == 5
@@ -274,10 +271,8 @@ class TestManifest:
             )
 
     def test_write_leaves_no_temporary_file_and_the_manifest_parses(self, tmp_path):
-        """write_manifest writes through a temp file and os.replace. On
-        success that temp file must not survive -- a leftover .tmp file
-        would mean the atomic-rename path isn't actually being taken -- and
-        the file left at manifest.json must be the real, complete payload.
+        """write_manifest writes through a temp file and os.replace; no temp
+        file survives and manifest.json holds the full payload.
         """
         rd = run_dir(tmp_path, "demo", "abc123def456")
         manifest = build_manifest(
@@ -301,9 +296,7 @@ class TestManifest:
 
 class TestWidestRun:
     def test_picks_the_widest_sweep_not_the_lexically_last(self, tmp_path):
-        """The CLI took the lexically last directory and the notebook took
-        the widest sweep, so S4 regenerated from the CLI was the 5-dataset
-        run while the notebook showed the 20-dataset one."""
+        """The CLI and the notebook both use widest_run."""
         _fake_run(tmp_path, "t_dist_noise", "zzz", n_seeds=5, n_resamples=20)
         wide = _fake_run(tmp_path, "t_dist_noise", "aaa", n_seeds=20, n_resamples=100)
         assert widest_run(tmp_path, "t_dist_noise") == wide
@@ -418,8 +411,7 @@ class TestPromote:
         assert not (tmp_path / "published").exists()
 
     def test_refuses_a_manifest_with_no_status(self, tmp_path):
-        """A manifest written before status was recorded cannot be told apart
-        from an interrupted run, so it counts as incomplete, as in
+        """A manifest without a status counts as incomplete, as in
         widest_run."""
         rd = run_dir(tmp_path / "runs", "demo", "abc123def456")
         write_checkpoint(rd, "easy", 0, [_row()])
@@ -556,14 +548,9 @@ class TestAblationFrames:
         assert list(frame.columns) == list(ABLATION_SCHEMAS["cells"])
 
     def test_write_frame_is_atomic_on_a_failed_write(self, tmp_path, monkeypatch):
-        # A worker killed mid-write (or, here, a write that fails after
-        # putting bytes on disk) must not leave a file at the final path:
-        # unit_done is existence-only, so a resumed run would otherwise
-        # treat a half-written parquet file as a completed unit. The mock
-        # writes junk to whatever path it is handed before raising, so a
-        # write_frame that wrote straight to the final path would leave
-        # that junk behind and fail the existence assertion; a mock that
-        # only raised could not tell the two apart.
+        # A failed write must not leave a file at the final path, since
+        # unit_done is existence-only. The mock writes junk to the path it is
+        # handed before raising.
         def boom(self, target, *args, **kwargs):
             Path(target).write_bytes(b"not parquet")
             raise OSError("disk full")
@@ -610,9 +597,8 @@ class TestAblationFrames:
         # Every study cell writes an empty at_k file, whose columns come
         # back from parquet as nulls. pandas 3 no longer leaves empty
         # entries out when it determines a concat result dtype, so one such
-        # file would turn every at_k column object for the whole run (the
-        # dev run had all ten object-typed); read_frames must skip empty
-        # parts before concatenating.
+        # file would turn every at_k column object for the whole run;
+        # read_frames skips empty parts before concatenating.
         at_k = ABLATION_SCHEMAS["at_k"]
         write_frame(tmp_path / "at_k__study.parquet", [], at_k)
         write_frame(tmp_path / "at_k__sim.parquet", [self._at_k_row()], at_k)
@@ -663,8 +649,7 @@ class TestFingerprint:
         assert fingerprint(X) == fingerprint(X.copy())
 
     def test_a_different_x_of_the_same_shape_gives_a_different_digest(self):
-        # Same shape deliberately: a shape check alone would pass this, which
-        # is exactly what the fingerprint exists to catch.
+        # Same shape, different values.
         X = np.arange(12, dtype=float).reshape(4, 3)
         Y = X.copy()
         Y[0, 0] += 1.0

@@ -91,7 +91,7 @@ class TestFigureScenarioOverview:
         plt.close(fig)
 
     def test_carries_one_deduplicated_figure_legend(self, gaussians):
-        """Blank entries pad the short columns, so count the labelled ones."""
+        """Blank entries pad the short columns, so count the labeled ones."""
         fig = figure_scenario_overview("gaussians", gaussians, metrics=METRICS)
         assert len(fig.legends) == 1
         labelled = [t.get_text() for t in fig.legends[0].get_texts() if t.get_text()]
@@ -115,13 +115,8 @@ class TestFigureScenarioOverview:
             figure_scenario_overview("not_a_scenario", gaussians)
 
     def test_rejects_a_frame_whose_axis_no_longer_matches_the_registry(self):
-        """A stale run and the registry would describe different experiments.
-
-        The example row is simulated from the registry while the curve is
-        read from the artifact, and runs are content-addressed, so a run
-        made before an axis was redefined stays readable under its own hash.
-        Its x ticks come from the frame, so nothing on the figure would show
-        that the two halves disagree.
+        """The example row comes from the registry and the curve from the
+        artifact, so a run whose axis has since changed is rejected.
         """
         stale = _frame("gaussians_samples")
         moved = dict(
@@ -169,7 +164,7 @@ class TestDifficultyAxis:
 
 class TestScalingAxis:
     def test_x_axis_names_the_swept_quantity_not_difficulty(self):
-        """The bug this guards: a scaling sweep labeled easy/medium/hard."""
+        """A scaling sweep is not labeled easy/medium/hard."""
         fig = figure_scenario_overview(
             "gaussians_samples", _frame("gaussians_samples"), metrics=METRICS
         )
@@ -204,12 +199,8 @@ class TestScalingAxis:
 
 class TestSharedWithS1:
     def test_example_seeds_use_the_runners_formula(self, gaussians, monkeypatch):
-        """Both this figure and S1 must show the data the benchmark scored.
-
-        They share draw_example_row precisely so the derivation cannot drift
-        between them, so the expectation is rederived from the arithmetic
-        rather than hardcoded -- a hardcoded list would still pass if the
-        random_state term were dropped and the default happened to be 0.
+        """The example row shows the data the benchmark scored; the expected
+        seeds follow the run_cell formula.
         """
         captured = []
         original = _benchmarking_examples.simulate

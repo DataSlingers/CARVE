@@ -56,11 +56,9 @@ def atlas(tmp_path):
     path.unlink()
 
     cells = [f"cell{i:04d}" for i in range(N_CELLS)]
-    # The release's .cells.txt holds the same barcodes as cell_metadata.txt
-    # but in a different order, and it is the metadata's row order, not the
-    # cells file, that matches the matrix columns. Write the cells file
-    # shuffled so a loader that reindexes by it scrambles the labels here
-    # the way it does on the real atlas.
+    # As in the release, .cells.txt holds the same barcodes as
+    # cell_metadata.txt in another order; the matrix columns follow the
+    # metadata rows.
     (d / "matrices" / "atac_matrix.binary.qc_filtered.cells.txt").write_text(
         "\n".join(cells[i] for i in rng.permutation(N_CELLS)) + "\n"
     )
@@ -133,11 +131,8 @@ class TestLoadCusanovich:
         _, _, loose = load_cusanovich(
             root=atlas, n_components=10, site_frequency_threshold=0.0
         )
-        # threshold=0.5 leaves zero peaks for this fixture (see
-        # test_zero_surviving_peaks_warns_and_does_not_claim_svd_ran, below),
-        # which load_cusanovich warns about; that warning is exercised on
-        # its own there; it is incidental here and must not leak into the
-        # suite's output.
+        # threshold=0.5 leaves zero peaks for this fixture, which warns
+        # (tested below).
         with pytest.warns(UserWarning, match="site_frequency_threshold=0.5"):
             _, _, strict = load_cusanovich(
                 root=atlas, n_components=10, site_frequency_threshold=0.5
@@ -145,10 +140,9 @@ class TestLoadCusanovich:
         assert strict["n_peaks_kept"] < loose["n_peaks_kept"]
 
     def test_zero_surviving_peaks_warns_and_does_not_claim_svd_ran(self, atlas):
-        # threshold=0.5 leaves zero peaks for this fixture (see the test
-        # above), so X degenerates to a zero embedding. That must be loud,
-        # not silent: a warning naming the threshold, and meta that does not
-        # claim TF-IDF/SVD ran when they were skipped.
+        # threshold=0.5 leaves zero peaks for this fixture, so X is a zero
+        # embedding: a warning names the threshold and meta does not claim
+        # TF-IDF/SVD ran.
         with pytest.warns(UserWarning, match="site_frequency_threshold=0.5"):
             _, _, meta = load_cusanovich(
                 root=atlas, n_components=10, site_frequency_threshold=0.5
@@ -160,11 +154,8 @@ class TestLoadCusanovich:
         assert "TF-IDF: per-cell term frequency" not in chain
 
     def test_labels_follow_the_metadata_row_order_not_the_cells_file(self, atlas):
-        # On the released atlas the matrix columns are in cell_metadata.txt
-        # row order; .cells.txt lists the same barcodes in another order.
-        # Reindexing by the cells file kept tissue blocks roughly intact but
-        # gave every cell another cell's label, cluster and t-SNE position
-        # within its tissue. Row i of y must be metadata row i.
+        # The matrix columns follow cell_metadata.txt row order, not
+        # .cells.txt. Row i of y must be metadata row i.
         _, y, meta = load_cusanovich(root=atlas, n_components=10)
         metadata = _metadata(atlas)
         np.testing.assert_array_equal(
@@ -186,8 +177,7 @@ class TestLoadCusanovich:
             load_cusanovich(root=atlas, n_components=10)
 
     def test_embedding_separates_the_planted_tissues(self, atlas):
-        # A loader that returned noise would satisfy every shape assertion
-        # above, so pin that the preprocessing preserves real structure.
+        # The preprocessing keeps the planted structure.
         from sklearn.cluster import KMeans
         from sklearn.metrics import adjusted_rand_score
 
@@ -283,12 +273,9 @@ class TestLoadCusanovich:
     def test_missing_data_directory_names_a_path_that_resolves_correctly(
         self, tmp_path, monkeypatch
     ):
-        # load_cusanovich takes no root in the notebooks, so a relative
-        # "data/" resolves against the process's cwd at call time -- the
-        # notebook's own directory when run via nbconvert, not the
-        # repository root. A message that just repeats "data/Cusanovich/"
-        # reads correctly only from the repo root; the resolved absolute
-        # path is correct regardless of where the process actually started.
+        # The notebooks pass no root, so "data/" resolves against the
+        # notebook's own directory under nbconvert; the message names the
+        # resolved absolute path.
         monkeypatch.chdir(tmp_path)
         with pytest.raises(FileNotFoundError) as excinfo:
             load_cusanovich(root=Path("nothing"))

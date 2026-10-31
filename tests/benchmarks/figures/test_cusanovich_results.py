@@ -34,9 +34,8 @@ SPECS = {
 @pytest.fixture
 def inputs():
     # Six source clusters of 20 cells; CARVE's four clusters are listed in an
-    # order different from their ids, so a color map keyed on first
-    # appearance would disagree with the aligned one. The stub selects
-    # resolution 0.6, where resolution_results observes 12 clusters.
+    # order different from their ids. The stub selects resolution 0.6, where
+    # resolution_results observes 12 clusters.
     rng = np.random.default_rng(0)
     n = 120
     carve = StubCarve(
@@ -247,8 +246,7 @@ def test_a_long_resolution_grid_labels_every_other_value():
 
 
 def test_c_and_d_titles_and_letters_share_one_line(inputs):
-    # C's cluster axis would otherwise push C's title above D's, leaving a
-    # band of white between B and D.
+    # C's and D's titles sit on one line.
     fig = figure_cusanovich_results(inputs, save=False)
     fig.draw_without_rendering()
     panels = _panels(fig)

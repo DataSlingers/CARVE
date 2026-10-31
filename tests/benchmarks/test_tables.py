@@ -61,10 +61,8 @@ def _scaling_frame():
     "end" < "middle" < "start" alphabetically, but the intended reading
     order -- the order SCALING_AXES declares, matching increasing
     axis_value -- is start (1000), middle (5500), end (10000). Rows are
-    built in the same order read_run would hand back from a lexically
-    sorted glob of cell__<label>__<seed>.parquet checkpoints (end, middle,
-    start), so a summarizer that orders columns by first-appearance-in-that-
-    row-order reproduces the bug: end, middle, start.
+    built in the order read_run returns from a lexically sorted glob of
+    cell__<label>__<seed>.parquet checkpoints (end, middle, start).
     """
     rows = []
     for axis_value, axis_label in ((10000, "end"), (5500, "middle"), (1000, "start")):
@@ -179,7 +177,7 @@ class TestSummarize:
 
 
 class TestSummarizeBaseline:
-    """The Baseline (Oracle) row every published S2-S9 table starts with."""
+    """The Baseline (Oracle) row every benchmark table starts with."""
 
     def test_included_only_when_requested(self):
         out = summarize(_frame(), metrics=("silhouette",))
@@ -197,9 +195,7 @@ class TestSummarizeBaseline:
         assert (first_per_label == "baseline_oracle").all()
 
     def test_ari_comes_from_oracle_ari_not_ari_at_k(self):
-        # _frame's oracle_ari is a constant 0.9; ari_at_k is not, so a
-        # baseline row that accidentally summarized ari_at_k would not
-        # come out at exactly 0.9.
+        # _frame's oracle_ari is a constant 0.9; ari_at_k is not.
         out = summarize(_frame(), metrics=("baseline_oracle",))
         assert all(v == pytest.approx(0.9) for v in out["ari_mean"])
 
@@ -209,18 +205,14 @@ class TestSummarizeBaseline:
 
     def test_deduplicated_by_seed_not_counted_once_per_metric_and_k(self):
         # _frame carries two metrics x three k's per (axis_label, seed) --
-        # six rows -- over two distinct seeds. A baseline computed without
-        # deduplicating by seed would count all six as separate datasets
-        # instead of two.
+        # six rows -- over two distinct seeds.
         out = summarize(_frame(), metrics=("baseline_oracle",))
         assert (out["n_datasets"] == 2).all()
 
 
 class TestTexEscape:
     def test_a_lone_backslash_is_escaped_without_reescaping_its_own_braces(self):
-        # A sequential str.replace implementation would emit the braces in
-        # \textbackslash{} and then re-escape them via the later { and }
-        # rules, corrupting the output to \textbackslash\{\}.
+        # The braces in \textbackslash{} are not escaped again.
         assert _tex_escape("\\") == r"\textbackslash{}"
 
     def test_a_backslash_adjacent_to_other_specials_is_escaped_once_each(self):
@@ -340,8 +332,7 @@ class TestPairedTex:
         assert r"\underline{0.928}" in out
 
     def test_the_oracle_is_never_ranked(self, paired_summary):
-        """It is the reference the others are measured against, not a
-        competitor. The committed tables leave it unmarked."""
+        """The oracle is the reference, so it is never marked."""
         out = render_paired_tex(paired_summary, caption="c", label="tab:x")
         assert r"\textbf{0.914}" not in out
         assert r"\underline{0.914}" not in out
@@ -373,12 +364,9 @@ class TestPairedTex:
         assert r"\underline{" not in out
 
     def test_the_oracles_recovery_cells_are_blank(self, paired_summary):
-        """The oracle has no selected k, so k-recovery is NaN. The published
-        tables print an empty cell, not the literal nan.
-
-        Every cell after the metric name in the right-hand table's oracle
-        row must be empty -- not merely free of the literal string "nan",
-        which a row with only some cells blank would also satisfy.
+        """The oracle has no selected k, so k-recovery is NaN, printed as an
+        empty cell: every cell after the metric name in the right-hand
+        table's oracle row is empty.
         """
         out = render_paired_tex(paired_summary, caption="c", label="tab:x")
         right = out.split(r"\quad")[1]
@@ -391,11 +379,8 @@ class TestPairedTex:
         assert all(cell == "" for cell in cells[1:])
 
     def test_rows_follow_the_declared_groups(self, paired_summary):
-        """Positions must be looked up by the name the renderer actually
-        writes: davies_bouldin and calinski_harabasz render with an en dash,
-        not the plain hyphen METRIC_DISPLAY_NAMES carries, so looking those
-        two up by METRIC_DISPLAY_NAMES would silently drop them from the
-        check instead of covering all eight rows."""
+        """Positions are looked up by the name the renderer writes:
+        davies_bouldin and calinski_harabasz render with an en dash."""
         out = render_paired_tex(paired_summary, caption="c", label="tab:x")
         left = out.split(r"\quad")[0]
         positions = [
@@ -433,8 +418,8 @@ class TestPairedTex:
         assert tokens == expected
 
     def test_column_headers_replace_the_axis_labels(self):
-        """A scaling table heads its columns with the swept values, as the
-        committed S8 and S9 do, not with start/middle/end."""
+        """A scaling table heads its columns with the swept values, not with
+        start/middle/end."""
         rows = [
             {
                 "axis_label": label,
@@ -457,10 +442,8 @@ class TestPairedTex:
         assert headers == [r"Metric & 1000 & 5500 & 10000 \\"] * 2
 
     def test_the_cvi_row_labels_use_an_en_dash(self, paired_summary):
-        """Matches the committed S2 table and the manuscript prose, which
-        both write Davies-Bouldin and Calinski-Harabasz with an en dash.
-        METRIC_DISPLAY_NAMES keeps the plain hyphen, since figure legends
-        read it too; the en dash is table-only."""
+        """The tables write Davies-Bouldin and Calinski-Harabasz with an en
+        dash, as the manuscript does; figure legends keep the hyphen."""
         out = render_paired_tex(paired_summary, caption="c", label="tab:x")
         assert "Davies--Bouldin" in out
         assert "Davies-Bouldin" not in out
@@ -468,7 +451,7 @@ class TestPairedTex:
         assert "Calinski-Harabasz" not in out
 
     def test_k_recovery_uses_the_same_decimals_as_ari_mean(self, paired_summary):
-        """The committed table prints k-recovery to three decimals (1.000,
+        """The tables print k-recovery to three decimals (1.000,
         0.550, 0.700, ...), not two. ari_stability_1se's k-recovery is the
         unique best (1.0) in its column, so it is bold in the right-hand
         table."""
@@ -483,14 +466,9 @@ class TestPairedTex:
         assert "nan" not in out
 
     def test_the_caption_and_label_survive(self, paired_summary):
-        """The manuscript never puts \\caption or \\label inside a
-        supplementary table's float: each is an author-written
-        \\paragraph*{Sn Table.}, \\label{Sn_Table}, and caption prose above a
-        caption-free \\begin{table}[H]. The fragment is the float only --
-        caption and label are carried as one leading LaTeX comment instead,
-        so a generated file can still be identified without adding a second
-        label or an in-float caption a dropped-in fragment would otherwise
-        carry."""
+        """The fragment is the float only, without \\caption or \\label, which
+        the manuscript sets above each supplementary table; caption and label
+        go into one leading LaTeX comment."""
         out = render_paired_tex(
             paired_summary, caption="Gaussian mixtures.", label="tab:s2"
         )
@@ -526,7 +504,7 @@ class TestPairedTex:
     def test_the_first_subtable_closes_with_a_percent_the_second_does_not(
         self, paired_summary
     ):
-        """Matches the committed table: the trailing "%" after the first
+        """The trailing "%" after the first
         \\end{tabular} suppresses the space LaTeX would otherwise insert
         before \\quad; the second \\end{tabular}, at the end of the pair, is
         bare."""
@@ -536,12 +514,8 @@ class TestPairedTex:
         assert "\\end{tabular}\n}\n\\end{table}" in out
 
     def test_ranking_excludes_metrics_outside_the_declared_groups(self):
-        """A metric present in the summary but outside TABLE_ROW_GROUPS
-        (ari_average is excluded from the published tables entirely) must
-        not enter the ranking for the rows that do render. Ranked over
-        everything, ari_average's 0.99 outranked every rendered value, so
-        ari_stability_1se's 0.930 -- the best among what actually renders --
-        came out underlined instead of bold."""
+        """A metric in the summary but outside TABLE_ROW_GROUPS (ari_average)
+        does not enter the ranking of the rendered rows."""
         rows = [
             {
                 "axis_label": "easy",
@@ -649,8 +623,7 @@ class TestAblationTables:
 
     @pytest.mark.parametrize("study", ["gaussians", "circles"])
     def test_ari_cells_are_each_scenarios_summary(self, run, tables, study):
-        # The synthetic scenarios' values are drawn independently, so a
-        # table that pooled them or swapped blocks would miss these.
+        # The synthetic scenarios' values are drawn independently.
         from benchmarks._ablation_cells import arm_view
         from benchmarks._ablation_summary import ari_summary
 
@@ -676,8 +649,8 @@ class TestAblationTables:
         assert _block_row(tables[1][2].read_text(), study, name) == expected
 
     def test_ranking_is_within_a_block(self):
-        # Gaussians' best is 0.900 and circles' 0.600: ranked across the
-        # whole table, 0.600 would not be bold. The oracle is not ranked.
+        # Gaussians' best is 0.900 and circles' 0.600; each is bold in its
+        # own block. The oracle is not ranked.
         rows = [
             ("gaussians", "baseline_oracle", 0.95), ("gaussians", "ari_stability_1se", 0.90),
             ("gaussians", "ari_generalizability_1se", 0.80),

@@ -18,12 +18,9 @@ def gaussians_run(tmp_path_factory):
     The CLI runs full scale only, so the reduction is injected into the
     runner it calls: one dataset per axis value at B=20.
 
-    --n-jobs 1 pinned explicitly: "gaussians" is a difficulty scenario, so it
-    otherwise resolves to -1, and this three-cell run would pay a real loky
-    pool's startup cost and run its cells where a warning cannot reach
-    filterwarnings = error. This fixture only needs a completed run, not the
-    n_jobs resolution, which test_scenarios_default_to_per_scenario_resolution
-    covers on a mock.
+    --n-jobs 1: "gaussians" is a difficulty scenario and would otherwise
+    resolve to -1, running its cells in loky workers, where a warning cannot
+    reach filterwarnings = error.
     """
     root = tmp_path_factory.mktemp("cli")
     real_run_scenario = run_module.run_scenario
@@ -52,9 +49,8 @@ class TestCli:
         assert main([]) == 2
 
     def test_random_state_default_is_published_random_state(self):
-        # The published benchmarks ran with 42, not 0. A default of 0
-        # silently simulates different data and cannot reproduce committed
-        # results, so this pins the default against a silent revert.
+        # The published benchmarks ran with 42; another default simulates
+        # different data.
         args = _parser().parse_args(["--scenario", "gaussians"])
         assert args.random_state == PUBLISHED_RANDOM_STATE == 42
 
@@ -169,10 +165,8 @@ class TestAblationCli:
         assert "exclusive" in capsys.readouterr().err
 
     def test_n_jobs_defaults_differ_by_mode(self):
-        # A scenario's default is None, not a number: the runner decides
-        # per scenario class (see test_scenarios_default_to_per_scenario_
-        # resolution below), because one flag cannot be right for both the
-        # difficulty scenarios and the timed pair.
+        # A scenario's default is None: the runner decides per scenario
+        # class (see test_scenarios_default_to_per_scenario_resolution below).
         args = _parser().parse_args(["--scenario", "gaussians"])
         assert args.n_jobs is None
         assert run_module._resolve_n_jobs(args) is None

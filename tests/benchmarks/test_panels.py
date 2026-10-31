@@ -1,7 +1,6 @@
 """Tests for the panel drawing primitives.
 
-The uniform ax-in / ax-out contract is the reason this module exists, so it
-is asserted directly rather than left to convention.
+The ax-in, ax-out contract is asserted directly.
 """
 
 import inspect
@@ -113,11 +112,7 @@ def _results_frame():
                             "selects_true_k": k == 5,
                             "ari_at_k": 0.9 - 0.1 * axis_value,
                             "consensus_ari_at_k": float("nan"),
-                            # Varies by seed (not by axis_value or metric) so
-                            # a baseline computation that fails to
-                            # deduplicate by seed before averaging can be
-                            # told apart from one that does: the mean is the
-                            # same either way, but the standard error is not.
+                            # Varies by seed only.
                             "oracle_ari": 0.95 + 0.01 * seed,
                         }
                     )
@@ -159,8 +154,6 @@ class TestScatterClusters:
             )
 
     def test_markers_carry_a_thin_outline(self, ax):
-        # The outline is what keeps overlapping points readable where two
-        # clusters meet; without it a dense scatter merges into one mass.
         Z = np.random.default_rng(0).normal(size=(10, 2))
         scatter_clusters(ax, Z, np.zeros(10, dtype=int))
         edges = ax.collections[0].get_edgecolor()
@@ -236,9 +229,8 @@ class TestMetricLines:
         baseline_lines = [ln for ln in ax.lines if ln.get_marker() == "none"]
         assert len(baseline_lines) == 1
         # _results_frame's oracle_ari averages to 0.96 across seeds
-        # (0.95, 0.96, 0.97) at every axis value, unlike ari_at_k (which
-        # varies with axis_value) -- if the baseline branch mistakenly read
-        # ari_at_k this would come out as [0.9, 0.8, 0.7] instead.
+        # (0.95, 0.96, 0.97) at every axis value, unlike ari_at_k, which
+        # varies with axis_value.
         np.testing.assert_allclose(baseline_lines[0].get_ydata(), 0.96)
 
     def test_oracle_baseline_uses_the_theme_color_and_is_dashed(self, ax):
@@ -251,11 +243,8 @@ class TestMetricLines:
 
     def test_oracle_baseline_error_bars_reflect_seed_level_spread(self, ax):
         # oracle_ari repeats each seed's value across every (metric, k) row
-        # within a cell (four rows per seed here). A baseline branch that
-        # grouped those raw rows instead of deduplicating by (axis_value,
-        # seed) first would compute its standard error over an artificially
-        # inflated sample -- the mean would still come out right, but the
-        # error bar would be too tight.
+        # of a cell (four rows per seed here); the standard error is over
+        # seeds.
         df = _results_frame()
         metric_lines(ax, df, metrics=("baseline_oracle",), show_legend=False)
 
@@ -419,10 +408,8 @@ class TestRuntimeLines:
 
 def _curves_and_best():
     # Two estimator configurations (Agglomerative and KMeans), each swept
-    # over the same three k values -- the shape a case study that sweeps
-    # more than one estimator actually produces, and the shape that exposed
-    # cvi_lines' original interleaving bug: grouping by metric alone drew
-    # both models' rows as one zig-zagging line per metric.
+    # over the same three k values, as in a case study that sweeps several
+    # estimators.
     curves = pd.DataFrame(
         {
             "metric": ["silhouette"] * 6 + ["gap"] * 6,
@@ -444,9 +431,7 @@ def _curves_and_best():
             ],
         }
     )
-    # The two metrics deliberately pick different winning models, so a line
-    # restricted to the wrong model would draw the wrong curve entirely, not
-    # just the right curve with a wrong point count.
+    # The two metrics pick different winning models.
     best = pd.DataFrame(
         {
             "metric": ["silhouette", "gap"],
@@ -489,17 +474,13 @@ class TestCarveLines:
         assert carve_lines(ax, _carve_obj()) is ax
 
     def test_draws_one_line_per_requested_measure(self, ax):
-        # A non-default, single-element tuple: if the measures argument were
-        # ignored in favor of the ("stability", "generalizability") default,
-        # this would draw two lines instead of one.
+        # A non-default, single-element tuple.
         carve_lines(ax, _carve_obj(), measures=("generalizability",))
         data_lines = [ln for ln in ax.lines if ln.get_marker() == "o"]
         assert len(data_lines) == 1
 
     def test_lines_use_measure_specific_colors(self, ax):
-        # Measures are requested in the opposite order from the default
-        # tuple. A regression that fell back to the default order rather
-        # than the caller's order would draw the colors in the wrong slots.
+        # Measures in the opposite order from the default tuple.
         carve_lines(ax, _carve_obj(), measures=("generalizability", "stability"))
         data_lines = [ln for ln in ax.lines if ln.get_marker() == "o"]
         assert len(data_lines) == 2
@@ -523,19 +504,14 @@ class TestCarveLines:
         assert len(ax.lines) == 1
 
     def test_line_length_matches_one_configurations_k_values_not_every_row(self, ax):
-        # _carve_obj's estimator_results_ carries eight rows -- two method
-        # ids swept over four k values each. A line that read every row
-        # instead of filtering to the selected method_id would be eight
-        # points long, not four.
+        # _carve_obj's estimator_results_ carries eight rows: two method ids
+        # swept over four k values each.
         carve_lines(ax, _carve_obj(), measures=("stability",), show_selected_k=False)
         line = ax.lines[0]
         assert len(line.get_xdata()) == 4
 
     def test_line_x_values_are_monotonic(self, ax):
-        # Concatenating both method_ids' k ranges end to end (the
-        # interleaving bug) draws k = 3, 4, 5, 6, 3, 4, 5, 6 -- a line that
-        # runs up and then jumps back down. A single configuration's own
-        # sweep is strictly increasing.
+        # A single configuration's sweep is strictly increasing in k.
         carve_lines(
             ax,
             _carve_obj(),
@@ -693,8 +669,7 @@ class TestCviLines:
         )
 
     def test_selection_rules_take_their_own_metric_color(self, ax):
-        # silhouette selects k=4 and gap k=5 (see _curves_and_best), so a
-        # rule drawn in the other metric's color would be caught here.
+        # silhouette selects k=4 and gap k=5 (see _curves_and_best).
         curves, best = _curves_and_best()
         cvi_lines(ax, curves, best)
         rules = [ln for ln in ax.lines if ln.get_linestyle() == "--"]
@@ -703,14 +678,13 @@ class TestCviLines:
             assert color_at_k[float(row["k"])] == metric_color(str(row["metric"]))
 
     def test_no_ring_markers_are_drawn_on_the_curves(self, ax):
-        # The rings were scatter collections; nothing should draw them now.
+        # Selections are vertical rules, not scatter markers.
         curves, best = _curves_and_best()
         cvi_lines(ax, curves, best)
         assert list(ax.collections) == []
 
     def test_lines_use_metric_specific_colors(self, ax):
-        # silhouette and gap map to different theme colors, so a bug that
-        # mixed up which curve gets which color would be caught here.
+        # silhouette and gap map to different theme colors.
         curves, best = _curves_and_best()
         cvi_lines(ax, curves, best)
         data_lines = [ln for ln in ax.lines if ln.get_marker() == "o"]
@@ -730,9 +704,7 @@ class TestCviLines:
         assert any("KMeans" in label for label in labels)
 
     def test_line_length_matches_one_models_k_values_not_every_row(self, ax):
-        # Each metric has six rows in curves_df (two models x three k's). A
-        # line drawn from every row for that metric, instead of only the
-        # winning model's three, would be six points long.
+        # Each metric has six rows in curves_df (two models x three k's).
         curves, best = _curves_and_best()
         cvi_lines(ax, curves, best)
         data_lines = [ln for ln in ax.lines if ln.get_marker() == "o"]
@@ -763,9 +735,7 @@ class TestCviLines:
         assert "resolution" in ax.get_xlabel().lower()
 
     def test_line_x_values_are_monotonic(self, ax):
-        # Grouping by metric alone and sorting by k (the interleaving bug)
-        # produces k = 3, 3, 4, 4, 5, 5 -- ties, not a strictly increasing
-        # sweep. One model's own k values are strictly increasing.
+        # One model's own k values are strictly increasing.
         curves, best = _curves_and_best()
         cvi_lines(ax, curves, best)
         data_lines = [ln for ln in ax.lines if ln.get_marker() == "o"]
@@ -811,9 +781,7 @@ class TestAlluvial:
         assert "CARVE" in texts and "CVI" in texts and "Reported" in texts
 
     def test_column_bars_use_the_supplied_colormaps(self, ax):
-        # left and right deliberately assign different colors to the same
-        # category (0/1), so a bug that reused one column's cmap for
-        # another's bars would be caught here.
+        # left and right assign different colors to the same category (0/1).
         y_true = np.repeat([0, 1], 20)
         left = np.repeat([0, 1], 20)
         right = np.repeat([1, 0], 20)
@@ -854,17 +822,12 @@ class TestAlluvial:
     def test_flow_count_and_color_match_the_transition_structure(self, ax):
         # left equals y_true (no left/true mixing: 2 non-zero transitions),
         # right is the flip of y_true (2 non-zero transitions the other
-        # way). A bug that drew every category pair regardless of overlap
-        # would produce 8 ribbons instead of 4.
-        #
-        # Every ribbon takes its *reported label's* color on both sides of
-        # the truth column -- that is what lets one reported class be
-        # followed across the whole panel -- so neither left_cmap nor
-        # right_cmap may appear among the ribbons, only true_cmap.
+        # way), so four ribbons. Every ribbon takes its reported label's
+        # color on both sides of the truth column, so only true_cmap colors
+        # appear among the ribbons.
         y_true = np.array([0, 0, 1, 1])
-        # left is the *flip* of y_true, not a copy: with a copy, colouring a
-        # ribbon by its source cluster and by its target label give the same
-        # answer, and this test cannot tell the two apart.
+        # left is the flip of y_true, so a ribbon's source cluster and target
+        # label have different colors.
         left = np.array([1, 1, 0, 0])
         right = np.array([1, 1, 0, 0])
         left_cmap = {0: "#123456", 1: "#654321"}
@@ -893,13 +856,7 @@ class TestAlluvial:
         assert drawn == expected
 
     def test_ribbons_are_curved_not_straight(self, ax):
-        """Panel F reads as flow, which is the Bezier control points.
-
-        A straight-edged band -- what this replaces -- is a four-vertex
-        polygon; each ribbon here is a nine-vertex path whose edges are
-        cubic curves. Asserting the curve codes rather than the vertex
-        count alone means a path that merely gained vertices would not pass.
-        """
+        """Each ribbon is a nine-vertex path with cubic Bezier edges."""
         y_true = np.repeat([0, 1], 10)
         alluvial(
             ax,
@@ -985,10 +942,8 @@ class TestAlluvial:
     def test_clusters_are_ordered_against_the_reported_column(self, ax):
         """A cluster is stacked where its mass sits in the truth column.
 
-        Cluster ids here run opposite to the truth column's order, so
-        stacking by id -- what this replaces -- would send every ribbon
-        across the full height of the panel. The bars must come out in
-        reverse id order instead.
+        Cluster ids here run opposite to the truth column's order, so the
+        bars come out in reverse id order.
         """
         y_true = np.repeat([0, 1], 10)
         left = np.repeat([1, 0], 10)
@@ -1165,10 +1120,8 @@ class TestAriLollipop:
 
     @pytest.mark.parametrize("xlim_max", [1.0, 4.0])
     def test_k_label_sits_beside_the_marker_at_any_axis_scale(self, ax, xlim_max):
-        # A label offset in data units (the old ari + 0.01) lands inside the
-        # marker on a wide axis range and drifts away from it on a narrow
-        # one. The label has to start just past the marker's edge, centered
-        # on its row, whatever the x range.
+        # The label starts just past the marker's edge, centered on its row,
+        # whatever the x range.
         df = pd.DataFrame(
             {"method": ["a", "b"], "ari": [0.36, 0.79], "k": [2, 4]}
         )
@@ -1190,9 +1143,8 @@ class TestAriLollipop:
             assert abs((box.y0 + box.y1) / 2 - center_y) < 1.0
 
     def test_hlines_and_markers_use_metric_colors_in_sorted_order(self, ax):
-        # method and metric disagree on which name maps to a recognized
-        # theme color here, so matching colors correctly proves they come
-        # from "metric", not "method", when both columns are present.
+        # method and metric map to different theme colors here; the colors
+        # come from "metric".
         df = pd.DataFrame(
             {
                 "method": ["CARVE (stab)", "Silhouette", "Gap Stat"],
@@ -1233,12 +1185,8 @@ class TestAriLollipop:
             assert np.allclose(marker_colors[i][:3], expected_rgb)
 
     def test_a_metric_only_frame_fails_after_drawing_not_before(self, ax):
-        # "method" is still required later for the y-tick labels, so this
-        # frame can never fully succeed -- but the KeyError must come from
-        # that line, not from eagerly evaluating ordered["method"] as the
-        # unused default for .get("metric", ...) before hlines/scatter
-        # ever run. Under the old eager-default bug this raised before
-        # either collection existed; both existing here proves the fix.
+        # "method" is still needed for the y-tick labels, so the KeyError
+        # comes from there, after both collections are drawn.
         df = pd.DataFrame({"metric": ["silhouette", "gap"], "ari": [0.3, 0.5]})
         with pytest.raises(KeyError, match="method"):
             ari_lollipop(ax, df, annotate_k=False)
@@ -1300,10 +1248,7 @@ class TestLegendGroups:
         ]
 
     def test_groups_are_decided_by_metric_name_not_label_text(self):
-        """ari_stability's display name is "ARI (stab, max)" -- no "CARVE".
-
-        A label-matching rule would file it with the classical indices.
-        """
+        """ari_stability's display name is "ARI (stab, max)", without "CARVE"."""
         groups = _legend_groups(("ari_stability", "silhouette"))
         assert groups == [[["ari_stability"]], [["silhouette"]]]
 
@@ -1327,11 +1272,8 @@ class TestLegendGroups:
 
 class TestLegendLabels:
     def test_the_oracle_label_is_not_mathtext(self):
-        """A "$k^\\star$" superscript is a smudge at legend size.
-
-        The figure legend names the oracle with a literal asterisk, as the
-        published figure does, while the table row label keeps the plain
-        "Baseline (Oracle)" the manuscript prints.
+        """The figure legend names the oracle with a plain k*; the table row
+        label keeps "Baseline (Oracle)".
         """
         label = _display("baseline_oracle")
         assert "$" not in label
@@ -1354,12 +1296,10 @@ class TestMetricLegend:
         return fig, axes
 
     def test_an_empty_column_stands_between_families_but_not_inside_one(self):
-        """The gap inside the classical pair must stay the narrow gutter.
+        """The gap inside the classical pair stays the narrow gutter.
 
-        A Legend has one gutter width, so the family separation is an empty
-        column rather than a wider columnspacing -- which would push the two
-        classical columns apart too. Reading the labels column by column,
-        the blank columns must fall only on family boundaries.
+        Reading the labels column by column, the blank columns fall only on
+        family boundaries.
         """
         metrics = (
             "baseline_oracle",
@@ -1469,10 +1409,7 @@ class TestM3CLines:
 
     def test_draws_error_bars_from_rcsi_se(self, scores):
         # ax.errorbar creates an ErrorbarContainer even with yerr=None, so
-        # len(ax.containers) >= 1 (the previous assertion here) passes even
-        # with the error bars removed entirely -- it is the only test of
-        # the documented plus-or-minus-1.96-RCSI_SE idiom, so it needs to
-        # actually read the bars' extents rather than just their presence.
+        # the bars' extents are read directly.
         from benchmarks._panels import m3c_lines
 
         _, ax = plt.subplots()
@@ -1698,12 +1635,9 @@ class TestKHatHeatmap:
         )
         image = ax.get_images()[0].get_array()
         assert image.shape == (3, 5)
-        # ax.imshow stores its data as a masked array (NaN cells masked).
-        # np.isnan(image[1]).all() on a fully masked row evaluates to the
-        # np.ma.masked singleton rather than True, which is falsy -- so the
-        # bare version of this assertion fails unconditionally on a fully
-        # masked row, whatever the underlying data actually holds.
-        # np.ma.getdata reads the underlying values directly.
+        # ax.imshow stores a masked array, and np.isnan on a fully masked row
+        # gives the falsy np.ma.masked, so the values are read with
+        # np.ma.getdata.
         assert np.isnan(np.ma.getdata(image)[1]).all()
         plt.close(fig)
 
@@ -1795,11 +1729,8 @@ class TestNormalizedCriterion:
             k=4: (0.25 + 0.25 + 1) / 3 = 0.5
             k=5: (1 + 1 + 1/9) / 3 = 19/27 ~ 0.7037
 
-        Averaging the raw values first instead lets the loud dataset's
-        absolute scale dominate the mean before normalization ever sees it:
-        the raw mean curve is {3: 0.4, 4: 10.4/3, 5: 1.0, 6: 1.4/3, 7: 0.4},
-        which once normalized peaks at k=4 -- the loud dataset's own peak,
-        not the two-vote winner k=5.
+        Averaging the raw values first would peak at k=4, the loud dataset's
+        own peak.
         """
         quiet = {3: 0.1, 4: 0.2, 5: 0.5, 6: 0.2, 7: 0.1}
         loud = {3: 1.0, 4: 10.0, 5: 2.0, 6: 1.0, 7: 1.0}
@@ -1905,9 +1836,8 @@ class TestCriterionCurves:
         plt.close(fig)
 
     def test_the_reference_shares_the_axis(self):
-        """Normalized criteria and ARI are both in [0, 1], so a second y
-        axis is unnecessary -- and a dual-axis chart invites reading a
-        crossing that is an artifact of two scales."""
+        """Normalized criteria and ARI are both in [0, 1], so there is no
+        second y axis."""
         fig, ax = plt.subplots()
         criterion_curves(
             ax,
@@ -1956,12 +1886,9 @@ class TestCriterionCurves:
         classical-index rows, not every drawn-or-not metric's ari_at_k
         averaged together.
 
-        An undrawn ari_generalizability_quant row here, sharing this cell's
-        (seed, k) with a different value, must not move the reference even
-        though silhouette is drawn: deduplicating on (seed, metric_name, k)
-        without filtering to the classical indices averaged silhouette's 0.5
-        with its 0.95 into a flat 0.725; the reference must stay at
-        silhouette's own 0.5.
+        An undrawn ari_generalizability_quant row sharing this cell's
+        (seed, k) with another value (0.95) leaves the reference at
+        silhouette's 0.5.
         """
         rows = []
         for k in (3, 4, 5, 6, 7):
