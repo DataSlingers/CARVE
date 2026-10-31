@@ -150,8 +150,7 @@ summarize_ari_scores <- function(x) {
   )
 }
 
-# Sparse input is densified: several estimators need dense input, and a
-# sparse matrix would only move the failure into a worker.
+# Sparse input is densified, since several estimators need dense input.
 as_data_matrix <- function(X, dense_warn_elements = 5e7) {
   if (is.data.frame(X)) {
     numeric_cols <- vapply(X, is.numeric, logical(1))
@@ -517,7 +516,7 @@ resolve_anchors <- function(n_samples, consensus_anchors, anchor_threshold, rand
       ), call. = FALSE)
     }
   }
-  # The exact path comes first: a run this small is exact, not misconfigured.
+  # Checked before m < 2: a run this small is exact.
   if (m >= n_samples) {
     return(NULL)
   }

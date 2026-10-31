@@ -70,8 +70,7 @@ resolution_results <- function() {
 
 # A preprocessing_results() table over two configurations. m0 has two
 # pipelines whose values peak at k = 3. m1 has a third pipeline, a decoy
-# peaking at k = 4 above anything in m0, so a plot or a selection that reads
-# the whole table instead of m0's rows is visibly wrong.
+# peaking at k = 4 above anything in m0.
 pipeline_results <- function() {
   curves <- list(
     list("m0", "identity | identity", c(0.70, 0.90, 0.60)),

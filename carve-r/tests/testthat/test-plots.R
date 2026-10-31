@@ -19,8 +19,7 @@ resolution_fit <- carve(
 )
 sce <- make_sce(blobs$X)
 written <- attach_results(sce, fit)
-# Values that differ from every default and from each other, so a dropped
-# or swapped argument shows.
+# Values that differ from every default and from each other.
 style <- list(title = "T", xlabel = "X", ylabel = "Y", legend = FALSE, legend_loc = "bottom", palette = "viridis")
 
 test_that("labels_mode maps a plot's mode to a get_labels() mode", {
@@ -554,17 +553,13 @@ test_that("a Seurat object reaches the ANY method of every plot generic with its
   )
   for (name in names(generics)) {
     plot_function <- get(name)
-    # Stored under a key other than the default, so a plot that ignores key
-    # finds no record.
+    # Stored under a key other than the default.
     object <- attach_results(make_seurat(blobs$X), generics[[name]], key = "other")
     plot <- plot_function(object, key = "other")
     expect_s3_class(plot, "ggplot")
-    # The same plot as the SingleCellExperiment method draws, so an ANY
-    # method that calls another generic's function is caught.
+    # The same plot as the SingleCellExperiment method draws.
     expect_same_plot(plot, plot_function(attach_results(sce, generics[[name]], key = "other"), key = "other"))
-    # The same plot as the fit draws. A line plot that reads the results
-    # table under the wrong key loses only its dashed line, the same way for
-    # both single-cell classes, so the comparison above cannot see it.
+    # The same plot as the fit draws, dashed line included.
     expect_same_plot(plot, plot_function(generics[[name]]))
     expect_error(
       plot_function(blobs$X),

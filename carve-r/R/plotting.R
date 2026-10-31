@@ -141,9 +141,8 @@ annotation_text <- function(measure, rule, results, row, selected_k, pinned = FA
   if (tight_layout) paste0(text, "\n") else text
 }
 
-# Plots check the measure before drawing: an unknown one would otherwise
-# make the selection fail inside the tryCatch() around the dashed line, and
-# the line would be left off without an error.
+# Plots check the measure before drawing, so an unknown one fails here
+# instead of inside the tryCatch() around the dashed line.
 plot_measure_column <- function(results, measure) {
   if (!is.character(measure) || length(measure) != 1L || !measure %in% names(MEASURE_MAP)) {
     stop(sprintf(
@@ -206,8 +205,8 @@ legend_position <- function(legend_loc) {
   ggplot2::theme(legend.position = legend_loc)
 }
 
-# The drawing behind the three line plots over the sweep axis, so they
-# cannot drift apart. results is non-empty and has sweep_value, group_col
+# The drawing behind the three line plots over the sweep axis. results is
+# non-empty and has sweep_value, group_col
 # and y_col; error bars come from <y_col>_se when the table has it.
 # select_row() returns the row whose sweep_value the dashed line marks, and
 # selection_label() builds its legend text from that row. If either fails,
@@ -316,10 +315,10 @@ metric_over_sweep_plot <- function(results, measure = "stability", rule = "1se",
 
 # The estimator_results() row whose sweep value marks method_id's
 # selection: CARVE's selection over the pooled table when it lands on
-# method_id, otherwise the rule's choice among method_id's rows. Restricting
-# to method_id first would not do for the selected configuration: under
-# "1se" and "quantile" the tolerance comes from the best row of the whole
-# table, which can belong to another configuration.
+# method_id, otherwise the rule's choice among method_id's rows. The
+# selection runs over the whole table because under "1se" and "quantile" the
+# tolerance comes from its best row, which can belong to another
+# configuration.
 selected_row_for <- function(estimator_results, method_id, measure, rule, not_two) {
   row <- select_best_row_by_rule(estimator_results, measure, rule, not_two = not_two)
   if (identical(as.character(row$method_id[[1L]]), as.character(method_id))) {

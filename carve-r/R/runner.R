@@ -54,8 +54,7 @@ validation_iter <- function(X, estimator, estimator_name, params, subsample_rati
   labels_stability <- if (policy$run_stability) fit_labels(X_2) else NULL
 
   # Noise labels. Under "drop" the index vectors shrink with the labels. The
-  # classifier reads raw features through these indices and the embeddings
-  # are not used again, so nothing else needs re-slicing.
+  # classifier reads raw features through these indices.
   train <- apply_noise_policy(idx$train, labels_train, noise_policy)
   idx$train <- train$indices
   labels_train <- train$labels
@@ -110,7 +109,7 @@ validation_iter <- function(X, estimator, estimator_name, params, subsample_rati
   # from its raw features and predicts the held-out samples. It reads raw
   # features also under randomized preprocessing: a cluster generalizes only
   # if it can be learned from the data, and a transform such as t-SNE cannot
-  # embed new samples anyway.
+  # embed new samples.
   labels_predicted <- NULL
   ari_generalizability <- NaN
   if (policy$run_generalizability) {
@@ -337,8 +336,7 @@ run_validation <- function(X, estimator_grids, n_resamples, subsample_ratio, cla
   apply_resamples <- resample_backend(BPPARAM)
 
   # Under randomized preprocessing one pipeline is allocated per resample
-  # and embedded once, before the configurations. Nothing here is per
-  # configuration, so config_id is unaffected.
+  # and embedded once, before the configurations.
   embeddings <- NULL
   registry <- NULL
   if (randomize_preprocessing) {

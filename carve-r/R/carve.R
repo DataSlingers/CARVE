@@ -259,8 +259,7 @@ fit_carve <- function(X, n_clusters, resolution, sweep, sweep_values, finer_is_l
 
   anchors <- resolve_anchors(nrow(X), consensus_anchors, anchor_threshold, seed)
   if (!is.null(anchors)) {
-    # resolve_anchors() ignores anchor_threshold once consensus_anchors is
-    # set, so the message names the setting that applied.
+    # anchor_threshold plays no part once consensus_anchors is set.
     reason <- if (is.null(consensus_anchors)) {
       sprintf("n=%d exceeds anchor_threshold=%s", nrow(X), format_param_value(anchor_threshold))
     } else {

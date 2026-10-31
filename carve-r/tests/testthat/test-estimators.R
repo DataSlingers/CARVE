@@ -136,9 +136,8 @@ test_that("from 1,000 samples on the sparse solver is used, reproducibly", {
 })
 
 test_that("the sparse and dense solvers find the same smallest eigenvalues", {
-  # The Python package once used an eigensolver call that returned
-  # unconverged values without failing, so the two solvers are compared on
-  # the Laplacian SpectralClustering builds for 1,200 moons.
+  # The two solvers are compared on the Laplacian SpectralClustering builds
+  # for 1,200 moons.
   d <- make_moons(1200L)
   W <- spectral_affinity(standard_scale(d$X), affinity = "self_tuning", n_neighbors = 7L)$W
   n <- nrow(W)
