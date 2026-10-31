@@ -17,10 +17,6 @@ from carve._consensus import (
     stability_from_runs_anchored,
 )
 
-# -----------------------------------------------------------------------
-# compute_consensus_matrix
-# -----------------------------------------------------------------------
-
 
 class TestComputeConsensusMatrix:
     def test_basic(self):
@@ -103,11 +99,6 @@ class TestComputeConsensusMatrix:
             assert M[i, i] == 1.0
 
 
-# -----------------------------------------------------------------------
-# reorder_consensus_matrix
-# -----------------------------------------------------------------------
-
-
 class TestReorderConsensusMatrix:
     def _interleaved(self):
         # Two perfect blocks, {0, 2, 4} and {1, 3, 5}, interleaved by index.
@@ -147,11 +138,6 @@ class TestReorderConsensusMatrix:
         assert np.isnan(reordered[0, 1])
 
 
-# -----------------------------------------------------------------------
-# _row_nanmean
-# -----------------------------------------------------------------------
-
-
 class TestRowNanmean:
     def test_matches_nanmean_wherever_nanmean_is_defined(self):
         rng = np.random.RandomState(0)
@@ -169,11 +155,6 @@ class TestRowNanmean:
             out = _row_nanmean(a)
         assert out[0] == pytest.approx(0.4)
         assert np.isnan(out[1])
-
-
-# -----------------------------------------------------------------------
-# stability_from_consensus
-# -----------------------------------------------------------------------
 
 
 class TestStabilityFromConsensus:
@@ -236,11 +217,6 @@ class TestStabilityFromConsensus:
         assert np.isnan(ce[2])
 
 
-# -----------------------------------------------------------------------
-# compute_consensus_pac
-# -----------------------------------------------------------------------
-
-
 class TestComputeConsensusPac:
     def test_perfect_matrix(self):
         M = np.zeros((6, 6))
@@ -281,11 +257,6 @@ class TestComputeConsensusPac:
         assert 0.0 <= score <= 1.0
 
 
-# -----------------------------------------------------------------------
-# compute_consensus_metrics
-# -----------------------------------------------------------------------
-
-
 class TestComputeConsensusMetrics:
     def test_basic(self):
         M1 = np.zeros((6, 6))
@@ -319,11 +290,6 @@ class TestComputeConsensusMetrics:
         for c in ce_list:
             assert c.shape == (8,)
         assert len(pac_list) == 3
-
-
-# -----------------------------------------------------------------------
-# consensus_anchor_block
-# -----------------------------------------------------------------------
 
 
 def _make_runs(n=200, n_runs=12, k=4, seed=0):
@@ -390,11 +356,6 @@ class TestConsensusAnchorBlock:
         block = consensus_anchor_block(n, runs, anchors)
         assert np.isnan(block[0, 2])
         assert not np.isnan(block[0, 1])
-
-
-# -----------------------------------------------------------------------
-# stability_from_runs_anchored
-# -----------------------------------------------------------------------
 
 
 class TestStabilityFromRunsAnchored:

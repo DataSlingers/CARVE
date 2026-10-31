@@ -52,9 +52,6 @@ def toy_spec():
     )
 
 
-# --- plan and subsets ------------------------------------------------------
-
-
 def test_plan_ends_on_every_cell_and_skips_rungs_above_it():
     plan = measurement_plan(30_000)
     ladder = [m for m in plan if m.label == "ladder"]
@@ -94,9 +91,6 @@ def test_subset_indices_are_a_sorted_seeded_draw():
 def test_subset_indices_keep_every_cell_at_full_size():
     np.testing.assert_array_equal(subset_indices(500, 500, random_state=42), np.arange(500))
     np.testing.assert_array_equal(subset_indices(500, 900, random_state=42), np.arange(500))
-
-
-# --- timers -----------------------------------------------------------------
 
 
 def test_component_timers_split_a_fit_and_restore_what_they_wrap(blobs, toy_spec):
@@ -143,9 +137,6 @@ def test_component_timers_count_nested_calls_once(monkeypatch):
     with component_timers([(Nested, {})]) as times:
         Nested(n_clusters=2, n_init=1).fit(X)
     assert times["clustering"] == 1.0
-
-
-# --- measuring, storing and reading back ------------------------------------
 
 
 def _plan():
@@ -268,9 +259,6 @@ def test_spec_from_cusanovich_matches_the_notebooks_fit():
     assert spec.consensus_anchors == study.consensus_anchors
     assert repr(spec.model_grids) == repr(study_resolution_grids(study))
     assert len(spec.dim_reduction_options) == len(study.preprocessing.dim_reduction)
-
-
-# --- tables -------------------------------------------------------------------
 
 
 def _row(**values):

@@ -173,7 +173,7 @@ def scatter_clusters(
     """Scatter a two-dimensional embedding, colored by label.
 
     Markers carry a thin ``edgecolor`` outline, which is what separates
-    overlapping points where two clusters meet -- the case-study scatters
+    overlapping points where two clusters meet; the case-study scatters
     are dense enough that unoutlined markers merge into a single mass at
     every cluster boundary. Pass ``edgecolor="none"`` for a scatter dense
     enough that the outlines themselves would dominate.
@@ -965,7 +965,7 @@ def m3c_lines(
     RCSI is M3C's selection statistic: the mean difference, on the log scale,
     between the reference stability scores and the real one at each K. It is
     drawn unnormalized, unlike cvi_lines' indices, because it has a
-    meaningful zero -- RCSI at or below zero means the real data is no more
+    meaningful zero: RCSI at or below zero means the real data is no more
     stable at that K than M3C's Monte Carlo reference.
 
     The error bars are plus or minus 1.96 RCSI_SE, which is M3C's own plot
@@ -1295,8 +1295,8 @@ def alluvial(
     bars keep their own column's color. The middle column has wider gaps
     (``true_gap_frac``) than the two cluster columns.
 
-    Cluster bars are named ``C1``, ``C2``, ... with their purity -- the
-    fraction of the cluster falling in its single largest reported class --
+    Cluster bars are named ``C1``, ``C2``, ... with their purity (the
+    fraction of the cluster falling in its single largest reported class)
     beside them; the reported-label bars carry their own name inside.
     """
     y_true = np.asarray(y_true)

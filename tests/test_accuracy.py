@@ -20,8 +20,8 @@ class TestComputeGeneralizabilityScores:
 
     def test_wrong_predictions(self):
         """Predictions with a wrong assignment (not just permuted)."""
-        # true: [0, 0, 1, 1], pred: [0, 1, 0, 1] — after alignment,
-        # some samples are still wrong
+        # true: [0, 0, 1, 1], pred: [0, 1, 0, 1]; after alignment some
+        # samples are still wrong.
         runs = [
             (np.array([0, 1, 2, 3]), np.array([0, 0, 1, 1]), np.array([0, 1, 0, 1])),
         ]
@@ -49,17 +49,15 @@ class TestComputeGeneralizabilityScores:
         that are structurally wrong (not just permuted) stay wrong.
         """
         # true: 2 samples in cluster 0, 2 in cluster 1
-        # pred: sample 2 (true=1) predicted as 0 — a real error
+        # pred: sample 2 (true=1) predicted as 0
         true_labels = np.array([0, 0, 1, 1])
         pred_labels = np.array([0, 0, 0, 1])  # sample 2 wrong
         runs = [
             (np.array([0, 1, 2, 3]), true_labels, pred_labels),
         ]
         scores = compute_generalizability_scores(4, runs)
-        # Alignment maps pred_0→0, pred_1→1 (majority correct)
-        # Sample 2 (true=1, pred=0) is wrong => score 0
+        # Alignment maps pred 0 to 0 and pred 1 to 1, so sample 2 scores 0.
         assert scores[2] == pytest.approx(0.0)
-        # Others are correct
         assert scores[0] == pytest.approx(1.0)
         assert scores[1] == pytest.approx(1.0)
         assert scores[3] == pytest.approx(1.0)
@@ -85,6 +83,5 @@ class TestComputeGeneralizabilityScores:
         scores = compute_generalizability_scores(4, runs)
         # Sample 2 correct in 2 of 3 runs
         assert scores[2] == pytest.approx(2.0 / 3.0)
-        # Others correct in all 3
         assert scores[0] == pytest.approx(1.0)
         assert scores[3] == pytest.approx(1.0)

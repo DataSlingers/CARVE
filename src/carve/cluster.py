@@ -165,7 +165,6 @@ class SpectralClustering(BaseEstimator, ClusterMixin):
                 vals.append(w)
 
         W = csr_matrix((vals, (rows, cols)), shape=(n, n))
-        # Symmetrize: W = (W + W^T) / 2
         W = 0.5 * (W + W.T)
         return W
 
@@ -185,7 +184,6 @@ class SpectralClustering(BaseEstimator, ClusterMixin):
         # k-th neighbor is at index -1 when n_neighbors=k
         sigma = dists[:, -1].copy()
 
-        # Handle zero sigmas
         if np.any(sigma == 0):
             median_nonzero = (
                 float(np.median(sigma[sigma > 0])) if np.any(sigma > 0) else 1.0
@@ -260,7 +258,6 @@ class SpectralClustering(BaseEstimator, ClusterMixin):
             # Dense path
             Wd = W.toarray() if _issparse(W) else W
             Lsym = np.eye(n) - (dinvsqrt[:, None] * Wd * dinvsqrt[None, :])
-            # Ensure symmetry
             Lsym = 0.5 * (Lsym + Lsym.T)
             vals, vecs = eigh(Lsym)
             vals, vecs = vals[:k], vecs[:, :k]
@@ -287,7 +284,6 @@ class SpectralClustering(BaseEstimator, ClusterMixin):
                 # is exactly singular").
                 vals, vecs = self._dense_eigh(Lsym, k)
 
-        # Sort by eigenvalue
         order = np.argsort(vals)
         vals, vecs = vals[order], vecs[:, order]
 
@@ -346,11 +342,6 @@ class SpectralClustering(BaseEstimator, ClusterMixin):
             Cluster labels.
         """
         return self.fit(X, y).labels_
-
-
-# ---------------------------------------------------------------------- #
-#  Graph-community clustering                                            #
-# ---------------------------------------------------------------------- #
 
 
 def _require(module: str, package: str):

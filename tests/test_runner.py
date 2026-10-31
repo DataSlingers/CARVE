@@ -104,11 +104,6 @@ def generalizability_policy():
     )
 
 
-# -----------------------------------------------------------------------
-# ResampleResult
-# -----------------------------------------------------------------------
-
-
 class TestResampleResult:
     def test_is_namedtuple(self):
         r = ResampleResult(
@@ -132,11 +127,6 @@ class TestResampleResult:
         assert r.pipeline is None
         assert r.n_clusters_train == 2
         assert r.noise_fraction == 0.0
-
-
-# -----------------------------------------------------------------------
-# _compute_stability_ari
-# -----------------------------------------------------------------------
 
 
 class TestComputeStabilityAri:
@@ -173,11 +163,6 @@ class TestComputeStabilityAri:
             None,
         )
         assert np.isnan(ari)
-
-
-# -----------------------------------------------------------------------
-# _compute_generalizability_ari
-# -----------------------------------------------------------------------
 
 
 class TestComputeGeneralizabilityAri:
@@ -236,11 +221,6 @@ class TestComputeGeneralizabilityAri:
             classifier_n_jobs=3,
         )
         assert spy.seen == [3]
-
-
-# -----------------------------------------------------------------------
-# validation_iter
-# -----------------------------------------------------------------------
 
 
 class TestValidationIter:
@@ -338,11 +318,6 @@ class TestValidationIter:
         )
         assert sorted(n for n, _ in seen) == [77, 123, 123]
         assert seen == [(n, max(2, round(10 * n / 200))) for n, _ in seen]
-
-
-# -----------------------------------------------------------------------
-# run_validation
-# -----------------------------------------------------------------------
 
 
 class TestRunValidation:
@@ -527,11 +502,6 @@ class TestRunValidationCoreBudget:
         self._run(X_two_clusters, n_jobs=4, n_clusters=(2, 3))
         assert self.parallel_spy.seen == [4, 4]
         assert self.njobs_spy.seen == [2] * 12
-
-
-# -----------------------------------------------------------------------
-# Sweep bookkeeping and noise handling
-# -----------------------------------------------------------------------
 
 
 class TestValidationIterSweepMode:
@@ -793,11 +763,6 @@ class TestRunValidationAnchors:
             assert np.allclose(summary.gini, gini)
             assert np.allclose(summary.ce, ce)
             assert np.isclose(summary.pac, pac)
-
-
-# -----------------------------------------------------------------------
-# Randomized preprocessing: fit scope, precompute, classifier features
-# -----------------------------------------------------------------------
 
 
 def _indexed(X):

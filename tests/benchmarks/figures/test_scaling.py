@@ -156,7 +156,7 @@ class TestFigureScalingRuntime:
     def test_draws_two_curves_per_panel_like_the_published_figure(self, runtimes):
         # ax.errorbar(..., label=...) attaches the label to the returned
         # ErrorbarContainer, not to the constituent Line2D objects it adds to
-        # ax.lines -- those keep matplotlib's default "_nolegend_" label
+        # ax.lines, which keep matplotlib's default "_nolegend_" label
         # regardless of what label was passed. The two labeled curves are
         # found through ax.containers.
         fig = figure_scaling_runtime(runtimes, save=False)

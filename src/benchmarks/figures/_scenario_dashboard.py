@@ -115,7 +115,7 @@ def figure_scenario_dashboard(
                 f"{scenario.axis.name} = {value}" for _, value, _ in scenario.axis
             ]
 
-        # Row 1 -- what the data looks like.
+        # Row 1: what the data looks like.
         draw_example_row(
             example_axes,
             scenario,
@@ -124,7 +124,7 @@ def figure_scenario_dashboard(
             titles=titles,
         )
 
-        # Row 2 -- what each method scored.
+        # Row 2: what each method scored.
         span = max(values) - min(values) if len(values) > 1 else 1.0
         metric_lines(
             ari_ax,
@@ -141,7 +141,7 @@ def figure_scenario_dashboard(
         if axis_name == DIFFICULTY_AXIS_NAME:
             ari_ax.set_xticklabels([label.capitalize() for label in labels])
 
-        # Rows 3 and 4 -- why that k, and how often.
+        # Rows 3 and 4: why that k, and how often.
         for index, axis_label in enumerate(labels):
             criterion_curves(
                 criterion_axes[index],

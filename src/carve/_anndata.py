@@ -56,11 +56,6 @@ def _carve_version() -> str:
         return "unknown"
 
 
-# --------------------------------------------------------------------- #
-#  Reading: choosing what to cluster                                     #
-# --------------------------------------------------------------------- #
-
-
 def get_representation(
     adata: AnnData,
     *,
@@ -222,11 +217,6 @@ def _as_2d_embedding(arr: Any, key: str) -> np.ndarray:
             "least two columns."
         )
     return dense[:, :2]
-
-
-# --------------------------------------------------------------------- #
-#  Writing: persisting fitted results                                    #
-# --------------------------------------------------------------------- #
 
 
 def _to_python_scalar(value: Any) -> Any:

@@ -87,7 +87,7 @@ class CompositeInputs:
     Kept apart from drawing, so the figure can be tested without fitting
     anything.
 
-    measure, rule and not_two are the caller's own selection -- whatever was
+    measure, rule and not_two are the caller's own selection: whatever was
     passed to prepare_composite, defaulting to the same ("stability", "1se",
     False) that prepare_composite itself defaults to. carve_output_figure
     reads them to decide which measure drives its detail panels (C to F),
@@ -120,7 +120,7 @@ def _estimator_spec_from_model_label(model: str) -> EstimatorSpec:
 
     ``curves_df``/``best_df`` carry the estimator only as the human-readable
     string ``_studies._model_label`` renders (``"KMeans (n_init=10)"``,
-    ``"AgglomerativeClustering (linkage=ward)"``) -- there is no separate
+    ``"AgglomerativeClustering (linkage=ward)"``); there is no separate
     machine-usable column. Every registered estimator renders to exactly one
     such label from its ``ESTIMATOR_DEFAULTS``, so the match is on the whole
     label.
@@ -154,7 +154,7 @@ def reference_codes(y: np.ndarray) -> np.ndarray:
 def carve_labels_aligned(carve: Any, y: np.ndarray) -> Iterator[None]:
     """Make CARVE's own plotting draw the ids the composite draws.
 
-    CARVE's plot_* methods take no ``labels`` argument -- each resolves its
+    CARVE's plot_* methods take no ``labels`` argument; each resolves its
     own through ``get_labels``, which relabels onto ``self.reference_labels``
     whenever the two carry the same number of classes. Pointing that at
     reference_codes(y) for the duration of a figure makes those methods draw

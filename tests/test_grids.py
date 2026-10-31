@@ -18,10 +18,6 @@ from carve._grids import (
 from carve._sweep import resolve_sweep
 from carve.cluster import LeidenClustering, LouvainClustering, SpectralClustering
 
-# -----------------------------------------------------------------------
-# default_estimator_grids
-# -----------------------------------------------------------------------
-
 
 class TestDefaultEstimatorGrids:
     def test_basic_structure(self):
@@ -50,7 +46,7 @@ class TestDefaultEstimatorGrids:
     def test_gamma_values(self):
         X = np.random.RandomState(0).randn(50, 5)
         grids = default_estimator_grids(X, n_clusters=np.array([2, 3]), preset="full")
-        # Find the RBF spectral entry (the one with gamma in its grid)
+        # The RBF spectral entry has gamma in its grid.
         rbf_grids = [(cls, g) for cls, g in grids if "gamma" in g]
         assert len(rbf_grids) == 1
         cls, spectral_grid = rbf_grids[0]
@@ -61,7 +57,7 @@ class TestDefaultEstimatorGrids:
     def test_self_tuning_entry(self):
         X = np.random.RandomState(0).randn(50, 5)
         grids = default_estimator_grids(X, n_clusters=np.array([2, 3]))
-        # Find the self-tuning entry (has affinity but no gamma)
+        # The self-tuning entry has affinity but no gamma.
         st_grids = [
             (cls, g)
             for cls, g in grids
@@ -116,11 +112,6 @@ class TestFullPreset:
         assert len(grid["gamma"]) == 3
 
 
-# -----------------------------------------------------------------------
-# default_normalization_options
-# -----------------------------------------------------------------------
-
-
 class TestDefaultNormalizationOptions:
     def test_nonnegative_input_offers_log1p(self):
         X = np.abs(np.random.RandomState(0).randn(20, 3))
@@ -143,11 +134,6 @@ class TestDefaultNormalizationOptions:
         ):
             options = default_normalization_options(X)
         assert options == [(FunctionTransformer, {}), (StandardScaler, {})]
-
-
-# -----------------------------------------------------------------------
-# default_dim_reduction_options
-# -----------------------------------------------------------------------
 
 
 @pytest.fixture()
@@ -263,11 +249,6 @@ class TestDefaultDimReductionOptions:
         n_components = pca_option[1]["n_components"]
         assert all(c >= 2 for c in n_components)
         assert max(n_components) < 5  # p = 5
-
-
-# -----------------------------------------------------------------------
-# Sweep-aware dispatch
-# -----------------------------------------------------------------------
 
 
 class TestResolutionGrids:

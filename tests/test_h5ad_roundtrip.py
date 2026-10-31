@@ -2,8 +2,8 @@
 
 The case that matters is a heterogeneous estimator grid. KMeans has no
 ``linkage`` and agglomerative clustering has no ``affinity``, so
-``DataFrame.from_records`` fills the gaps with NaN. On pandas 2.3 -- the
-dependency floor, since anndata 0.13 requires pandas >= 2.3 -- those columns
+``DataFrame.from_records`` fills the gaps with NaN. On pandas 2.3 (the
+dependency floor, since anndata 0.13 requires pandas >= 2.3) those columns
 land in object dtype mixing ``str`` with ``float('nan')``, and anndata's
 variable-length string writer rejects them with ``TypeError``. Under pandas 3
 the new ``str`` dtype hides the problem entirely, so this file is only a real

@@ -50,7 +50,7 @@ UNKNOWN_LABEL = "Unknown"
 #: Column checked for UNKNOWN_LABEL to decide which cells to drop. This is
 #: fixed to the source's own marker-based annotation regardless of
 #: label_column, because "tissue" (the dissection of origin) is always
-#: known and never "Unknown" -- only the marker-based cell_label can be.
+#: known and never "Unknown"; only the marker-based cell_label can be.
 _ANNOTATION_COLUMN = "cell_label"
 
 

@@ -12,7 +12,7 @@ log-normalization and PCA.
 
 Two paths produce the embedding. The pooled path runs the chain on every
 annotated cell: two chunked passes over the backed CSR files, then the full
-cells-by-kept-peaks matrix in memory -- on the five default organs that is
+cells-by-kept-peaks matrix in memory. On the five default organs that is
 about 5 billion nonzeros and tens of GB, so it belongs on a large machine,
 after which its cache serves every later call. The subsample-first path
 (subsample_before_embedding=True) draws the stratified subsample from the

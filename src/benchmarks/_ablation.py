@@ -82,7 +82,6 @@ CARVE_N_TREES: int = next(
 )
 
 
-# --- Configuration ------------------------------------------------------------
 def ablation_config(ablation: Ablation, scale: str) -> dict[str, Any]:
     """Everything that defines a run at one scale.
 
@@ -122,7 +121,6 @@ def ablation_hash(ablation: Ablation, scale: str) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
-# --- Data ---------------------------------------------------------------------
 def _simulated(cell: Cell, ablation: Ablation, scale: str):
     """(X, y, scenario, base seed) of a simulated cell's dataset."""
     scenario = scenario_at_scale(SCENARIOS[cell.study], ablation.scales[scale])
@@ -145,7 +143,6 @@ def _dataset_fragment(cell: Cell) -> dict[str, Any]:
     }
 
 
-# --- Unit executors -----------------------------------------------------------
 def dataset_rows(
     unit: Unit, *, ablation: Ablation, scale: str, data: tuple | None
 ) -> list[dict[str, Any]]:
@@ -447,7 +444,6 @@ def _run_and_write(unit, rd, ablation, scale, data, thread_cap) -> tuple[str, fl
     return unit_label(unit), time.perf_counter() - started
 
 
-# --- Runner -------------------------------------------------------------------
 def run_ablation(
     ablation: Ablation,
     *,
@@ -467,8 +463,8 @@ def run_ablation(
     The manifest is written twice: with status "running" before the pool
     starts, carrying the wall clock accumulated so far, and with status
     "complete" and the cumulative wall clock once every unit is done. An
-    interrupted run therefore still has a manifest -- the notebook locates
-    a run by it, and the publication cost is derived from its wall clock --
+    interrupted run therefore still has a manifest (the notebook locates
+    a run by it, and the publication cost is derived from its wall clock),
     and a resume reads run_id and the previous wall clock from whichever
     of the two it finds.
 

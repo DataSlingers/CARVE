@@ -59,8 +59,8 @@ def _scaling_frame():
     """Three axis points whose labels sort differently than their values.
 
     "end" < "middle" < "start" alphabetically, but the intended reading
-    order -- the order SCALING_AXES declares, matching increasing
-    axis_value -- is start (1000), middle (5500), end (10000). Rows are
+    order (the order SCALING_AXES declares, matching increasing
+    axis_value) is start (1000), middle (5500), end (10000). Rows are
     built in the order read_run returns from a lexically sorted glob of
     cell__<label>__<seed>.parquet checkpoints (end, middle, start).
     """
@@ -204,8 +204,8 @@ class TestSummarizeBaseline:
         assert out["k_recovery"].isna().all()
 
     def test_deduplicated_by_seed_not_counted_once_per_metric_and_k(self):
-        # _frame carries two metrics x three k's per (axis_label, seed) --
-        # six rows -- over two distinct seeds.
+        # _frame carries two metrics x three k's per (axis_label, seed),
+        # six rows, over two distinct seeds.
         out = summarize(_frame(), metrics=("baseline_oracle",))
         assert (out["n_datasets"] == 2).all()
 
@@ -826,6 +826,6 @@ class TestComparisonTable:
         tex = render_comparison_tex(ari_df, caption="Test", label="tab:test")
         # The method name with math should appear verbatim, unescaped
         assert "M3C (at $k=4$)" in tex
-        # Verify no backslash escaping of the parentheses or dollar signs
+        # Parentheses and dollar signs are not escaped.
         assert r"M3C \(at" not in tex
         assert r"\$k" not in tex

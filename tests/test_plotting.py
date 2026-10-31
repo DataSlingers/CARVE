@@ -91,11 +91,6 @@ def _two_method_df():
     return df
 
 
-# -----------------------------------------------------------------------
-# _build_estimator_label
-# -----------------------------------------------------------------------
-
-
 class TestBuildEstimatorLabel:
     """The label is produced by the runner and carried on the row.
 
@@ -138,11 +133,6 @@ class TestBuildEstimatorLabel:
     def test_tight_layout_single_part_unchanged(self):
         row = pd.Series({"method_label": "KMeans"})
         assert _build_estimator_label(row, tight_layout=True) == "KMeans"
-
-
-# -----------------------------------------------------------------------
-# _prepare_cluster_score_groups
-# -----------------------------------------------------------------------
 
 
 class TestPrepareClusterScoreGroups:
@@ -190,11 +180,6 @@ class TestPrepareClusterScoreGroups:
                 np.array([[0.5]]),
                 np.array([0]),
             )
-
-
-# -----------------------------------------------------------------------
-# plot_metric_over_n_clusters
-# -----------------------------------------------------------------------
 
 
 class TestPlotMetricOverNClusters:
@@ -323,11 +308,6 @@ class TestPlotMetricOverNClusters:
         (dashed,) = _dashed(ax)
         assert dashed.get_label() == "Selected resolution (Max rule): 0.25"
         assert ax.get_ylabel() == "ARI Stability"
-
-
-# -----------------------------------------------------------------------
-# plot_metric_by_pipeline
-# -----------------------------------------------------------------------
 
 
 def _pipeline_results_df():
@@ -598,11 +578,6 @@ class TestSharedMetricDrawing:
         ]
 
 
-# -----------------------------------------------------------------------
-# plot_n_clusters_over_sweep
-# -----------------------------------------------------------------------
-
-
 def _realized_count_df():
     """A resolution-mode estimator_results_ table over two methods.
 
@@ -762,11 +737,6 @@ class TestPlotNClustersOverSweep:
         assert path.exists()
 
 
-# -----------------------------------------------------------------------
-# plot_consensus_matrix
-# -----------------------------------------------------------------------
-
-
 class TestPlotConsensusMatrix:
     def test_basic(self):
         M = np.zeros((6, 6))
@@ -814,11 +784,6 @@ class TestPlotConsensusMatrix:
         assert len(ax.images) == 1
 
 
-# -----------------------------------------------------------------------
-# plot_cluster_boxplot
-# -----------------------------------------------------------------------
-
-
 class TestPlotClusterBoxplot:
     def test_basic(self):
         scores = np.array([0.9, 0.85, 0.7, 0.65, 0.5, 0.45])
@@ -840,11 +805,6 @@ class TestPlotClusterBoxplot:
         ax = plot_cluster_boxplot(scores, labels, order=[1, 0])
         # Tick labels are one-based cluster numbers, in the requested order.
         assert [t.get_text() for t in ax.get_xticklabels()] == ["2", "1"]
-
-
-# -----------------------------------------------------------------------
-# plot_cluster_violin
-# -----------------------------------------------------------------------
 
 
 class TestPlotClusterViolin:
@@ -921,11 +881,6 @@ class TestPlotClusterViolin:
         assert top(clipped) == pytest.approx(0.9)
         free = plot_cluster_violin(scores, labels, ylim=None, fit_ylim=False)
         assert top(free) == pytest.approx(0.99)
-
-
-# -----------------------------------------------------------------------
-# plot_cluster_scatter
-# -----------------------------------------------------------------------
 
 
 class TestPlotClusterScatter:
@@ -1043,11 +998,6 @@ class TestPlotClusterScatter:
         scores = np.full(5, np.nan)
         with pytest.raises(ValueError, match="No finite scores"):
             plot_cluster_scatter(X, labels, scores)
-
-
-# -----------------------------------------------------------------------
-# plot_diagnostic_scatter
-# -----------------------------------------------------------------------
 
 
 class TestPlotDiagnosticScatter:

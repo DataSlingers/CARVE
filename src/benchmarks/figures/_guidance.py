@@ -53,11 +53,6 @@ AXIS_LABEL = 10.0  # the stable / generalizable labels around the quadrants
 K = np.arange(2, 11)
 
 
-# --------------------------------------------------------------------------
-# Canvas: one background axes in inches (origin top left) plus inset axes.
-# --------------------------------------------------------------------------
-
-
 class Canvas:
     """A figure whose background axes is laid out in inches from the top left."""
 
@@ -186,11 +181,6 @@ def bare(ax: Axes) -> None:
     ax.patch.set_visible(False)
     for spine in ax.spines.values():
         spine.set_visible(False)
-
-
-# --------------------------------------------------------------------------
-# S Fig A: global curves
-# --------------------------------------------------------------------------
 
 
 def bump(center: float, width: float, height: float) -> np.ndarray:
@@ -576,11 +566,6 @@ def figure_guidance_global(*, save: bool = True, out_dir: Path | None = None) ->
     return cv.fig
 
 
-# --------------------------------------------------------------------------
-# S Fig B: clusters, candidates, samples
-# --------------------------------------------------------------------------
-
-
 def dartboard(ax: Axes, rng, *, offset, spread, color, n: int = 9) -> None:
     """Concentric rings with n darts around offset; darts stay on the board."""
     bare(ax)
@@ -902,7 +887,7 @@ def figure_guidance_clusters(
     with print_theme_context():
         cv = Canvas(height)
 
-        # ---- A: cluster-level analysis ----
+        # A: cluster-level analysis
         y = 0.0
         cv.header(y, "A", "Cluster-level analysis")
         y += HEADER_H + 0.07
@@ -955,7 +940,7 @@ def figure_guidance_clusters(
             cv.para(qx + 0.12, qy + 0.32 + board + 0.14, quad_text_w, text)
         y += sum(quad_hs) + GAP + 0.12
 
-        # ---- B: understanding stability and generalizability ----
+        # B: understanding stability and generalizability
         cv.header(y, "B", "Understanding stability and generalizability", note=NOTE_B)
         y += HEADER_H + 0.07
         colors = cluster_colors(3)
@@ -1000,7 +985,7 @@ def figure_guidance_clusters(
             )
         y += out_h + 0.12
 
-        # ---- C: sample-level analysis ----
+        # C: sample-level analysis
         cv.header(y, "C", "Sample-level analysis")
         stability_key(cv, y, cmap)
         y += HEADER_H + 0.07

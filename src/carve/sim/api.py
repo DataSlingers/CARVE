@@ -197,7 +197,6 @@ def simulate_clusters(
     if n_total_clusters < 1:
         raise ValueError("`outliers` too large, no points left for clusters.")
 
-    # Sizes
     cluster_sizes = _compute_cluster_sizes(
         n_total_clusters=n_total_clusters,
         k=k,
@@ -277,7 +276,6 @@ def simulate_clusters(
             X_parts.append(X_out)
             y_parts.append(np.full(int(n_outliers), -1, dtype=int))
 
-        # Concatenate
         X = np.vstack(X_parts) if X_parts else np.empty((0, p), dtype=float)
         y = np.concatenate(y_parts) if y_parts else np.empty((0,), dtype=int)
 
@@ -322,12 +320,10 @@ def simulate_clusters(
         )
         X = np.hstack([X, Z])
 
-    # Shuffle
     perm = rng.permutation(len(y))
     X = X[perm]
     y = y[perm]
 
-    # Optional plotting
     if plotting:
         _plot_simulation(X, y, random_state=random_state)
 

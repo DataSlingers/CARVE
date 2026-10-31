@@ -360,7 +360,6 @@ def run_cell(
     }
     full_ari = {k: float(adjusted_rand_score(y, labels_by_k[k])) for k in candidate_k}
 
-    # --- CARVE metrics -----------------------------------------------------
     # CARVE's own labels are the stability consensus whichever measure made
     # the selection, so they are cut once per k rather than once per metric.
     consensus = labels_by_mode(carve, y, candidate_k=candidate_k)["default"]
@@ -386,7 +385,6 @@ def run_cell(
                 }
             )
 
-    # --- Classical indices -------------------------------------------------
     for metric_name in CVI_METRICS:
         values: list[float] = []
         errors: list[float] = []
@@ -489,15 +487,14 @@ def run_scenario(
     The manifest is written twice: with status "running" before the pool
     starts, carrying the wall clock accumulated so far, and with status
     "complete" and the cumulative wall clock once every cell is done. An
-    interrupted run therefore still has a manifest -- the run directory is
-    located by it, and a directory with checkpoints and no manifest cannot
-    be opened at all -- and a resume reads run_id and the previous wall
+    interrupted run therefore still has a manifest, by which its run
+    directory is located, and a resume reads run_id and the previous wall
     clock from whichever of the two it finds.
 
     Provenance across resumes. When resume=True and the run directory
     already has a manifest.json, this invocation reuses the run_id it
-    records rather than minting a new one, so every row on disk -- from
-    this invocation and every earlier one -- carries the same run_id the
+    records rather than minting a new one, so every row on disk, from
+    this invocation and every earlier one, carries the same run_id the
     manifest reports. wall_clock_s is cumulative across resumed
     invocations: each call adds its own elapsed time to whatever the
     existing manifest already recorded, rather than overwriting it, so the
@@ -505,12 +502,10 @@ def run_scenario(
     than only the most recent increment.
 
     resume=False recomputes every cell regardless of what is already on
-    disk -- write_checkpoint overwrites each cell's file unconditionally --
-    so the resulting run directory is a complete, self-consistent output of
-    this single invocation. Accordingly resume=False always mints a fresh
-    run_id and records only this invocation's wall_clock_s, even if a
-    manifest from an earlier run already exists at the same path: that
-    manifest describes a run this invocation has now fully superseded.
+    disk (write_checkpoint overwrites each cell's file), so the run directory
+    is the output of this single invocation. It mints a fresh run_id and
+    records only this invocation's wall_clock_s, even if a manifest from an
+    earlier run exists at the same path.
 
     A corrupt manifest.json is treated as a missing one: this invocation
     warns, then mints a fresh run_id and records only its own wall_clock_s.

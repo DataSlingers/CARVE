@@ -50,7 +50,6 @@ from ._utils import (
     split_subsample_indices,
 )
 
-# Full return type for run_validation
 ValidationReturn = tuple[
     list[EstimatorRecord],
     list[PipelineRecord],
@@ -398,7 +397,6 @@ def run_validation(
     """
     policy = resolve_mode(mode)
 
-    # If sweep is not provided, default to sweeping over n_clusters
     if sweep is None:
         sweep = _resolve_sweep(
             n_clusters=np.asarray(estimator_grids[0][1]["n_clusters"])
@@ -430,7 +428,7 @@ def run_validation(
         n_jobs, n_resamples=n_resamples
     )
 
-    # --- Randomized preprocessing: allocate, then embed once per resample ---
+    # Randomized preprocessing: allocate, then embed once per resample.
     embeddings: list[ResampleEmbeddings] | None = None
     if randomize_preprocessing:
         pipelines = allocate_pipelines(
@@ -475,7 +473,6 @@ def run_validation(
                     for b in range(n_resamples)
                 )
 
-                # --- Collect per-resample ARI scores ---
                 aris_stab = [r.ari_stability for r in results]
                 aris_gen = [r.ari_generalizability for r in results]
                 aris_avg = (
@@ -484,9 +481,7 @@ def run_validation(
                     else [np.nan] * n_resamples
                 )
 
-                # --- Drop degenerate resamples ---
-                #
-                # Under noise_policy="drop" a subsample can be labelled
+                # Under noise_policy="drop" a subsample can be labeled
                 # entirely as noise, leaving nothing to aggregate. Those
                 # resamples already warned and carry empty or None labels;
                 # they must not reach the consensus/accuracy aggregators.
@@ -504,7 +499,6 @@ def run_validation(
                     and np.size(r.labels_test)
                 ]
 
-                # --- Build consensus matrices ---
                 if not policy.run_stability:
                     M = None
                 elif anchors is None:
@@ -533,7 +527,7 @@ def run_validation(
                         anchors=anchors,
                     )
 
-                # --- Per-sample stability scores, always full length ---
+                # Per-sample stability scores are always full length;
                 # pac comes from M, which under anchoring is the anchor block.
                 if not policy.run_stability:
                     summary = None
@@ -549,7 +543,6 @@ def run_validation(
                         gini=gini, ce=ce, pac=compute_consensus_pac(M)
                     )
 
-                # --- Compute generalizability scores ---
                 E = (
                     compute_generalizability_scores(
                         n_samples=n,
@@ -567,7 +560,6 @@ def run_validation(
                 generalizability_scores.append(E)
                 consensus_summaries.append(summary)
 
-                # --- Summarize ARI statistics ---
                 stab_mean, stab_se, stab_q95, stab_q05 = _summarize_ari_scores(
                     aris_stab, n_resamples
                 )
@@ -578,7 +570,6 @@ def run_validation(
                     aris_avg, n_resamples
                 )
 
-                # --- Observed granularity (if sweep parameter does not fix k) ---
                 k_obs = np.array([r.n_clusters_train for r in results], dtype=float)
 
                 n_clusters_observed = float(np.mean(k_obs))
@@ -588,12 +579,10 @@ def run_validation(
                     else np.nan
                 )
 
-                # --- Observed noise fraction ---
                 noise = np.array([r.noise_fraction for r in results], dtype=float)
                 noise_fraction = float(np.mean(noise))
                 sweep_value = params[sweep.param]
 
-                # --- Assign method ID for this configuration ---
                 method_id, method_label = method_ids.assign(est_class.__name__, params)
 
                 record: EstimatorRecord = {
@@ -729,7 +718,6 @@ def validation_iter(
 
     random_state0 = random_state if random_state is not None else 0
 
-    # --- Subsample indices ---
     P_1_idx, P_test_idx, P_2_idx = _resample_indices(
         X.shape[0],
         seed=seed,
@@ -739,9 +727,8 @@ def validation_iter(
         run_stability=policy.run_stability,
     )
 
-    # --- Features to cluster ---
-    # Raw slices without randomization; with it, the resample's precomputed
-    # embeddings, one independent fit per subsample.
+    # Features to cluster: raw slices without randomization; with it, the
+    # resample's precomputed embeddings, one independent fit per subsample.
     if embeddings is None:
         spec = None
         X_1 = X[P_1_idx]
@@ -758,7 +745,6 @@ def validation_iter(
         spec = embeddings.spec
         X_1, X_2, X_test = embeddings.X_1, embeddings.X_2, embeddings.X_test
 
-    # --- Clustering ---
     # Each set is clustered on its own, so each gets the neighbor count
     # scaled to its own rows (scale_neighbor_count).
     def fit_labels(X_fit: np.ndarray) -> np.ndarray:
@@ -773,9 +759,8 @@ def validation_iter(
     labels_test = fit_labels(X_test) if policy.run_generalizability else None
     labels_2 = fit_labels(X_2) if policy.run_stability else None
 
-    # --- Resolve noise labels (density-based methods emit -1) ---
-    #
-    # Under "drop" the index arrays shrink with the labels. The classifier
+    # Density-based methods label noise -1. Under "drop" the index arrays
+    # shrink with the labels. The classifier
     # below reads raw features through these indices.
     P_1_idx, labels_1, noise_fraction = apply_noise_policy(
         P_1_idx, labels_1, noise_policy
@@ -789,7 +774,6 @@ def validation_iter(
     if policy.run_stability:
         P_2_idx, labels_2, _ = apply_noise_policy(P_2_idx, labels_2, noise_policy)
 
-    # --- Cluster count bookkeeping ---
     k_1 = count_clusters(labels_1)
     k_test = count_clusters(labels_test) if policy.run_generalizability else 0
     k_2 = count_clusters(labels_2) if policy.run_stability else 0
@@ -813,7 +797,7 @@ def validation_iter(
             "at this point on the sweep axis."
         )
 
-    # --- Stability ARI (overlap between two independent subsamples) ---
+    # Stability: ARI on the samples the two subsamples share.
     ari_stab = _compute_stability_ari(
         policy=policy,
         P_1_idx=P_1_idx,
@@ -822,7 +806,6 @@ def validation_iter(
         labels_2=labels_2,
     )
 
-    # --- Generalizability ARI (RF prediction on held-out set) ---
     # The classifier trains on raw features: a cluster generalizes only if it
     # can be learned from the data, and t-SNE cannot embed unseen rows. Under
     # identity preprocessing these equal X_1 and X_test.

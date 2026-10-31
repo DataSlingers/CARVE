@@ -90,8 +90,8 @@ class TestKnobs:
     def test_the_rff_scenarios_calibrate_on_the_bandwidth(self):
         """cluster_scale does not move circles or moons at all.
 
-        Measured over 20 datasets with the fixed solver: multiplying
-        cluster_scale by 3 leaves oracle ARI at 1.000 +/- 0.000. embed_param
+        Over 20 datasets, multiplying cluster_scale by 3 leaves oracle ARI at
+        1.000 +/- 0.000. embed_param
         is the knob, and all three target bands live between about 2.7 and
         3.5.
         """

@@ -141,7 +141,7 @@ class TestScatterClusters:
         labels = np.repeat([0, 1, 2], 10)
         expected_cmap = cluster_color_map(labels)
         scatter_clusters(ax, Z, labels, color_map=expected_cmap)
-        # Verify each collection has the expected color (RGB only, alpha may vary)
+        # RGB only; alpha may vary.
         unique_labels = list(dict.fromkeys(labels.tolist()))
         for i, (label, collection) in enumerate(zip(unique_labels, ax.collections)):
             expected_color = expected_cmap[label]
@@ -169,13 +169,11 @@ class TestScatterClusters:
     def test_uses_fallback_for_missing_color(self, ax):
         Z = np.random.default_rng(0).normal(size=(30, 2))
         labels = np.repeat([0, 1, 2], 10)
-        # Provide a color map that does not include label 2
         partial_cmap = {0: "#FF0000", 1: "#00FF00"}
         scatter_clusters(ax, Z, labels, color_map=partial_cmap)
-        # Label 2 should use the fallback color #7F7F7F
         expected_rgb = mcolors.to_rgba("#7F7F7F")[:3]
-        # Find the collection for label 2 (should be the third one based on order)
-        # The order is determined by dict.fromkeys(labels.tolist())
+        # Collections follow dict.fromkeys(labels.tolist()), so label 2's is
+        # the third.
         third_collection = ax.collections[2]
         face_colors = third_collection.get_facecolors()
         actual_rgb = face_colors[0][:3]
@@ -212,7 +210,6 @@ class TestMetricLines:
     def test_lines_use_metric_colors(self, ax):
         metrics = ("ari_stability_1se", "silhouette")
         metric_lines(ax, _results_frame(), metrics=metrics, show_legend=False)
-        # Get data lines (those with marker 'o')
         data_lines = [line for line in ax.lines if line.get_marker() == "o"]
         assert len(data_lines) == len(metrics)
         for line, expected_metric in zip(data_lines, metrics):
@@ -393,10 +390,8 @@ class TestRuntimeLines:
 
     def test_lines_use_correct_mode_colors(self, ax):
         runtime_lines(ax, _runtime_frame())
-        # Get data lines (those with marker 'o')
         data_lines = [line for line in ax.lines if line.get_marker() == "o"]
         assert len(data_lines) == 2
-        # The two modes should have colors from their mapped metrics
         expected_metrics = ("ari_stability_1se", "ari_generalizability_1se")
         for line, expected_metric in zip(data_lines, expected_metrics):
             expected_color = metric_color(expected_metric)
@@ -695,7 +690,7 @@ class TestCviLines:
 
     def test_line_names_the_winning_model_in_its_label(self, ax):
         # silhouette's winner is Agglomerative, gap's is KMeans (see
-        # _curves_and_best) -- the legend must say which, not just the
+        # _curves_and_best); the legend must say which, not just the
         # metric name.
         curves, best = _curves_and_best()
         cvi_lines(ax, curves, best)
@@ -805,7 +800,7 @@ class TestAlluvial:
         # Column order is left, true, right. The truth column stacks in
         # first-occurrence order ([0, 1]); each cluster column is then
         # ordered against it by _order_by_reference, which puts left at
-        # [0, 1] and right -- the flip of y_true -- at [1, 0].
+        # [0, 1] and right, the flip of y_true, at [1, 0].
         expected = [
             left_cmap[0],
             left_cmap[1],
@@ -1689,7 +1684,7 @@ def _criterion_frame():
 
 class TestNormalizedCriterion:
     def test_each_metric_spans_zero_to_one(self):
-        """Criteria live on incompatible scales -- silhouette in [-1, 1],
+        """Criteria live on incompatible scales: silhouette in [-1, 1],
         inverted Davies-Bouldin in (0, 1], Calinski-Harabasz in the
         thousands, gap a log ratio. Raw on one axis, six of seven flatten."""
         out = normalized_criterion(
@@ -1718,7 +1713,7 @@ class TestNormalizedCriterion:
 
         Two datasets, k in 3..7: a quiet one shaped 0.1/0.2/0.5/0.2/0.1
         (peaks at k=5) appears twice (seeds 1 and 2); a loud one shaped
-        1/10/2/1/1 -- ten times the quiet one's amplitude -- appears once
+        1/10/2/1/1, ten times the quiet one's amplitude, appears once
         (seed 0) and peaks at k=4 instead.
 
         Normalized within each dataset first, both datasets vote in [0, 1]

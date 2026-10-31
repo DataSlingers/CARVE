@@ -274,10 +274,8 @@ def calibrate_scenario(
 ) -> dict[str, dict[str, Any]]:
     """Calibrate every anchor of a scenario against its target band.
 
-    Uses the knob CALIBRATION_KNOBS declares for the scenario. Run this with
-    the scenario's final estimator and the fixed eigensolver in place;
-    calibrating against a solver that will not be used calibrates the wrong
-    thing.
+    Uses the knob CALIBRATION_KNOBS declares for the scenario. Run it with
+    the scenario's final estimator and eigensolver in place.
     """
     return {
         label: calibrate_anchor(

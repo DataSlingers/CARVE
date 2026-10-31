@@ -288,8 +288,8 @@ def _subsample_scatters(
     """Panels E and F over ``rows``, as CARVE's public scatter methods draw them.
 
     The methods take coordinates for every cell, so this resolves what they
-    would -- the configuration, its labels and per-sample scores, and the
-    configuration note -- and passes the subsample's rows to the plotting
+    would (the configuration, its labels and per-sample scores, and the
+    configuration note) and passes the subsample's rows to the plotting
     functions behind them.
     """
     row, config_id, selected_k, pinned = carve._select_row(**selection)

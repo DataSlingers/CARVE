@@ -245,8 +245,8 @@ class TestScenarios:
 
     @pytest.mark.parametrize("label", DIFFICULTY_AXIS.labels)
     def test_swiss_rolls_arms_are_half_a_turn_without_twist(self, label):
-        """Arm length and twist are fixed at every level: they made the arms
-        separable only when densely sampled, which the held-out set
+        """Arm length and twist are the same at every level: they make the
+        arms separable only when densely sampled, which the held-out set
         generalizability clusters is not."""
         kwargs = SCENARIOS["swiss_rolls"].sim_kwargs(axis_value=0, axis_label=label)
         assert kwargs["spiral_turns"] == 0.5

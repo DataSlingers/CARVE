@@ -229,8 +229,8 @@ def plot_metric_by_pipeline(
         the ``method_id`` column.
     measure : str, default="stability"
         ``"stability"`` or ``"generalizability"``, or an alias of either. The
-        per-pipeline table carries only these two ARI criteria -- no
-        consensus or accuracy columns -- so any other measure raises.
+        per-pipeline table carries only these two ARI criteria, no
+        consensus or accuracy columns, so any other measure raises.
     rule : str, default="1se"
         Selection rule for the marked sweep value: "max", "1se", "quantile".
     not_two : bool, default=False
@@ -573,7 +573,6 @@ def _draw_metric_lines(
     se_col = f"{y_col}_se"
     has_se = se_col in results_df.columns
 
-    # --- Figure setup ---
     if ax is None:
         if figsize is None:
             figsize = (9, 5.5)
@@ -581,7 +580,6 @@ def _draw_metric_lines(
     else:
         fig = ax.figure
 
-    # --- Identify grouping and x-axis columns ---
     x_col = "sweep_value"
 
     results_df = results_df.copy()
@@ -589,7 +587,6 @@ def _draw_metric_lines(
 
     colors = plt.get_cmap(palette)(np.linspace(0, 1, len(grouped)))
 
-    # --- Plot each group ---
     for color_idx, (group_key, group_df) in enumerate(grouped):
         label = label_of(group_df.iloc[0])
         group_df_sorted = group_df.sort_values(x_col)
@@ -614,7 +611,6 @@ def _draw_metric_lines(
             **kwargs,
         )
 
-    # --- Vertical line at the selected sweep value ---
     try:
         best_row = select_row()
         ax.axvline(
@@ -629,7 +625,6 @@ def _draw_metric_lines(
     except Exception:
         pass
 
-    # --- Labels and formatting ---
     if xlabel is None:
         xlabel = sweep_axis_label(results_df)
     ax.set_xlabel(xlabel, fontsize=12)
@@ -658,7 +653,6 @@ def _draw_metric_lines(
     ax.set_axisbelow(True)
     fig.tight_layout()
 
-    # --- Save or show ---
     if save is not None:
         save = Path(save)
         fig.savefig(save, dpi=dpi, bbox_inches="tight")
@@ -734,7 +728,6 @@ def plot_consensus_matrix(
             "consensus_matrix and labels must have matching first dimension."
         )
 
-    # Symmetrize and bound for display
     M = 0.5 * (M + M.T)
     M = np.clip(np.nan_to_num(M, nan=0.5), 0.0, 1.0)
     np.fill_diagonal(M, 1.0)
@@ -750,7 +743,6 @@ def plot_consensus_matrix(
         None, :
     ]
 
-    # --- Figure setup ---
     if ax is None:
         if figsize is None:
             figsize = (6.5, 6.5)
@@ -767,7 +759,6 @@ def plot_consensus_matrix(
         aspect="equal",
     )
 
-    # --- Cluster color band ---
     divider = make_axes_locatable(ax)
     band_ax = divider.append_axes("top", size="4%", pad=0.0)
     band_cmap = plt.get_cmap(palette, max(len(unique_labels), 1))
@@ -780,7 +771,6 @@ def plot_consensus_matrix(
         vmax=max(len(unique_labels) - 1, 1),
     )
 
-    # --- Cluster boundary lines ---
     boundaries = np.where(np.diff(labels_ord) != 0)[0] + 0.5
     for b in boundaries:
         ax.axhline(b, color="white", lw=0.6, alpha=0.8)
@@ -878,7 +868,6 @@ def _prepare_cluster_score_groups(
     if not groups:
         raise ValueError("No cluster values found for the provided order.")
 
-    # Enumerate clusters starting at 1
     kept_order = [int(lab) + 1 for lab in kept_order]
 
     return groups, kept_order
@@ -1268,7 +1257,6 @@ def plot_cluster_violin(
                 path.vertices[:, 1] = np.clip(path.vertices[:, 1], ymin, ymax)
 
     for pos, vals in enumerate(groups, start=1):
-        # --- Inner annotation ---
         if inner == "box":
             q1, med, q3 = np.percentile(vals, [25, 50, 75])
             ax.plot([pos - 0.13, pos + 0.13], [med, med], color="black", lw=1.5)
@@ -1281,7 +1269,6 @@ def plot_cluster_violin(
             ax.plot([pos - 0.13, pos + 0.13], [med, med], color="black", lw=1.5)
             ax.plot([pos - 0.13, pos + 0.13], [q3, q3], color="black", lw=1.0)
 
-        # --- Strip plot overlay ---
         if stripplot:
             if jitter is True:
                 jitter_width = 0.11
@@ -1424,7 +1411,6 @@ def plot_cluster_scatter(
     ax : matplotlib.axes.Axes
         The Axes object, or None if ``save`` is provided.
     """
-    # --- Input validation and preparation ---
     X = np.asarray(X, dtype=float)
     labels = np.asarray(labels)
     scores = np.asarray(scores, dtype=float)
@@ -1442,7 +1428,6 @@ def plot_cluster_scatter(
     if not np.any(valid):
         raise ValueError("No finite scores available for plotting.")
 
-    # --- Compute 2D coordinates ---
     if embedding is None:
         if X.shape[1] >= 2:
             coords = X[:, :2]
@@ -1460,7 +1445,7 @@ def plot_cluster_scatter(
             raise ValueError("embedding must have the same number of rows as X.")
         coords = coords[:, :2]
 
-    # --- Map scores to marker size (low score = large, high score = small) ---
+    # Low scores get large markers, high scores small ones.
     lo_score = np.nanmin(scores[valid])
     hi_score = np.nanmax(scores[valid])
     size_hi, size_lo = size_range  # (15.0, 60.0) default
@@ -1471,7 +1456,6 @@ def plot_cluster_scatter(
         # norm~0 (unstable) → size_lo (large), norm~1 (stable) → size_hi (small)
         size_vals = size_lo + norm * (size_hi - size_lo)
 
-    # --- Compute per-cluster mean scores ---
     uniq = np.unique(labels)
     try:
         uniq = np.array(sorted(uniq, key=lambda x: float(x)))
@@ -1483,7 +1467,6 @@ def plot_cluster_scatter(
         lab_scores = scores[(labels == lab) & valid]
         cluster_mean[lab] = float(np.nanmean(lab_scores)) if lab_scores.size else np.nan
 
-    # --- Map per-sample scores to alpha ---
     alpha_hi, alpha_lo = alpha_range  # (0.45, 0.9) default
     if np.isclose(lo_score, hi_score):
         sample_alpha = np.full(scores.shape[0], np.mean(alpha_range), dtype=float)
@@ -1492,7 +1475,6 @@ def plot_cluster_scatter(
         # Low score (norm~0) → alpha_lo (opaque), high score (norm~1) → alpha_hi (faint)
         sample_alpha = alpha_lo + norm * (alpha_hi - alpha_lo)
 
-    # --- Build per-sample RGBA colors ---
     label_to_idx = {lab: i for i, lab in enumerate(uniq)}
     cmap = plt.get_cmap(palette, max(len(uniq), 1))
     rgba = np.zeros((labels.shape[0], 4), dtype=float)
@@ -1505,7 +1487,6 @@ def plot_cluster_scatter(
     if sort_order:
         order = np.argsort(rgba[:, 3], kind="stable")
 
-    # --- Figure setup ---
     if ax is None:
         if figsize is None:
             figsize = (6.5, 5.0)
@@ -1539,11 +1520,9 @@ def plot_cluster_scatter(
 
     ax.grid(False)
 
-    # --- Legend ---
     if legend:
         handles = []
 
-        # Add cluster entries with mean score in the label
         for lab in uniq:
             col = cmap(label_to_idx[lab])
             handles.append(
@@ -1559,10 +1538,8 @@ def plot_cluster_scatter(
                 )
             )
 
-        # Place legend according to specified location
         base_title = f"Cluster, {scores_name}" if scores_name else "Cluster"
 
-        # Prepend annotation as legend title text (above base title)
         if annotation is not None and annotation_style == "legend":
             title = f"{annotation}\n{base_title}"
         else:
@@ -1707,7 +1684,6 @@ def plot_diagnostic_scatter(
     ax : matplotlib.axes.Axes or None
         The Axes object, or None if ``save`` is provided.
     """
-    # --- Input validation and preparation ---
     X = np.asarray(X, dtype=float)
     labels = np.asarray(labels)
     scores = np.asarray(scores, dtype=float)
@@ -1725,7 +1701,6 @@ def plot_diagnostic_scatter(
     if not np.any(valid):
         raise ValueError("No finite scores available for plotting.")
 
-    # --- Compute 2D coordinates ---
     if embedding is None:
         if X.shape[1] >= 2:
             coords = X[:, :2]
@@ -1743,7 +1718,6 @@ def plot_diagnostic_scatter(
             raise ValueError("embedding must have the same number of rows as X.")
         coords = coords[:, :2]
 
-    # --- Resolve marker list ---
     if markers is None:
         markers = _DEFAULT_DIAGNOSTIC_MARKERS
 
@@ -1762,7 +1736,6 @@ def plot_diagnostic_scatter(
 
     label_to_marker = {lab: markers[i % len(markers)] for i, lab in enumerate(uniq)}
 
-    # --- Normalize scores and map to colormap ---
     cmap_obj = plt.get_cmap(cmap)
 
     lo_score = np.nanmin(scores[valid])
@@ -1775,7 +1748,6 @@ def plot_diagnostic_scatter(
 
     rgba = cmap_obj(norm_scores)
 
-    # --- Optional alpha reinforcement ---
     if alpha_encoding:
         alpha_hi, alpha_lo = alpha_range
         if np.isclose(alpha_hi, alpha_lo):
@@ -1788,7 +1760,6 @@ def plot_diagnostic_scatter(
     if np.any(nan_mask):
         rgba[nan_mask] = (0.5, 0.5, 0.5, 0.2)
 
-    # --- Figure setup ---
     if ax is None:
         if figsize is None:
             figsize = (6.5, 5.0)
@@ -1796,7 +1767,6 @@ def plot_diagnostic_scatter(
     else:
         fig = ax.figure
 
-    # --- Draw points (per-cluster for distinct markers) ---
     # Draw stable clusters (high mean) first, unstable on top
     cluster_means = {
         lab: float(np.nanmean(scores[(labels == lab) & valid]))
@@ -1827,7 +1797,6 @@ def plot_diagnostic_scatter(
             rasterized=(coords.shape[0] > 5000),
         )
 
-    # --- Colorbar ---
     if colorbar:
         from matplotlib.cm import ScalarMappable
         from matplotlib.colors import Normalize
@@ -1843,7 +1812,6 @@ def plot_diagnostic_scatter(
         )
         cbar.set_label(colorbar_label if colorbar_label is not None else scores_name)
 
-    # --- Shape legend ---
     if legend:
         handles = []
         for lab in uniq:

@@ -354,8 +354,7 @@ class TestFitOrLoadCarveRun:
     """A cached fit is only valid for the grid and resample count it ran.
 
     A study's default run carries no run key in its cache filename, so a
-    change to the default grid kept the filename: the Levine cache, fit with
-    KMeans n_init=10, kept loading after the study moved to n_init=100.
+    change to the default grid keeps the filename.
     """
 
     def test_a_changed_estimator_parameter_raises_and_names_it(self, blobs, tmp_path):

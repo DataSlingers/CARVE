@@ -9,9 +9,6 @@ from typing import Any
 
 from ._types import Ablation, AblationScale, ArmScale, Axis, EstimatorSpec, Scenario
 
-# =============================================================================
-# Metric vocabulary
-# =============================================================================
 CARVE_METRICS_STABILITY: tuple[str, ...] = (
     "ari_stability",
     "ari_stability_1se",
@@ -140,9 +137,6 @@ def metric_measure(name: str) -> str:
     return name
 
 
-# =============================================================================
-# Axes
-# =============================================================================
 DIFFICULTY_AXIS = Axis(
     name="difficulty_level",
     values=(0, 1, 2),
@@ -161,9 +155,6 @@ SCALING_AXES: dict[str, Axis] = {
     ),
 }
 
-# =============================================================================
-# Published anchors
-# =============================================================================
 # The simulation settings of the benchmark in the first manuscript version.
 PUBLISHED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
     "gaussians": {
@@ -565,9 +556,6 @@ TIMED_SCENARIOS: frozenset[str] = frozenset(
 # Seeds derive as benchmark_seed = seed + axis_idx * 10000 + random_state.
 PUBLISHED_RANDOM_STATE: int = 42
 
-# =============================================================================
-# Ablations
-# =============================================================================
 # One CARVE fit draws its subsamples from seeds in [random_state,
 # random_state + 3 * n_resamples): P_1 at random_state + b, P_2 at
 # random_state + b + B and the P_test pipeline at random_state + b + 2B.

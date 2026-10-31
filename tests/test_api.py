@@ -32,10 +32,6 @@ from tests.fixtures.nonrandomized_gate import (
     gate_model,
 )
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
 
 @pytest.fixture(scope="module")
 def fitted_carve():
@@ -92,11 +88,6 @@ def fitted_carve_multi_k():
     )
     carve.fit(X)
     return carve
-
-
-# ---------------------------------------------------------------------------
-# fit()
-# ---------------------------------------------------------------------------
 
 
 class TestFit:
@@ -345,11 +336,6 @@ class TestFit:
         assert carve.estimator_results_ is not None
 
 
-# ---------------------------------------------------------------------------
-# get_labels()
-# ---------------------------------------------------------------------------
-
-
 class TestGetLabels:
     def test_basic(self, fitted_carve):
         labels = fitted_carve.get_labels()
@@ -526,11 +512,6 @@ class TestRefit:
         np.testing.assert_array_equal(carve.reference_labels, np.repeat([1, 0, 2], 40))
 
 
-# ---------------------------------------------------------------------------
-# Error contracts on a fitted model
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture(scope="module")
 def split_mode_fits():
     """The same small fit under mode="stability" and mode="generalizability".
@@ -652,11 +633,6 @@ class TestErrorContracts:
             getattr(stability_only, method)(source="accuracy")
 
 
-# ---------------------------------------------------------------------------
-# get_k()
-# ---------------------------------------------------------------------------
-
-
 class TestGetK:
     def test_basic(self, fitted_carve):
         k = fitted_carve.get_k()
@@ -676,11 +652,6 @@ class TestGetK:
         for measure in ["stability", "generalizability"]:
             k = fitted_carve_multi_k.get_k(measure=measure, rule="max")
             assert k in [2, 3]
-
-
-# ---------------------------------------------------------------------------
-# get_estimator()
-# ---------------------------------------------------------------------------
 
 
 class TestGetEstimator:
@@ -741,11 +712,6 @@ class TestNotTwo:
         assert isinstance(est, AgglomerativeClustering)
         assert est.n_clusters == 3
         assert est.linkage == "ward"
-
-
-# ---------------------------------------------------------------------------
-# Plotting (smoke tests)
-# ---------------------------------------------------------------------------
 
 
 class TestPlotting:
@@ -824,11 +790,6 @@ class TestPlotting:
         assert ax is not None
 
 
-# ---------------------------------------------------------------------------
-# save() guards
-# ---------------------------------------------------------------------------
-
-
 class TestSaveGuards:
     def test_save_unfitted_raises(self, tmp_path):
         carve = CARVE(verbose=0)
@@ -836,11 +797,6 @@ class TestSaveGuards:
             carve.save(tmp_path / "should_not_exist.carve")
 
         assert not (tmp_path / "should_not_exist.carve").exists()
-
-
-# ---------------------------------------------------------------------------
-# Round-trip
-# ---------------------------------------------------------------------------
 
 
 class TestRoundTrip:
@@ -914,11 +870,6 @@ class TestRoundTrip:
                 np.testing.assert_array_equal(loaded_arr, orig)
 
 
-# ---------------------------------------------------------------------------
-# load() guards
-# ---------------------------------------------------------------------------
-
-
 class TestLoadGuards:
     def test_load_nonexistent_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
@@ -932,11 +883,6 @@ class TestLoadGuards:
 
         with pytest.raises(TypeError, match="Expected a CARVE instance"):
             CARVE.load(path)
-
-
-# ---------------------------------------------------------------------------
-# Compression & file-size
-# ---------------------------------------------------------------------------
 
 
 class TestCompression:
@@ -959,11 +905,6 @@ class TestCompression:
         assert no_data.stat().st_size < with_data.stat().st_size
 
 
-# ---------------------------------------------------------------------------
-# Edge cases
-# ---------------------------------------------------------------------------
-
-
 class TestEdgeCases:
     def test_save_creates_parent_dirs(self, fitted_carve, tmp_path):
         nested = tmp_path / "a" / "b" / "c" / "result.carve"
@@ -972,11 +913,6 @@ class TestEdgeCases:
         assert nested.exists()
         loaded = CARVE.load(nested)
         assert loaded.estimator_results_ is not None
-
-
-# ---------------------------------------------------------------------------
-# Resolution mode
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="module")
@@ -1146,11 +1082,6 @@ class TestResolutionMode:
             carve.fit(X_res_blobs)
 
 
-# ---------------------------------------------------------------------------
-# min_cluster_size / HDBSCAN mode
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture(scope="module")
 def fitted_hdbscan(X_res_blobs):
     """CARVE fitted over HDBSCAN's min_cluster_size axis."""
@@ -1306,11 +1237,6 @@ class TestMinClusterSizeMode:
         pd.testing.assert_frame_equal(
             loaded.estimator_results_, fitted_hdbscan.estimator_results_
         )
-
-
-# ---------------------------------------------------------------------------
-# Row identity: artifacts are joined on config_id, never on row position
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="module")
@@ -1867,11 +1793,6 @@ class TestExactPathUnchanged:
             ).fit(X)
 
 
-# ---------------------------------------------------------------------------
-# randomize_preprocessing and show_progress
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture(scope="module")
 def randomized_fit():
     """A randomized fit over two estimators, two k and four pipelines."""
@@ -2197,11 +2118,6 @@ class TestShowProgress:
         assert "[CARVE] [1/1] est=KMeans n_clusters=2" in captured.out
 
 
-# ---------------------------------------------------------------------------
-# Regression gate: the non-randomized path is pinned to a captured fixture
-# ---------------------------------------------------------------------------
-
-
 class TestNonRandomizedRegressionGate:
     """The non-randomized path must match the captured fixture
     (tests/fixtures/nonrandomized_gate.py).
@@ -2228,11 +2144,6 @@ class TestNonRandomizedRegressionGate:
         randomized = gate_arrays(model.fit(gate_dataset(), randomize_preprocessing=True))
         before = np.load(GATE_PATH)
         assert not np.allclose(randomized["results"], before["results"], equal_nan=True)
-
-
-# ---------------------------------------------------------------------------
-# Per-sample scores: _sample_scores and get_labels(noise_labels=True)
-# ---------------------------------------------------------------------------
 
 
 def _set_scores(model, source, config_id, row):

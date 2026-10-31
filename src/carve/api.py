@@ -263,7 +263,7 @@ class CARVE(BaseEstimator):
     >>> carve.get_sweep_value(), carve.get_k()
     """
 
-    # --- Constructor parameters ---
+    # Constructor parameters
     n_clusters: int | np.ndarray = field(
         default_factory=lambda: np.arange(2, 10 + 1, dtype=int)
     )
@@ -292,7 +292,7 @@ class CARVE(BaseEstimator):
     random_state: int | None = None
     verbose: int = 0
 
-    # --- Fitted attributes (set by fit()) ---
+    # Fitted attributes, set by fit()
     # The seed fit() ran with: the per-call random_state, else
     # self.random_state, else 0. Post-fit work reads this one, because a
     # per-call override does not write self.random_state.
@@ -305,20 +305,14 @@ class CARVE(BaseEstimator):
     )
     sweep_: SweepSpec | None = field(init=False, default=None)
 
-    # --- Consensus matrices ---
     consensus_matrices_: list[np.ndarray] | None = field(init=False, default=None)
     consensus_generalizability_matrices_: list[np.ndarray] | None = field(
         init=False, default=None
     )
 
-    # --- Sample-level scores ---
     stability_gini_scores_: np.ndarray | None = field(init=False, default=None)
     stability_ce_scores_: np.ndarray | None = field(init=False, default=None)
     generalizability_scores_: list[np.ndarray] | None = field(init=False, default=None)
-
-    # ------------------------------------------------------------------ #
-    #  Core Methods                                                      #
-    # ------------------------------------------------------------------ #
 
     def fit(
         self,
@@ -442,7 +436,6 @@ class CARVE(BaseEstimator):
                 stacklevel=2,
             )
 
-        # --- Resolve X and reference labels ---
         if _anndata.is_anndata(X):
             X = _anndata.get_representation(
                 X, use_rep=use_rep, layer=layer, n_pcs=n_pcs
@@ -492,7 +485,6 @@ class CARVE(BaseEstimator):
 
             self.reference_labels = ref_arr
 
-        # --- Resolve the sweep axis ---
         custom_grids = not isinstance(self.estimator_param_grids, str)
 
         sweep_arg = self.sweep
@@ -516,7 +508,6 @@ class CARVE(BaseEstimator):
             finer_is_larger=self.finer_is_larger,
         )
 
-        # --- Resolve estimator grids along that axis ---
         if custom_grids:
             estimator_param_grids = self.estimator_param_grids
             sweep_spec = replace(
@@ -539,7 +530,6 @@ class CARVE(BaseEstimator):
         self.estimator_param_grids_ = estimator_param_grids
         self.sweep_ = sweep_spec
 
-        # --- Resolve preprocessing options ---
         # Only a randomized fit consumes them. Resolving the defaults otherwise
         # would import UMAP for nothing and warn about log1p on any input with
         # negative values.
@@ -555,7 +545,6 @@ class CARVE(BaseEstimator):
             norm_options = self.normalization_options or []
             dr_options = self.dim_reduction_options or []
 
-        # --- Print run header ---
         _print_run_header(
             X=X,
             sweep=sweep_spec,
@@ -570,7 +559,6 @@ class CARVE(BaseEstimator):
             dim_reduction_options=dr_options,
         )
 
-        # --- Run validation loop ---
         (
             estimator_records,
             pipeline_records,
@@ -612,7 +600,6 @@ class CARVE(BaseEstimator):
 
         n_rows = int(self.estimator_results_.shape[0])
 
-        # --- Sanity check: config_id alignment ---
         if not np.array_equal(
             self.estimator_results_["config_id"].to_numpy(), np.arange(n_rows)
         ):
@@ -621,7 +608,6 @@ class CARVE(BaseEstimator):
                 "containers. This is an internal CARVE error."
             )
 
-        # --- Stability-derived metrics ---
         if policy.run_stability and consensus_summaries is not None:
             self.stability_gini_scores_ = np.vstack(
                 [s.gini for s in consensus_summaries]
@@ -637,7 +623,7 @@ class CARVE(BaseEstimator):
             self.estimator_results_["consensus_ce_stability"] = (
                 self.stability_ce_scores_.mean(axis=1)
             )
-        else:  # If not running stability, set these attributes to None/NaN
+        else:
             self.stability_gini_scores_ = None
             self.stability_ce_scores_ = None
 
@@ -647,14 +633,11 @@ class CARVE(BaseEstimator):
             )
             self.estimator_results_["consensus_ce_stability"] = np.full(n_rows, np.nan)
 
-        # --- Generalizability-derived metrics ---
-        if (
-            policy.run_generalizability and self.generalizability_scores_ is not None
-        ):  # Default route
+        if policy.run_generalizability and self.generalizability_scores_ is not None:
             gen_arr = np.vstack(self.generalizability_scores_)
             self.estimator_results_["accuracy_generalizability"] = gen_arr.mean(axis=1)
 
-        else:  # If not running generalizability, set these attributes to None/NaN
+        else:
             self.estimator_results_["accuracy_generalizability"] = np.full(
                 n_rows, np.nan
             )
@@ -927,7 +910,6 @@ class CARVE(BaseEstimator):
         ):
             raise RuntimeError("Call fit() first.")
 
-        # --- Select best configuration ---
         row, config_id, selected_k, _ = self._select_row(
             measure=measure,
             rule=rule,
@@ -955,7 +937,6 @@ class CARVE(BaseEstimator):
                 "explicitly or exclude that end of the sweep."
             )
 
-        # --- Retrieve the consensus matrix ---
         if policy.run_stability and self.consensus_matrices_ is not None:
             M_raw = self.consensus_matrices_[config_id]
         elif (
@@ -974,7 +955,6 @@ class CARVE(BaseEstimator):
 
         M = np.asarray(M_raw, dtype=float)
 
-        # Symmetrize and clean up
         S = 0.5 * (M + M.T)
         np.fill_diagonal(S, 1.0)
         S = np.clip(S, 0.0, 1.0)
@@ -983,7 +963,6 @@ class CARVE(BaseEstimator):
             S = np.nan_to_num(S, nan=0.5)
             np.fill_diagonal(S, 1.0)
 
-        # Convert similarity to distance
         D = 1.0 - S
         np.fill_diagonal(D, 0.0)
 
@@ -999,7 +978,6 @@ class CARVE(BaseEstimator):
         if self.consensus_anchors_ is not None:
             labels = self._extend_anchor_labels(labels)
 
-        # --- Align with reference labels if available ---
         cur_k = int(np.unique(labels).size)
         ref = self.reference_labels
         ref_k = int(np.unique(ref).size) if ref is not None else None
@@ -1208,10 +1186,6 @@ class CARVE(BaseEstimator):
             rule=rule,
             not_two=not_two,
         )
-
-    # ------------------------------------------------------------------ #
-    #  Plotting                                                          #
-    # ------------------------------------------------------------------ #
 
     def plot_metric_over_n_clusters(
         self,
@@ -1786,7 +1760,6 @@ class CARVE(BaseEstimator):
         )
         df = self.estimator_results_
 
-        # --- Resolve score source ---
         scores = self._sample_scores(source, config_id)
         default_ylabel = {
             "gini": "Cluster Stability (Gini)",
@@ -1794,7 +1767,6 @@ class CARVE(BaseEstimator):
             "accuracy": "Cluster Generalizability",
         }[source]
 
-        # --- Resolve labels mode and get labels ---
         labels_mode: Literal["default", "generalizability"]
         if mode in ("default", "stability"):
             labels_mode = "default"
@@ -1818,7 +1790,6 @@ class CARVE(BaseEstimator):
         if ylabel is None:
             ylabel = default_ylabel
 
-        # --- Build annotation ---
         if annotation is True:
             annotation_text = _get_annotation(
                 measure=measure,
@@ -1834,7 +1805,6 @@ class CARVE(BaseEstimator):
         else:
             annotation_text = None
 
-        # --- Plot ---
         return _plot_cluster_boxplot(
             scores,
             labels,
@@ -1965,7 +1935,6 @@ class CARVE(BaseEstimator):
         )
         df = self.estimator_results_
 
-        # --- Resolve score source ---
         scores = self._sample_scores(source, config_id)
         default_ylabel = {
             "gini": "Cluster Stability (Gini)",
@@ -1973,7 +1942,6 @@ class CARVE(BaseEstimator):
             "accuracy": "Cluster Generalizability",
         }[source]
 
-        # --- Resolve labels mode and get labels ---
         labels_mode: Literal["default", "generalizability"]
         if mode in ("default", "stability"):
             labels_mode = "default"
@@ -1997,7 +1965,6 @@ class CARVE(BaseEstimator):
         if ylabel is None:
             ylabel = default_ylabel
 
-        # --- Build annotation ---
         if annotation is True:
             annotation_text = _get_annotation(
                 measure=measure,
@@ -2013,7 +1980,6 @@ class CARVE(BaseEstimator):
         else:
             annotation_text = None
 
-        # --- Plot ---
         return _plot_cluster_violin(
             scores,
             labels,
@@ -2155,7 +2121,6 @@ class CARVE(BaseEstimator):
         )
         df = self.estimator_results_
 
-        # --- Resolve score source ---
         scores = self._sample_scores(source, config_id)
         scores_name = {
             "gini": "Gini Stability",
@@ -2163,7 +2128,6 @@ class CARVE(BaseEstimator):
             "accuracy": "Generalizability",
         }[source]
 
-        # --- Resolve labels mode ---
         labels_mode: Literal["default", "generalizability"]
         if mode in ("default", "stability"):
             labels_mode = "default"
@@ -2191,7 +2155,6 @@ class CARVE(BaseEstimator):
                 "Pass X=... explicitly (e.g., after loading a model saved with include_data=False)."
             )
 
-        # --- Build annotation ---
         tight_layout = annotation_style == "legend"
         if annotation is True:
             annotation_text = _get_annotation(
@@ -2367,7 +2330,6 @@ class CARVE(BaseEstimator):
         )
         df = self.estimator_results_
 
-        # --- Resolve score source ---
         scores = self._sample_scores(source, config_id)
         scores_name = {
             "gini": "Gini Stability",
@@ -2375,7 +2337,6 @@ class CARVE(BaseEstimator):
             "accuracy": "Generalizability",
         }[source]
 
-        # --- Resolve labels mode ---
         labels_mode: Literal["default", "generalizability"]
         if mode in ("default", "stability"):
             labels_mode = "default"
@@ -2403,7 +2364,6 @@ class CARVE(BaseEstimator):
                 "Pass X=... explicitly (e.g., after loading a model saved with include_data=False)."
             )
 
-        # --- Build annotation ---
         tight_layout = annotation_style == "legend"
         if annotation is True:
             annotation_text = _get_annotation(
@@ -2455,10 +2415,6 @@ class CARVE(BaseEstimator):
             save=save,
             dpi=dpi,
         )
-
-    # ------------------------------------------------------------------ #
-    #  Persistence                                                       #
-    # ------------------------------------------------------------------ #
 
     def save(
         self,

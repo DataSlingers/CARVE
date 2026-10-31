@@ -1,4 +1,4 @@
-"""Tests for carve.pl -- plots that read tl.carve's output out of an AnnData.
+"""Tests for carve.pl, the plots that read tl.carve's output out of an AnnData.
 
 One CARVE fit is shared by the module. tl.carve is that fit followed by
 tl.attach_results, so attach_results into a fresh AnnData reproduces every
@@ -126,11 +126,6 @@ PL_FUNCTIONS = [
 ]
 
 
-# -----------------------------------------------------------------------
-# Each pl function draws what the corresponding CARVE method draws
-# -----------------------------------------------------------------------
-
-
 class TestMatchesTheModelMethods:
     """pl.* reads the stored artifacts; CARVE.plot_* re-selects from the
     fitted model. With the recorded measure and rule they draw the same
@@ -199,11 +194,6 @@ class TestMatchesTheModelMethods:
         assert path.exists()
 
 
-# -----------------------------------------------------------------------
-# key= and the recorded selection
-# -----------------------------------------------------------------------
-
-
 class TestKeys:
     def test_non_default_key(self, model):
         adata = _attach(model, use_rep="X_pca", key_added="other")
@@ -235,11 +225,6 @@ class TestKeys:
         assert dashed.containers[0][0].get_linestyle() == "--"
         plain = carve.pl.metric_over_n_clusters(written)
         assert plain.containers[0][0].get_linestyle() == "-"
-
-
-# -----------------------------------------------------------------------
-# Error paths in _entry, _labels, _scores, _results
-# -----------------------------------------------------------------------
 
 
 class TestErrors:
@@ -288,11 +273,6 @@ class TestErrors:
             carve.pl.cluster_scatter(written, basis="tsne")
 
 
-# -----------------------------------------------------------------------
-# _annotation_text
-# -----------------------------------------------------------------------
-
-
 class TestAnnotation:
     def _legend_texts(self, ax):
         legend = ax.get_legend()
@@ -334,11 +314,6 @@ class TestAnnotation:
         assert ax.get_legend().get_title().get_text() == "Cluster"
 
 
-# -----------------------------------------------------------------------
-# _representation: use_rep, layer and n_pcs are reconstructed from params
-# -----------------------------------------------------------------------
-
-
 class TestRepresentation:
     """With no embedding in obsm the scatter falls back to the representation
     the params record, so the drawn coordinates reveal which one was used.
@@ -370,11 +345,6 @@ class TestRepresentation:
             np.asarray(adata.layers["counts"], dtype=float)
         )
         np.testing.assert_allclose(ax.collections[0].get_offsets(), expected, rtol=1e-5)
-
-
-# -----------------------------------------------------------------------
-# metric_by_pipeline
-# -----------------------------------------------------------------------
 
 
 class TestMetricByPipeline:
@@ -470,11 +440,6 @@ class TestMetricByPipeline:
         path = tmp_path / "metric_by_pipeline.png"
         assert carve.pl.metric_by_pipeline(randomized_written, save=path) is None
         assert path.exists()
-
-
-# -----------------------------------------------------------------------
-# n_clusters_over_sweep
-# -----------------------------------------------------------------------
 
 
 class TestNClustersOverSweep:

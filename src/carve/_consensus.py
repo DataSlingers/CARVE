@@ -41,16 +41,6 @@ def compute_consensus_matrix(
     co_sample_counts : ndarray of shape (n_samples, n_samples)
         Raw counts of co-sampling across runs (only if ``return_counts``).
     """
-    # co_cluster_counts = np.zeros((n_samples, n_samples), dtype=float)
-    # co_sample_counts = np.zeros((n_samples, n_samples), dtype=float)
-
-    # for sample_idx, labels in runs:
-    # co_sample_counts[np.ix_(sample_idx, sample_idx)] += 1
-
-    # for label in np.unique(labels):
-    #     label_idx = sample_idx[labels == label]
-    #     co_cluster_counts[np.ix_(label_idx, label_idx)] += 1
-
     N = sum(len(np.unique(labels)) for _, labels in runs)
 
     S = np.zeros((n_samples, len(runs)), dtype=np.float32)

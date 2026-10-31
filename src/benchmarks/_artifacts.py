@@ -68,7 +68,6 @@ RUNTIME_SCHEMA: tuple[str, ...] = (
     "t_per_k_generalizability_s",
 )
 
-# --- Ablation frames ---------------------------------------------------------
 # A cell is one CARVE fit. Every per-cell frame starts with this key so the
 # frames join on it; the study (Klein) has difficulty "" and dataset 0.
 CELL_KEY: tuple[str, ...] = (
@@ -581,8 +580,8 @@ def write_manifest(rd: Path, manifest: Manifest | Mapping[str, Any]) -> Path:
     Accepts a Manifest or any mapping, so the ablation writes the same atomic file.
 
     Writes to a temporary file in the same directory, then os.replace onto
-    manifest.json. os.replace is atomic on POSIX, so a concurrent reader --
-    or a process killed mid-write -- never observes a partially written
+    manifest.json. os.replace is atomic on POSIX, so a concurrent reader,
+    or a process killed mid-write, never observes a partially written
     file. The temporary file is in the target's directory because os.replace
     is atomic only within one filesystem.
     """

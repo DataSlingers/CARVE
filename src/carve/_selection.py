@@ -59,7 +59,7 @@ def select_best_row_by_rule(
         score's quantile bounds.
     return_idx : bool, default=False
         If True, return the row's index label instead of the row. This is
-        a pandas label, not a positional index -- do not use it to index
+        a pandas label, not a positional index; do not use it to index
         into ``consensus_matrices_``; use the row's ``config_id``.
     not_two : bool, default=False
         If True, exclude configurations with k=2 from selection.
@@ -213,7 +213,7 @@ def select_best_row_max(
         Metric key.
     return_idx : bool, default=False
         If True, return the row's index *label* instead of the row. This is
-        a pandas label, not a positional index -- do not use it to index
+        a pandas label, not a positional index; do not use it to index
         into ``consensus_matrices_``; use the row's ``config_id``.
 
     Returns
@@ -247,7 +247,7 @@ def select_best_row_1se(
         Metric key.
     return_idx : bool, default=False
         If True, return the row's index *label* instead of the row. This is
-        a pandas label, not a positional index -- do not use it to index
+        a pandas label, not a positional index; do not use it to index
         into ``consensus_matrices_``; use the row's ``config_id``.
 
     Returns
@@ -289,7 +289,7 @@ def select_best_row_quantile(
         Metric key.
     return_idx : bool, default=False
         If True, return the row's index *label* instead of the row. This is
-        a pandas label, not a positional index -- do not use it to index
+        a pandas label, not a positional index; do not use it to index
         into ``consensus_matrices_``; use the row's ``config_id``.
 
     Returns

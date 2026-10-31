@@ -33,10 +33,6 @@ from carve._utils import (
 )
 from carve.cluster import SpectralClustering
 
-# -----------------------------------------------------------------------
-# split_subsample_indices
-# -----------------------------------------------------------------------
-
 
 class TestSplitSubsampleIndices:
     def test_basic_split(self):
@@ -73,11 +69,6 @@ class TestSplitSubsampleIndices:
     def test_small_n(self):
         train, test = split_subsample_indices(5, subsample_ratio=0.6, random_state=0)
         assert len(train) + len(test) == 5
-
-
-# -----------------------------------------------------------------------
-# _coerce_n_clusters
-# -----------------------------------------------------------------------
 
 
 class TestCoerceNClusters:
@@ -119,11 +110,6 @@ class TestCoerceNClusters:
         assert result.dtype == int
 
 
-# -----------------------------------------------------------------------
-# _summarize_ari_scores
-# -----------------------------------------------------------------------
-
-
 class TestSummarizeAriScores:
     def test_normal(self):
         scores = [0.8, 0.85, 0.9, 0.82, 0.88]
@@ -157,11 +143,6 @@ class TestSummarizeAriScores:
         assert abs(se) < 1e-10
         assert q95 == 0.5
         assert q05 == 0.5
-
-
-# -----------------------------------------------------------------------
-# cluster_labels
-# -----------------------------------------------------------------------
 
 
 class TestClusterLabels:
@@ -200,11 +181,6 @@ class TestClusterLabels:
         # explicit copy; filterwarnings = error turns it into a failure.
         labels = cluster_labels(X_two_clusters, HDBSCAN, min_cluster_size=5)
         assert labels.shape == (60,)
-
-
-# -----------------------------------------------------------------------
-# scale_neighbor_count
-# -----------------------------------------------------------------------
 
 
 class TestScaleNeighborCount:
@@ -256,11 +232,6 @@ class TestScaleNeighborCount:
         assert original == {"n_clusters": 3, "n_neighbors": 15}
 
 
-# -----------------------------------------------------------------------
-# align_cluster_labels
-# -----------------------------------------------------------------------
-
-
 class TestAlignClusterLabels:
     def test_already_aligned(self):
         ref = np.array([0, 0, 1, 1, 2, 2])
@@ -300,11 +271,6 @@ class TestAlignClusterLabels:
         assert (aligned[12], aligned[36]) == (3, 4)
 
 
-# -----------------------------------------------------------------------
-# ensure_2d_array
-# -----------------------------------------------------------------------
-
-
 class TestEnsure2dArray:
     def test_2d_ndarray(self):
         X = np.array([[1, 2], [3, 4]])
@@ -338,11 +304,6 @@ class TestEnsure2dArray:
             ensure_2d_array("not an array")
 
 
-# -----------------------------------------------------------------------
-# count_clusters
-# -----------------------------------------------------------------------
-
-
 class TestCountClusters:
     def test_basic(self):
         assert count_clusters(np.array([0, 0, 1, 1, 2])) == 3
@@ -362,11 +323,6 @@ class TestCountClusters:
 
     def test_non_contiguous_labels(self):
         assert count_clusters(np.array([0, 5, 5, 9])) == 3
-
-
-# -----------------------------------------------------------------------
-# apply_noise_policy
-# -----------------------------------------------------------------------
 
 
 class TestApplyNoisePolicy:
@@ -450,11 +406,6 @@ class TestApplyNoisePolicy:
         indices, labels = self._noisy()
         with pytest.raises(ValueError, match="Unknown noise_policy"):
             apply_noise_policy(indices, labels, "bogus")
-
-
-# -----------------------------------------------------------------------
-# summarize_preprocessing_records
-# -----------------------------------------------------------------------
 
 
 def _spec(dr_step):
@@ -636,11 +587,6 @@ class TestSummarizePreprocessingRecords:
         assert pipelines == {}
 
 
-# -----------------------------------------------------------------------
-# resolve_anchors
-# -----------------------------------------------------------------------
-
-
 class TestResolveAnchors:
     def test_below_threshold_is_exact(self):
         assert resolve_anchors(
@@ -740,11 +686,6 @@ class TestResolveAnchors:
             resolve_anchors(
                 9000, consensus_anchors=1, anchor_threshold=5000, random_state=0
             )
-
-
-# -----------------------------------------------------------------------
-# default_generalizability_classifier
-# -----------------------------------------------------------------------
 
 
 class TestDefaultGeneralizabilityClassifier:
@@ -855,11 +796,6 @@ class TestDefaultGeneralizabilityClassifier:
         assert clf.get_params() == expected.get_params()
 
 
-# -----------------------------------------------------------------------
-# resolve_core_budget
-# -----------------------------------------------------------------------
-
-
 class TestResolveCoreBudget:
     """The split of n_jobs into resample workers and threads per worker;
     outer x inner never exceeds the machine.
@@ -904,11 +840,6 @@ class TestResolveCoreBudget:
             outer, inner = resolve_core_budget(n_jobs, n_resamples=100)
             assert outer * inner <= 11
             assert inner >= 1
-
-
-# -----------------------------------------------------------------------
-# noise_mask
-# -----------------------------------------------------------------------
 
 
 class TestNoiseMask:

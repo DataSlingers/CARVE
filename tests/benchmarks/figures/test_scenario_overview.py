@@ -140,7 +140,7 @@ class TestDifficultyAxis:
         plt.close(fig)
 
     def test_tick_order_follows_axis_value_not_label_text(self):
-        """Lexical order would read easy, hard, medium -- mislabeling two points.
+        """Lexical order would read easy, hard, medium and mislabel two points.
 
         The frame is built with its rows shuffled into lexical label order,
         which is the order read_run's glob returns checkpoints in.

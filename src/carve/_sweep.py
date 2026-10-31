@@ -130,7 +130,6 @@ def coerce_sweep_values(value: Any, param: str) -> np.ndarray:
     # Case: param == "resolution" or any other float-valued sweep parameter.
     arr = np.atleast_1d(np.asarray(value, dtype=float))
 
-    # Catch non-scalar, non-1D arrays and values <= 0.
     if arr.ndim != 1:
         raise ValueError(f"{param} must be a scalar or a 1D array.")
     if np.any(arr <= 0):
@@ -311,21 +310,9 @@ def validate_grids(
     return coerce_sweep_values(reference, sweep.param)
 
 
-# ---------------------------------------------------------------------- #
-#  Results-table helpers                                                 #
-# ---------------------------------------------------------------------- #
 def sweep_param_name(results_df: pd.DataFrame) -> str:
     """Return the swept hyperparameter name recorded in a results table."""
     return str(results_df["sweep_param"].iloc[0])
-
-
-# def sweep_axis_col(results_df: pd.DataFrame) -> str:
-#     """Return the column holding the sweep value (the plot x-axis)."""
-#     return "sweep_value"
-
-# def sweep_order_col(results_df: pd.DataFrame) -> str:
-#     """Return the column ordering configurations coarse -> fine."""
-#     return "sweep_rank"
 
 
 def sweep_exclude_cols(results_df: pd.DataFrame) -> set[str]:
@@ -350,12 +337,8 @@ def observed_k(row: pd.Series) -> int:
     return int(round(float(row["n_clusters_observed"])))
 
 
-# ---------------------------------------------------------------------- #
-#  Row identity                                                          #
-#                                                                        #
-#  config_id joins a results row to its consensus matrix and score       #
-#  arrays; method_id groups rows into curves.                            #
-# ---------------------------------------------------------------------- #
+# config_id joins a results row to its consensus matrix and score arrays;
+# method_id groups rows into curves.
 def _format_param_value(val: Any) -> str:
     """Format one hyperparameter value for a method label.
 
@@ -491,19 +474,3 @@ def config_id_of(row: pd.Series) -> int:
         arrays.
     """
     return int(row["config_id"])
-
-
-# def method_group_cols(results_df: pd.DataFrame) -> list[str]:
-#     """Return the columns that identify one curve in a results table.
-
-#     Parameters
-#     ----------
-#     results_df : pandas.DataFrame
-#         Results table.
-
-#     Returns
-#     -------
-#     group_cols : list of str
-#         ``["method_id"]``.
-#     """
-#     return ["method_id"]

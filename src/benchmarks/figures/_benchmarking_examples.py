@@ -56,7 +56,7 @@ def draw_example_row(
     """Scatter one simulated dataset per axis point onto a row of axes.
 
     The seed each panel is drawn at is derived exactly as _run.py's run_cell
-    derives it -- seed + axis_idx * 10000 + random_state -- so a panel shows
+    derives it, seed + axis_idx * 10000 + random_state, so a panel shows
     the data the benchmark actually scored.
 
     Parameters

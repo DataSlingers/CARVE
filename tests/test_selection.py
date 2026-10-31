@@ -40,11 +40,6 @@ def wide_bounds_df():
     )
 
 
-# -----------------------------------------------------------------------
-# select_best_row_max
-# -----------------------------------------------------------------------
-
-
 class TestSelectBestRowMax:
     def test_basic(self, results_df):
         row = select_best_row_max(results_df, measure="stability")
@@ -65,11 +60,6 @@ class TestSelectBestRowMax:
         row_stab = select_best_row_max(results_df, measure="stab")
         row_full = select_best_row_max(results_df, measure="ari_stability")
         assert row_s["n_clusters"] == row_stab["n_clusters"] == row_full["n_clusters"]
-
-
-# -----------------------------------------------------------------------
-# select_best_row_1se
-# -----------------------------------------------------------------------
 
 
 class TestSelectBestRow1se:
@@ -105,11 +95,6 @@ class TestSelectBestRow1se:
     def test_invalid_measure(self, results_df):
         with pytest.raises(ValueError, match="Invalid measure"):
             select_best_row_1se(results_df, measure="nonexistent")
-
-
-# -----------------------------------------------------------------------
-# select_best_row_quantile
-# -----------------------------------------------------------------------
 
 
 class TestSelectBestRowQuantile:
@@ -155,11 +140,6 @@ class TestSelectBestRowQuantile:
         assert row["n_clusters"] == 2
 
 
-# -----------------------------------------------------------------------
-# select_best_row_by_rule
-# -----------------------------------------------------------------------
-
-
 class TestSelectBestRowByRule:
     def test_max_rule(self, wide_bounds_df):
         row = select_best_row_by_rule(wide_bounds_df, measure="stability", rule="max")
@@ -202,11 +182,6 @@ class TestSelectBestRowByRule:
         assert idx == 0
 
 
-# -----------------------------------------------------------------------
-# select_best_k
-# -----------------------------------------------------------------------
-
-
 class TestSelectBestK:
     def test_basic(self, results_df):
         k = select_best_k(results_df, measure="stability", rule="max")
@@ -216,11 +191,6 @@ class TestSelectBestK:
         for measure in ["stability", "generalizability", "pac", "gini", "ce"]:
             k = select_best_k(results_df, measure=measure, rule="max")
             assert k == 2  # all peak at k=2 in our fixture
-
-
-# -----------------------------------------------------------------------
-# select_best_estimator
-# -----------------------------------------------------------------------
 
 
 class TestSelectBestEstimator:
@@ -252,11 +222,6 @@ class TestSelectBestEstimator:
         empty = results_df.iloc[:0]
         with pytest.raises(ValueError, match="no configurations to select from"):
             select_best_estimator(empty, grids, measure="stability", k=3)
-
-
-# -----------------------------------------------------------------------
-# build_estimator_from_row
-# -----------------------------------------------------------------------
 
 
 class TestBuildEstimatorFromRow:
@@ -293,11 +258,6 @@ class TestBuildEstimatorFromRow:
         assert est.copy is False
 
 
-# -----------------------------------------------------------------------
-# get_estimator_param_names
-# -----------------------------------------------------------------------
-
-
 class TestGetEstimatorParamNames:
     def test_kmeans(self):
         names = get_estimator_param_names(KMeans)
@@ -308,11 +268,6 @@ class TestGetEstimatorParamNames:
         names = get_estimator_param_names(AgglomerativeClustering)
         assert "n_clusters" in names
         assert "linkage" in names
-
-
-# -----------------------------------------------------------------------
-# row_to_estimator_params
-# -----------------------------------------------------------------------
 
 
 class TestRowToEstimatorParams:
@@ -338,11 +293,6 @@ class TestRowToEstimatorParams:
         assert "not_a_param" not in params
 
 
-# -----------------------------------------------------------------------
-# MEASURE_MAP
-# -----------------------------------------------------------------------
-
-
 class TestMeasureMap:
     def test_all_aliases_resolve(self):
         expected_targets = {
@@ -364,11 +314,6 @@ class TestMeasureMap:
         assert MEASURE_MAP["gini"] == "consensus_gini_stability"
         assert MEASURE_MAP["ce"] == "consensus_ce_stability"
         assert MEASURE_MAP["acc"] == "accuracy_generalizability"
-
-
-# -----------------------------------------------------------------------
-# Sweep-axis selection (rank, not k)
-# -----------------------------------------------------------------------
 
 
 class TestSelectionOnResolutionAxis:

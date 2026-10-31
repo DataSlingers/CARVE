@@ -26,11 +26,6 @@ def _as_sparse(X, fmt):
     return getattr(sparse, f"{fmt}_matrix")(X)
 
 
-# -----------------------------------------------------------------------
-# ensure_2d_array: sparse support
-# -----------------------------------------------------------------------
-
-
 class TestEnsure2dArraySparse:
     @pytest.fixture
     def X(self):
@@ -75,11 +70,6 @@ class TestEnsure2dArraySparse:
     def test_error_message_mentions_sparse(self):
         with pytest.raises(ValueError, match="sparse"):
             ensure_2d_array(object())
-
-
-# -----------------------------------------------------------------------
-# get_representation
-# -----------------------------------------------------------------------
 
 
 class TestGetRepresentation:
@@ -146,11 +136,6 @@ class TestGetRepresentation:
             get_representation(adata_three_clusters, use_rep="X_pca", n_pcs=999)
 
 
-# -----------------------------------------------------------------------
-# resolve_basis
-# -----------------------------------------------------------------------
-
-
 class TestResolveBasis:
     @pytest.mark.parametrize("basis", ["umap", "X_umap"])
     def test_prefix_optional(self, adata_three_clusters, basis):
@@ -194,11 +179,6 @@ class TestResolveBasis:
             resolve_basis(adata_three_clusters, "thin")
 
 
-# -----------------------------------------------------------------------
-# Misc helpers
-# -----------------------------------------------------------------------
-
-
 class TestHelpers:
     def test_is_anndata(self, adata_three_clusters):
         assert is_anndata(adata_three_clusters)
@@ -212,11 +192,6 @@ class TestHelpers:
     def test_labels_are_strings(self):
         cat = labels_to_categorical(np.array([0, 1, 1, 0]))
         assert all(isinstance(c, str) for c in cat.categories)
-
-
-# -----------------------------------------------------------------------
-# CARVE.fit accepting AnnData
-# -----------------------------------------------------------------------
 
 
 class TestFitAnnData:
@@ -247,11 +222,6 @@ class TestFitAnnData:
         value = 2 if kwarg == "n_pcs" else "X_pca"
         with pytest.raises(ValueError, match="not valid when X is an array"):
             self._model().fit(X_three_clusters, **{kwarg: value})
-
-
-# -----------------------------------------------------------------------
-# results_to_uns and results_from_uns on the per-pipeline table
-# -----------------------------------------------------------------------
 
 
 class TestPreprocessingTableRoundTrip:

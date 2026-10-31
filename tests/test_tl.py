@@ -1,4 +1,4 @@
-"""Tests for carve.tl -- the AnnData-native entry point."""
+"""Tests for carve.tl, the AnnData-native entry point."""
 
 import inspect
 

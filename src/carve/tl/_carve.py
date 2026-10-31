@@ -23,30 +23,30 @@ _CONSENSUS_WARN_OBS = 10_000
 def carve(
     adata: AnnData,
     *,
-    # --- representation ---
+    # Representation
     use_rep: str | None = None,
     layer: str | None = None,
     n_pcs: int | None = None,
-    # --- sweep axis ---
+    # Sweep axis
     n_clusters: int | Sequence[int] | np.ndarray | None = None,
     resolution: float | Sequence[float] | np.ndarray | None = None,
     sweep: str | None = None,
     sweep_values: Sequence[float] | np.ndarray | None = None,
     finer_is_larger: bool | None = None,
-    # --- resampling ---
+    # Resampling
     n_resamples: int = 100,
     subsample_ratio: float = 0.618,
     anchor_threshold: int = 5000,
     consensus_anchors: int | float | None = None,
     noise_policy: NoisePolicy = "drop",
-    # --- estimators and preprocessing ---
+    # Estimators and preprocessing
     estimator_param_grids: list[GridSpec] | Literal["light", "full"] = "light",
     normalization_options: list[PreprocOption] | None = None,
     dim_reduction_options: list[PreprocOption] | None = None,
     randomize_preprocessing: bool = False,
     classifier: ClassifierMixin | None = None,
     n_trees: int = 100,
-    # --- which configuration is written back ---
+    # Which configuration is written back
     measure: str = "stability",
     rule: str = "1se",
     not_two: bool = False,
@@ -54,11 +54,11 @@ def carve(
     sweep_value: float | None = None,
     consensus_k: int | None = None,
     reference_key: str | None = None,
-    # --- what is written ---
+    # What is written
     key_added: str = "carve",
     store_consensus: bool = True,
     store_results: bool = True,
-    # --- execution ---
+    # Execution
     mode: RunMode = "default",
     n_jobs: int = 1,
     random_state: int | None = 0,
@@ -320,8 +320,8 @@ def attach_results(
 ) -> None:
     """Write a fitted :class:`~carve.CARVE` model into an ``AnnData``.
 
-    Use this when you want to keep the fitted model -- to save it, or to
-    inspect configurations other than the selected one -- while still getting
+    Use this when you want to keep the fitted model (to save it, or to
+    inspect configurations other than the selected one) while still getting
     the same keys :func:`carve` writes.
 
     Parameters
@@ -414,7 +414,7 @@ def attach_results(
 
     # Per-cell diagnostics. Which of these exist depends on `mode`. A skipped
     # analysis leaves either the container itself None or, for the list-valued
-    # ones, a list of None -- both mean "not computed".
+    # ones, a list of None; both mean "not computed".
     for suffix, container in (
         ("stability", model.stability_gini_scores_),
         ("stability_ce", model.stability_ce_scores_),

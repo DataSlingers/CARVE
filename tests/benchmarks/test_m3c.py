@@ -158,7 +158,7 @@ class TestCheckOwnSelection:
     """
 
     def test_silent_when_the_two_selections_agree(self):
-        # Same values, same order -- the case where selected_k really is
+        # Same values, same order: the case where selected_k really is
         # M3C's own optk, so both reads pulled the identical vector.
         partition = np.array([1, 1, 2, 2, 3, 3])
         check_own_selection(partition, partition.copy(), selected_k=3)
@@ -381,8 +381,8 @@ class TestRunOrLoad:
         assert len(calls) == 2
 
     def test_serves_the_cache_when_the_config_matches(self, tmp_path, monkeypatch):
-        # dict(M3C_DEFAULTS) | {"maxK": 4, "cores": 1} -- stub_result's
-        # default config -- is exactly what this call itself would produce,
+        # dict(M3C_DEFAULTS) | {"maxK": 4, "cores": 1}, stub_result's
+        # default config, is exactly what this call itself would produce,
         # so the config guard is a no-op and the cache is served.
         monkeypatch.setattr("benchmarks._m3c.run_m3c", lambda X, **kw: stub_result())
         X = np.arange(18, dtype=float).reshape(6, 3)
@@ -462,8 +462,8 @@ class TestRunOrLoad:
 
     def test_recomputes_when_a_cache_file_is_missing(self, tmp_path, monkeypatch):
         # A process killed mid-write can leave the main parquet in place
-        # while _write_cache's other three files -- the labels parquet, the
-        # JSON sidecar, or the fingerprint sidecar -- never got written.
+        # while _write_cache's other three files (the labels parquet, the
+        # JSON sidecar, or the fingerprint sidecar) never got written.
         calls = []
         monkeypatch.setattr(
             "benchmarks._m3c.run_m3c",

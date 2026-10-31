@@ -57,7 +57,6 @@ Measure = Literal[
 # Accepted selection rule names
 Rule = Literal["max", "1se", "quantile"]
 
-# Handling RunMode
 RunMode = Literal["default", "stability", "generalizability"]
 
 # How to resolve negative ("noise") labels emitted by density-based methods

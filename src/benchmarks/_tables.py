@@ -57,8 +57,8 @@ def _axis_label_order(df: pd.DataFrame) -> list[str]:
 
     Rows are checkpointed one file per (axis_label, seed) and read back by a
     lexical glob (``_artifacts.read_run``), so a table built straight off
-    row order groups columns alphabetically -- "easy, hard, medium" instead
-    of "easy, medium, hard". Each row already carries the numeric
+    row order groups columns alphabetically ("easy, hard, medium" instead
+    of "easy, medium, hard"). Each row already carries the numeric
     ``axis_value`` a Scenario's Axis assigns that label, and every Axis in
     the registry declares its values in the intended reading order, so
     sorting on that numeric column (never on the label string) reproduces
@@ -75,8 +75,8 @@ def _axis_label_order(df: pd.DataFrame) -> list[str]:
 def _baseline_row(df: pd.DataFrame, axis_label: str) -> dict[str, Any]:
     """The Baseline (Oracle) row for one axis label.
 
-    oracle_ari is a per-(axis_label, seed) constant -- the oracle estimator
-    is fit once per cell, not once per metric -- so it is deduplicated by
+    oracle_ari is a per-(axis_label, seed) constant (the oracle estimator
+    is fit once per cell, not once per metric), so it is deduplicated by
     seed here rather than read off the is_selected-filtered rows the other
     metrics use. The oracle has no notion of a selected k, so k-recovery and
     the k-bias columns are left NaN rather than a misleading 0 or 1.
@@ -117,7 +117,7 @@ def summarize(
     other name: it names a schema column (``oracle_ari``), not a value of
     ``metric_name``, so it is never a member of ``present`` and is emitted
     first for each axis label regardless of where it sorts among the
-    others -- matching the published tables, whose first data row is always
+    others, as in the published tables, whose first data row is always
     Baseline (Oracle).
     """
     selected = df.loc[df["is_selected"]].copy()
@@ -493,7 +493,6 @@ def write_tables(
     return path
 
 
-# --- The rho/B ablation tables ----------------------------------------------
 def _fmt(value: float, decimals: int) -> str:
     return "" if pd.isna(value) else f"{value:.{decimals}f}"
 
@@ -660,7 +659,6 @@ def write_ablation_table(
     return paths
 
 
-# --- The case-study comparison tables ---------------------------------------------
 #: Default captions, shared by the notebook and any other caller.
 KLEIN_COMPARISON_CAPTION: str = (
     "Selections and their agreement with the reported time points on the Klein "

@@ -179,11 +179,6 @@ def min_cluster_size_results_df():
     )
 
 
-# -----------------------------------------------------------------------
-# AnnData fixtures
-# -----------------------------------------------------------------------
-
-
 @pytest.fixture
 def adata_three_clusters(X_three_clusters):
     """AnnData with three well-separated clusters, X_pca and X_umap."""

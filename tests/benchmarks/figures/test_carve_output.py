@@ -639,11 +639,8 @@ def _inches(fig, box):
 class TestConsensusPanelAndSpacing:
     """C's colorbar and title, and the space between the panels.
 
-    CARVE's colorbar took a strip at the edge of C's cell, a gap away from
-    the centered square matrix, and its labels widened the gutter between
-    the columns for every row. CARVE's fixed 25-point title pad lifted C's
-    title toward A's axis label, and the shared row spacing that made room
-    for it left the lower rows further apart than they needed.
+    The colorbar sits beside the centered square matrix, C's title clears
+    the cluster band, and the rows are spaced evenly.
     """
 
     def test_colorbar_sits_beside_the_matrix_as_tall_as_it(self, inputs, draw):
@@ -756,8 +753,8 @@ def _scatter_row_gap(fig):
 class TestClusterIdsAgreeWithTheComposite:
     """Fig 3 and Fig 5 must call the same cluster "cluster 1".
 
-    CARVE's plot_* methods take no labels argument -- each resolves its own
-    through get_labels -- so the only hook is get_labels' own relabeling
+    CARVE's plot_* methods take no labels argument (each resolves its own
+    through get_labels), so the only hook is get_labels' own relabeling
     onto reference_labels. These pin that it is actually used, and that the
     fitted object is handed back unchanged.
     """
@@ -780,7 +777,7 @@ class TestClusterIdsAgreeWithTheComposite:
 
     def test_aligned_labels_match_what_the_composite_computed(self, inputs):
         # Inside the context, the labels CARVE's own methods resolve are the
-        # ones _align_to_reference gives the composite -- same relabeling,
+        # ones _align_to_reference gives the composite: same relabeling,
         # so the two figures agree on both color and cluster number.
         carve = inputs.carve
         saved = carve.reference_labels

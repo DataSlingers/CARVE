@@ -277,8 +277,8 @@ class TestRunScenario:
 
     def test_resuming_a_partial_run_keeps_one_run_id(self, tiny_scenario, run_copy):
         """Simulates an interrupted run by deleting one cell's checkpoint
-        after a complete run, then resuming. Every row on disk -- whether
-        recomputed by the resume or left over from the first invocation --
+        after a complete run, then resuming. Every row on disk, whether
+        recomputed by the resume or left over from the first invocation,
         must carry the same run_id the manifest records, not a mix of the
         original invocation's run_id and a freshly minted one.
         """
@@ -369,7 +369,7 @@ class TestRunScenario:
     ):
         """The manifest a resume writes before its pool starts must carry
         the same run_id as the completed run it is resuming, not a freshly
-        minted one -- so a reader that opens the running manifest mid-resume
+        minted one, so a reader that opens the running manifest mid-resume
         gets the same provenance the finished manifest will report.
 
         Deletes one cell checkpoint so the resume has pending work, then
@@ -399,7 +399,7 @@ class TestRunScenario:
         manifest's git_sha is checked.
 
         n_resamples=10: see the comment on
-        test_manifest_is_complete_after_the_pool -- these tests run every
+        test_manifest_is_complete_after_the_pool; these tests run every
         cell to completion rather than mocking the pool.
         """
         rd = run_serial(tiny_scenario, root=tmp_path, n_resamples=10, n_seeds=1)

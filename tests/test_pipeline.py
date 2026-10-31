@@ -23,10 +23,6 @@ from tests._helpers import make_noise_embedding
 
 IDENTITY = PipelineStep(FunctionTransformer, {}, None)
 
-# -----------------------------------------------------------------------
-# PipelineStep and PipelineSpec labels
-# -----------------------------------------------------------------------
-
 
 class TestLabels:
     def test_identity_renders_as_identity(self):
@@ -59,11 +55,6 @@ class TestLabels:
         a = PipelineSpec(IDENTITY, PipelineStep(PCA, {"n_components": 2}, None))
         b = PipelineSpec(IDENTITY, PipelineStep(PCA, {"n_components": 3}, None))
         assert a != b and a.label != b.label
-
-
-# -----------------------------------------------------------------------
-# allocate_pipelines
-# -----------------------------------------------------------------------
 
 
 NORM = [(FunctionTransformer, {}), (StandardScaler, {})]
@@ -151,11 +142,6 @@ class TestAllocatePipelines:
         assert {s.label for s in specs} == {"scaled | pca(n_components=2)"}
 
 
-# -----------------------------------------------------------------------
-# pipeline_from_spec and accepts_random_state
-# -----------------------------------------------------------------------
-
-
 class TestPipelineFromSpec:
     def test_builds_a_two_step_pipeline(self):
         spec = PipelineSpec(
@@ -204,11 +190,6 @@ class TestPipelineFromSpec:
         assert accepts_random_state(TSNE)
         assert not accepts_random_state(StandardScaler)
         assert not accepts_random_state(FunctionTransformer)
-
-
-# -----------------------------------------------------------------------
-# option_label and _parse_option
-# -----------------------------------------------------------------------
 
 
 class TestOptionLabel:

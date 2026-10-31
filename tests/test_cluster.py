@@ -28,11 +28,6 @@ def X_blobs():
     )
 
 
-# -----------------------------------------------------------------------
-# Interface
-# -----------------------------------------------------------------------
-
-
 class TestInterface:
     def test_is_sklearn_estimator(self):
         est = SpectralClustering()
@@ -56,11 +51,6 @@ class TestInterface:
         assert est.affinity == "self_tuning"
         assert est.n_neighbors == 7
         assert est.scale is True
-
-
-# -----------------------------------------------------------------------
-# fit / fit_predict
-# -----------------------------------------------------------------------
 
 
 class TestFitPredict:
@@ -123,11 +113,6 @@ class TestFitPredict:
         np.testing.assert_array_equal(labels_no_y, labels_with_y)
 
 
-# -----------------------------------------------------------------------
-# Affinities
-# -----------------------------------------------------------------------
-
-
 class TestAffinities:
     def test_rbf_affinity(self, X_blobs):
         est = SpectralClustering(n_clusters=3, affinity="rbf", random_state=0)
@@ -168,11 +153,6 @@ class TestAffinities:
         est = SpectralClustering(n_clusters=3, scale=False, random_state=0)
         est.fit(X_blobs)
         assert est.labels_.shape == (90,)
-
-
-# -----------------------------------------------------------------------
-# k-NN gamma heuristic
-# -----------------------------------------------------------------------
 
 
 class TestKnnGammaHeuristic:
@@ -222,11 +202,6 @@ class TestKnnGammaHeuristic:
         )
         est.fit(X_blobs)
         assert est.gamma_ is None
-
-
-# -----------------------------------------------------------------------
-# Non-convex clusters
-# -----------------------------------------------------------------------
 
 
 class TestNonConvex:
@@ -334,11 +309,6 @@ class TestNonConvex:
             np.testing.assert_array_equal(first, repeat)
 
 
-# -----------------------------------------------------------------------
-# build_knn_graph
-# -----------------------------------------------------------------------
-
-
 @pytest.mark.requires_graph
 class TestBuildKnnGraph:
     def test_vertex_count(self, X_blobs):
@@ -377,11 +347,6 @@ class TestBuildKnnGraph:
         few = build_knn_graph(X_blobs, n_neighbors=5).ecount()
         many = build_knn_graph(X_blobs, n_neighbors=20).ecount()
         assert many > few
-
-
-# -----------------------------------------------------------------------
-# LeidenClustering
-# -----------------------------------------------------------------------
 
 
 @pytest.mark.requires_graph
@@ -472,11 +437,6 @@ class TestLeidenClustering:
             est.fit_predict(X_blobs, np.zeros(X_blobs.shape[0])),
             est.fit_predict(X_blobs),
         )
-
-
-# -----------------------------------------------------------------------
-# LouvainClustering
-# -----------------------------------------------------------------------
 
 
 @pytest.mark.requires_graph
