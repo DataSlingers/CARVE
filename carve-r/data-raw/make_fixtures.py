@@ -341,8 +341,7 @@ def kmeans():
 
 
 def agglomerative():
-    # This seed gives four pairwise different partitions, one per linkage, so
-    # swapping or misnaming a linkage in the R port changes the result.
+    # This seed gives four pairwise different partitions, one per linkage.
     X, _ = make_blobs(n_samples=40, centers=4, cluster_std=2.0, random_state=11)
     labels = {
         linkage: AgglomerativeClustering(n_clusters=4, linkage=linkage).fit_predict(X)
@@ -473,7 +472,7 @@ def hdbscan():
     # Two close groups and a far one. On these data scikit-learn's eom and
     # leaf selections differ. On these data dbscan::hdbscan() orders its tied
     # merges as scikit-learn does, so the package's labels match both
-    # selections (checked with dbscan 1.2.7 when this fixture was written).
+    # selections (dbscan 1.2.7).
     # Other data can differ where distances tie; the HDBSCAN help page
     # explains why.
     X, _ = make_blobs(
