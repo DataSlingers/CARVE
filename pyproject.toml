@@ -122,6 +122,9 @@ filterwarnings = [
   # joblib.numpy_pickle sets .shape on arrays, deprecated in NumPy 2.5.
   # Hit by CARVE.save and CARVE.load. Drop once joblib stops doing it.
   "ignore:Setting the shape on a NumPy array:DeprecationWarning:joblib",
+  # anndata reads two pandas options that pandas 3.1 deprecates. Drop once
+  # anndata stops reading them.
+  "ignore:The '(future.infer_string|mode.chained_assignment)' option is deprecated:DeprecationWarning",
 ]
 markers = [
   "requires_graph: needs the [graph] extra (igraph + leidenalg); skipped without it",
