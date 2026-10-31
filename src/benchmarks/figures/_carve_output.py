@@ -13,7 +13,7 @@ selection, or reimplement any encoding CARVE's own plotting functions already
 provide.
 
 All four case studies draw through _draw_six_panels: Klein (Fig 3), Levine
-(S8 Fig), Cusanovich and hECA. hECA's figure shows a caller-chosen
+(S10 Fig), Cusanovich and hECA. hECA's figure shows a caller-chosen
 resolution rather than the rule's selection, and its two scatters draw a
 subsample, which CARVE's public scatter methods do not take; for those it
 resolves the configuration through CARVE's _select_row, as the methods do,
@@ -612,7 +612,7 @@ def carve_output_figure(
     save: bool = True,
     out_dir: Path | None = None,
 ) -> Figure:
-    """Draw the six panels for a case study with a composite (Fig 3 / S8 Fig).
+    """Draw the six panels for a case study with a composite (Fig 3 and S10 Fig).
 
     C to E take the composite's colors (carve_output_cmap), and CARVE's own
     methods draw while its labels are aligned to the reported ones, so a
@@ -665,7 +665,7 @@ def figure_carve_output_klein(
 def figure_carve_output_levine(
     inputs: CompositeInputs, *, save: bool = True, out_dir: Path | None = None
 ) -> Figure:
-    """Build S8 Fig: CARVE output on the Levine mass cytometry case study.
+    """Build S10 Fig: CARVE output on the Levine mass cytometry case study.
 
     Panel F's outlines are a quarter of CARVE's default width: over 5,000
     cells the default black outlines covered the color of the unstable

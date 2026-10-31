@@ -95,7 +95,7 @@ class ResampleResult(NamedTuple):
     n_clusters_stability : int
         Number of non-noise clusters found on the second subsample.
     noise_fraction : float
-        Fraction of training-subsample points labelled as noise before the
+        Fraction of training-subsample points labeled as noise before the
         noise policy was applied.
     """
 

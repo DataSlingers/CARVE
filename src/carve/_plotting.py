@@ -1453,7 +1453,8 @@ def plot_cluster_scatter(
         size_vals = np.full(scores.shape[0], np.mean(size_range), dtype=float)
     else:
         norm = (scores - lo_score) / (hi_score - lo_score)
-        # norm~0 (unstable) → size_lo (large), norm~1 (stable) → size_hi (small)
+        # norm near 0 (unstable) gives size_lo (large), near 1 (stable) size_hi
+        # (small).
         size_vals = size_lo + norm * (size_hi - size_lo)
 
     uniq = np.unique(labels)
@@ -1472,7 +1473,8 @@ def plot_cluster_scatter(
         sample_alpha = np.full(scores.shape[0], np.mean(alpha_range), dtype=float)
     else:
         norm = (scores - lo_score) / (hi_score - lo_score)
-        # Low score (norm~0) → alpha_lo (opaque), high score (norm~1) → alpha_hi (faint)
+        # A low score (norm near 0) gives alpha_lo (opaque), a high score
+        # (norm near 1) alpha_hi (faint).
         sample_alpha = alpha_lo + norm * (alpha_hi - alpha_lo)
 
     label_to_idx = {lab: i for i, lab in enumerate(uniq)}

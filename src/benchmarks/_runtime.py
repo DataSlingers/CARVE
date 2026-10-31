@@ -612,7 +612,7 @@ def _cells(n: int) -> str:
 def runtime_ladder_latex(
     frame: pd.DataFrame, *, n_resamples: int = PROJECTED_RESAMPLES
 ) -> str:
-    """The ladder as a booktabs tabular, the layout of S17 Table."""
+    """The ladder as a booktabs tabular, the layout of S14 Table."""
     table = runtime_ladder_table(frame, n_resamples=n_resamples)
     clustering = str(frame["estimator"].iloc[0]).capitalize()
     lines = [
@@ -710,7 +710,7 @@ def runtime_parallel_table(frame: pd.DataFrame) -> pd.DataFrame:
 def save_runtime_tables(
     frame: pd.DataFrame, out_dir: Path, *, prefix: str
 ) -> list[Path]:
-    """Write the rows as CSV and the ladder as the S17 Table tabular."""
+    """Write the rows as CSV and the ladder as the S14 Table tabular."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     rows_path = out_dir / f"{prefix}_runtime.csv"

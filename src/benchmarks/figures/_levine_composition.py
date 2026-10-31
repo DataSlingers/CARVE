@@ -3,8 +3,8 @@
 Panel A shows, for CARVE's selected partition and the CVI-selected one, how
 each cluster's cells divide among the 14 gated populations. Panel B shows the
 median expression of the 32 type markers for the gated populations and for
-both partitions' clusters. Rows carry the colors S7 Fig's scatters use, and
-CARVE's rows the cluster numbers S8 Fig prints.
+both partitions' clusters. Rows carry the colors S9 Fig's scatters use, and
+CARVE's rows the cluster numbers S10 Fig prints.
 
 The numbers are computed apart from the drawing. composition_tables and
 marker_table return what the two panels draw, with rows named as drawn, so

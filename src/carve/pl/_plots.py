@@ -806,7 +806,7 @@ def cluster_scatter(
     save: str | Path | None = None,
     dpi: int = 300,
 ) -> Axes | None:
-    """Embedding scatter coloured by cluster, with score encoded as size and alpha.
+    """Embedding scatter colored by cluster, with score encoded as size and alpha.
 
     Parameters
     ----------
@@ -923,7 +923,7 @@ def diagnostic_scatter(
     save: str | Path | None = None,
     dpi: int = 300,
 ) -> Axes | None:
-    """Embedding scatter coloured by diagnostic score, with clusters as markers.
+    """Embedding scatter colored by diagnostic score, with clusters as markers.
 
     Parameters
     ----------
