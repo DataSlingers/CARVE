@@ -227,10 +227,9 @@ def embed_resample(
     X_2 = X_test = None
 
     with warnings.catch_warnings():
-        # umap-learn warns on every seeded fit that the seed disables its own
-        # parallelism. CARVE seeds every transformer so the fit is
-        # reproducible and parallelizes over resamples instead, so the warning
-        # carries nothing here, and under warnings-as-errors it aborts the fit.
+        # umap-learn warns on every seeded fit that seeding disables its
+        # parallelism. CARVE seeds every transformer and parallelizes over
+        # resamples, so the warning is expected.
         warnings.filterwarnings(
             "ignore",
             message=r"n_jobs value .* overridden to 1 by setting random_state",
@@ -432,8 +431,6 @@ def run_validation(
     )
 
     # --- Randomized preprocessing: allocate, then embed once per resample ---
-    # Nothing here is per configuration, so the config_id alignment fit()
-    # asserts is untouched.
     embeddings: list[ResampleEmbeddings] | None = None
     if randomize_preprocessing:
         pipelines = allocate_pipelines(
@@ -537,8 +534,7 @@ def run_validation(
                     )
 
                 # --- Per-sample stability scores, always full length ---
-                # (pac is not: it comes straight from M, which under
-                # anchoring is the m-by-m anchor block, not n-by-n.)
+                # pac comes from M, which under anchoring is the anchor block.
                 if not policy.run_stability:
                     summary = None
                 else:
@@ -745,9 +741,7 @@ def validation_iter(
 
     # --- Features to cluster ---
     # Raw slices without randomization; with it, the resample's precomputed
-    # embeddings, one independent fit per subsample. After clustering the
-    # embeddings are not used again, so the noise policy's index shrinkage
-    # below needs no re-slicing of them.
+    # embeddings, one independent fit per subsample.
     if embeddings is None:
         spec = None
         X_1 = X[P_1_idx]
@@ -781,8 +775,8 @@ def validation_iter(
 
     # --- Resolve noise labels (density-based methods emit -1) ---
     #
-    # Under "drop" policy, index arrays shrink. The classifier below reads
-    # raw features by these global indices, so nothing needs re-slicing.
+    # Under "drop" the index arrays shrink with the labels. The classifier
+    # below reads raw features through these indices.
     P_1_idx, labels_1, noise_fraction = apply_noise_policy(
         P_1_idx, labels_1, noise_policy
     )
@@ -829,10 +823,9 @@ def validation_iter(
     )
 
     # --- Generalizability ARI (RF prediction on held-out set) ---
-    # The classifier trains on raw features, not on the embedding the labels
-    # came from: a cluster generalizes only if it can be learned from the
-    # data, and a transformer without transform (t-SNE) could not embed
-    # unseen rows anyway. Under identity preprocessing these equal X_1, X_test.
+    # The classifier trains on raw features: a cluster generalizes only if it
+    # can be learned from the data, and t-SNE cannot embed unseen rows. Under
+    # identity preprocessing these equal X_1 and X_test.
     labels_pred, ari_pred = _compute_generalizability_ari(
         policy=policy,
         X_1=X[P_1_idx],

@@ -308,11 +308,9 @@ def _default_anchor_chunk_size(m: int) -> int:
     """Default row chunk size for stability_from_runs_anchored.
 
     probs, term, clipped and entropy are each (chunk_size, m) float64 and
-    live at once: at a flat 8192 rows and m = 5000 that is 1.3 GB, or about
-    1.6 GB with the two float32 count arrays beside them. Capping at 2**23
-    elements holds each near 64 MB. The 8192 ceiling keeps the row-side
-    arrays, which are sized by the run count rather than by m, no larger
-    than they were before.
+    live at once; at 8192 rows and m = 5000 that is 1.3 GB. Capping
+    chunk_size * m at 2**23 elements keeps each near 64 MB. The 8192 ceiling
+    bounds the row-side arrays, which scale with the run count.
     """
     return max(256, min(8192, 2**23 // max(m, 1)))
 
@@ -334,12 +332,9 @@ def stability_from_runs_anchored(
     The n-by-m slab is never materialized: rows are processed in chunks and
     reduced to the two score vectors immediately.
 
-    A fixed row count would still let the transient grow with the anchor
-    count, because each chunk holds several float64 arrays of shape
-    (chunk_size, m). The default row count is therefore chosen against m so
-    that the transient stays roughly constant instead. An explicitly passed
-    ``chunk_size`` is honored exactly as given, and the result does not
-    depend on it either way.
+    The default ``chunk_size`` shrinks as m grows, so the working memory
+    stays roughly constant. An explicit ``chunk_size`` is used as given. The
+    result does not depend on it.
     """
     Sa, Ba, columns, pos = _anchor_factors(n_samples, runs, anchors)
     n_runs = Sa.shape[1]
@@ -378,9 +373,8 @@ def stability_from_runs_anchored(
             probs = np.asarray(co_cluster / co_sample, dtype=float)
         probs[co_sample == 0] = np.nan
 
-        # Blank each row's self-pair, mirroring the fill_diagonal in
-        # stability_from_consensus. A sample that is itself an anchor must not
-        # contribute its own perfect self-similarity to its own score.
+        # An anchor's pair with itself does not count toward its score, as
+        # with fill_diagonal in stability_from_consensus.
         self_pos = pos[lo:hi]
         is_anchor = self_pos >= 0
         probs[np.nonzero(is_anchor)[0], self_pos[is_anchor]] = np.nan

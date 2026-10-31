@@ -481,10 +481,9 @@ def _selected_row_for(
 
     CARVE's selection over ``estimator_df``, which pools every pipeline, when
     it lands on ``method_id``; otherwise the rule's choice among
-    ``method_id``'s rows. Restricting to ``method_id`` first would not do for
-    the selected configuration: under ``"1se"`` and ``"quantile"`` the
-    tolerance comes from the best row of the whole table, which can belong to
-    another configuration.
+    ``method_id``'s rows. The selection runs over the whole table because
+    under ``"1se"`` and ``"quantile"`` the tolerance comes from its best row,
+    which can belong to another configuration.
     """
     row = select_best_row_by_rule(
         estimator_df, measure=measure, rule=rule, not_two=not_two
@@ -498,9 +497,8 @@ def _selected_row_for(
 def _measure_column(results_df: pd.DataFrame, measure: str) -> str:
     """Return the results column behind ``measure``.
 
-    Plots call this before drawing. An unknown measure would otherwise make
-    the selection raise inside the ``try`` around the dashed line, and the
-    line would be left off without an error.
+    Plots call this before drawing, so an unknown measure raises here
+    instead of inside the ``try`` around the dashed line.
 
     Raises
     ------

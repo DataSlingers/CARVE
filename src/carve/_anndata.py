@@ -2,33 +2,22 @@
 
 This module owns every detail of moving data in and out of an ``AnnData``:
 choosing which representation to cluster, and writing fitted results back in a
-form that survives :meth:`~anndata.AnnData.write_h5ad`. It deliberately imports
-nothing from :mod:`carve.api`, so ``api`` can depend on it without a cycle.
+form that survives :meth:`~anndata.AnnData.write_h5ad`. It imports nothing
+from :mod:`carve.api`, so ``api`` can import it without a cycle.
 
 Notes
 -----
-The sanitising in :func:`results_to_uns` is load-bearing, and the reason is
-easy to miss because it is pandas-version dependent.
-
-A heterogeneous estimator grid -- say KMeans, which has no ``linkage``,
-alongside agglomerative clustering, which has no ``affinity`` -- makes
-``DataFrame.from_records`` fill the gaps with ``NaN``. Under **pandas 2.3**
-(the effective floor, since anndata 0.13 requires pandas >= 2.3) those columns
-land in ``object`` dtype holding a mix of ``str`` and ``float('nan')``. anndata
-routes object arrays through its variable-length string writer, which calls
-``astype(h5py.special_dtype(vlen=str))`` and raises::
+:func:`results_to_uns` coerces every non-numeric column to ``str``. A
+heterogeneous estimator grid, such as KMeans (no ``linkage``) next to
+agglomerative clustering (no ``affinity``), makes ``DataFrame.from_records``
+fill the gaps with ``NaN``. Under pandas 2.3, the oldest version anndata 0.13
+supports, those columns are ``object`` dtype mixing ``str`` and
+``float('nan')``, and anndata's variable-length string writer raises::
 
     TypeError: Can't implicitly convert non-string objects to strings
 
-Under **pandas 3.0** the same frame lands in the new ``str`` dtype and writes
-without complaint, so the failure is invisible on a modern stack. Verified
-against anndata 0.13.2 on both. Coercing non-numeric columns to pure ``str``
-fixes the write on the older stack and, on both, keeps ``float('nan')`` out of
-columns that are rendered into plot labels.
-
-Keys whose value is ``None`` are dropped from ``params`` rather than stored.
-anndata does accept ``None`` in ``.uns``, so this is tidiness rather than
-necessity: it keeps the persisted record to keys that carry information.
+pandas 3.0 stores the same columns in its ``str`` dtype and writes them. The
+coercion also keeps ``NaN`` out of columns that end up in plot labels.
 """
 
 import warnings
@@ -81,9 +70,8 @@ def get_representation(
 ) -> np.ndarray:
     """Select the matrix CARVE should cluster.
 
-    Mirrors scanpy's representation handling, with one deliberate difference:
-    it never computes a PCA on the caller's behalf. Silently reducing the data
-    would change what is being validated without the caller asking.
+    Follows scanpy's representation handling, except that it never computes
+    a PCA: reducing the data would change what is being validated.
 
     Parameters
     ----------
@@ -255,8 +243,7 @@ def _to_python_scalar(value: Any) -> Any:
 def params_to_uns(params: dict[str, Any]) -> dict[str, Any]:
     """Coerce a parameter mapping into an h5ad-writable ``uns`` dict.
 
-    Keys whose value is None are dropped rather than stored, so the persisted
-    record carries only parameters that were actually set.
+    Keys whose value is None are dropped.
 
     Parameters
     ----------
@@ -308,12 +295,10 @@ def results_to_uns(df: pd.DataFrame) -> pd.DataFrame:
     Numeric and boolean columns pass through untouched. Every other column is
     coerced to pure ``str``: heterogeneous estimator grids leave columns mixing
     ``str`` with ``float('nan')``, which anndata's variable-length string
-    writer rejects with ``TypeError`` under pandas 2.3. See the module
-    docstring for why this does not reproduce under pandas 3.
-
-    Strings are used rather than categoricals deliberately. A categorical
-    ``method_id`` would make the plotting layer's ``groupby`` emit empty groups
-    for unused categories, which then index out of bounds.
+    writer rejects with ``TypeError`` under pandas 2.3 (see the module notes).
+    The columns stay plain strings because ``groupby`` on a categorical
+    ``method_id`` yields empty groups for unused categories, which the
+    plotting layer cannot index.
 
     Parameters
     ----------

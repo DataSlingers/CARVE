@@ -1,10 +1,8 @@
 """Sweep-axis abstraction for CARVE.
 
 CARVE evaluates clustering robustness along a one-dimensional axis of
-increasing granularity. Historically that axis was always ``n_clusters``.
-This module generalizes it so that resolution-style parameters (Leiden and
-Louvain ``resolution``, HDBSCAN ``min_cluster_size``) drive the same
-machinery.
+increasing granularity: ``n_clusters``, or a resolution-style parameter
+(Leiden and Louvain ``resolution``, HDBSCAN ``min_cluster_size``).
 
 A run uses exactly one sweep parameter. Comparing k-based estimators with
 resolution-based estimators inside a single run is not supported: their
@@ -76,7 +74,7 @@ class SweepSpec:
 
     @property
     def is_k_mode(self) -> bool:
-        """Whether this run sweeps ``n_clusters`` (original mode)."""
+        """Whether this run sweeps ``n_clusters``."""
         return self.param == "n_clusters"
 
     def ranks(self) -> np.ndarray:

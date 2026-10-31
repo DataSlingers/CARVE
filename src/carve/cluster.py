@@ -284,8 +284,7 @@ class SpectralClustering(BaseEstimator, ClusterMixin):
             except RuntimeError:
                 # sigma=0 factors L_sym itself, whose smallest eigenvalue is
                 # exactly 0, so the LU can hit an exact zero pivot ("Factor
-                # is exactly singular"). The R port falls back to dense on
-                # any solver error; so does this.
+                # is exactly singular").
                 vals, vecs = self._dense_eigh(Lsym, k)
 
         # Sort by eigenvalue

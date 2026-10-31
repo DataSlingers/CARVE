@@ -1,15 +1,13 @@
 """Plotting wrappers that read CARVE results out of an :class:`~anndata.AnnData`.
 
 Each function mirrors one method on :class:`~carve.CARVE`, but sources its
-inputs from the keys :func:`carve.tl.carve` wrote rather than from a fitted
-model. The fitted model is deliberately not retained by ``tl.carve`` -- it
-cannot be stored in ``.uns`` and survive an h5ad round trip -- so these
-functions reconstruct only what the plots actually need: the per-cell scores in
-``.obs``, the consensus matrix in ``.obsp``, and the metrics table in ``.uns``.
+inputs from the keys :func:`carve.tl.carve` wrote. ``tl.carve`` does not keep
+the fitted model, which cannot be stored in ``.uns``, so these functions read
+what the plots need: the per-cell scores in ``.obs``, the consensus matrix in
+``.obsp``, and the metrics table in ``.uns``.
 
-No model selection is re-run here. The score columns in ``.obs`` belong to the
-configuration chosen when ``tl.carve`` ran, so re-selecting would silently pair
-one configuration's labels with another's scores.
+No model selection is re-run here: the score columns in ``.obs`` belong to the
+configuration chosen when ``tl.carve`` ran.
 """
 
 import warnings

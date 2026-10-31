@@ -139,14 +139,9 @@ def resolve_mode(mode: RunMode) -> ModePolicy:
 class ConsensusSummary:
     """Per-configuration stability quantities derived from the consensus.
 
-    Carried out of the runner rather than recomputed in api.fit, because
-    under anchoring the stored consensus matrix is an m-by-m block while
-    these score vectors are full length, and the runner is the only place
-    that still holds the per-resample runs they are derived from.
-
-    gini and ce are always full sample length; pac is not, since it is
-    computed directly from the consensus matrix, which under anchoring is
-    the m-by-m anchor block rather than the full n-by-n matrix.
+    Computed in the runner, the only place that still holds the per-resample
+    runs. gini and ce are full sample length. pac comes from the stored
+    consensus matrix, which under anchoring is the m-by-m anchor block.
     """
 
     gini: np.ndarray

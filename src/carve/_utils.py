@@ -578,10 +578,9 @@ def ensure_2d_array(
 ) -> np.ndarray:
     """Ensure input is a 2D NumPy array.
 
-    Sparse input is densified rather than passed through. Several estimators
-    on the default grid (agglomerative clustering, t-SNE, and the RBF affinity
-    of :class:`~carve.SpectralClustering`) require dense input, so keeping the
-    matrix sparse would only move the failure into a parallel worker.
+    Sparse input is densified. Several estimators on the default grid
+    (agglomerative clustering, t-SNE, and the RBF affinity of
+    :class:`~carve.SpectralClustering`) require dense input.
 
     Parameters
     ----------
@@ -643,8 +642,8 @@ def resolve_core_budget(n_jobs: int | None, *, n_resamples: int) -> tuple[int, i
     ones that run. Each worker's classifier gets the cores left over,
     ``cpu_count // workers``, never fewer than one.
 
-    ``n_jobs=1`` therefore keeps the historical default: one worker with the
-    forest on every core. ``n_jobs=-1`` is the other end, one resample per
+    ``n_jobs=1`` gives one worker with the forest on every core.
+    ``n_jobs=-1`` is the other end, one resample per
     core with single-threaded forests. In between, the product of the two
     never exceeds the machine when the workers fit on it.
 
@@ -745,14 +744,11 @@ def resolve_anchors(
     """Resolve the consensus anchor index for a run.
 
     Returns None when the exact path applies, meaning the consensus matrix is
-    built over every sample as it always has been. Otherwise returns a sorted
-    array of anchor indices.
+    built over every sample. Otherwise returns a sorted array of anchor
+    indices.
 
-    The default resolves to ``min(n_samples, anchor_threshold)``. A flat
-    default would make the effective anchor count fall discontinuously as
-    n crosses the threshold -- 5,000 anchors at n=5,000 and 2,000 at
-    n=5,001 -- which is an artificial jump in estimator variance at exactly
-    the boundary users cross.
+    The default resolves to ``min(n_samples, anchor_threshold)``, so the
+    anchor count does not drop when ``n_samples`` crosses the threshold.
 
     Parameters
     ----------
@@ -787,8 +783,8 @@ def resolve_anchors(
     else:
         m = int(consensus_anchors)
 
-    # The exact-path return comes first: at n_samples < 2 the default resolves
-    # to m = n_samples, and a run that small is simply exact, not misconfigured.
+    # Checked before m < 2: at n_samples < 2 the default resolves to
+    # m = n_samples, which is the exact path.
     if m >= n_samples:
         return None
 

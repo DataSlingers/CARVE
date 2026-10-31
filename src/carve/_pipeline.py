@@ -240,8 +240,8 @@ def accepts_random_state(cls: Any) -> bool:
 def _instantiate(step: PipelineStep, random_state: int) -> TransformerMixin:
     params = dict(step.params)
     if accepts_random_state(step.cls):
-        # CARVE's derived seed wins over one sampled from a user grid, so the
-        # per-subset seeding of spec 4.3 holds for every transformer.
+        # CARVE's derived seed overrides one sampled from a user grid, so every
+        # transformer is seeded per subset.
         params["random_state"] = int(random_state)
     return step.cls(**params)
 

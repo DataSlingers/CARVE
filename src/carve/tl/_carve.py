@@ -260,9 +260,8 @@ def carve(
         "random_state": random_state,
         "verbose": verbose,
     }
-    # CARVE defaults n_clusters via default_factory, so only pass it through
-    # when the caller asked for it -- otherwise a resolution sweep would
-    # collide with a k grid nobody requested.
+    # Passed only when given; CARVE's own n_clusters default would collide
+    # with a resolution sweep.
     if n_clusters is not None:
         model_kwargs["n_clusters"] = (
             n_clusters if isinstance(n_clusters, int) else np.asarray(list(n_clusters))

@@ -234,10 +234,8 @@ class CARVE(BaseEstimator):
 
     Under ``fit(randomize_preprocessing=True)`` each resample's pipeline is
     fit separately on each subsample, and the generalizability classifier
-    trains on raw features. The S1 Text submitted with the manuscript
-    describes an earlier version that fit the pipeline once on all of X and
-    trained the classifier on the embedding, and names the per-pipeline
-    table ``pipeline_df_``; the table is ``preprocessing_results_``.
+    trains on raw features. The per-pipeline results are in
+    ``preprocessing_results_``.
 
     An estimator's ``n_neighbors`` (self-tuning spectral clustering, Leiden,
     Louvain) is read as a count at the density of the full data. Each
@@ -295,10 +293,9 @@ class CARVE(BaseEstimator):
     verbose: int = 0
 
     # --- Fitted attributes (set by fit()) ---
-    # The seed fit() actually ran with, after the per-call random_state=
-    # override and the "0 if None" fallback the runner and the anchor draw
-    # both apply. Stored so post-fit work reproduces the run's seeding instead
-    # of re-reading self.random_state, which a per-call override never writes.
+    # The seed fit() ran with: the per-call random_state, else
+    # self.random_state, else 0. Post-fit work reads this one, because a
+    # per-call override does not write self.random_state.
     _random_state_: int = field(init=False, default=0)
     estimator_results_: pd.DataFrame | None = field(init=False, default=None)
     estimator_param_grids_: list[GridSpec] | None = field(init=False, default=None)
@@ -468,8 +465,7 @@ class CARVE(BaseEstimator):
             random_state=self._random_state_,
         )
         if self.consensus_anchors_ is not None:
-            # resolve_anchors ignores anchor_threshold once consensus_anchors
-            # is given, so naming the threshold in that case would be false.
+            # anchor_threshold plays no part once consensus_anchors is given.
             if self.consensus_anchors is None:
                 reason = (
                     f"n={X.shape[0]} exceeds anchor_threshold={self.anchor_threshold}"
@@ -1013,8 +1009,8 @@ class CARVE(BaseEstimator):
         else:
             labels = align_cluster_labels(ref, labels)
 
-        # np.array, not np.asarray: when no alignment ran, reference_labels is
-        # the same array, and the noise below must not reach it.
+        # np.array copies: without alignment, labels can be reference_labels
+        # itself, and the noise labels set below must not modify it.
         labels = np.array(labels, dtype=np.int32)
         if noise_cut is None:
             return labels
@@ -1067,10 +1063,8 @@ class CARVE(BaseEstimator):
             labels[rest] = anchor_labels[0]
             return labels
 
-        # Same factory _runner.py's generalizability path calls, so the
-        # extension and the per-resample prediction cannot drift apart. This
-        # is one fit outside the resample loop, so it gets the whole budget
-        # fit() spread over its workers rather than one worker's share.
+        # The classifier _runner uses for generalizability. This single fit
+        # gets the whole core budget.
         outer_n_jobs, classifier_n_jobs = resolve_core_budget(
             self.n_jobs, n_resamples=self.n_resamples
         )
