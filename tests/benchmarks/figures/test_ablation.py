@@ -25,7 +25,6 @@ from benchmarks._ablation_summary import (
 )
 from benchmarks._registry import ABLATIONS, METRIC_DISPLAY_NAMES
 from benchmarks._theme import (
-    FALLBACK_COLOR,
     PRINT_MAX_HEIGHT_IN,
     PRINT_WIDTH_IN,
     metric_color,

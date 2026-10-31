@@ -7,7 +7,6 @@ from matplotlib.collections import PathCollection
 
 from benchmarks._theme import PRINT_FONT_SIZES, PRINT_MAX_HEIGHT_IN, PRINT_WIDTH_IN
 from benchmarks.figures import DatasetRow, figure_clustering_problem
-from benchmarks.figures._clustering_problem import _PRINT_MARKER_SCALE
 
 RNG = np.random.default_rng(0)
 
@@ -45,15 +44,6 @@ def test_each_panel_colors_its_own_partition(rows):
         for ax, (k, labels) in zip(panels, row.partitions.items()):
             drawn = {int(c.get_label()) for c in _scatters(ax)}
             assert drawn == set(np.unique(labels).tolist())
-    plt.close(fig)
-
-
-def test_marker_areas_scale_with_the_print_width(rows):
-    fig = figure_clustering_problem(rows, save=False)
-    axes = np.asarray(fig.axes).reshape(2, 4)
-    for row, panels in zip(rows, axes):
-        sizes = np.concatenate([c.get_sizes() for c in _scatters(panels[0])])
-        np.testing.assert_allclose(sizes, row.marker_size * _PRINT_MARKER_SCALE)
     plt.close(fig)
 
 

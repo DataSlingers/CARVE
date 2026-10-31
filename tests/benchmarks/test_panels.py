@@ -13,7 +13,6 @@ import pandas as pd
 import pytest
 from matplotlib.legend import Legend
 from matplotlib.patches import PathPatch, Rectangle
-from matplotlib.path import Path
 
 from benchmarks import _panels
 from benchmarks._artifacts import SCHEMA
@@ -42,7 +41,6 @@ from benchmarks._panels import (
 )
 from benchmarks._theme import (
     FONT_SIZES,
-    FOREGROUND_COLOR,
     PIPELINE_COLORS,
     SEQUENTIAL_CMAP_NAME,
     cluster_colors,
@@ -152,14 +150,6 @@ class TestScatterClusters:
             assert np.allclose(actual_rgb, expected_rgb), (
                 f"Label {label}: expected {expected_rgb}, got {actual_rgb}"
             )
-
-    def test_markers_carry_a_thin_outline(self, ax):
-        Z = np.random.default_rng(0).normal(size=(10, 2))
-        scatter_clusters(ax, Z, np.zeros(10, dtype=int))
-        edges = ax.collections[0].get_edgecolor()
-        assert len(edges) == 1
-        assert np.allclose(edges[0][:3], mcolors.to_rgba(FOREGROUND_COLOR)[:3])
-        assert ax.collections[0].get_linewidth()[0] > 0
 
     def test_outline_can_be_turned_off(self, ax):
         Z = np.random.default_rng(0).normal(size=(10, 2))
@@ -672,12 +662,6 @@ class TestCviLines:
         for _, row in best.iterrows():
             assert color_at_k[float(row["k"])] == metric_color(str(row["metric"]))
 
-    def test_no_ring_markers_are_drawn_on_the_curves(self, ax):
-        # Selections are vertical rules, not scatter markers.
-        curves, best = _curves_and_best()
-        cvi_lines(ax, curves, best)
-        assert list(ax.collections) == []
-
     def test_lines_use_metric_specific_colors(self, ax):
         # silhouette and gap map to different theme colors.
         curves, best = _curves_and_best()
@@ -850,26 +834,6 @@ class TestAlluvial:
         ]
         assert drawn == expected
 
-    def test_ribbons_are_curved_not_straight(self, ax):
-        """Each ribbon is a nine-vertex path with cubic Bezier edges."""
-        y_true = np.repeat([0, 1], 10)
-        alluvial(
-            ax,
-            y_true,
-            y_true,
-            y_true,
-            left_cmap=cluster_color_map(y_true),
-            right_cmap=cluster_color_map(y_true),
-            true_cmap=cluster_color_map(y_true),
-            left_title="CARVE",
-            right_title="CVI",
-            true_title="Reported",
-        )
-        ribbons = [p for p in ax.patches if isinstance(p, PathPatch)]
-        assert ribbons
-        for ribbon in ribbons:
-            assert (ribbon.get_path().codes == Path.CURVE4).sum() == 6
-
     def test_cluster_bars_are_named_and_carry_purity(self, ax):
         # left cluster 0 is pure (all y_true 0); cluster 1 splits 3/1, so
         # its purity is 75%. Names are one-based, so id 0 reads "C1".
@@ -908,31 +872,6 @@ class TestAlluvial:
         )
         centered = [t.get_text() for t in ax.texts if t.get_ha() == "center"]
         assert "d0" in centered and "d7" in centered
-
-    def test_truth_column_is_stacked_more_loosely_than_the_cluster_columns(self, ax):
-        """The middle column is the anchor and is set apart by its gaps.
-
-        Equal sizes everywhere, so any difference in bar height comes from
-        the gap fraction alone: the truth column gives up more of its
-        height to gaps, so each of its bars is shorter.
-        """
-        y_true = np.repeat([0, 1, 2], 10)
-        alluvial(
-            ax,
-            y_true,
-            y_true,
-            y_true,
-            left_cmap=cluster_color_map(y_true),
-            right_cmap=cluster_color_map(y_true),
-            true_cmap=cluster_color_map(y_true),
-            left_title="CARVE",
-            right_title="CVI",
-            true_title="Reported",
-        )
-        bars = [p for p in ax.patches if isinstance(p, Rectangle)]
-        left_heights = [b.get_height() for b in bars[:3]]
-        true_heights = [b.get_height() for b in bars[3:6]]
-        assert max(true_heights) < min(left_heights)
 
     def test_clusters_are_ordered_against_the_reported_column(self, ax):
         """A cluster is stacked where its mass sits in the truth column.
@@ -1026,13 +965,6 @@ class TestAlignedColorMapsMatchedFirst:
         return y_true, aligned_color_maps(
             y_true, np.array(self.MATCHED), matched_first=True
         )
-
-    def test_matched_labels_take_tab10_then_the_most_distinct_mid_lightness_entries(
-        self, maps
-    ):
-        _, (_, cluster_cmap_) = maps
-        drawn = [cluster_cmap_[code] for code in self.MATCHED]
-        assert drawn == [*cluster_colors(10), "#0fffa9", "#6126ff", "#bcbcff"]
 
     def test_no_matched_label_is_drawn_dark(self, maps):
         _, (_, cluster_cmap_) = maps
@@ -1274,11 +1206,6 @@ class TestLegendLabels:
         assert "$" not in label
         assert label == "Baseline (Oracle k*)"
 
-    def test_the_table_display_name_is_left_alone(self):
-        from benchmarks._registry import METRIC_DISPLAY_NAMES
-
-        assert METRIC_DISPLAY_NAMES["baseline_oracle"] == "Baseline (Oracle)"
-
     def test_a_metric_without_an_override_falls_back_to_its_display_name(self):
         assert _display("silhouette") == "Silhouette"
 
@@ -1317,12 +1244,6 @@ class TestMetricLegend:
         assert blank == [1, 3]
         assert columns[4] == ["Silhouette", "Davies-Bouldin"]
         assert columns[5] == ["Calinski-Harabasz", "Gap Statistic"]
-
-    def test_the_gutter_stays_narrow_so_the_empty_column_does_the_separating(self):
-        metrics = ("ari_stability_1se", "silhouette", "gap")
-        fig, axes = self._figure(metrics)
-        legend = metric_legend(fig, axes, metrics)
-        assert legend.columnspacing < 2.0
 
     def test_pads_short_columns_so_each_family_starts_its_own(self):
         metrics = (

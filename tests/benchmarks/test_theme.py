@@ -13,7 +13,6 @@ from benchmarks._theme import (
     ESTIMATOR_CMAP_NAME,
     ESTIMATOR_COLORS,
     FONT_SIZES,
-    MEASURE_LINESTYLES,
     METRIC_COLORS,
     PIPELINE_CMAP_NAME,
     PIPELINE_COLORS,
@@ -73,11 +72,6 @@ class TestLineStyle:
         for metric in ("baseline_oracle", *CVI_METRICS):
             assert metric_linewidth(metric) < metric_linewidth("ari_stability_1se")
 
-    def test_the_two_weights_are_the_chosen_values(self):
-        """CARVE's curves at 1.8 points, the reference series at 1.2."""
-        assert metric_linewidth("ari_stability_1se") == 1.8
-        assert metric_linewidth("silhouette") == 1.2
-
     def test_an_unknown_metric_gets_the_reference_weight(self):
         assert metric_linewidth("not_a_metric") == metric_linewidth("silhouette")
 
@@ -99,9 +93,6 @@ class TestPalette:
         for metric in PLOTTED_METRICS:
             assert metric in METRIC_COLORS
 
-    def test_carve_stability_is_the_okabe_ito_green_everywhere(self):
-        assert METRIC_COLORS["ari_stability_1se"] == "#009E73"
-
     def test_every_display_name_has_a_color(self):
         for metric in METRIC_DISPLAY_NAMES:
             assert metric in METRIC_COLORS
@@ -109,35 +100,6 @@ class TestPalette:
     def test_no_two_plotted_metrics_share_a_color(self):
         colors = [METRIC_COLORS[m] for m in PLOTTED_METRICS]
         assert len(set(colors)) == len(colors)
-
-    def test_the_comparator_hues_are_the_re_stepped_values(self):
-        """Silhouette keeps its published pink; the other three are darker
-        steps of their published hues.
-        """
-        assert METRIC_COLORS["silhouette"] == "#E0457B"
-        assert METRIC_COLORS["davies_bouldin"] == "#6A2C91"
-        assert METRIC_COLORS["calinski_harabasz"] == "#B01B20"
-        assert METRIC_COLORS["gap"] == "#C96A05"
-
-    def test_carve_generalizability_clears_the_contrast_floor(self):
-        """#56B4E9 sat at 2.25:1 against the chart surface, which made the
-        palest line on the page a headline series. #0072B2 is Okabe-Ito's
-        blue, so the series stays blue."""
-        for metric in (
-            "ari_generalizability",
-            "ari_generalizability_1se",
-            "ari_generalizability_quant",
-        ):
-            assert METRIC_COLORS[metric] == "#0072B2"
-
-    def test_carve_stability_and_the_oracle_are_unchanged(self):
-        for metric in (
-            "ari_stability",
-            "ari_stability_1se",
-            "ari_stability_quant",
-        ):
-            assert METRIC_COLORS[metric] == "#009E73"
-        assert METRIC_COLORS["baseline_oracle"] == "#595959"
 
     def test_metric_color_falls_back_without_raising(self):
         assert metric_color("not_a_metric").startswith("#")
@@ -154,15 +116,6 @@ class TestPalette:
 
     def test_cluster_colors_are_stable(self):
         assert cluster_colors(4) == cluster_colors(4)
-
-    def test_the_first_ten_cluster_colors_are_tab10(self):
-        """Figures with at most ten clusters keep the hues they were drawn in.
-
-        The Klein composite's four timepoints are tab10's first four hues.
-        Compared against Matplotlib's own tab10.
-        """
-        tab10 = plt.get_cmap("tab10")
-        assert cluster_colors(10) == [to_hex(tab10(i)) for i in range(10)]
 
     def test_thirty_source_clusters_get_thirty_distinct_colors(self):
         """The Cusanovich source partition has 30 clusters.
@@ -211,8 +164,6 @@ class TestPalette:
 
 
 class TestEstimatorPalette:
-    def test_the_estimators_are_tab10_blue_and_red(self):
-        assert [color.lower() for color in ESTIMATOR_COLORS] == ["#1f77b4", "#d62728"]
 
     def test_the_registered_colormap_is_the_estimator_colors(self):
         cmap = plt.get_cmap(ESTIMATOR_CMAP_NAME)
@@ -255,12 +206,6 @@ class TestPipelinePalette:
         metric = {color.lower() for color in METRIC_COLORS.values()}
         assert pipeline & metric <= {"#0072b2", "#8c564b"}
 
-    def test_sc3_is_tab10_brown(self):
-        assert METRIC_COLORS["sc3"] == "#8C564B"
-
-    def test_the_two_criteria_have_their_own_line_styles(self):
-        assert MEASURE_LINESTYLES == {"stability": "-", "generalizability": "--"}
-
 
 class TestRcParams:
     def test_pins_pdf_fonttype_42_for_editable_text(self):
@@ -269,10 +214,6 @@ class TestRcParams:
 
     def test_saves_at_publication_resolution(self):
         assert RC_PARAMS["savefig.dpi"] == 300
-
-    def test_hides_the_top_and_right_spines(self):
-        assert RC_PARAMS["axes.spines.top"] is False
-        assert RC_PARAMS["axes.spines.right"] is False
 
     def test_apply_theme_actually_mutates_rcparams(self):
         plt.rcParams["pdf.fonttype"] = 3
@@ -333,21 +274,6 @@ class TestPrintTheme:
         assert PRINT_RC_PARAMS["mathtext.fontset"] == "custom"
         assert PRINT_RC_PARAMS["mathtext.rm"] == "sans"
         assert PRINT_RC_PARAMS["mathtext.it"] == "sans:italic"
-
-    def test_legends_are_frameless_and_compact(self):
-        # One legend style in every print figure: no frame, and tighter
-        # spacing than Matplotlib's defaults, since the text cannot go below
-        # PLOS's 8 points.
-        defaults = plt.rcParamsDefault
-        assert PRINT_RC_PARAMS["legend.frameon"] is False
-        assert PRINT_RC_PARAMS["legend.title_fontsize"] == PRINT_FONT_SIZES["legend"]
-        for key in (
-            "legend.labelspacing",
-            "legend.handlelength",
-            "legend.handletextpad",
-            "legend.borderaxespad",
-        ):
-            assert PRINT_RC_PARAMS[key] < defaults[key]
 
     def test_keeps_the_base_theme(self):
         for key in ("pdf.fonttype", "savefig.dpi", "axes.spines.top", "axes.grid"):

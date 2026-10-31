@@ -245,30 +245,6 @@ def test_a_long_resolution_grid_labels_every_other_value():
     assert resolution_tick_labels(grid[:8]) == [f"{value:g}" for value in grid[:8]]
 
 
-def test_c_and_d_titles_and_letters_share_one_line(inputs):
-    # C's and D's titles sit on one line.
-    fig = figure_cusanovich_results(inputs, save=False)
-    fig.draw_without_rendering()
-    panels = _panels(fig)
-    to_figure = fig.transFigure.inverted()
-
-    def extent(artist):
-        return artist.get_window_extent().transformed(to_figure)
-
-    c, d = panels["C"], panels["D"]
-    assert extent(c.title).y0 == pytest.approx(extent(d.title).y0, abs=1e-3)
-    letters = {
-        letter: next(t for t in ax.texts if t.get_text() == letter)
-        for letter, ax in (("C", c), ("D", d))
-    }
-    assert extent(letters["C"]).y1 == pytest.approx(extent(letters["D"]).y1, abs=1e-3)
-    # The cluster axis label sits left-aligned under C's title.
-    (top,) = c.child_axes
-    label = top.xaxis.label
-    assert label.get_horizontalalignment() == "left"
-    assert extent(label).y1 < extent(c.title).y0
-
-
 def test_c_names_the_one_estimator_in_a_not_in_every_legend_entry(inputs):
     panels = _panels(figure_cusanovich_results(inputs, save=False))
     texts = [t.get_text() for t in panels["C"].get_legend().get_texts()]

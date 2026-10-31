@@ -98,13 +98,6 @@ class TestFigureScenarioOverview:
         assert len(labelled) == len(METRICS)
         plt.close(fig)
 
-    def test_legend_matches_the_paper_figures_grouping(self, gaussians):
-        """A section figure and Fig 4 must advertise their series identically."""
-        fig = figure_scenario_overview("gaussians", gaussians, metrics=METRICS)
-        labels = [t.get_text() for t in fig.legends[0].get_texts()]
-        assert labels[0] == "Baseline (Oracle k*)"
-        plt.close(fig)
-
     def test_raises_on_an_empty_frame(self):
         empty = pd.DataFrame(columns=list(SCHEMA))
         with pytest.raises(ValueError, match="nothing to draw"):

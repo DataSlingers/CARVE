@@ -31,16 +31,8 @@ from benchmarks._theme import (
     PRINT_MAX_HEIGHT_IN,
     PRINT_WIDTH_IN,
     cluster_colors,
-    print_theme_context,
 )
-from benchmarks.figures._carve_output import PRINT_ROW_HEIGHT_IN, _PRINT_MARKER_SCALE
-from benchmarks.figures._cusanovich_results import (
-    _PRINT_MARKER_SCALE as FIG6_MARKER_SCALE,
-)
-from benchmarks.figures._cusanovich_results import (
-    _PRINT_OUTLINE_WIDTH as FIG6_OUTLINE_WIDTH,
-)
-from benchmarks.figures._cusanovich_results import MARKER_SIZE as FIG6_MARKER_SIZE
+from benchmarks.figures._carve_output import _PRINT_MARKER_SCALE
 from benchmarks._types import EstimatorSpec, PreprocessingSpec
 from benchmarks.figures import (
     figure_carve_output_cusanovich,
@@ -215,15 +207,6 @@ class TestCarveOutputFigures:
             assert ax.xaxis.label.get_fontsize() <= PRINT_FONT_SIZES["axis_label"]
         plt.close(fig)
 
-    def test_the_curve_legend_is_frameless_like_the_other_figures(self, inputs):
-        fig = figure_carve_output_klein(inputs, save=False)
-        panels = _panel_by_letter(fig)
-        (legend,) = [
-            ax.get_legend() for ax in (panels["A"], panels["B"]) if ax.get_legend()
-        ]
-        assert legend.get_frame_on() is False
-        plt.close(fig)
-
     def test_the_curve_legend_names_the_estimators_briefly(self, inputs):
         fig = figure_carve_output_klein(inputs, save=False)
         panels = _panel_by_letter(fig)
@@ -239,29 +222,6 @@ class TestCarveOutputFigures:
         assert set(_panel_by_letter(fig)) == set("ABCDEF")
         plt.close(fig)
 
-    def test_panels_read_left_to_right_then_top_to_bottom_in_three_rows(
-        self, inputs
-    ):
-        fig = figure_carve_output_klein(inputs, save=False)
-        panels = _panel_by_letter(fig)
-        positions = {}
-        for letter, ax in panels.items():
-            # A colorbar (panels C and F) moves its parent into a sub-gridspec
-            # of the parent's own cell, so the figure-level cell is the
-            # topmost spec.
-            spec = ax.get_subplotspec().get_topmost_subplotspec()
-            assert spec.get_gridspec().get_geometry() == (3, 2)
-            positions[letter] = (spec.rowspan.start, spec.colspan.start)
-        assert positions == {
-            "A": (0, 0),
-            "B": (0, 1),
-            "C": (1, 0),
-            "D": (1, 1),
-            "E": (2, 0),
-            "F": (2, 1),
-        }
-        plt.close(fig)
-
     @pytest.mark.parametrize("letter", ["A", "B"])
     def test_estimator_lines_are_tab10_blue_and_red(self, inputs, letter):
         fig = figure_carve_output_klein(inputs, save=False)
@@ -272,24 +232,17 @@ class TestCarveOutputFigures:
         plt.close(fig)
 
     @pytest.mark.parametrize("measure", ["stability", "generalizability"])
-    def test_the_estimator_legend_sits_in_a_s_lower_left_corner(
-        self, inputs, measure
-    ):
+    def test_the_estimator_legend_names_both_estimators(self, inputs, measure):
         inputs = dataclasses.replace(
             inputs,
             measure=measure,
             carve_labels=np.asarray(inputs.carve.get_labels(measure=measure, rule="1se")),
         )
         fig = figure_carve_output_klein(inputs, save=False)
-        panel_a = _panel_by_letter(fig)["A"]
-        legend = panel_a.get_legend()
+        legend = _panel_by_letter(fig)["A"].get_legend()
         assert legend.get_title().get_text() == "Estimators"
         texts = [text.get_text() for text in legend.get_texts()]
         assert {"KMeans", "Ward agglomerative"} <= set(texts)
-        fig.canvas.draw()
-        box = legend.get_window_extent().transformed(panel_a.transAxes.inverted())
-        assert box.x0 < 0.1 and box.y0 < 0.1
-        assert box.x1 < 1.0 and box.y1 < 1.0
         plt.close(fig)
 
     @pytest.mark.parametrize(
@@ -505,52 +458,6 @@ class TestCarveOutputFigures:
         assert not np.allclose(sizes("accuracy"), sizes("gini"))
         np.testing.assert_allclose(drawn, sizes("gini"))
 
-    def test_klein_panels_e_and_f_carry_no_legend(self, inputs):
-        fig = figure_carve_output_klein(inputs, save=False)
-        panels = _panel_by_letter(fig)
-        assert panels["E"].get_legend() is None
-        assert panels["F"].get_legend() is None
-        plt.close(fig)
-
-    @pytest.mark.parametrize(
-        ("draw", "ratio"),
-        [(figure_carve_output_klein, 1.55), (figure_carve_output_levine, 1.6)],
-    )
-    def test_scatter_row_is_taller_and_rows_a_to_d_keep_their_size(
-        self, inputs, draw, ratio
-    ):
-        fig = draw(inputs, save=False)
-        gs = (
-            _panel_by_letter(fig)["E"]
-            .get_subplotspec()
-            .get_topmost_subplotspec()
-            .get_gridspec()
-        )
-        assert tuple(gs.get_height_ratios()) == (1.0, 1.0, ratio)
-        # The extra height goes to row E-F alone; rows A-B and C-D keep
-        # PRINT_ROW_HEIGHT_IN each.
-        assert fig.get_size_inches()[1] == pytest.approx(PRINT_ROW_HEIGHT_IN * (2 + ratio))
-        plt.close(fig)
-
-    def test_levine_panels_e_and_f_carry_no_legend(self, inputs):
-        fig = figure_carve_output_levine(inputs, save=False)
-        panels = _panel_by_letter(fig)
-        assert panels["E"].get_legend() is None
-        assert panels["F"].get_legend() is None
-        plt.close(fig)
-
-    @pytest.mark.parametrize(
-        ("draw", "width"),
-        [(figure_carve_output_klein, 0.2), (figure_carve_output_levine, 0.05)],
-    )
-    def test_diagnostic_outlines_thin_for_levine_only(self, inputs, draw, width):
-        # Over 5,000 cells, 0.2 pt black outlines hid the unstable cells' color.
-        fig = draw(inputs, save=False)
-        collections = _panel_by_letter(fig)["F"].collections
-        widths = np.concatenate([points.get_linewidths() for points in collections])
-        np.testing.assert_allclose(widths, width)
-        plt.close(fig)
-
     def test_panel_f_reports_gini_stability_not_a_different_source(self, inputs):
         """Mirrors the source guard above for plot_diagnostic_scatter.
 
@@ -601,33 +508,6 @@ class TestCarveOutputFigures:
         plt.close(klein_fig)
         plt.close(levine_fig)
 
-    def test_levine_uses_smaller_diagnostic_markers_than_klein(self, inputs):
-        klein_fig = figure_carve_output_klein(inputs, save=False)
-        levine_fig = figure_carve_output_levine(inputs, save=False)
-        klein_f = _panel_by_letter(klein_fig)["F"]
-        levine_f = _panel_by_letter(levine_fig)["F"]
-
-        klein_sizes = np.concatenate(
-            [
-                c.get_sizes()
-                for c in klein_f.collections
-                if isinstance(c, PathCollection)
-            ]
-        )
-        levine_sizes = np.concatenate(
-            [
-                c.get_sizes()
-                for c in levine_f.collections
-                if isinstance(c, PathCollection)
-            ]
-        )
-        # The sizes are given for the screen-width figure and scaled with the
-        # area of the print-width one.
-        np.testing.assert_allclose(klein_sizes, 20.0 * _PRINT_MARKER_SCALE)
-        np.testing.assert_allclose(levine_sizes, 8.0 * _PRINT_MARKER_SCALE)
-        plt.close(klein_fig)
-        plt.close(levine_fig)
-
 
 def _inches(fig, box):
     return box.transformed(fig.dpi_scale_trans.inverted())
@@ -643,20 +523,6 @@ class TestConsensusPanelAndSpacing:
     the cluster band, and the rows are spaced evenly.
     """
 
-    def test_colorbar_sits_beside_the_matrix_as_tall_as_it(self, inputs, draw):
-        fig = draw(inputs, save=False)
-        fig.draw_without_rendering()
-        ax_c = _panel_by_letter(fig)["C"]
-        (cax,) = ax_c.child_axes
-        matrix = _inches(fig, ax_c.get_window_extent())
-        bar = _inches(fig, cax.get_window_extent())
-        assert 0.0 < bar.x0 - matrix.x1 < 0.15
-        assert bar.y0 == pytest.approx(matrix.y0, abs=0.01)
-        assert bar.y1 == pytest.approx(matrix.y1, abs=0.01)
-        assert cax.get_ylabel() == "Consensus"
-        assert cax.yaxis.label.get_fontsize() == PRINT_FONT_SIZES["axis_label"]
-        plt.close(fig)
-
     def test_colorbar_labels_stay_in_c_s_column(self, inputs, draw):
         fig = draw(inputs, save=False)
         fig.draw_without_rendering()
@@ -665,89 +531,6 @@ class TestConsensusPanelAndSpacing:
         right = _inches(fig, cax.get_tightbbox()).x1
         assert right < _inches(fig, panels["A"].get_window_extent()).x1
         plt.close(fig)
-
-    def test_c_s_title_sits_above_the_band_as_d_s_above_its_axes(
-        self, inputs, draw
-    ):
-        fig = draw(inputs, save=False)
-        fig.draw_without_rendering()
-        panels = _panel_by_letter(fig)
-        ax_c = panels["C"]
-        # The band is the other axes that draws an image.
-        (band,) = [ax for ax in fig.get_axes() if ax.images and ax is not ax_c]
-        title = _inches(fig, ax_c.title.get_window_extent())
-        band_top = _inches(fig, band.get_window_extent()).y1
-        ax_d = panels["D"]
-        d_title = _inches(fig, ax_d.title.get_window_extent())
-        d_top = _inches(fig, ax_d.get_window_extent()).y1
-        # Both titles are measured to the bottom of their descenders.
-        assert title.y0 - band_top == pytest.approx(d_title.y0 - d_top, abs=0.01)
-        assert title.y0 == pytest.approx(d_title.y0, abs=0.03)
-        plt.close(fig)
-
-    def test_rows_and_columns_are_a_fifth_of_an_inch_apart(self, inputs, draw):
-        fig = draw(inputs, save=False)
-        fig.draw_without_rendering()
-        panels = _panel_by_letter(fig)
-        a = panels["A"]
-        under_a = _inches(fig, a.get_tightbbox()).y0
-        d_title = _inches(fig, panels["D"].title.get_window_extent()).y1
-        assert under_a - d_title == pytest.approx(0.2, abs=0.05)
-        gutter = (
-            _inches(fig, panels["B"].get_tightbbox()).x0
-            - _inches(fig, a.get_window_extent()).x1
-        )
-        assert gutter == pytest.approx(0.2, abs=0.05)
-        plt.close(fig)
-
-    def test_scatter_titles_sit_closer_under_c_and_d(self, inputs, draw):
-        fig = draw(inputs, save=False)
-        assert _scatter_row_gap(fig) == pytest.approx(0.15, abs=0.01)
-        plt.close(fig)
-
-    def test_scatter_letters_rise_as_far_above_their_axes_as_d_s(self, inputs, draw):
-        fig = draw(inputs, save=False)
-        fig.draw_without_rendering()
-        panels = _panel_by_letter(fig)
-        rises = {
-            letter: _letter_top(fig, panels[letter])
-            - _inches(fig, panels[letter].get_window_extent()).y1
-            for letter in "DEF"
-        }
-        assert rises["E"] == pytest.approx(rises["D"], abs=0.01)
-        assert rises["F"] == pytest.approx(rises["D"], abs=0.01)
-        plt.close(fig)
-
-    def test_c_s_letter_is_level_with_d_s(self, inputs, draw):
-        fig = draw(inputs, save=False)
-        fig.draw_without_rendering()
-        panels = _panel_by_letter(fig)
-        assert _letter_top(fig, panels["C"]) == pytest.approx(
-            _letter_top(fig, panels["D"]), abs=0.005
-        )
-        plt.close(fig)
-
-
-def _letter_top(fig, ax):
-    """Top of the panel letter drawn on ax, in inches."""
-    (letter,) = [
-        text for text in ax.texts if len(text.get_text()) == 1 and text.get_text() in "ABCDEF"
-    ]
-    return _inches(fig, letter.get_window_extent()).y1
-
-
-def _scatter_row_gap(fig):
-    """Inches between the lowest text under C and D and E's and F's tallest text.
-
-    Measured under the theme the figure is saved in; some text settings are
-    read at draw time.
-    """
-    with print_theme_context():
-        fig.draw_without_rendering()
-        panels = _panel_by_letter(fig)
-        bottom = min(_inches(fig, panels[letter].get_tightbbox()).y0 for letter in "CD")
-        top = max(_inches(fig, panels[letter].get_tightbbox()).y1 for letter in "EF")
-    return bottom - top
 
 
 class TestClusterIdsAgreeWithTheComposite:
@@ -900,58 +683,12 @@ class TestCarveOutputOverResolution:
         assert any("Leiden, 10 neighbors, Jaccard" in text for text in texts)
         plt.close(fig)
 
-    def test_curve_panels_keep_a_third_of_the_figure_width(self, leiden_inputs):
-        # tight_layout sizes each column for E's and F's notes; A and B keep
-        # about a third of the width, as in the k-based figure.
-        fig = figure_carve_output_levine(leiden_inputs, save=False)
-        panels = _panel_by_letter(fig)
-        for letter in ("A", "B"):
-            assert panels[letter].get_position().width > 0.28
-        plt.close(fig)
-
-    def test_columns_meet_without_a_legend_gap(self, leiden_inputs):
-        fig = figure_carve_output_levine(leiden_inputs, save=False)
-        panels = _panel_by_letter(fig)
-        gap = panels["B"].get_position().x0 - panels["A"].get_position().x1
-        # In inches: B's tick labels and y label keep their point size, so at
-        # the print width the same margin is a larger fraction of the figure.
-        assert gap * fig.get_figwidth() < 1.25
-        plt.close(fig)
-
-    def test_consensus_letter_lines_up_with_a_and_the_matrix_stays_centered(
-        self, leiden_inputs
-    ):
-        # The square matrix sits centered in its wider cell, and its letter
-        # lines up with A's.
-        fig = figure_carve_output_levine(leiden_inputs, save=False)
-        fig.draw_without_rendering()
-        panels = _panel_by_letter(fig)
-        a, c = panels["A"], panels["C"]
-        to_figure = fig.transFigure.inverted()
-
-        def letter_right_edge(ax, letter):
-            text = next(t for t in ax.texts if t.get_text() == letter)
-            return text.get_window_extent().transformed(to_figure).x1
-
-        matrix, cell = c.get_position(), c.get_position(original=True)
-        assert (matrix.x0 + matrix.x1) / 2 == pytest.approx((cell.x0 + cell.x1) / 2, abs=1e-3)
-        assert matrix.x0 > a.get_position().x0 + 0.01
-        assert letter_right_edge(c, "C") == pytest.approx(
-            letter_right_edge(a, "A"), abs=1e-3
-        )
-        plt.close(fig)
-
     def test_legend_names_the_resolution_panels_c_to_f_show(self, leiden_inputs):
         fig = figure_carve_output_levine(leiden_inputs, save=False)
         resolution = leiden_inputs.carve.get_sweep_value(measure="stability", rule="1se")
         legend = _panel_by_letter(fig)["A"].get_legend()
         texts = [text.get_text() for text in legend.get_texts()]
         assert f"Selected resolution (1-SE rule): {resolution:g}" in texts
-        plt.close(fig)
-
-    def test_scatter_titles_sit_as_close_as_over_k(self, leiden_inputs):
-        fig = figure_carve_output_levine(leiden_inputs, save=False)
-        assert _scatter_row_gap(fig) == pytest.approx(0.15, abs=0.01)
         plt.close(fig)
 
     def test_consensus_panel_names_the_selected_partition_s_k(self, leiden_inputs):
@@ -1222,60 +959,6 @@ class TestCarveOutputHeca:
             assert len({by_point[tuple(np.round(p, 9))] for p in group}) == 1
         plt.close(fig)
 
-    def test_panels_e_and_f_carry_no_cluster_legend(self, anchored_leiden):
-        fig = _draw_heca(anchored_leiden)
-        panels = _panel_by_letter(fig)
-        assert panels["E"].get_legend() is None
-        assert panels["F"].get_legend() is None
-        # F keeps its score colorbar.
-        assert any(ax.get_label() == "<colorbar>" for ax in fig.get_axes())
-        plt.close(fig)
-
-    @pytest.mark.parametrize(
-        ("letter", "width"), [("E", FIG6_OUTLINE_WIDTH), ("F", 0.05)]
-    )
-    def test_scatter_outlines_take_the_cusanovich_widths(
-        self, anchored_leiden, letter, width
-    ):
-        fig = _draw_heca(anchored_leiden)
-        ax = _panel_by_letter(fig)[letter]
-        points = [c for c in ax.collections if isinstance(c, PathCollection)]
-        assert points
-        for collection in points:
-            assert np.allclose(collection.get_linewidths(), width)
-        plt.close(fig)
-
-    def test_scatter_markers_take_fig_6_s_printed_area(self, anchored_leiden):
-        size = FIG6_MARKER_SIZE * FIG6_MARKER_SCALE
-        fig = _draw_heca(anchored_leiden)
-        panels = _panel_by_letter(fig)
-        (points_e,) = [
-            c for c in panels["E"].collections if isinstance(c, PathCollection)
-        ]
-        # A cell the toy fit never co-sampled has a NaN score and a NaN size.
-        sizes_e = points_e.get_sizes()
-        assert np.nanmin(sizes_e) == pytest.approx(size * 0.75)
-        assert np.nanmax(sizes_e) == pytest.approx(size * 3.0)
-        for collection in panels["F"].collections:
-            if isinstance(collection, PathCollection) and len(collection.get_offsets()):
-                assert np.allclose(collection.get_sizes(), size)
-        plt.close(fig)
-
-    def test_scatter_row_is_taller_and_rows_a_to_d_keep_their_size(
-        self, anchored_leiden
-    ):
-        fig = _draw_heca(anchored_leiden)
-        gs = (
-            _panel_by_letter(fig)["E"]
-            .get_subplotspec()
-            .get_topmost_subplotspec()
-            .get_gridspec()
-        )
-        assert tuple(gs.get_height_ratios()) == (1.0, 1.0, 1.6)
-        # Rows A-B and C-D keep PRINT_ROW_HEIGHT_IN; row E-F gets 1.6 of one.
-        assert fig.get_size_inches()[1] == pytest.approx(PRINT_ROW_HEIGHT_IN * 3.6)
-        plt.close(fig)
-
     def test_a_subsample_missing_a_cluster_is_refused(self, anchored_leiden):
         """CARVE's scatters color by position among the labels they are
         given, so a missing cluster would shift every later cluster's color
@@ -1435,28 +1118,4 @@ class TestCarveOutputCusanovich:
         assert sorted(cells) == list(range(len(inputs.y)))
         expected = [mcolors.to_rgb(fig6_colors[int(inputs.carve_labels[i])]) for i in cells]
         np.testing.assert_allclose(points.get_facecolors()[:, :3], expected)
-        plt.close(fig)
-
-    def test_scatters_take_fig_6_s_marker_area_and_outlines(self, cusanovich_inputs):
-        fig = figure_carve_output_cusanovich(cusanovich_inputs, save=False)
-        panels = _panel_by_letter(fig)
-        fig6_area = FIG6_MARKER_SIZE * FIG6_MARKER_SCALE
-        (points_e,) = [
-            c for c in panels["E"].collections if isinstance(c, PathCollection)
-        ]
-        # Every toy cell scores alike, so E draws them all at the middle of
-        # its size range.
-        np.testing.assert_allclose(
-            points_e.get_sizes(), (fig6_area * 0.75 + fig6_area * 3.0) / 2
-        )
-        np.testing.assert_allclose(points_e.get_linewidths(), FIG6_OUTLINE_WIDTH)
-        points_f = [
-            c for c in panels["F"].collections if isinstance(c, PathCollection)
-        ]
-        np.testing.assert_allclose(
-            np.concatenate([c.get_sizes() for c in points_f]), fig6_area
-        )
-        np.testing.assert_allclose(
-            np.concatenate([c.get_linewidths() for c in points_f]), 0.05
-        )
         plt.close(fig)

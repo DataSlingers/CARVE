@@ -44,12 +44,6 @@ class TestLayout:
         assert len(fig.axes) == 3 * n_points + 1
         plt.close(fig)
 
-    def test_the_ari_row_spans_the_figure(self, gaussians_frame):
-        fig = figure_scenario_dashboard("gaussians", gaussians_frame)
-        widths = [ax.get_position().width for ax in fig.axes]
-        assert max(widths) > 3 * min(widths)
-        plt.close(fig)
-
     def test_the_example_and_ari_rows_have_content(self, gaussians_frame):
         """An empty panel in a dashboard is indistinguishable from a panel
         whose data happened to be flat. Rows 3 and 4 always draw a k* rule

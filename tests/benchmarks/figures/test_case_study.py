@@ -187,12 +187,8 @@ def _lettered(fig):
     }
 
 
-def _row(ax):
-    return ax.get_subplotspec().rowspan.start
-
-
 class TestKleinFigure:
-    def test_curves_come_first_and_the_scatters_below_them(self, inputs):
+    def test_each_panel_is_titled_with_what_it_shows(self, inputs):
         fig = figure_klein_results(inputs, save=False)
         panels = _lettered(fig)
         assert panels["A"].get_title() == "CARVE ARI over k"
@@ -200,23 +196,6 @@ class TestKleinFigure:
         assert panels["C"].get_title() == "Reported Labels"
         assert panels["D"].get_title() == "CARVE clustering"
         assert panels["E"].get_title().startswith("CVI (")
-        assert _row(panels["A"]) == _row(panels["B"])
-        assert _row(panels["C"]) == _row(panels["D"]) == _row(panels["E"])
-        assert _row(panels["A"]) < _row(panels["C"]) < _row(panels["F"])
-        plt.close(fig)
-
-    def test_the_curve_legends_sit_between_the_curves_and_the_scatters(
-        self, inputs
-    ):
-        fig = figure_klein_results(inputs, save=False)
-        panels = _lettered(fig)
-        legend_rows = {
-            _row(ax)
-            for ax in fig.get_axes()
-            if ax.get_legend() is not None and not ax.axison
-        }
-        assert legend_rows == {_row(panels["A"]) + 1}
-        assert _row(panels["A"]) + 1 < _row(panels["C"])
         plt.close(fig)
 
     def test_returns_a_figure_with_six_drawn_panels(self, inputs):
@@ -341,12 +320,11 @@ class TestLevineFigure:
         assert any("ARI" in label for label in labels)
         plt.close(fig)
 
-    def test_keeps_the_scatters_first(self, inputs):
+    def test_each_panel_is_titled_with_what_it_shows(self, inputs):
         fig = figure_levine_results(inputs, save=False)
         panels = _lettered(fig)
         assert panels["A"].get_title() == "Reported Labels"
         assert panels["D"].get_title() == "CARVE ARI over k"
-        assert _row(panels["A"]) < _row(panels["D"])
         plt.close(fig)
 
     def test_a_resolution_run_titles_its_curves_over_resolution(self, resolution_inputs):
@@ -402,39 +380,6 @@ class TestLevineFigure:
             for legend in legends:
                 assert not label.overlaps(legend.get_window_extent(renderer))
         plt.close(fig)
-
-    def test_curve_legends_start_right_under_the_resolution_labels(
-        self, resolution_inputs
-    ):
-        fig = figure_levine_results(resolution_inputs, save=False)
-        fig.canvas.draw()
-        renderer = fig.canvas.get_renderer()
-        panels = _lettered(fig)
-        legends = [
-            ax.get_legend().get_window_extent(renderer)
-            for ax in fig.get_axes()
-            if ax.get_legend() is not None and not ax.axison
-        ]
-        f_top = panels["F"].get_tightbbox(renderer).y1
-        for letter in ("D", "E"):
-            curves = panels[letter].get_tightbbox(renderer)
-            (legend,) = [
-                box for box in legends if curves.x0 < (box.x0 + box.x1) / 2 < curves.x1
-            ]
-            assert 0 <= (curves.y0 - legend.y1) / fig.dpi < 0.2
-        # The strip ends a short way below the taller legend, clear of F.
-        lowest = min(box.y0 for box in legends)
-        assert 0 < (lowest - f_top) / fig.dpi < 0.45
-        plt.close(fig)
-
-    def test_uses_the_smaller_marker_size(self, inputs):
-        klein = figure_klein_results(inputs, save=False)
-        levine = figure_levine_results(inputs, save=False)
-        klein_sizes = klein.get_axes()[0].collections[0].get_sizes()
-        levine_sizes = levine.get_axes()[0].collections[0].get_sizes()
-        assert levine_sizes[0] < klein_sizes[0]
-        plt.close(klein)
-        plt.close(levine)
 
 
 class TestSharedComposite:

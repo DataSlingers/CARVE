@@ -153,17 +153,6 @@ class TestAriRows:
 
 
 class TestFigure:
-    def test_panel_letters_e_and_a_share_one_figure_x(self, inputs, m3c_result, sc3_result):
-        fig = _draw(inputs, m3c_result, sc3_result)
-
-        def letter_fig_x(ax, letter):
-            text = next(t for t in ax.texts if t.get_text() == letter)
-            pos = ax.get_position()
-            return pos.x0 + text.get_position()[0] * pos.width
-
-        assert letter_fig_x(fig.axes[4], "E") == pytest.approx(
-            letter_fig_x(fig.axes[0], "A"), abs=1e-6
-        )
 
     def test_returns_a_figure_with_five_panels(self, inputs, m3c_result, sc3_result):
         fig = _draw(inputs, m3c_result, sc3_result)

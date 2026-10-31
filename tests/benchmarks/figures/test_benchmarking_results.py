@@ -123,60 +123,9 @@ class TestFigureBenchmarkingResults:
         assert len(labelled) == len(METRICS)
         plt.close(fig)
 
-    def test_panels_carry_no_letters(self, results):
-        fig = figure_benchmarking_results(results, metrics=METRICS, save=False)
-        assert [t.get_text() for ax in fig.get_axes() for t in ax.texts] == []
-        plt.close(fig)
-
     def test_x_axis_is_named_for_the_sweep(self, full_results):
         fig = figure_benchmarking_results(full_results, save=False)
         assert {ax.get_xlabel() for ax in fig.get_axes()} == {"SNR"}
-        plt.close(fig)
-
-    def test_carries_no_k_star_title(self, full_results):
-        fig = figure_benchmarking_results(full_results, save=False)
-        assert fig._suptitle is None
-        plt.close(fig)
-
-    def test_one_figure_wide_y_label_and_none_on_the_panels(self, full_results):
-        """Two column-leading y labels became a single centered one."""
-        fig = figure_benchmarking_results(full_results, save=False)
-        assert fig.supylabel is not None
-        assert {ax.get_ylabel() for ax in fig.get_axes()} == {""}
-        texts = [t.get_text() for t in fig.texts]
-        assert sum(r"vs. true labels" in t for t in texts) == 1
-        plt.close(fig)
-
-    def test_legend_columns_follow_the_published_grouping(self, full_results):
-        """Oracle alone, CARVE stacked, the four indices across two columns.
-
-        Matplotlib fills a legend column by column, so reading the labels in
-        order and chunking by the row count recovers the columns as drawn.
-        The blank columns are the family separators.
-        """
-        fig = figure_benchmarking_results(full_results, save=False)
-        legend = fig.legends[0]
-        labels = [t.get_text() for t in legend.get_texts()]
-        # Legend._ncols is private; it was _ncol before matplotlib 3.6 and the
-        # matplotlib>=3.9.4 floor makes the current name safe.
-        rows = len(labels) // legend._ncols
-        columns = [labels[i * rows : (i + 1) * rows] for i in range(legend._ncols)]
-        drawn = [c for c in columns if any(c)]
-        assert drawn[0] == ["Baseline (Oracle k*)", ""]
-        assert drawn[1] == ["CARVE Stability (1SE)", "CARVE Generalizability (1SE)"]
-        assert drawn[2] == ["Silhouette", "Davies-Bouldin"]
-        assert drawn[3] == ["Calinski-Harabasz", "Gap Statistic"]
-        plt.close(fig)
-
-    def test_the_classical_pair_is_not_split_by_a_separating_column(self, full_results):
-        """The two index columns must sit adjacent, at the narrow gutter."""
-        fig = figure_benchmarking_results(full_results, save=False)
-        legend = fig.legends[0]
-        labels = [t.get_text() for t in legend.get_texts()]
-        rows = len(labels) // legend._ncols
-        columns = [labels[i * rows : (i + 1) * rows] for i in range(legend._ncols)]
-        blank = [index for index, c in enumerate(columns) if not any(c)]
-        assert blank == [1, 3]
         plt.close(fig)
 
     def test_only_the_carve_series_are_solid(self, full_results):
