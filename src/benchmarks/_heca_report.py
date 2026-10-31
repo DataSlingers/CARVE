@@ -143,9 +143,7 @@ def _fit_step_row(sacct: pd.DataFrame) -> pd.Series:
     fit.sbatch's single srun step is recorded as JobID "<job>.0"; a whole-job
     capture (sacct -j <job> without the step suffix) also carries the job's
     own row, a batch step and an extern step, none of which describe the fit
-    itself. Raises rather than guessing when the .0 row is not unique, so a
-    wrong capture fails loudly instead of silently reading another row's CPU
-    time or memory.
+    itself. Raises when the .0 row is not unique.
     """
     step = sacct[sacct["JobID"].astype(str).str.endswith(".0")]
     if len(step) != 1:

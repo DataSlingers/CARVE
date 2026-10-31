@@ -3,20 +3,13 @@
 One entry point covers every simulated experiment, because a difficulty
 sweep and a scaling sweep are the same experiment over different axes.
 
-Two behaviors differ deliberately from the code this replaces.
+joblib parallelizes the (axis x seed) loop and CARVE always gets n_jobs=1.
+Each fit is also capped at its share of the machine's threads (see
+cpu_cap).
 
-Parallelism is inverted. The old runners parallelized five-element inner
-loops with processes while the sixty-iteration outer loop ran serially, and
-passed the same n_jobs to both the outer loop and CARVE, so the two nested.
-Here joblib parallelizes the outer (axis x seed) loop and CARVE always gets
-n_jobs=1. Each fit is also capped at its share of the machine's threads (see
-cpu_cap), which changes nothing at n_jobs=1.
-
-reference_labels is not passed to fit. The old scaling runner passed the true
-labels and the difficulty runner did not. reference_labels only permutes
-cluster ids for consistency across get_labels calls (carve/api.py:728-736);
-it never enters the stability or generalizability computation, and ARI is
-invariant to label permutation. The divergence was cosmetic.
+reference_labels is not passed to fit: it only permutes cluster ids for
+consistency across get_labels calls and never enters the stability or
+generalizability computation.
 """
 
 import json
@@ -107,16 +100,9 @@ def thread_cap_for(n_jobs: int) -> tuple[int, int]:
 def scenario_n_jobs(scenario: Scenario, requested: int | None) -> int:
     """Resolve the worker count for one scenario.
 
-    One flag cannot be right for both halves of the suite. The six
-    difficulty scenarios want every core; the two scaling scenarios time
-    their fits, and a pool of concurrent workers changes exactly the number
-    they exist to measure. Deciding here rather than at the CLI is what
-    makes --all correct and fast at the same time: it previously defaulted
-    to one worker for everything, which is right for two scenarios and turns
-    the other six from seven hours into three days.
-
-    An explicit request always wins, so a caller can still force a serial
-    difficulty run or a parallel timing run when they know why.
+    The six difficulty scenarios use every core. The two scaling scenarios
+    time their fits, and concurrent workers would change the times they
+    measure, so they run one worker. An explicit request always wins.
     """
     from ._registry import TIMED_SCENARIOS
 
@@ -204,9 +190,8 @@ def fit_carve(
 ) -> CarveFit:
     """Fit CARVE the way every benchmark fits it: one worker, timed.
 
-    subsample_ratio=None leaves CARVE's default in place and passes nothing,
-    so a scenario cell constructs CARVE with exactly the arguments it did
-    before this function existed. classifier=None is CARVE's own default, the
+    subsample_ratio=None leaves CARVE's default in place and passes nothing.
+    classifier=None is CARVE's own default, the
     forest of n_trees trees. Cluster-count warnings are counted and
     swallowed; every other warning is re-emitted after the fit.
     """
@@ -316,12 +301,11 @@ def run_cell(
     a configuration; it does not supply labels. Classical-index rows carry
     NaN there.
 
-    timing_fits, when True, fits CARVE twice more -- once per mode -- purely
-    to time each mode's fit separately; those fits' results are discarded
-    and never feed metric_rows.
+    timing_fits, when True, fits CARVE twice more, once per mode, to time
+    each mode's fit; those fits' results are discarded.
 
     thread_cap bounds the threads the fit's classifier may use; None leaves
-    every core available, as a single-worker run had before.
+    every core available.
     """
     cell_seed = benchmark_seed(seed, axis_idx, random_state)
     candidate_k = list(scenario.candidate_k)
@@ -436,14 +420,9 @@ def run_cell(
     t_generalizability_s = float("nan")
 
     if timing_fits:
-        # Two extra fits that exist only to be timed. Their results are never
-        # read, so this cannot reintroduce the ari_at_k mode bug: every metric
-        # row above comes from the default-mode fit.
-        #
-        # carve.fit warns that non-default modes are experimental (api.py:310).
-        # Exercising that path is deliberate here, because it is what produced
-        # the published runtime figure, so the warning is suppressed rather
-        # than raised sixty times per scenario.
+        # Two extra fits, only timed; every metric row above comes from the
+        # default-mode fit. carve.fit warns that non-default modes are
+        # experimental, which is expected here.
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
@@ -533,15 +512,9 @@ def run_scenario(
     manifest from an earlier run already exists at the same path: that
     manifest describes a run this invocation has now fully superseded.
 
-    A corrupt manifest.json (for instance, truncated by a process killed
-    mid-write) is treated the same as a missing one: this invocation warns,
-    then mints a fresh run_id and records only its own wall_clock_s. The
-    cell checkpoints on disk are unaffected -- only the provenance record
-    resets -- so a run can still resume unattended after such a crash
-    rather than requiring a human to repair or delete the file.
-    write_manifest writes atomically precisely to make this case rare, but a
-    read guard is still needed for manifests left over from before that
-    fix, or from any other source of on-disk corruption.
+    A corrupt manifest.json is treated as a missing one: this invocation
+    warns, then mints a fresh run_id and records only its own wall_clock_s.
+    The cell checkpoints on disk are unaffected, so the run still resumes.
 
     allow_code_change permits a resume into a directory whose manifest
     records a different git_sha. It is off by default: the checkpoints of two
@@ -643,8 +616,8 @@ def run_scenario(
             timing_fits=timing_fits,
         )
 
-    # Before the pool, not after. A scenario killed mid-pool otherwise leaves
-    # a directory of checkpoints with no manifest, which no reader can open.
+    # Written before the pool, so a scenario killed mid-pool still leaves a
+    # manifest.
     write_manifest(rd, _manifest("running", carried))
     started = time.perf_counter()
 

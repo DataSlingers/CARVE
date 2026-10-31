@@ -604,8 +604,7 @@ def dartboard(ax: Axes, rng, *, offset, spread, color, n: int = 9) -> None:
             )
         )
     # Re-centered so the group's mean sits exactly on offset, then pulled in
-    # radially onto the board. Redrawing until every dart lands would favor
-    # tight draws and shrink the spread the picture is meant to show.
+    # radially onto the board.
     jitter = rng.normal(0, spread, (n, 2))
     darts = jitter - jitter.mean(axis=0) + np.asarray(offset)
     radius = np.hypot(darts[:, 0], darts[:, 1])

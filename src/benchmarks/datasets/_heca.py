@@ -44,18 +44,13 @@ DEFAULT_ORGANS: tuple[str, ...] = ("Lung", "Brain", "Kidney", "Heart", "Thymus")
 #: uncharacterized population 15.
 UNCLASSIFIED_LABEL = "Unclassified"
 
-#: Column checked for UNCLASSIFIED_LABEL to decide which cells to drop. This
-#: is fixed regardless of label_column, mirroring the Cusanovich loader:
-#: "organ" is always known and never "Unclassified" -- only the
-#: uHAF-harmonized cell_type can be. Checking label_column instead would
-#: silently keep every Unclassified cell whenever label_column="organ",
-#: which is the default.
+#: Column checked for UNCLASSIFIED_LABEL to decide which cells to drop,
+#: whatever label_column is: "organ" is never "Unclassified", only the
+#: uHAF-harmonized cell_type can be.
 _ANNOTATION_COLUMN = "cell_type"
 
-#: Rows read per chunk in both passes over a backed h5ad. Not exposed on
-#: load_heca (its own parameter list is fixed by the interface); the two
-#: standalone chunked functions still take it, since that is where the
-#: memory/speed trade-off actually lives.
+#: Rows read per chunk in both passes over a backed h5ad. load_heca does not
+#: expose it; the two chunked functions take it.
 DEFAULT_BLOCK = 20_000
 
 _CACHE_PREFIX = ".heca_cache_"
@@ -209,13 +204,9 @@ def _peak_ids(path: Path) -> pd.Index:
 def _check_peaks_aligned(organs: Sequence[str], paths: Sequence[Path]) -> None:
     """Fail loudly if the pooled organs do not share one cPeak reference.
 
-    total_counts + counts below only requires matching length, which raises
-    on a mismatched peak count but says nothing when two organs carry the
-    same number of cPeaks in a different order. In that case the pooled
-    feature selection and reduce_to_peaks would silently mix different
-    peaks across organs, and every downstream number would be wrong with no
-    symptom. All five real hECA files come from one cPeak reference, so this
-    is expected to pass; it exists for when that assumption stops holding.
+    total_counts + counts below only checks length, so two organs with the
+    same number of cPeaks in a different order would mix different peaks in
+    the pooled feature selection and in reduce_to_peaks.
     """
     reference_organ, reference_peaks = organs[0], _peak_ids(paths[0])
     for organ, path in zip(organs[1:], paths[1:]):
@@ -240,8 +231,8 @@ def _cache_key(
 ) -> str:
     """A stable key for the cached result of one preprocessing config.
 
-    For the pooled embedding, subsample and random_state are deliberately
-    excluded: they are applied fresh on top of the cached, already-
+    For the pooled embedding, subsample and random_state are excluded:
+    they are applied fresh on top of the cached, already-
     preprocessed embedding, matching how the uncached path handles them.
     For a subsample-first embedding they are the population, so ``subset``
     carries (subsample, random_state) into the key.
@@ -277,8 +268,7 @@ def _read_cache(path: Path) -> dict | None:
     if not path.is_file():
         return None
     with np.load(path, allow_pickle=True) as payload:
-        # A cache written before meta["obs"] existed lacks these arrays. It
-        # is treated as a miss and rebuilt, not served without them.
+        # A cache without the obs arrays is treated as a miss.
         if any(f"obs_{column}" not in payload.files for column in META_OBS_COLUMNS):
             return None
         return {

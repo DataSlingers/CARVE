@@ -1,8 +1,7 @@
 """Turn a Scenario and one axis point into simulated data.
 
-This replaces parse_difficulty_and_simulate and parse_range_and_simulate,
-which differed only in how they resolved the swept parameter. Scenario.
-sim_kwargs now does that, so one function covers both.
+Scenario.sim_kwargs resolves the swept parameter, so one function covers
+difficulty and scaling scenarios.
 """
 
 from typing import Any

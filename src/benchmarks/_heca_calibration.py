@@ -4,18 +4,16 @@ Runs once on the cluster before the fit, on the training split and complement
 that the fit's first resample draws. For each setting it builds both graphs
 with the neighbor counts CARVE scales to each subset, scans Leiden
 resolution on the training graph, and times every component the fit
-repeats, single-threaded as each fit worker runs. It proposes the grid by
-the spec's rule and projects the fit's runtime; the author commits the grid
-to STUDIES before submitting the fit. The scan and the costs are written
-even when the rule fails, so a failed rule never discards hours of scanning.
+repeats, single-threaded as each fit worker runs. It proposes a grid and
+projects the fit's runtime; the grid is committed to STUDIES before the fit
+is submitted. The scan and the costs are written even when no grid can be
+proposed, so hours of scanning are never discarded.
 
 The forest is timed at both ends of the grid: once on labels near the
 provisional grid's geometric middle, and once on the scan's fine end, the
 most clusters any setting gives at or below the grid's top. A fitted
-forest's size and fit time
-grow steeply with its class count, so a middle-only forest would understate
-both the per-worker memory peak the fit's worker count is chosen from and
-the forest's share of the projection.
+forest's size and fit time grow steeply with its class count, and the fit's
+worker count is chosen from the per-worker memory peak.
 """
 
 import math
@@ -189,7 +187,7 @@ def calibration_costs(
     Leiden's cost is the mean over the scanned resolutions inside the grid's
     range, or over the whole scan when none falls inside. The forest's cost
     is the mean of the middle and fine-end forests, or the middle forest
-    alone for a calibration.json written before the fine end was timed.
+    alone when calibration.json has no fine-end timing.
     """
     lo, hi = min(resolutions), max(resolutions)
     forest = {

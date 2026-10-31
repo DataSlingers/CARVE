@@ -1,13 +1,4 @@
-"""The two scaling figures: ARI and runtime against the swept axis.
-
-The notebook cell this replaces carried its own geometry constants and an
-ELEMENT_SCALE fudge factor whose only purpose was to make line and marker
-widths match Fig 4 by eye. With a single theme they match by construction, so
-the fudge is gone.
-
-The moons panels commented out in that cell are not ported; the moons scaling
-experiment is dropped.
-"""
+"""The two scaling figures: ARI and runtime against the swept axis."""
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -33,7 +24,7 @@ DEFAULT_METRICS: tuple[str, ...] = (
 
 
 def _panel_grid(n_panels: int) -> tuple[Figure, list]:
-    """One row of panels sized from the theme, not from hand-tuned margins."""
+    """One row of panels sized from the theme."""
     fig, axes = plt.subplots(1, n_panels, figsize=(4.2 * n_panels, 3.0), squeeze=False)
     return fig, axes
 

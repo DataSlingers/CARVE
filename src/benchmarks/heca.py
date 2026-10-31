@@ -2,8 +2,7 @@
 
 The full-scale hECA run in stages, one SLURM job each: embed, calibrate and
 fit, plus status for a fit in progress. Every stage reads and writes one run
-directory. Runbook: slurm/heca/README.md. Design:
-docs/superpowers/specs/2026-10-01-heca-longleaf-runtime-design.md.
+directory. Runbook: slurm/heca/README.md.
 """
 
 import argparse

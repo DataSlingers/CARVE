@@ -11,8 +11,6 @@ in _heca_calibration, the notebook-side reading in _heca_report. Layout:
     <run-dir>/fit/              the CARVE cache and its fingerprint,
                                 timings/, memory.csv, started.json,
                                 runtime.json, sacct.txt
-
-Design: docs/superpowers/specs/2026-10-01-heca-longleaf-runtime-design.md.
 """
 
 import csv

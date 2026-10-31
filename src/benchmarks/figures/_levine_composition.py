@@ -66,9 +66,9 @@ RULE_NAMES: dict[str, str] = {"1se": "1-SE"}
 
 # Layout in inches at the printed size. A row fits one 8-point label. The
 # label bands fit the longest population name at 45 degrees and the longest
-# marker name (CD235ab) upright. With Levine's 14 populations and 10 and 7
-# clusters, the KMeans partitions this figure was laid out for, it is 8.62
-# inches tall, under PRINT_MAX_HEIGHT_IN; fewer clusters make it shorter.
+# marker name (CD235ab) upright. With 14 populations and partitions of 10
+# and 7 clusters it is 8.62 inches tall, under PRINT_MAX_HEIGHT_IN; fewer
+# clusters make it shorter.
 ROW_HEIGHT_IN = 0.125
 TOP_IN = 0.25
 TITLE_GAP_IN = 0.3

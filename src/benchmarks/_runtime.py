@@ -1,8 +1,8 @@
 """Runtime and memory of a study's CARVE fit as cells and workers grow.
 
-S13 Text and S17 Table report how one CARVE fit with a case study's
-configuration scales with the number of cells, with and without randomized
-preprocessing, and with the number of workers. Each fit runs in a Python
+The supplementary runtime text and table report how one CARVE fit with a
+case study's configuration scales with the number of cells, with and without
+randomized preprocessing, and with the number of workers. Each fit runs in a Python
 process of its own (``python -m benchmarks._runtime``), so the peak memory
 recorded belongs to that fit alone. With one worker every resample runs in
 that process, and timers split the wall-clock time into the embedding, the

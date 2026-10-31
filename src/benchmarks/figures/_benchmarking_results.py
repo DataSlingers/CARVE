@@ -1,8 +1,6 @@
 """Fig 4: ARI against difficulty, one panel per simulated scenario.
 
-Takes the artifact frames it draws. The function this replaces re-simulated
-data inside the plotting call, which meant a figure could disagree with the
-table beside it, and it took 19 parameters across 408 lines.
+Draws from the artifact frames; nothing is simulated here.
 
 The figure is laid out at the PLOS page width under print_theme_context, so
 its text prints at the sizes it is set in, and it is saved both as the PNG
@@ -85,10 +83,8 @@ def figure_benchmarking_results(
     if not results_by_scenario:
         raise ValueError("Need at least one scenario to draw.")
 
-    # The x ticks below are relabeled easy/medium/hard unconditionally, so a
-    # scaling frame handed to this function would not merely look odd -- its
-    # axis would read as difficulty while showing n or p. Rejecting it is the
-    # difference between a wrong figure and a traceback.
+    # The x ticks below are relabeled easy/medium/hard, so a scaling frame is
+    # rejected.
     off_axis = {
         name: str(frame["axis_name"].iloc[0])
         for name, frame in results_by_scenario.items()
@@ -101,10 +97,8 @@ def figure_benchmarking_results(
             "for scaling sweeps, or figure_scenario_dashboard for one family."
         )
 
-    # Panel order comes from the registry-side reading order, not from how
-    # the caller built its mapping -- the notebook builds it by iterating
-    # SCENARIOS, whose order exists for the runner rather than for this
-    # figure. Anything not in that list keeps caller order, after the rest.
+    # Panels follow DEFAULT_SCENARIOS; anything else keeps the caller's order,
+    # after them.
     ranked = {name: index for index, name in enumerate(DEFAULT_SCENARIOS)}
     names = sorted(results_by_scenario, key=lambda name: ranked.get(name, len(ranked)))
     n_rows = -(-len(names) // ncols)

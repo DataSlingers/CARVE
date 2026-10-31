@@ -20,11 +20,8 @@ from .._theme import FONT_SIZES, save_figure, theme_context
 from .._types import Scenario
 from ._paths import BENCHMARKING_DIR, figure_path
 
-# The canonical reading order for the six difficulty families, and the order
-# the published S1 Fig and Fig 4 both present them in. Fig 4 orders its
-# panels by this too, so the two figures cannot disagree about where a family
-# sits, and neither depends on the order a caller happened to build its
-# mapping in. Swiss rolls come last, as in the per-task S tables.
+# Reading order of the six difficulty families, shared by the examples figure
+# and Fig 4.
 DEFAULT_SCENARIOS = (
     "gaussians",
     "t_dist",
@@ -60,10 +57,7 @@ def draw_example_row(
 
     The seed each panel is drawn at is derived exactly as _run.py's run_cell
     derives it -- seed + axis_idx * 10000 + random_state -- so a panel shows
-    the data the benchmark actually scored. Both the S1 grid and the
-    per-scenario overview draw their examples through here rather than
-    repeating that arithmetic, which is the kind of duplication that lets one
-    of two figures drift onto different data than the other.
+    the data the benchmark actually scored.
 
     Parameters
     ----------

@@ -1,17 +1,9 @@
-"""Regenerate the SNR anchors from the documented target ARI bands.
+"""Calibrate the scenario anchors to the target ARI bands.
 
-This is a replacement, not a reproduction. The notebook that produced the
-published anchors was lost, and the anchors it produced move four parameters
-at once and non-monotonically across difficulty levels, which is not the
-signature of a single ordered sweep. The original search space is therefore
-not recoverable.
-
-What this module does instead is documented and reproducible: each scenario
-declares its own knob in CALIBRATION_KNOBS, with a direction, and calibration
-holds every other anchor parameter fixed while it bisects that knob until a
-base estimator informed with the true k_star reaches a mean ARI inside the
-target band over the calibration seeds. The manuscript's S3 Text is updated
-to describe this procedure.
+Each scenario declares one knob in CALIBRATION_KNOBS, with a direction.
+Calibration holds every other anchor parameter fixed and bisects the knob
+until a base estimator given the true k_star reaches a mean ARI inside the
+target band over the calibration seeds.
 
 Run offline, not as part of a benchmark run. Compare its output against
 _registry.PUBLISHED_ANCHORS before adopting anything.
@@ -42,15 +34,11 @@ class CalibrationKnob:
 
     parameter names a simulate_clusters keyword, or a tuple of them that the
     one bisected value moves together. multiplier=True scales the
-    anchor's published value rather than replacing it, which is what keeps
-    the unequal per-cluster cluster_scale vectors the nonlinear anchors
-    carry -- [4.38, 4.08, 4.08, 4.08, 4.08] on circles/hard -- from being
-    flattened to a scalar by the search.
+    anchor's published value, so unequal per-cluster cluster_scale vectors
+    stay unequal.
 
-    increasing says which way ARI moves as the parameter grows. It is
-    declared rather than assumed because the two knobs run in opposite
-    directions: diffuser clusters score lower, a wider RFF bandwidth scores
-    higher.
+    increasing says which way ARI moves as the parameter grows: diffuser
+    clusters score lower, a wider RFF bandwidth scores higher.
     """
 
     parameter: str | tuple[str, ...]
@@ -82,15 +70,12 @@ _SCALE_KNOB = CalibrationKnob(
     multiplier=True,
 )
 
-# circles and moons do not respond to cluster_scale at all: measured over 20
-# datasets with the fixed eigensolver, multiplying it by 3 leaves oracle ARI
-# at 1.000 +/- 0.000 at every anchor. corr_strength does nothing either
-# (1.000 at 0.23 through 0.9). embed_param, the random Fourier feature
-# bandwidth, is the knob, and it behaves as a threshold: ARI is near zero
-# below 2, exactly 1.000 above 4, and all three target bands fall between
-# about 2.7 and 3.5. The interval is bounded to that transition so the
-# bisection never wanders into either flat region, where it has no gradient
-# to follow.
+# circles and moons do not respond to cluster_scale (tripling it leaves the
+# oracle ARI at 1.000) or to corr_strength. embed_param, the random Fourier
+# feature bandwidth, acts as a threshold: ARI is near zero below 2 and 1.000
+# above 4, and the three target bands fall between about 2.7 and 3.5. The
+# interval is bounded to that transition, since the bisection has nothing to
+# follow in either flat region.
 _BANDWIDTH_KNOB = CalibrationKnob(
     parameter="embed_param",
     low=2.0,
@@ -102,14 +87,11 @@ _BANDWIDTH_KNOB = CalibrationKnob(
 # swiss_rolls draws interleaved spiral arms in one shared plane, so there is
 # no per-cluster scale to multiply. The arms are fixed at half a turn with no
 # twist (_registry._SHARED), and the radial noise, spiral_band, sets the
-# level. Arm length and twist also lower the oracle ARI, but by making the
-# arms long and thin enough that separating them depends on how densely they
-# are sampled: spectral clustering of a 38% subsample, the held-out set
-# generalizability clusters, lost 0.35 to 0.68 ARI against the full data at
-# those settings, against 0.03 to 0.09 at band 0.105 to 0.115 without twist
-# (measured 2026-10-28, 12 datasets at medium's alpha and AR(1) strength).
-# ARI is 1.000 at band 0.06 and 0.08 and 0.57 at 0.125, so the interval is
-# bounded to that transition, as the bandwidth knob is.
+# level. Longer or twisted arms also lower the oracle ARI, but then
+# separating the arms depends on how densely they are sampled: spectral
+# clustering of the 38% held-out set lost 0.35 to 0.68 ARI against the full
+# data, against 0.03 to 0.09 with the band alone. ARI is 1.000 at band 0.08
+# and 0.57 at 0.125, so the interval is bounded to that transition.
 _SPIRAL_KNOB = CalibrationKnob(
     parameter="spiral_band",
     low=0.05,
@@ -174,15 +156,13 @@ def oracle_ari_stats(
 ) -> tuple[float, float]:
     """Mean and standard deviation of the oracle's ARI over the calibration seeds.
 
-    Calibration uses the same seed derivation as the benchmark, so the
-    calibration and benchmark datasets coincide, as the manuscript states.
-    That claim holds only at random_state=PUBLISHED_RANDOM_STATE (42), which
-    is why that is the default here rather than 0.
+    Calibration uses the benchmark's seed derivation, so at the default
+    random_state=PUBLISHED_RANDOM_STATE the calibration and benchmark
+    datasets coincide.
 
-    The spread is returned as well as the mean because the RFF bandwidth's
-    transition band is wide in spread even where the mean is on target --
-    sd 0.10 to 0.23, individual datasets from 0.39 to 1.000 at one setting --
-    so an anchor that reports only its mean hides how much it varies.
+    The standard deviation is returned because the bandwidth knob varies
+    widely across datasets even where the mean is on target (from 0.39 to
+    1.000 at one setting).
     """
     axis_idx = list(scenario.axis.labels).index(axis_label)
     axis_value = scenario.axis.values[axis_idx]
@@ -236,9 +216,7 @@ def calibrate_anchor(
     knob defaults to the one CALIBRATION_KNOBS declares for this scenario.
     Passing one explicitly is for tests and for probing an alternative.
 
-    The bisection reads its direction off the knob. Assuming ARI falls as
-    the parameter grows, which the first implementation did, walks away from
-    the band on an increasing knob rather than toward it.
+    The bisection takes its direction from the knob.
     """
     low_target, high_target = target
     if not low_target < high_target:

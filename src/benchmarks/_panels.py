@@ -119,12 +119,6 @@ def aligned_color_maps(
     the same palette directly, so a cluster that ``align_cluster_labels``
     matched to reported label *i* is drawn in reported label *i*'s color.
 
-    This is what makes the composite's scatter panels comparable. Calling
-    cluster_color_map once per panel -- which is what this replaces -- keys
-    each panel's map on that panel's own first-occurrence order, so the same
-    cluster came out a different color in each of the three panels and the
-    reader could not read one panel against the next.
-
     The palette is sized to cover both the reported labels and the highest
     cluster id present, so a clustering with more clusters than there are
     reported labels still gets a color for every one of them.
@@ -134,9 +128,7 @@ def aligned_color_maps(
     left in palette order. The reported labels still share one set of colors
     and every matched cluster keeps its label's color; only which label gets
     which color changes. Without it, a clustering coarser than the reported
-    labels can match labels whose palette entries happen to be dark: five of
-    the 30 source clusters the Cusanovich fit's 13 clusters matched are drawn
-    darker than OKLab lightness 0.5.
+    labels can match labels whose palette entries are dark.
     """
     categories = sorted(set(np.asarray(y_true).tolist()))
     highest_id = 0
@@ -232,8 +224,7 @@ def axis_arrows(
     A hidden-spine scatter still has to say what its two directions are. An
     xlabel/ylabel pair does that, but it also reserves a full margin on two
     sides of every panel it is applied to; a corner marker says the same
-    thing inside the data area, which is why the published composites carry
-    it on their first panel only and leave the rest unlabeled.
+    thing inside the data area.
 
     ``origin``, ``length`` and ``pad`` are axes fractions, so the marker
     keeps its size and position whatever the panel's data limits are.
@@ -300,21 +291,15 @@ def metric_lines(
 ) -> Axes:
     """Plot mean ARI at the selected k against the axis, one line per metric.
 
-    Consumes the unified artifact schema directly, so there is no axis-column
-    sniffing. The function this replaces inferred its x column by inspecting
-    which of two possible schemas it had been handed.
+    Reads the unified artifact schema.
 
-    ``"baseline_oracle"`` is accepted in ``metrics`` alongside the ordinary
-    metric names. It is not a row in ``metric_name`` -- the oracle ARI is a
-    per-cell constant carried on every row's ``oracle_ari`` column, one value
-    per (axis point, seed) rather than one per (metric, k) -- so it is drawn
-    from the deduplicated ``oracle_ari`` column instead of the
-    ``is_selected``-filtered rows the other metrics use.
+    ``"baseline_oracle"`` may be listed in ``metrics``. It is drawn from the
+    deduplicated ``oracle_ari`` column, one value per axis point and seed,
+    instead of the ``is_selected`` rows the other metrics use.
 
     show_points draws each dataset's own value behind the mean, dodged along
     x by dodge so seven methods' clouds do not merge into one band. It is
-    off by default: Fig 4 draws means and error bars, and this function is
-    what draws Fig 4.
+    off by default; Fig 4 shows means and error bars only.
     """
     selected = df.loc[df["is_selected"]]
     offsets = _dodge_offsets(list(metrics), dodge)
@@ -404,9 +389,8 @@ def k_hat_selection_matrix(
 
     Row order follows metrics and column order follows candidate_k, both as
     given, so the caller's ordering is the figure's ordering. A metric with
-    no rows in this cell is an all-NaN row rather than a dropped one: a
-    dropped row would slide every metric below it up by one and silently
-    mislabel the axis.
+    no rows in this cell is an all-NaN row, so rows stay aligned with
+    metrics.
     """
     cell = df.loc[df["axis_label"] == axis_label]
     matrix = np.full((len(metrics), len(candidate_k)), np.nan)
@@ -442,9 +426,7 @@ def k_hat_heatmap(
     same as one that always picks something in between, and only this panel
     separates them.
 
-    The oracle is not drawn. It has no selected k -- it is fit once per cell
-    at k_star -- so a row for it would be either empty or a tautological
-    column of ones.
+    The oracle has no selected k (it is fit at k_star), so it is not drawn.
     """
     metrics = [m for m in metrics if m != BASELINE_METRIC]
     candidate_k = list(candidate_k)
@@ -482,8 +464,7 @@ def k_hat_heatmap(
                 if np.isnan(value) or value < 0.005:
                     continue
                 # Light text on the dark end of the ramp, dark on the light
-                # end. A single ink color is unreadable at one end or the
-                # other, and the threshold sits where the ramp crosses.
+                # end.
                 ax.text(
                     column,
                     row,
@@ -513,22 +494,12 @@ def normalized_criterion(
 
     Returns long-form rows of (metric_name, k, value).
 
-    Normalization is what makes seven criteria comparable on one axis.
-    Silhouette lives in [-1, 1], inverted Davies-Bouldin in (0, 1],
-    Calinski-Harabasz runs to the thousands and the gap statistic is a log
-    ratio; drawn raw, six of the seven collapse into a line at the bottom of
-    whatever axis the largest one needs. The panel's question is which k each
-    criterion prefers, and that is a property of the curve's shape, which
-    normalization preserves exactly.
-
-    Within a dataset, then averaged -- not the other way round. Averaging
-    raw values first lets one dataset whose criterion happens to be an order
-    of magnitude larger dominate the mean and drag the averaged curve onto
-    its own shape.
-
-    A criterion that is flat across k normalizes to 0.5 rather than dividing
-    by zero. Flat means the criterion expressed no preference, and 0.5 draws
-    that as the flat line it is.
+    The criteria live on different scales (silhouette in [-1, 1],
+    Calinski-Harabasz in the thousands, the gap statistic a log ratio), and
+    the panel asks which k each one prefers, which normalization preserves.
+    Normalizing within each dataset first keeps a dataset with large raw
+    values from dominating the mean. A criterion that is flat across k
+    normalizes to 0.5.
     """
     cell = df.loc[df["axis_label"] == axis_label]
     out: list[dict[str, Any]] = []
@@ -563,31 +534,21 @@ def criterion_curves(
     show_ari_reference: bool = True,
     title: str | None = None,
 ) -> Axes:
-    """Why each method chose the k it chose, for one point on the axis.
+    """Each method's normalized criterion over k, for one point on the axis.
 
-    Every criterion is normalized to [0, 1] over the candidate k, so the
-    shapes are comparable; the base estimator's own ARI at each k is drawn
-    on the same axis as a reference, which is what turns "this criterion
-    peaked at the wrong k" into "and here is what that cost". It is drawn
-    the way metric_lines draws the oracle baseline -- the same color, dash,
-    width and standard-error bars -- because at k = k_star it is that
-    baseline: both come from the same estimator fit at the same k with the
-    same seed.
+    Every criterion is normalized to [0, 1] over the candidate k. The base
+    estimator's own ARI at each k is drawn on the same axis as a reference,
+    styled like the oracle baseline in metric_lines, which it equals at
+    k = k_star.
 
     The reference is the mean, over seeds, of the classical indices'
     ari_at_k rows (CVI_METRICS), which carry the base estimator's full-data
-    fit at each k (see _run.run_cell). Reading it off those rows alone keeps
-    any other rows the frame happens to carry out of the average. Nothing is
-    drawn when the cell carries no classical-index rows.
-
-    Both series are proportions in [0, 1], so no second y axis is needed --
-    and a dual-axis panel would invite reading a crossing that is an
-    artifact of two independent scales.
+    fit at each k (see _run.run_cell). Nothing is drawn when the cell has no
+    classical-index rows.
 
     Each metric's selected k is marked on its own curve. The gap statistic's
-    mark will not sit on its maximum: Tibshirani's rule takes the smallest k
-    with Gap(k) >= Gap(k+1) - s(k+1), not an argmax. That is the panel
-    showing the rule at work.
+    mark need not sit on its maximum: Tibshirani's rule takes the smallest k
+    with Gap(k) >= Gap(k+1) - s(k+1).
     """
     metrics = [m for m in metrics if m != BASELINE_METRIC]
     candidate_k = list(candidate_k)
@@ -784,17 +745,11 @@ def carve_lines(
 ) -> Axes:
     """Plot CARVE validation curves over the sweep axis, one line per measure.
 
-    ``estimator_results_`` has one row per (configuration, k): a case study
-    that sweeps more than one estimator (Klein sweeps Ward agglomerative
-    clustering and spectral clustering, for instance) carries every swept
-    estimator's rows in that one table. Plotting every row for a measure
-    would draw one polyline per estimator end to end, jumping back to the
-    first estimator's k range after the last -- so each line here is
-    restricted to the single configuration CARVE's own 1-SE selection
-    returns for that measure, identified by its ``method_id`` (the join key
-    ``estimator_results_`` uses for "one line" -- see
-    ``carve._sweep.MethodIds``), and the winning estimator's identity is
-    named in the legend rather than left implicit.
+    ``estimator_results_`` has one row per (configuration, k), so a case
+    study that sweeps several estimators (Klein: Ward and spectral) carries
+    all of them. Each line is restricted to the configuration CARVE's 1-SE
+    selection returns for that measure, by its ``method_id``, and the legend
+    names that estimator.
 
     The x axis is the run's sweep parameter, read from carve_obj.sweep_: the
     number of clusters for a k-based run (and for a fit cached before sweep_
@@ -857,10 +812,6 @@ def carve_lines(
                 )
 
     ax.set_xlabel(_sweep_axis_label(param), fontsize=FONT_SIZES["axis_label"])
-    # Both measures this draws are adjusted Rand indices against the
-    # resampled reference, so "ARI" names the quantity; "Validation score",
-    # which this replaces, named the role instead and matched neither the
-    # published axis nor the panel title.
     ax.set_ylabel("ARI", fontsize=FONT_SIZES["axis_label"])
     if title:
         ax.set_title(title, fontsize=FONT_SIZES["title"])
@@ -943,15 +894,11 @@ def cvi_lines(
 ) -> Axes:
     """Plot classical index curves over k, marking each index's selected k.
 
-    ``curves_df`` has one row per (metric, model, k): a case study that
-    sweeps more than one estimator carries every swept model's scores for
-    every index. Grouping only by metric would draw one line per index that
-    zig-zags between models at every k, so each line here is restricted to
-    ``best_df``'s winning model for that metric, and the model is named in
-    the legend. The selected-k marker is read directly from that row's own
-    ``k`` rather than re-located by matching scores, so it always marks the
-    winning model's selection and not an arbitrary other model's row that
-    happens to share a k.
+    ``curves_df`` has one row per (metric, model, k), so a case study that
+    sweeps several estimators carries every model's scores for every index.
+    Each line is restricted to ``best_df``'s winning model for that metric,
+    named in the legend, and the selected-k marker is read from that row's
+    own ``k``.
 
     Indices live on incompatible scales, so they are min-max normalized to a
     common axis by default; the selected k is unaffected by that rescaling.
@@ -986,10 +933,8 @@ def cvi_lines(
             label=f"{_display(str(metric))} — {model}",
         )
 
-        # A vertical rule at the selected k, matching how carve_lines marks
-        # its own selections in the panel beside this one. The ring this
-        # replaces sat on the curve, so it read as a data point rather than
-        # as a selection and was lost wherever two indices crossed.
+        # A vertical rule at the selected k, as carve_lines marks its
+        # selections.
         ax.axvline(
             float(best[x_col]), color=color, linestyle="--", linewidth=1.0, alpha=0.6
         )
@@ -1179,9 +1124,7 @@ def _order_by_reference(
 
     A cluster is placed at the weighted mean position of the reference
     categories its samples carry, so a cluster made mostly of the reference
-    column's third category is drawn third. Stacking each column by its own
-    id order instead -- which is what this replaces -- left the ribbons to
-    cross the full height of the panel to reach their anchor.
+    column's third category is drawn third.
     """
     keys = sorted(np.unique(labels).tolist())
     counts = pd.crosstab(pd.Series(labels), pd.Series(reference)).reindex(
@@ -1221,10 +1164,8 @@ def _flow_ribbon(
     """Add one Bezier ribbon spanning two stacked columns.
 
     Both edges are cubic Beziers with their control points on the vertical
-    midline between the columns, which is what gives the band its flat
-    departure and arrival and an S-curve in between. Straight-line bands --
-    what this replaces -- read as a bar chart of connections rather than as
-    flow, and cross each other at hard angles.
+    midline between the columns, which gives the band a flat departure and
+    arrival and an S-curve in between.
     """
     midpoint = (x0 + x1) / 2
     top0, bottom0 = y0
@@ -1348,15 +1289,11 @@ def alluvial(
 
     The reported labels anchor the diagram. They stack in first-occurrence
     order, and both clusterings are ordered against that column by
-    _order_by_reference, so the panel reads as "how does each clustering
-    partition the reported labels" rather than as two unrelated stacks.
+    _order_by_reference.
 
-    Every ribbon takes its reported label's color on both sides, which is
-    what lets one reported class be followed across the whole panel; the
-    cluster bars keep their own column's color. The middle column carries
-    more generous gaps (``true_gap_frac``) than the two cluster columns, so
-    the anchor reads as a separate register rather than as a third stack of
-    the same kind.
+    Every ribbon takes its reported label's color on both sides; the cluster
+    bars keep their own column's color. The middle column has wider gaps
+    (``true_gap_frac``) than the two cluster columns.
 
     Cluster bars are named ``C1``, ``C2``, ... with their purity -- the
     fraction of the cluster falling in its single largest reported class --
@@ -1511,10 +1448,6 @@ def ari_lollipop(
     """Horizontal lollipop of ARI against reported labels, one row per method."""
     ordered = ari_df.sort_values("ari", ascending=True).reset_index(drop=True)
     positions = np.arange(len(ordered))
-    # ordered["method"] must not be evaluated unless "metric" is absent --
-    # ordered.get("metric", ordered["method"]) evaluates the fallback
-    # argument eagerly, which raises KeyError on a frame that carries
-    # "metric" but not "method", defeating the point of .get().
     color_key = ordered["metric"] if "metric" in ordered.columns else ordered["method"]
     colors = [metric_color(str(m)) for m in color_key]
 
@@ -1525,8 +1458,8 @@ def ari_lollipop(
 
     if annotate_k and "k" in ordered.columns:
         # Offset in points from the marker's center: its radius, half its
-        # edge line, and a 3 pt gap. An offset in data units overlaps the
-        # marker on a wide x range and drifts off it on a narrow one.
+        # edge line and a 3 pt gap, so the label keeps its distance at any
+        # x range.
         edge_pt = float(markers.get_linewidth()[0])
         offset_pt = np.sqrt(markers.get_sizes()[0]) / 2 + edge_pt / 2 + 3.0
         for position, (ari, k) in enumerate(zip(ordered["ari"], ordered["k"])):
@@ -1556,11 +1489,7 @@ def grouped_legend(
     y_offset: float = 0.10,
     ncol: int | None = None,
 ) -> Legend:
-    """One deduplicated legend below a grid of axes.
-
-    The old code extracted this helper out of a 408-line figure function and
-    then never removed the original, so the same legend was built twice.
-    """
+    """One deduplicated legend below a grid of axes."""
     handles: list[Line2D] = []
     labels: list[str] = []
     for ax in np.asarray(axes).flat:
@@ -1585,20 +1514,11 @@ def _legend_groups(metrics: Sequence[str]) -> list[list[list[str]]]:
 
     Returns one entry per family, each holding that family's columns. Left to
     right: the oracle baseline alone, then CARVE's own measures in one
-    column, then the classical indices across two. Grouping is decided from
-    the metric names, not from the label strings a previous implementation of
-    this pattern matched on ("carve" in the label), which silently
-    reclassified any metric whose display name did not happen to contain the
-    word.
+    column, then the classical indices across two. Families are decided from
+    the metric names.
 
-    Order within a family is the caller's order, so the two classical columns
-    are set by how ``metrics`` is written rather than by a rule here that a
-    caller cannot see.
-
-    The classical family takes a second column only when it holds more than
-    two indices. Splitting two of them in half would produce two columns one
-    entry tall standing beside a two-entry CARVE column, which reads as a
-    layout accident rather than as a grouping.
+    Order within a family is the caller's order. The classical family takes
+    a second column only when it holds more than two indices.
     """
     baseline = [m for m in metrics if m == BASELINE_METRIC]
     carve = [m for m in metrics if m in CARVE_METRICS_ALL]
@@ -1644,17 +1564,11 @@ def metric_legend(
     ignored. Otherwise it hangs y_offset below the figure's lower edge.
 
     Matplotlib fills a multi-column legend top to bottom, so a column shorter
-    than the tallest one is padded with a blank entry rather than letting the
-    next family start halfway up a column. That padding is what lets the
-    single-entry baseline column sit beside two-entry columns, which is the
-    arrangement the published figure uses; it is one Legend, not three
-    overlaid ones positioned by hand.
+    than the tallest one is padded with blank entries; the next family then
+    starts at the top of its own column.
 
-    A Legend has a single gutter width, so separating the families by
-    widening ``columnspacing`` would widen the gap inside the classical pair
-    too. Instead the gutter is narrow and an empty column stands between
-    families: the classical pair sits at the narrow gutter, and each family
-    boundary gets that gutter twice over plus the empty column's width.
+    A Legend has one gutter width, so an empty column separates the families
+    and the gutter inside the classical pair stays narrow.
     """
     available: dict[str, Line2D] = {}
     for ax in np.asarray(axes).flat:

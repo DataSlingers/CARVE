@@ -1,9 +1,7 @@
 """Classical cluster validation indices.
 
 The gap statistic returns its standard error alongside its value so that
-selection can apply Tibshirani's rule. The routine this replaces returned
-only Gap(k) and the caller took a plain argmax, which gave CARVE a 1SE rule
-and its main competitor none.
+selection can apply Tibshirani's rule.
 """
 
 from collections.abc import Sequence

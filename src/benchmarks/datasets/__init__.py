@@ -2,8 +2,8 @@
 
 Every loader returns (X, y, meta): a float array of shape (n_samples,
 n_features), a pandas Series of labels, and a dict recording provenance and
-the exact preprocessing applied. The loaders are the single home for
-preprocessing that previously appeared in two notebooks each.
+the exact preprocessing applied. Each dataset's preprocessing lives only in
+its loader.
 """
 
 from ._cusanovich import load_cusanovich

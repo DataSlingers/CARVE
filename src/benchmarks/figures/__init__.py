@@ -1,8 +1,7 @@
 """One module per manuscript figure.
 
 Every function returns a Figure and, unless save=False, writes it under its
-exact manuscript filename at 300 dpi. Four of these figures previously had no
-savefig at all and were right-click-saved out of Jupyter output.
+exact manuscript filename at 300 dpi.
 
 _scenario_overview, _scenario_dashboard and _reference_scatter are the three
 modules here that are not manuscript figures. The first two draw the

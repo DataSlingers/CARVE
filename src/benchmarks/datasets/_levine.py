@@ -17,23 +17,19 @@ the common intensity scale cytometry workflows cluster on (R FlowSOM's default
 input, scale=FALSE). Per-marker robust scaling stretches the markers that are
 mostly negative and compresses the high-variance ones; on the 5,000-cell
 subsample it merged CD4 and CD8 T cells under FlowSOM at every k below 19, and
-Leiden, KMeans and FlowSOM all recover the gated populations better without it
-(measured 2026-10-16).
+Leiden, KMeans and FlowSOM all recover the gated populations better without it.
 
-scale=True reproduces the preprocessing of the submitted manuscript, which
-adds RobustScaler(quantile_range=(10, 90)) between the transform and the drop.
-That ordering is deliberate and preserved from the code that produced the
-submitted results: the scaler is fit on all 265,627 cells, the unassigned ones
-included, and the unassigned cells are dropped from the already-scaled matrix
-afterwards. The scaler's quantiles therefore reflect cells that are not in the
-returned data. Do not "correct" this; it changes the submitted numbers.
+scale=True reproduces the preprocessing of the first manuscript version, which
+adds RobustScaler(quantile_range=(10, 90)) between the transform and the drop:
+the scaler is fit on all 265,627 cells, the unassigned ones included, and the
+unassigned cells are dropped from the scaled matrix afterwards. Keep that
+order; it is what reproduces the published numbers.
 
 Labels come from R as the factor's integer codes, are subsampled as codes, and
-are returned as population names. The unassigned level is code 15, which is
-what older notes and the manuscript call "population 15". Stratifying on the
-codes rather than the names keeps the subsample the one this loader has always
-drawn: StratifiedShuffleSplit walks the classes in sorted order, and the codes
-("1", "10", "11", ...) sort differently from the names.
+are returned as population names. The unassigned level is code 15 ("population
+15" in the manuscript). StratifiedShuffleSplit walks the classes in sorted
+order, and the codes ("1", "10", "11", ...) sort differently from the names, so
+stratifying on the codes keeps the published subsample.
 """
 
 import numpy as np
@@ -121,8 +117,8 @@ def _preprocess(
     """arcsinh(x / 5), RobustScaler when scale is set, then drop the unassigned.
 
     X_raw holds the type markers of every cell, unassigned included, so the
-    scaler is fit on all of them, as for the submitted results (see the module
-    docstring).
+    scaler is fit on all of them, as in the first manuscript version (see the
+    module docstring).
     """
     from sklearn.preprocessing import RobustScaler
 
@@ -150,9 +146,8 @@ def _load_from_r() -> tuple[np.ndarray, np.ndarray, list[str], dict[str, str]]:
 
     X_all = np.array(ro.r("assay(sce)"), dtype=float)
 
-    # Codes and levels are read explicitly. Converting rowData through
-    # pandas2ri also yields the factor's integer codes, never its labels,
-    # which once left a filter on "unassigned" matching no cell at all.
+    # Codes and levels are read explicitly: converting rowData through
+    # pandas2ri yields the factor's integer codes, not its labels.
     _check_levels([str(level) for level in ro.r("levels(rowData(sce)$population_id)")])
     codes = np.asarray(ro.r("as.integer(rowData(sce)$population_id)")).astype(str)
 
@@ -186,7 +181,7 @@ def load_levine32(
     HDCytoData is installed only with allow_install=True; `make levine-setup`
     installs it ahead of time.
 
-    scale=True adds the submitted manuscript's RobustScaler(10, 90), fit on
+    scale=True adds the first manuscript version's RobustScaler(10, 90), fit on
     every cell before the unassigned are dropped; the default leaves the
     arcsinh-transformed markers unscaled (see the module docstring).
 

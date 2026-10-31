@@ -70,16 +70,10 @@ from ._cusanovich_results import MARKER_SIZE as FIG6_MARKER_SIZE
 from ._heca_carve import AXIS_LABELS, resolution_axis
 from ._paths import CASE_STUDY_DIR, figure_path, plos_figure_path
 
-# Panel A is always the stability overview and panel B always the
-# generalizability overview -- their titles say so, and swapping either
-# would misname the curve it draws -- but both honor the caller's rule and
-# not_two rather than a hardcoded "1se"/False. Panels C, D, E and F show
-# whatever CompositeInputs.measure names as the caller's primary selection:
-# for Klein that is generalizability (prepare_composite is called with
-# measure="generalizability", matching the manuscript's headline k=4
-# result); for Levine it is stability, matching that study's own
-# prepare_composite call. A caller that leaves measure at its default
-# ("stability") gets panel A and panels C to F showing the same selection.
+# Panel A is always the stability overview and panel B the
+# generalizability overview; both use the caller's rule and not_two. Panels
+# C to F show the selection under CompositeInputs.measure: generalizability
+# for Klein (the manuscript's headline k=4), stability for Levine.
 _MEASURE_STABILITY = "stability"
 _MEASURE_GENERALIZABILITY = "generalizability"
 
@@ -192,16 +186,11 @@ def _clear_legend(ax: Axes, legend: Legend) -> None:
 
 
 # Space between neighboring panels' text, across rows and between columns,
-# in units of the print theme's 8-point font: 0.2 inches. Matplotlib's
-# default, about 0.12 inches, crowded a row's axis label against the titles
-# below it once C's title no longer held the rows apart.
+# in units of the print theme's 8-point font: 0.2 inches.
 _PANEL_PAD = 1.8
 
 # C's colorbar, in the matrix's axes coordinates: beside the matrix, a
-# twentieth of its width away and as wide, as tall as the matrix. CARVE's
-# own colorbar takes a strip at the edge of C's cell, which left a gap
-# beside the centered square matrix and pushed the colorbar's labels into
-# the gutter between the columns, widening it for every row.
+# twentieth of its width away and as wide, as tall as the matrix.
 _CONSENSUS_COLORBAR_BOUNDS = (1.05, 0.0, 0.05, 1.0)
 
 # CARVE appends its cluster band above the matrix at this fraction of the
@@ -271,12 +260,8 @@ def _close_up_scatter_row(
 
 def _six_panel_grid(scatter_row_height: float) -> tuple[Figure, tuple[Axes, ...]]:
     """The figure and its six axes, A to F, in three rows of two."""
-    # No explicit hspace/wspace here: passing them marks the gridspec as
-    # manually customized, which makes every one of CARVE's own plotting
-    # calls -- each ends with its own fig.tight_layout() -- warn that the
-    # figure is "not compatible with tight_layout" on every subsequent
-    # call. Leaving spacing to the default lets those internal calls lay
-    # the panels out cleanly instead.
+    # No hspace/wspace: setting them makes the tight_layout() call at the
+    # end of each CARVE plotting method warn.
     fig = plt.figure(
         figsize=(PRINT_WIDTH_IN, PRINT_ROW_HEIGHT_IN * (2 + scatter_row_height))
     )

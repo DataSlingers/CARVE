@@ -1,10 +1,8 @@
 """Write the supplementary tables as .tex fragments.
 
-Under their manuscript names, to disk, rather than printed for copy-paste.
-Each fragment is the caption-free float the manuscript's S2-S7 and S11-S12
-Table use, so it replaces the committed table without hand-editing. The
-caption, with k*, goes in the fragment's first line as a LaTeX comment that
-identifies the file and never renders.
+Each fragment is written under its manuscript name as the caption-free float
+the supplementary tables use. The caption, with k*, goes in the fragment's
+first line as a LaTeX comment.
 """
 
 from collections.abc import Mapping, Sequence
@@ -60,20 +58,15 @@ TABLE_CAPTIONS: dict[str, str] = {
 def table_metrics() -> tuple[str, ...]:
     """Metrics that appear in the manuscript tables, in the published order.
 
-    Flattens TABLE_ROW_GROUPS, so the order a table renders in and the order
-    a caller requests are one declaration rather than two that can drift.
+    Flattens TABLE_ROW_GROUPS.
     """
     return tuple(metric for group in TABLE_ROW_GROUPS for metric in group)
 
 
 # render_paired_tex writes the caption into the fragment's first line, a
 # LaTeX comment, through _comment_safe, which folds newlines into spaces and
-# drops percent signs; nothing escapes it. The placeholder is substituted
-# with "$k^\star = ...$" on the rendered file. It dates from
-# render_grouped_tex, which passed the caption through _tex_escape into
-# \caption{...} and would have mangled the math ("\$" for the dollar signs,
-# "\textasciicircum{}" for "^"); under render_paired_tex the round trip
-# writes exactly what passing the math directly would.
+# drops percent signs. The placeholder is replaced with "$k^\star = ...$" in
+# the rendered file.
 _K_STAR_PLACEHOLDER = "KSTARPLACEHOLDER"
 
 
@@ -96,7 +89,7 @@ def write_all_tables(
 
     A difficulty scenario's table is headed easy/medium/hard and follows
     TABLE_ROW_GROUPS. A scaling scenario's is headed with its swept values
-    and follows SCALING_TABLE_ROW_GROUPS, as the committed S8 and S9 are.
+    and follows SCALING_TABLE_ROW_GROUPS.
     """
     metrics = tuple(metrics) if metrics is not None else table_metrics()
     written: list[Path] = []
@@ -104,10 +97,8 @@ def write_all_tables(
     for name, frame in results_by_scenario.items():
         if frame.empty:
             continue
-        # "baseline_oracle" names the oracle_ari schema column, not a value
-        # of metric_name, so it is always considered present rather than
-        # filtered out by the metric_name membership check every other name
-        # goes through.
+        # "baseline_oracle" names the oracle_ari column, not a metric_name
+        # value, so it is always present.
         present = [
             m
             for m in metrics

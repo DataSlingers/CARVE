@@ -1,8 +1,8 @@
 """Construction of the base clustering estimators and the generalizability
 classifiers used by the benchmarks.
 
-The literals that used to be scattered through the old estimator factory
-(n_init=10, ward linkage, self-tuning affinity) live here as one table.
+Their fixed parameters (n_init=10, ward linkage, self-tuning affinity) are
+in one table here.
 """
 
 import inspect

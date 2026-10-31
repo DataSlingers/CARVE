@@ -6,14 +6,10 @@ bridge to it: it takes the same X a case study hands CARVE and the CVIs,
 runs M3C at its published defaults, and returns the scores and labels as
 plain pandas and numpy.
 
-This module is a leaf. It imports the standard library, numpy, pandas and
-scikit-learn, and the cache-fingerprint helpers from ._artifacts -- the one
-import it takes from this package, since _artifacts imports only ._registry and
-._types, so no cycle appears. rpy2 is imported inside functions (run_m3c
-and its two small rpy2-touching helpers) rather than at module scope: rpy2
-lives in the [notebooks] extra, the benchmarks CI job installs
-[dev,graph,benchmarks], and a module-level import would break collection of
-every test here.
+This module is a leaf: it imports the standard library, numpy, pandas,
+scikit-learn and the cache-fingerprint helpers from ._artifacts. rpy2 is
+imported inside functions because it lives in the [notebooks] extra, which
+the benchmarks CI job does not install.
 """
 
 import dataclasses
@@ -33,12 +29,8 @@ from sklearn.model_selection import StratifiedShuffleSplit
 
 from ._artifacts import check_fingerprint, fingerprint, fingerprint_path
 
-#: M3C 1.30.0's published defaults, restated here rather than left to R. A
-#: Bioconductor release that changes one of these then shows up as a diff in
-#: this file instead of silently changing a manuscript number.
-#:
-#: removeplots and silent are deliberately absent: they are presentation
-#: flags, not method flags, and run_m3c sets them itself.
+#: M3C 1.30.0's defaults, restated so that a Bioconductor release changing
+#: one shows up here. run_m3c sets removeplots and silent itself.
 M3C_DEFAULTS: Mapping[str, Any] = MappingProxyType(
     {
         "method": 1,
@@ -158,11 +150,8 @@ def select_k_m3c(scores: pd.DataFrame) -> int:
     """The K M3C selects: the one at the RCSI maximum.
 
     M3C's own expression is which.max(real$RCSI) + 1, where the plus one
-    converts a 1-based row index into a K value because K starts at 2.
-    Transcribing that arithmetic into Python would be wrong twice over, since
-    numpy's argmax is 0-based. Read the K column instead of recomputing the
-    offset -- the same reason config_id is a join key in carve and never a
-    positional index.
+    turns a 1-based row index into K, which starts at 2. The K column is
+    read directly instead.
     """
     if "RCSI" not in scores.columns:
         raise KeyError(
@@ -172,11 +161,8 @@ def select_k_m3c(scores: pd.DataFrame) -> int:
     return int(scores.loc[scores["RCSI"].idxmax(), "K"])
 
 
-#: The column names given to X's rows before handing them to R. M3C converts
-#: a matrix to a data frame and then runs gsub("X", "", colnames(...)), which
-#: mangles any name containing an X -- R's own default V1, V2 names survive,
-#: but so would a corrupted name from any other scheme. Plain c0, c1, ... are
-#: unaffected by that substitution.
+#: The column names given to X's rows before handing them to R. M3C runs
+#: gsub("X", "", colnames(...)), which mangles any name containing an X.
 def _sample_names(n: int) -> list[str]:
     return [f"c{i}" for i in range(n)]
 
@@ -184,11 +170,8 @@ def _sample_names(n: int) -> list[str]:
 def _m3c_is_installed() -> bool:
     """True when the R package M3C is available. Split out so tests can stub it.
 
-    Returns False rather than raising when rpy2 itself cannot be imported.
-    run_m3c calls this before its own rpy2 import, so a machine without rpy2
-    (the benchmarks CI job, or a developer who never installed the
-    [notebooks] extra) reaches the RuntimeError below instead of a bare
-    ModuleNotFoundError.
+    Returns False when rpy2 cannot be imported, so run_m3c raises its own
+    RuntimeError instead of a bare ModuleNotFoundError.
     """
     try:
         import rpy2.robjects as ro
@@ -250,22 +233,13 @@ def check_own_selection(
 ) -> None:
     """Cross-check select_k_m3c's choice against M3C's own R-side selection.
 
-    M3C's R source (M3C(), the top of its return list) computes
-    ``optk <- which.max(real$RCSI) + 1`` and then
-    ``assignments <- as.numeric(allresults[[optk]]$assignments)``: the
-    partition at its own selected K, values only, in the original column
-    order, res$realdataresults being the same ``allresults`` list under
-    another name. If Python's ``selected_k`` (from select_k_m3c) equals R's
-    ``optk``, then ``res$realdataresults[[selected_k]]$assignments`` is the
-    exact same named vector ``as.numeric()`` stripped to produce
-    ``res$assignments`` -- same object, same column order, no realignment
-    needed on either side. So run_m3c passes this function both vectors
-    fetched raw (before align_assignment's name-based reindex onto X's
-    rows), in that same original order, and a genuine disagreement here can
-    only mean select_k_m3c and R's which.max(RCSI) + 1 chose different K.
-
-    Pure, so it is testable without R: it takes two plain arrays already
-    pulled from R and never touches rpy2 itself.
+    M3C computes ``optk <- which.max(real$RCSI) + 1`` and returns
+    ``as.numeric(allresults[[optk]]$assignments)`` as ``res$assignments``,
+    where ``allresults`` is ``res$realdataresults``. When select_k_m3c
+    agrees with optk, ``res$realdataresults[[selected_k]]$assignments``
+    holds the same values in the same order, so run_m3c passes both as
+    fetched, before align_assignment reorders them. A mismatch means the two
+    chose different K. Takes plain arrays, so it is testable without R.
     """
     top = np.asarray(top_level_assignments)
     at_k = np.asarray(assignments_at_selected_k)
@@ -281,10 +255,7 @@ def check_own_selection(
         )
 
 
-#: run_m3c's own defaults for max_k and cores, named so
-#: run_or_load_m3c._expected_config can mirror them without duplicating the
-#: literals -- the config-drift pattern this project has already been bitten
-#: by elsewhere.
+#: run_m3c's defaults for max_k and cores, shared with _expected_config.
 _DEFAULT_MAX_K = 10
 _DEFAULT_CORES = 1
 
@@ -372,16 +343,10 @@ def run_m3c(
         ro.globalenv["sample_names"] = ro.StrVector(names)
         ro.r("colnames(mydata) <- sample_names")
 
-        # M3C() is invoked as an R expression rather than as a Python call
-        # whose return value rpy2 would auto-convert. M3C's return list
-        # carries ggplot objects even under removeplots=TRUE, and at least
-        # one of their components is an S4 object the active
-        # numpy2ri/pandas2ri converter has no rpy2py registration for;
-        # letting rpy2 convert the whole list raises
-        # KeyError(rpy2.rinterface.SexpS4) before a single score is read.
-        # Assigning res in R and pulling out only res$scores and the per-K
-        # assignments -- both plain data frames and named vectors -- avoids
-        # the plot objects entirely.
+        # M3C() runs in R and only res$scores and the per-K assignments are
+        # pulled out. Its return list also holds ggplot objects, even under
+        # removeplots=TRUE, and converting those raises
+        # KeyError(rpy2.rinterface.SexpS4).
         ro.globalenv["m3c_maxK"] = config["maxK"]
         ro.globalenv["m3c_cores"] = config["cores"]
         ro.globalenv["m3c_iters"] = config["iters"]
@@ -411,20 +376,14 @@ def run_m3c(
         raw_by_k = {}
         for k in range(2, int(max_k) + 1):
             # realdataresults is indexed by K itself, so element 1 is unset
-            # and element k holds the K=k result. assignments is the named
-            # vector in the original column order; ordered_annotation is
-            # permuted by the dendrogram order and would scramble the mapping.
+            # and element k holds the K=k result.
             assignment = np.asarray(ro.r(f"res$realdataresults[[{k}]]$assignments"))
             names_from_r = ro.r(f"names(res$realdataresults[[{k}]]$assignments)")
             raw_by_k[k] = assignment
             labels[k] = align_assignment(assignment, list(names_from_r), names, k=k)
 
-        # The spec's cross-check: what M3C itself selected (res$assignments,
-        # its own which.max(RCSI) + 1) against the partition already pulled
-        # above at Python's selected_k, both still in the original column
-        # order raw_by_k carries -- no realignment needed for this
-        # comparison, since a true agreement means the two are the same R
-        # vector read two ways. See check_own_selection's docstring.
+        # M3C's own selection against the partition pulled above at
+        # selected_k (see check_own_selection).
         top_level_assignments = np.asarray(ro.r("res$assignments"))
         check_own_selection(
             top_level_assignments, raw_by_k[selected_k], selected_k=selected_k
@@ -515,11 +474,8 @@ def _cache_is_complete(path: Path) -> bool:
     """True only when every file a cached result needs is present.
 
     _write_cache writes its four files non-atomically, so a process killed
-    mid-write can leave path.is_file() true while the labels parquet,
-    sidecar, or fingerprint sidecar is missing. Checking path.is_file() alone
-    (the previous guard) would then hand _read_cache a bare
-    FileNotFoundError from one of the other three files instead of
-    recomputing.
+    mid-write can leave the main file without the labels parquet or a
+    sidecar. Such a cache is recomputed.
     """
     return all(candidate.is_file() for candidate in _cache_files(path))
 
@@ -557,18 +513,10 @@ def _same_rows(a: np.ndarray | None, b: np.ndarray | None) -> bool:
 def _expected_config(**kwargs: Any) -> dict[str, Any]:
     """The config run_m3c(X, **kwargs) would record, without running it.
 
-    Mirrors run_m3c's own construction of ``config`` line for line: individual
-    overrides layered onto M3C_DEFAULTS, then maxK and cores pinned from this
-    call's own max_k and cores (or their defaults, kept in sync with
-    run_m3c's signature via _DEFAULT_MAX_K and _DEFAULT_CORES rather than
-    restated as separate literals here).
-
-    m3c_cache_path's filename hash covers whatever dict its own caller
-    passes it -- in practice just {"maxK": ...} -- so a changed M3C_DEFAULTS
-    entry, or a cores value, does not change the filename. This
-    reconstruction is what lets run_or_load_m3c catch that a loaded cache's
-    config no longer matches what this call would produce, without changing
-    the cache's naming scheme.
+    Builds ``config`` as run_m3c does: overrides on M3C_DEFAULTS, then maxK
+    and cores from this call. The cache filename hashes only maxK, so
+    run_or_load_m3c compares a loaded cache's config against this one to
+    catch a changed default or core count.
     """
     max_k = kwargs.get("max_k", _DEFAULT_MAX_K)
     cores = kwargs.get("cores", _DEFAULT_CORES)
@@ -608,11 +556,8 @@ def run_or_load_m3c(
     cache recorded with other rows is refused, including when the two
     subsets happen to hold identical values.
 
-    A loaded cache's config is also checked against the config this call
-    would itself produce (_expected_config): m3c_cache_path's filename hash
-    does not cover M3C_DEFAULTS or cores, only whatever config dict its own
-    caller happens to pass it for the filename, so a pinned default changing
-    would otherwise serve a stale result under the new pins with no signal.
+    A loaded cache's config is also checked against _expected_config, since
+    the filename does not cover M3C_DEFAULTS or cores.
     """
     cache_path = Path(cache_path)
     X = np.asarray(X)

@@ -59,9 +59,8 @@ RUNTIME_SCHEMA: tuple[str, ...] = (
     "n_resamples",
     "n_jobs",
     "estimator",
-    # The default-mode fit is the one that produced the metric rows. The two
-    # mode-specific timings come from extra fits whose results are discarded;
-    # they exist only to reproduce the published two-curve runtime figure.
+    # The default-mode fit produced the metric rows. The two mode-specific
+    # timings come from extra fits whose results are discarded.
     "t_default_s",
     "t_stability_s",
     "t_generalizability_s",
@@ -183,15 +182,10 @@ def check_fingerprint(cache_path: Path, X: np.ndarray) -> None:
     """Refuse to serve a cached result against a different X.
 
     A cached result is only valid for the matrix it was computed on. An
-    embedding can change under one scale name (hECA's subsample-first
-    embedding until the pooled cache exists, pooled after), which is exactly
-    the case a scale-keyed filename cannot catch. A cache written before this check
-    existed has no record to compare against; it is served with a warning
-    rather than discarded, since a fit can be hours of compute.
-
-    Shared by fit_or_load_carve and run_or_load_m3c. It lives here rather
-    than in either caller because a second copy of a correctness check is how
-    the two drift apart.
+    embedding can change under one scale name (hECA's), which a scale-keyed
+    filename cannot catch. A cache with no fingerprint record is served with
+    a warning, since a fit can take hours. Shared by the CARVE, M3C and SC3
+    caches and the hECA report.
     """
     sidecar = fingerprint_path(cache_path)
     if not sidecar.is_file():
@@ -284,25 +278,15 @@ def widest_run(
 
     Run directories are named by configuration hash, so sorting them
     lexically picks an arbitrary one when a scenario has been run at more
-    than one scale. Selecting on the manifest's sweep size instead means a
-    reduced exploratory run never silently shadows a full one.
+    than one scale. Selecting on the manifest's sweep size means a reduced
+    run never shadows a full one.
 
-    This is the one resolver. The CLI's --tables path took the lexically
-    last directory with a warning while the notebook took the widest sweep,
-    so the two disagreed: S4 regenerated from the CLI was the 5-dataset run
-    and the notebook's panel was the 20-dataset one, with nothing marking
-    the difference.
-
-    A tie raises rather than choosing. Two equally wide runs of one scenario
-    differ in something the sweep size does not capture -- an anchor set, a
-    random_state -- and picking either silently is how a mixture gets into a
-    figure.
+    A tie raises: two equally wide runs differ in something the sweep size
+    does not capture, such as the anchor set or random_state.
 
     require_complete skips runs whose manifest still says "running", which
-    is what an interrupted run leaves behind. Pass False to inspect one.
-    Manifests written before status was introduced have none at all; they
-    are skipped under require_complete, since they cannot be told apart from
-    an interrupted run, and are candidates like any other when it is False.
+    is what an interrupted run leaves behind, and runs whose manifest has no
+    status. Pass False to inspect one.
     """
     candidates: list[tuple[tuple[int, int], Path]] = []
     for path in sorted((Path(root) / scenario_name).glob("*/")):
@@ -399,9 +383,8 @@ def write_runtime_checkpoint(
 ) -> Path:
     """Write one cell's timing row to the runtime sidecar.
 
-    Timing lives beside the metric table rather than inside it: a runtime is
-    one value per cell, while the metric table has one row per metric and k,
-    so folding them together would repeat the same number a hundred times.
+    A runtime is one value per cell, while the metric table has one row per
+    metric and k, so timing is kept in its own file.
     """
     path = Path(rd) / f"runtime__{axis_label}__{seed:04d}.parquet"
     _validate_against(pd.DataFrame(rows), RUNTIME_SCHEMA).to_parquet(path, index=False)
@@ -600,10 +583,8 @@ def write_manifest(rd: Path, manifest: Manifest | Mapping[str, Any]) -> Path:
     Writes to a temporary file in the same directory, then os.replace onto
     manifest.json. os.replace is atomic on POSIX, so a concurrent reader --
     or a process killed mid-write -- never observes a partially written
-    file; a resumed run_scenario call would otherwise be able to read a
-    truncated manifest and fail. The temporary file lives in the same
-    directory as the target deliberately: os.replace is only atomic within
-    a single filesystem.
+    file. The temporary file is in the target's directory because os.replace
+    is atomic only within one filesystem.
     """
     rd = Path(rd)
     path = rd / "manifest.json"
@@ -625,14 +606,12 @@ def write_manifest(rd: Path, manifest: Manifest | Mapping[str, Any]) -> Path:
 def promote(rd: Path, published_root: Path) -> Path:
     """Publish a run as committed CSV plus its manifest.
 
-    Deliberate and explicit. A run is never promoted as a side effect of
-    executing one.
+    A run is never promoted as a side effect of executing one.
 
     Only a run whose manifest says "complete" is publishable. run_scenario
     writes the manifest with status "running" before its pool starts, so an
     interrupted run has a manifest beside a partial set of checkpoints. A
-    manifest with no status predates the field and cannot be told apart
-    from an interrupted run, so it is refused too, as widest_run skips it.
+    manifest with no status is refused too.
     """
     rd = Path(rd)
     manifest_path = rd / "manifest.json"

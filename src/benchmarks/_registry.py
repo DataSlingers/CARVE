@@ -72,37 +72,22 @@ METRIC_DISPLAY_NAMES: dict[str, str] = {
     "calinski_harabasz": "Calinski-Harabasz",
 }
 
-# The oracle reference. Not a value of metric_name -- it names the schema's
-# oracle_ari column, one value per (axis point, seed) -- but it is requested
-# alongside real metric names wherever a figure or table draws it, so it
-# lives in the vocabulary with them.
+# The oracle reference. It names the schema's oracle_ari column (one value
+# per axis point and seed) rather than a metric_name value, but figures and
+# tables request it together with the metrics.
 BASELINE_METRIC: str = "baseline_oracle"
 
-# Figure legends name the oracle with the k it is an oracle for, matching the
-# published Fig 4. The supplementary tables' row label stays "Baseline
-# (Oracle)", which is what the manuscript prints (S2-S9). One string cannot
-# serve both, so the legend override lives here and _tables keeps reading
-# METRIC_DISPLAY_NAMES directly.
-#
-# A literal asterisk, not mathtext. "$k^\star$" renders the superscript as a
-# filled five-pointed star at roughly six points in a nine-point legend,
-# which is a smudge rather than a symbol. The published figure used this
-# plain string for the same reason.
+# Figure legends name the oracle with its k. The supplementary tables keep
+# "Baseline (Oracle)" from METRIC_DISPLAY_NAMES. A plain asterisk, because
+# mathtext's \star is illegible at legend size.
 METRIC_LEGEND_NAMES: dict[str, str] = {
     "baseline_oracle": "Baseline (Oracle k*)",
 }
 
-# The supplementary tables' row order and grouping, as the committed S2
-# table prints them. Four groups, separated by a rule: the oracle, the two
-# headline CARVE selectors, the four classical indices, then the remaining
-# CARVE selectors.
-#
-# Declared rather than derived. table_metrics previously built its order
-# from sorted(CARVE_METRICS_ALL) plus CVI_METRICS, so the generated
-# fragment's rows were in a different order from the manuscript's and adding
-# a metric would have silently reordered all eight tables. The three
-# ari_average variants, PAC and CE are absent because tables.EXCLUDED_METRICS
-# drops them, which is what the published tables do.
+# Row order of the supplementary benchmark tables, in four groups separated
+# by a rule: the oracle, the two headline CARVE selectors, the four classical
+# indices, then the other CARVE selectors. The ari_average variants, PAC and
+# CE are not listed because tables.EXCLUDED_METRICS drops them.
 TABLE_ROW_GROUPS: tuple[tuple[str, ...], ...] = (
     (BASELINE_METRIC,),
     ("ari_stability_1se", "ari_generalizability_1se"),
@@ -117,11 +102,9 @@ TABLE_ROW_GROUPS: tuple[tuple[str, ...], ...] = (
     ),
 )
 
-# The scaling tables' order. The committed S8 and S9 order the classical
-# indices Silhouette, Davies-Bouldin, Calinski-Harabasz, Gap, where S2 orders
-# them Davies-Bouldin, Silhouette, Gap, Calinski-Harabasz; the other three
-# groups match S2's. Declared for the same reason as TABLE_ROW_GROUPS, so a
-# regenerated S8 or S9 drops in without reordering.
+# The scaling tables order the classical indices Silhouette,
+# Davies-Bouldin, Calinski-Harabasz, Gap. The other groups match
+# TABLE_ROW_GROUPS.
 SCALING_TABLE_ROW_GROUPS: tuple[tuple[str, ...], ...] = (
     (BASELINE_METRIC,),
     ("ari_stability_1se", "ari_generalizability_1se"),
@@ -166,11 +149,8 @@ DIFFICULTY_AXIS = Axis(
     labels=("easy", "medium", "hard"),
 )
 
-# Ranges and the three-point granularity are ports of SCALING_RANGES and
-# GRANULARITY in benchmarking_config.py, evaluated to literals so the axis is
-# readable without running numpy.linspace in your head. All three axes are
-# kept available even though only "p" and "n_total" are swept by a registered
-# scenario below (see gaussians_dimensionality / gaussians_samples).
+# Only "p" and "n_total" are swept by a registered scenario
+# (gaussians_dimensionality and gaussians_samples).
 SCALING_AXES: dict[str, Axis] = {
     "n_total": Axis(
         name="n_total", values=(1000, 5500, 10000), labels=("start", "middle", "end")
@@ -182,25 +162,15 @@ SCALING_AXES: dict[str, Axis] = {
 }
 
 # =============================================================================
-# Published anchors — ported verbatim from notebooks/Benchmarking.ipynb
+# Published anchors
 # =============================================================================
-# Cell numbers refer to notebooks/Benchmarking.ipynb as of this port. Extract
-# with:
-#   .venv/bin/python - <<'PY'
-#   import json
-#   nb = json.load(open("notebooks/Benchmarking.ipynb"))
-#   for i in (9, 15, 21, 27, 33, 39, 46, 51):
-#       print(f"# ----- cell {i} -----")
-#       print("".join(nb["cells"][i]["source"]))
-#   PY
+# The simulation settings of the benchmark in the first manuscript version.
 PUBLISHED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
-    # Cell 9
     "gaussians": {
         "easy": {"cluster_scale": [4.0] * 5, "cluster_size_dirichlet_alpha": 0.9},
         "medium": {"cluster_scale": [4.5] * 5, "cluster_size_dirichlet_alpha": 0.5},
         "hard": {"cluster_scale": [4.6] * 5, "cluster_size_dirichlet_alpha": 0.1},
     },
-    # Cell 15
     "t_dist": {
         "easy": {
             "cluster_scale": [3.5, 1.0, 1.0, 1.0, 1.0],
@@ -218,7 +188,6 @@ PUBLISHED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
             "t_df": 3,
         },
     },
-    # Cell 21
     "t_dist_noise": {
         "easy": {
             "cluster_scale": [1.0] * 5,
@@ -242,7 +211,6 @@ PUBLISHED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
             "noise_dims": 1536,
         },
     },
-    # Cell 27
     "circles": {
         "easy": {
             "cluster_scale": [4.08, 4.08, 3.0, 3.0, 3.0],
@@ -263,7 +231,6 @@ PUBLISHED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
             "embed_param": 6.0,
         },
     },
-    # Cell 33
     "moons": {
         "easy": {
             "cluster_scale": [5.5, 3.97, 3.97, 3.97, 3.97],
@@ -284,10 +251,9 @@ PUBLISHED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
             "embed_param": 14.5,
         },
     },
-    # Cell 39. These describe the per-cluster swiss_roll geometry the
-    # manuscript reported, where every cluster was its own roll around its
-    # own center. The scenario now draws interleaved spirals (see _SHARED),
-    # which none of these parameters apply to.
+    # One roll per cluster, each around its own center. The registered
+    # scenario draws interleaved spirals (see _SHARED), which these
+    # parameters do not apply to.
     "swiss_rolls": {
         "easy": {
             "cluster_scale": [1.0, 1.0, 1.0, 1.0, 1.0],
@@ -308,13 +274,11 @@ PUBLISHED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
             "embed_param": 5.0,
         },
     },
-    # Cell 46
     "gaussians_dimensionality": {
         "start": {"cluster_scale": [4.3] * 5},
         "middle": {"cluster_scale": [10.5] * 5},
         "end": {"cluster_scale": [12.2] * 5},
     },
-    # Cell 51
     "gaussians_samples": {
         "start": {"cluster_scale": [4.2] * 5},
         "middle": {"cluster_scale": [4.4] * 5},
@@ -322,31 +286,17 @@ PUBLISHED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
     },
 }
 
-# Regenerated 2026-10-16 at n_total = BENCHMARK_N_TOTAL (3000), against the
-# documented bands in TARGET_ARI_BANDS, by _calibrate.calibrate_anchor run
-# for each difficulty label with calibrate_scenario's defaults: n_seeds=20,
-# random_state=PUBLISHED_RANDOM_STATE (42), max_iter=25. Each knob was applied
-# to the same reference as in the n = 1500 calibrations of 2026-09-23 and
-# 2026-09-30: the published cluster_scale vector and the absolute
-# embed_param. swiss_rolls was recalibrated the same way on 2026-10-28 on
-# its new knob, the absolute spiral_band. The achieved mean oracle ARI and
-# its spread over the 20 calibration datasets are recorded per anchor; the
-# comparison with the n = 1500 anchors is in
-# docs/superpowers/notes/2026-10-16-calibration-n3000.md.
-#
-# Three knobs, because no single parameter controls difficulty on every
-# scenario -- see _calibrate.CALIBRATION_KNOBS. gaussians, t_dist and
-# t_dist_noise carry their published cluster_scale vector times a
-# multiplier, so the unequal per-cluster scales survive; circles and moons
-# carry an absolute embed_param; swiss_rolls carries an absolute spiral_band.
-# All eighteen anchors landed in their target band on the first run at
-# n = 3000, and swiss_rolls again on 2026-10-28; no knob range or band was
-# widened.
+# Calibrated at n_total = BENCHMARK_N_TOTAL against TARGET_ARI_BANDS by
+# _calibrate.calibrate_anchor with calibrate_scenario's defaults (20 seeds,
+# random_state = PUBLISHED_RANDOM_STATE, max_iter = 25). Each anchor notes
+# its knob value and the mean and standard deviation of the oracle ARI over
+# the 20 calibration datasets. The knob depends on the scenario
+# (_calibrate.CALIBRATION_KNOBS): a multiplier on the published cluster_scale
+# vector for gaussians, t_dist and t_dist_noise, an absolute embed_param for
+# circles and moons, and an absolute spiral_band for swiss_rolls.
 CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
-    # Knob: cluster_scale multiplier. The published vector was [4.0] * 5 at
-    # easy, [4.5] * 5 at medium and [4.6] * 5 at hard.
     "gaussians": {
-        # multiplier 0.8250000000000001, ARI 0.984 +/- 0.006
+        # multiplier 0.825, ARI 0.984 +/- 0.006
         "easy": {
             "cluster_scale": [3.3000000000000003] * 5,
             "cluster_size_dirichlet_alpha": 0.9,
@@ -362,9 +312,6 @@ CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
             "cluster_size_dirichlet_alpha": 0.1,
         },
     },
-    # Knob: cluster_scale multiplier. The published vectors were
-    # [3.5, 1.0, 1.0, 1.0, 1.0] at easy, [3.0, 1.5, 1.0, 1.0, 1.0] at
-    # medium and [4.0, 3.0, 2.0, 1.0, 1.0] at hard.
     "t_dist": {
         # multiplier 1.55, ARI 0.938 +/- 0.045
         "easy": {
@@ -385,10 +332,8 @@ CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
             "t_df": 3,
         },
     },
-    # Knob: cluster_scale multiplier. The published vector was [1.0] * 5 at
-    # easy, [1.1, 1.0, 1.0, 1.0, 1.0] at medium and hard.
     "t_dist_noise": {
-        # multiplier 0.8250000000000001, ARI 0.995 +/- 0.002
+        # multiplier 0.825, ARI 0.995 +/- 0.002
         "easy": {
             "cluster_scale": [0.8250000000000001] * 5,
             "cluster_size_dirichlet_alpha": 0.9,
@@ -413,8 +358,6 @@ CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
             "noise_dims": 1536,
         },
     },
-    # Knob: embed_param, absolute. The published values were 12.0, 7.3 and
-    # 6.0, all past the 4.0 saturation point the shift-invert solver exposed.
     "circles": {
         # embed_param 3.0, ARI 0.965 +/- 0.107
         "easy": {
@@ -438,8 +381,6 @@ CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
             "embed_param": 2.5,
         },
     },
-    # Knob: embed_param, absolute. The published values were 10.7, 5.7 and
-    # 14.5, all past or straddling the saturation point.
     "moons": {
         # embed_param 3.0, ARI 1.000 +/- 0.000
         "easy": {
@@ -463,12 +404,9 @@ CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
             "embed_param": 2.5625,
         },
     },
-    # Knob: spiral_band, absolute; arm length and twist are fixed in _SHARED.
-    # Dirichlet alpha and AR(1) strength keep the published per-level values;
-    # embed_param is 5.0 at every level. Recalibrated 2026-09-30 when the
-    # scenario moved to interleaved spirals, at n = 3000 on 2026-10-16, and
-    # on 2026-10-28 when the knob moved from a joint multiplier on arm
-    # length, band and twist to the band alone.
+    # Arm length and twist are fixed in _SHARED. Dirichlet alpha and AR(1)
+    # strength keep the published per-level values; embed_param is 5.0 at
+    # every level.
     "swiss_rolls": {
         # spiral_band 0.09, ARI 1.000 +/- 0.000
         "easy": {
@@ -492,34 +430,21 @@ CALIBRATED_ANCHORS: dict[str, dict[str, dict[str, Any]]] = {
             "embed_param": 5.0,
         },
     },
-    # The two scaling scenarios are carried over: TARGET_ARI_BANDS is keyed
-    # on easy/medium/hard and they sweep n and p.
+    # Not calibrated: TARGET_ARI_BANDS is keyed on difficulty, and these
+    # sweep n and p.
     "gaussians_dimensionality": PUBLISHED_ANCHORS["gaussians_dimensionality"],
     "gaussians_samples": PUBLISHED_ANCHORS["gaussians_samples"],
 }
 
-# The sample size of every scenario that does not sweep n. Generalizability
-# clusters the held-out complement of each subsample, (1 - rho) * n rows, on
-# its own: 573 rows at the published n = 1500. On circles, moons and swiss
-# rolls, spectral clustering of those 573 rows agreed with the full-data fit
-# 0.17 to 0.32 ARI less than a clustering of 927 rows did, and the loss
-# changed with k enough to move generalizability's selection. At the same
-# anchors it fell to 0.05 to 0.17 at n = 3000 (measured 2026-10-16), but
-# those anchors were also easier at n = 3000 (oracle ARI 1.0 on all three),
-# which is why they were recalibrated. k-means and Ward lost 0.03 to 0.05 at
-# n = 1500.
+# Sample size of every scenario that does not sweep n. Generalizability
+# clusters the held-out (1 - rho) * n rows on their own, and at n = 1500
+# spectral clustering of circles, moons and swiss rolls lost enough agreement
+# with the full-data fit on those rows to move generalizability's selection.
 BENCHMARK_N_TOTAL: int = 3000
 
-# other_settings_* from the same notebook cells. For the two scaling
-# scenarios the notebook's other_settings carries none of n_total, p, or
-# embed_dim — parse_range_and_simulate (benchmarking_simulation_helpers.py)
-# always supplies all three, taking the swept one from the axis value and the
-# other two from SCALING_CONSTANTS = {"n_total": 1500, "p": 50,
-# "embed_dim": 64}. The swept parameter itself (p for
-# gaussians_dimensionality, n_total for gaussians_samples) is set by
-# Scenario.sim_kwargs from the axis value and must not also appear here.
-# gaussians_dimensionality departs from SCALING_CONSTANTS on n: it runs at
-# BENCHMARK_N_TOTAL, like the difficulty scenarios.
+# Simulation settings shared by every level of a scenario. A scaling
+# scenario's swept parameter comes from the axis value (Scenario.sim_kwargs)
+# and must not appear here.
 _SHARED: dict[str, dict[str, Any]] = {
     "gaussians": {"n_total": BENCHMARK_N_TOTAL, "p": 50},
     "t_dist": {"n_total": BENCHMARK_N_TOTAL, "p": 50, "distribution": "t"},
@@ -545,13 +470,9 @@ _SHARED: dict[str, dict[str, Any]] = {
         "corr_type": "ar1",
         "embed_dim": 64,
     },
-    # Five interleaved arms of one spiral in a shared plane. The published
-    # "swiss_roll" drew each cluster as its own roll around its own center,
-    # so the clusters were separated like Gaussian blobs and silhouette
-    # matched the oracle; sharing the center is what makes the clusters
-    # non-convex. The arms are half a turn long with no twist at every level;
-    # see _calibrate._SPIRAL_KNOB for why difficulty comes from the band
-    # alone.
+    # Five interleaved arms of one spiral in a shared plane, so the clusters
+    # are non-convex. The arms are half a turn long with no twist; the band
+    # sets the difficulty (see _calibrate._SPIRAL_KNOB).
     "swiss_rolls": {
         "distribution": "interleaved_spirals",
         "nonlinear": True,
@@ -562,8 +483,7 @@ _SHARED: dict[str, dict[str, Any]] = {
         "spiral_turns": 0.5,
         "spiral_twist": 0.0,
     },
-    # Axis is "p". n_total is BENCHMARK_N_TOTAL; embed_dim is the
-    # SCALING_CONSTANTS value.
+    # Axis is "p".
     "gaussians_dimensionality": {
         "corr_type": "ar1",
         "corr_strength": 0.5,
@@ -571,7 +491,7 @@ _SHARED: dict[str, dict[str, Any]] = {
         "n_total": BENCHMARK_N_TOTAL,
         "embed_dim": 64,
     },
-    # Axis is "n_total" — p and embed_dim are the SCALING_CONSTANTS values.
+    # Axis is "n_total".
     "gaussians_samples": {
         "corr_type": "ar1",
         "corr_strength": 0.5,
@@ -581,11 +501,7 @@ _SHARED: dict[str, dict[str, Any]] = {
     },
 }
 
-# The calibration notebook that produced PUBLISHED_ANCHORS was lost; see
-# _calibrate.py, which defines a documented replacement search. Both sets are
-# kept so the regenerated calibration can be compared against what the
-# manuscript reported, and reverted to. ACTIVE_ANCHOR_SET_NAME is recorded in
-# every run manifest so no artifact is ambiguous about which produced it.
+# Every run manifest records ACTIVE_ANCHOR_SET_NAME.
 ACTIVE_ANCHORS: dict[str, dict[str, dict[str, Any]]] = CALIBRATED_ANCHORS
 ACTIVE_ANCHOR_SET_NAME: str = "CALIBRATED_ANCHORS"
 
@@ -595,39 +511,19 @@ _ESTIMATORS: dict[str, str] = {
     "t_dist_noise": "agglomerative",
     "circles": "spectral",
     "moons": "spectral",
-    # The published S1 Fig panel was drawn with "spectral" while the
-    # benchmark that produced Table S7 ran agglomerative, and S3 Text said
-    # Ward. Ward was chosen because spectral scored worse here -- which was
-    # carve.cluster's which="SM" eigensolver failing to converge at n=1500,
-    # not the data. With the shift-invert solver spectral wins at every
-    # difficulty and runs 30x faster, so the illustration was right and the
-    # numbers were not.
     "swiss_rolls": "spectral",
     "gaussians_dimensionality": "kmeans",
     "gaussians_samples": "kmeans",
 }
 
-# One forest size for every scenario. The published benchmark did not use
-# one value everywhere -- notebook cells 29, 35 and 41 passed n_trees=500
-# for circles, moons and swiss rolls while cells 11, 17, 23, 48 and 53
-# omitted it and got Scenario's default of 100 -- but that split tracked
-# which cell an argument was typed into, not anything about the data. 500 is
-# the better generalizability estimate; the cost is linear in a term that is
-# not the bottleneck.
+# One forest size for every scenario.
 _N_TREES: dict[str, int] = dict.fromkeys(_ESTIMATORS, 500)
 
 # The generalizability classifier has to be able to draw the boundaries the
-# clustering draws, so shrinkage LDA scores the three scenarios clustered with
-# k-means, whose partitions are linear, and the forest scores the rest; where
-# LDA is used, n_trees is carried but unused. On the Gaussian difficulty
-# benchmark (p=50) the forest reproduced a held-out k-means partition 0.18 ARI
-# worse than the training clustering agreed with the full-data fit, LDA 0.01
-# worse, and LDA lifted the ARI at generalizability's selected k from 0.797
-# to 0.866 (measured 2026-10-16). At p=1000 the forest scored 0.25 at 500
-# trees and 0.28 at 2,000, LDA 0.95, and a CARVE fit took 428 s instead of
-# 3,581 s. On the sample-size axis LDA also scored higher at every n. For
-# Ward and spectral clustering the forest's loss was 0.00 to 0.03 and LDA did
-# no better.
+# clustering draws. k-means partitions are linear, so shrinkage LDA scores
+# the three k-means scenarios and the forest scores the rest; n_trees is
+# unused where LDA is used. On the Gaussian scenarios the forest reproduced
+# held-out k-means partitions much worse than LDA, most of all at p = 1000.
 _CLASSIFIERS: dict[str, str] = {
     **dict.fromkeys(_ESTIMATORS, "random_forest"),
     "gaussians": "lda",
@@ -642,10 +538,7 @@ _AXES: dict[str, Axis] = {
     "circles": DIFFICULTY_AXIS,
     "moons": DIFFICULTY_AXIS,
     "swiss_rolls": DIFFICULTY_AXIS,
-    # Notebook cell 48 calls benchmark_scaling(..., axis_name="p"); the
-    # committed results_gaussian_dimensionality.csv records axis_name="p"
-    # with axis_value in {50, 525, 1000}. "Dimensionality" here means the
-    # ambient feature dimension, not the embedding dimension.
+    # "Dimensionality" is the ambient feature dimension p, not embed_dim.
     "gaussians_dimensionality": SCALING_AXES["p"],
     "gaussians_samples": SCALING_AXES["n_total"],
 }
@@ -663,18 +556,13 @@ SCENARIOS: dict[str, Scenario] = {
     for name in _ESTIMATORS
 }
 
-# Scenarios that additionally run two mode-specific CARVE fits purely to time
-# them. This reproduces the published two-curve runtime figure, which was
-# produced by a runner that fit each mode separately. The extra fits more than
-# double a cell's cost, so only the scaling scenarios carry them.
+# Scenarios that also run one CARVE fit per mode, to time the modes for the
+# runtime figure. The extra fits more than double a cell's cost.
 TIMED_SCENARIOS: frozenset[str] = frozenset(
     {"gaussians_samples", "gaussians_dimensionality"}
 )
 
-# The seed the published benchmarks ran with. Notebook cell 3 sets
-# RANDOM_SEED = 42 and every scenario call passes it. Seeds derive as
-# benchmark_seed = seed + axis_idx * 10000 + random_state, so this value
-# is what makes a run reproduce the committed results.
+# Seeds derive as benchmark_seed = seed + axis_idx * 10000 + random_state.
 PUBLISHED_RANDOM_STATE: int = 42
 
 # =============================================================================
@@ -684,12 +572,10 @@ PUBLISHED_RANDOM_STATE: int = 42
 # random_state + 3 * n_resamples): P_1 at random_state + b, P_2 at
 # random_state + b + B and the P_test pipeline at random_state + b + 2B.
 # Replicate fits of one dataset are spaced by this much so no two share a
-# subsample; the spacing also clears the largest benchmark seed offset
-# (two axis steps of 10,000 plus the dataset index), so the seed windows
-# of different replicate indices never intersect, whichever datasets they
-# belong to. Within one replicate index, the windows of different datasets
-# may overlap, as in the published benchmark (spec 4.2): they draw
-# subsamples of different data.
+# subsample. The spacing is larger than the largest benchmark seed offset
+# (two axis steps of 10,000 plus the dataset index), so the seed windows of
+# different replicate indices never meet. Within one replicate index, the
+# windows of different datasets may overlap; they draw from different data.
 REPLICATE_SEED_SPACING: int = 1_000_000
 
 # Subsample-versus-full similarity draws seed from base + this + draw; it
@@ -713,15 +599,10 @@ def package_defaults() -> tuple[float, int]:
 
 _RHO_DEFAULT, _B_DEFAULT = package_defaults()
 
-# The medium gaussians setting alone, with no case study (the author's
-# decision on 2026-09-26; the ablation previously ran six scenarios at every
-# difficulty plus Klein). circles ran beside it from 2026-10-20 to 2026-10-21
-# and was dropped for its runtime. Both arms run ten seeds per dataset: with
-# one seed on the rho arm, two near-ties at rho = 0.618 read as a dip that
-# two more seeds at the same rho did not reproduce, and ten put the seed
-# noise in a twenty-dataset mean near 0.002 ARI. The rho arm's twenty
-# datasets are the main benchmark's twenty medium gaussians datasets, so its
-# default column (rho_default, b_default, replicate 0) reproduces those fits.
+# Medium gaussians only. Both arms run ten seeds per dataset, which puts the
+# seed noise in a twenty-dataset mean near 0.002 ARI. The rho arm's twenty
+# datasets are the main benchmark's medium gaussians datasets, so its default
+# column (rho_default, b_default, replicate 0) reproduces those fits.
 ABLATION_SCALES: dict[str, AblationScale] = {
     "publication": AblationScale(
         rho_arm=ArmScale(

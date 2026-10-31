@@ -37,10 +37,10 @@ KNOWN_CLASSIFIERS: frozenset[str] = frozenset({"random_forest", "lda"})
 class Axis:
     """One swept experimental dimension.
 
-    An axis unifies what used to be two separate experiments. The difficulty
-    benchmark is Axis("difficulty_level", (0, 1, 2), ("easy", "medium",
-    "hard")); the scaling benchmark is Axis("n_total", (1000, 5500, 10000),
-    ("start", "middle", "end")). Iterating yields (index, value, label), and
+    The difficulty benchmark is Axis("difficulty_level", (0, 1, 2),
+    ("easy", "medium", "hard")); the scaling benchmark is Axis("n_total",
+    (1000, 5500, 10000), ("start", "middle", "end")). Iterating yields
+    (index, value, label), and
     the index feeds the seed derivation.
     """
 
@@ -71,9 +71,7 @@ class Axis:
 class EstimatorSpec:
     """The base clustering estimator a scenario is run with.
 
-    Validation is strict on purpose. The routine this replaces had no else
-    clause, so a misspelled name silently produced KMeans while the
-    provenance column recorded the string that was passed.
+    An unknown name raises.
 
     params holds fixed hyperparameters as (name, value) pairs that override
     the registered defaults for this spec, so two specs can run one
@@ -107,8 +105,7 @@ class PreprocessingSpec:
     grid maps each of its hyperparameters to candidate values, one of which is
     drawn per resample. Options are named by key rather than by class so this
     module stays a leaf; _preprocessing.resolve_preprocessing turns them into
-    the option lists CARVE takes. Validation is strict for the same reason
-    EstimatorSpec's is.
+    the option lists CARVE takes. An unknown key raises.
     """
 
     normalization: tuple[tuple[str, Mapping[str, Sequence[Any]]], ...]

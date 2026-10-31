@@ -1,8 +1,7 @@
 """The composite layout shared by Fig 5 and Fig 6.
 
-The two notebook cells this replaces were 178 lines each and differed in four
-things: marker size, the embedding, the axis labels, and panel F. Those are
-parameters here; the remaining 174 lines are shared.
+Marker size, the embedding, the axis labels and panel F are parameters; the
+rest is shared.
 """
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -85,8 +84,8 @@ def short_estimator_names(text: str) -> str:
 class CompositeInputs:
     """Everything the composite draws, already computed.
 
-    Assembling this is compute; drawing it is reporting. Keeping them apart is
-    what lets the figure be tested without fitting anything.
+    Kept apart from drawing, so the figure can be tested without fitting
+    anything.
 
     measure, rule and not_two are the caller's own selection -- whatever was
     passed to prepare_composite, defaulting to the same ("stability", "1se",
@@ -124,8 +123,7 @@ def _estimator_spec_from_model_label(model: str) -> EstimatorSpec:
     ``"AgglomerativeClustering (linkage=ward)"``) -- there is no separate
     machine-usable column. Every registered estimator renders to exactly one
     such label from its ``ESTIMATOR_DEFAULTS``, so the match is on the whole
-    label; a class-name prefix would send ``linkage=single`` to the Ward
-    spec.
+    label.
     """
     from .._estimators import ESTIMATOR_CLASSES, ESTIMATOR_DEFAULTS
     from .._studies import _model_label
@@ -159,10 +157,9 @@ def carve_labels_aligned(carve: Any, y: np.ndarray) -> Iterator[None]:
     CARVE's plot_* methods take no ``labels`` argument -- each resolves its
     own through ``get_labels``, which relabels onto ``self.reference_labels``
     whenever the two carry the same number of classes. Pointing that at
-    reference_codes(y) for the duration of a figure is therefore the only
-    hook available, and it is enough: the labels those methods draw come out
-    identical to CompositeInputs.carve_labels, so a cluster keeps both its
-    color and its number across the two figures.
+    reference_codes(y) for the duration of a figure makes those methods draw
+    CompositeInputs.carve_labels, so a cluster keeps its color and number
+    across the two figures.
 
     When the clustering and the reported labels disagree on class count
     there is nothing to align and CARVE falls back to its own ids. It then
@@ -189,11 +186,9 @@ def _align_to_reference(labels: np.ndarray, y: np.ndarray) -> np.ndarray:
     cluster id, and the alluvial's C1..Ck names, only mean something once
     those ids are matched to the reported labels they correspond to.
 
-    align_cluster_labels is the Hungarian matcher CARVE.get_labels already
-    uses internally. It is reused here rather than reimplemented so the two
-    cannot drift apart, even though it sits in carve._utils rather than on
-    the public surface. Codes come from pandas' sorted category order, which
-    is the same order aligned_color_maps assigns the palette in.
+    align_cluster_labels (carve._utils) is the Hungarian matcher
+    CARVE.get_labels uses. Codes come from pandas' sorted category order,
+    which is the order aligned_color_maps assigns the palette in.
     """
     from carve._utils import align_cluster_labels
 
@@ -289,8 +284,7 @@ def ari_table(
     """ARI of each selection against the reported labels.
 
     Shared by the Levine figure (through ari_panel, where it is the bottom
-    panel's lollipop chart) and by figure_comparators, so a fix to the table
-    reaches both rather than living in two copies that can drift apart.
+    panel's lollipop chart) and by figure_comparators.
 
     extra_rows appends comparators that do not come out of best_df, which is
     the CVI sweep's own output and has no room for a tool that is not a CVI.
@@ -350,10 +344,9 @@ def prepare_composite(
     """Assemble the composite's inputs, computing a PCA embedding if needed.
 
     Fits a PCA when no embedding is supplied, and always fits the comparison
-    estimator named by best_df's winning row for comparison_metric (not a
-    fixed choice) at that row's k. This is compute, not reporting -- call it
-    once per study and reuse the returned CompositeInputs across both of that
-    study's figures, rather than calling it again inside a render loop.
+    estimator named by best_df's winning row for comparison_metric at that
+    row's k. Call it once per study and reuse the result for both of that
+    study's figures.
 
     When best_df comes from cvi_resolution_sweep (it has a resolution
     column), the winner is refit at its resolution from model_grids, the
@@ -496,9 +489,7 @@ def composite_figure(
     the scatters the row after that as C, D and E.
 
     ``axis_labels`` names the embedding's two directions. Only panel A shows
-    them, as a corner arrow pair rather than as xlabel/ylabel: all three
-    scatters share one embedding, so repeating the names under B and C says
-    nothing the reader does not already have from A.
+    them, as a corner arrow pair; all three scatters share one embedding.
 
     The figure is laid out at PRINT_WIDTH_IN under print_theme_context, and
     the panel helpers' screen text sizes are reset to the print sizes.
@@ -609,9 +600,7 @@ def composite_figure(
             print_axes_text(ax)
             print_free_text(ax)
 
-        # Move the two panel legends into their own strip. Building each one
-        # exactly once; the cell this replaces assigned leg_D twice and threw
-        # the first away.
+        # Move the two panel legends into their own strip.
         for source_ax, target_ax, title in (
             (ax_carve_curves, legend_ax_carve, "CARVE"),
             (ax_cvi_curves, legend_ax_cvi, "CVIs"),

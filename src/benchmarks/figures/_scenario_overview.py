@@ -1,15 +1,10 @@
 """One family's section overview: example datasets above ARI over its axis.
 
 Not a manuscript figure. This is the per-scenario view each family section of
-the benchmarking notebook carries -- the pair the pre-rebuild notebook drew
-with plot_examples and plot_ari_over_difficulty -- assembled from the same
-primitives Fig 4 and S1 Fig use, so a section figure and the combined figure
-at the end of the notebook cannot disagree about what a family looks like.
+the benchmarking notebook carries, drawn with the same primitives as Fig 4.
 
-The x axis is resolved from the frame rather than assumed. Fig 4 can label
-its ticks easy/medium/hard because it only ever draws difficulty sweeps; this
-function draws the scaling families too, where those labels would be a
-mislabeling rather than a cosmetic difference.
+The x axis is resolved from the frame, since this function also draws the
+scaling families.
 """
 
 from collections.abc import Sequence
@@ -95,12 +90,9 @@ def figure_scenario_overview(
     axis_name = str(results["axis_name"].iloc[0])
     values, labels = _axis_points(results)
 
-    # The upper panels are simulated from the registry; the lower panel is
-    # read from an artifact. A run directory is content-addressed on its
-    # config, so an older run whose axis has since been redefined still sits
-    # on disk under its own hash and can still be read. The two halves of
-    # this figure would then describe different experiments, with the x ticks
-    # taken from the artifact hiding the disagreement. Compare the axes.
+    # The upper panels come from the registry, the lower panel from an
+    # artifact. An older run whose axis has since changed would make the two
+    # disagree, so the axes are compared.
     registered = list(scenario.axis.values)
     if values != registered:
         raise ValueError(
@@ -139,9 +131,7 @@ def figure_scenario_overview(
             x_label=_x_label(name, axis_name),
             show_legend=False,
         )
-        # Ticks sit on the swept anchors, not on matplotlib's automatic
-        # scale. A scaling family holds data at exactly three values, and
-        # auto ticks put marks at 2000 and 8000 where nothing was measured.
+        # Ticks on the swept values only.
         ari_ax.set_xticks(values)
         if axis_name == DIFFICULTY_AXIS_NAME:
             ari_ax.set_xticklabels([label.capitalize() for label in labels])

@@ -1,15 +1,11 @@
 """Where figures are written.
 
-code/vis/ is gitignored. Copying a figure into overleaf/vis/ stays a manual
-step, per the existing convention, so a regenerated figure never silently
-changes the manuscript.
+code/vis/ is gitignored. Copying a figure into overleaf/vis/ is a manual
+step.
 
 VIS_ROOT is anchored to the repository root, derived from this file's own
-location, rather than the interpreter's working directory. nbconvert
-executes each notebook with that notebook's own directory as the working
-directory, so a CWD-relative path would scatter figures under
-notebooks/vis/ and notebooks/case_studies/vis/ instead of the one code/vis/
-tree every entry point shares.
+location, rather than the working directory, which nbconvert sets to each
+notebook's own directory.
 """
 
 from pathlib import Path

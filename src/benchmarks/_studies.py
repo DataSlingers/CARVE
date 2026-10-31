@@ -1,8 +1,6 @@
 """Case-study compute: the CVI sweep and the CARVE fit cache.
 
-No matplotlib here. The routine this replaces swept the classical indices and
-then built a figure and called plt.show() in the same call, so the sweep
-could not be reused without also drawing it.
+No matplotlib here, so the sweep can be reused without drawing it.
 """
 
 import hashlib
@@ -39,15 +37,12 @@ CVI_SWEEP_METRICS: tuple[str, ...] = (
     "calinski_harabasz",
 )
 
-# Above this many samples, a dense n-by-n float64 matrix is no longer a
-# reasonable thing to build without asking first: at 5,000 it is 0.2 GB; at
-# 50,000 it is 20 GB. 5,000 also matches CARVE's own anchor_threshold
-# default, which draws the same "an exact n-by-n matrix stops being
-# tractable here" line for the consensus matrix.
+# Above this many samples a dense n-by-n float64 matrix needs more than
+# 0.2 GB (20 GB at 50,000). It matches CARVE's anchor_threshold default.
 DENSE_ESTIMATOR_SAFE_N = 5_000
 
 #: CARVE's own default resample count. A study's k-based run at this count
-#: keeps the cache filename it had before carve_cache_path added run keys.
+#: has no run key in its cache filename.
 PACKAGE_N_RESAMPLES: int = next(
     field.default for field in fields(CARVE) if field.name == "n_resamples"
 )
@@ -63,13 +58,9 @@ def _check_dense_fit(
 ) -> None:
     """Refuse to silently build an O(n^2) affinity or distance matrix.
 
-    study_model_grids is scale-blind by design -- it knows an estimator and
-    candidate_k, never n -- so a check placed there could not see this
-    coming, and a caller who assembles model_grids by hand instead of going
-    through study_model_grids would walk straight past it anyway. cvi_sweep
-    and fit_or_load_carve are the one place every case-study entry point
-    brings X and model_grids together before handing them to a real
-    estimator, which is why the check lives here instead.
+    Called from cvi_sweep and fit_or_load_carve, where every case-study
+    entry point brings X and model_grids together. study_model_grids never
+    sees n.
     """
     offending = sorted(
         {cls.__name__ for cls, _ in model_grids if cls in _DENSE_ESTIMATOR_CLASSES}
@@ -102,8 +93,7 @@ def _spec_for(
     Used by the gap statistic to refit reference datasets. One class can be
     registered under more than one name (AgglomerativeClustering as
     "agglomerative" and "agglomerative_single"), so the fixed parameters
-    are part of the match; matching the class alone would refit every
-    single-linkage cell's references with Ward.
+    are part of the match.
     """
     from ._estimators import ESTIMATOR_CLASSES, ESTIMATOR_DEFAULTS
 
@@ -384,9 +374,8 @@ def _check_cached_run(
     """Refuse to serve a cached fit of a different run than the one requested.
 
     carve_cache_path gives a study's default run no run key, so a change to
-    the default grid keeps the filename. The Levine cache was fit with KMeans
-    n_init=10 and kept loading after the study moved to n_init=100 (eff2915).
-    This compares the grid and the resample count. Preprocessing,
+    the default grid keeps the filename. This compares the grid and the
+    resample count. Preprocessing,
     random_state, the classifier and consensus_anchors are not checked.
     """
     difference = _first_grid_difference(
@@ -423,7 +412,7 @@ def fit_or_load_carve(
 
     A case-study fit can take hours, so the cache is what makes regenerating
     a figure practical. The saved state does not carry the data matrix, so X_ is
-    restored after loading, matching the notebook this replaces.
+    restored after loading.
 
     The cache is found by path alone. A caller that changes the grid, the
     resample count or the preprocessing must pass the same to
@@ -551,7 +540,7 @@ def _klein_loader(subsample: int | float | None):
 def _levine_loader(subsample: int | float | None):
     from .datasets import load_levine32
 
-    # Manuscript line 627: a stratified subsample of 5,000 cells.
+    # The manuscript's stratified subsample of 5,000 cells.
     return load_levine32(subsample=subsample, random_state=42)
 
 
@@ -650,25 +639,13 @@ def carve_cache_path(
 ) -> Path:
     """Where a study's fitted CARVE state is cached, per scale and run.
 
-    Both the scale name and a short hash of its resolved size are part of
-    the filename deliberately. fit_or_load_carve loads whatever file sits at
-    the path it is handed, so a shared path would let one scale silently
-    reuse another's fit (Cusanovich's atlas run serving its 5,000-cell
-    publication fit) -- that is what the scale name guards against. The hash
-    guards the same failure one level up: editing STUDIES[...].scales[name]
-    (say, Levine's "publication" from 5,000 to 10,000)
-    changes what that scale resolves to without changing its name, and
-    without the hash fit_or_load_carve would silently load the fit taken at
-    the old size. A hash reads better than the raw resolved size for the
-    None case (full data), which has no natural filename spelling.
-
-    A run key guards the same failure across kinds of fit: a k-based fit, a
-    Leiden resolution fit and a randomized-preprocessing fit at one scale
-    would otherwise share a filename. Pass the model_grids, n_resamples and
-    preprocessing the fit runs. The study's default run (its k-based grid,
-    no preprocessing, the package's resample count) carries no run key, so
-    the caches written before run keys existed keep their names. A study
-    with no k-based grid must pass model_grids.
+    fit_or_load_carve loads whatever file sits at the path it is given, so
+    the filename carries what distinguishes one fit from another: the scale
+    name, a short hash of the scale's resolved size (None, the full data,
+    included), and a run key for the kind of fit. Pass the model_grids,
+    n_resamples and preprocessing the fit runs. The study's default run (its
+    k-based grid, no preprocessing, the package's resample count) has no run
+    key. A study with no k-based grid must pass model_grids.
     """
     resolved = resolve_scale(study, scale)  # raises if the scale is unknown
     name = _scale_name(study, scale)
@@ -710,8 +687,7 @@ STUDIES: dict[str, Study] = {
         loader=_levine_loader,
         # Leiden on PhenoGraph's graph: PhenoGraph, which Levine et al. 2015
         # introduced on this data, runs Louvain on a Jaccard-weighted
-        # 30-neighbor graph. The submitted manuscript swept KMeans and
-        # spectral over k = 7 to 17 on the robust-scaled input instead.
+        # 30-neighbor graph.
         estimator=EstimatorSpec(
             name="leiden", params=(("n_neighbors", 30), ("weighting", "jaccard"))
         ),
@@ -740,29 +716,24 @@ STUDIES: dict[str, Study] = {
         candidate_k=(),
         # Every cell at the atlas scale. With the resample count and
         # pipelines below it takes about 120 core-hours, about 28 hours at
-        # five workers on an 11-core, 18 GB Mac (extrapolated from timings
-        # measured 2026-09-14). A perplexity-100 fit peaks near 2.2 GB, and
-        # workers beyond five add little throughput.
+        # five workers on an 11-core, 18 GB Mac. A perplexity-100 fit peaks
+        # near 2.2 GB, and workers beyond five add little throughput.
         scales={"publication": 5000, "atlas": None},
         default_scale="atlas",
         partners=(),
         # Log-spaced from 0.02 to 3.0, 15 values. Louvain's cluster count at a
         # given resolution grows with the number of cells and differs by
-        # pipeline: on 50,164 atlas cells a converged perplexity-30 t-SNE gives
-        # 24 clusters at 0.05, 30 at 0.2 and 127 at 3.0, while the LSI gives 13
-        # at 0.2 and 34 at 3.0 (measured 2026-09-14). A log grid reaches the
-        # source's 30 clusters for both.
+        # pipeline: on the atlas, 0.2 gives 30 clusters on the perplexity-30
+        # t-SNE and 13 on the LSI. A log grid reaches the source's 30 clusters
+        # for both.
         resolutions=tuple(float(f"{0.02 * 150 ** (i / 14):.2g}") for i in range(15)),
-        # Pinned rather than left at the package default. Both
-        # consensus_matrices_ and consensus_generalizability_matrices_ are
-        # retained per configuration, so retained memory is
-        # n_configs * 2 * m**2 * 8 bytes: 15 * 2 * 2000**2 * 8 B = 0.96 GB
-        # for the 15-configuration sweep at 2000 anchors, against 6.0 GB at
-        # the package default of 5000 once n exceeds anchor_threshold. At
-        # both scales the run anchors to 2000, the count hECA uses.
+        # Both consensus matrices are retained per configuration, so
+        # retained memory is n_configs * 2 * m**2 * 8 bytes: 0.96 GB for 15
+        # configurations at 2000 anchors, against 6.0 GB at the package
+        # default of 5000. hECA uses 2000 as well.
         consensus_anchors=2000,
         # 150 resamples over four pipelines give each 37 or 38 under
-        # stratified allocation. The preliminary atlas run used 50.
+        # stratified allocation.
         n_resamples=150,
         preprocessing=PreprocessingSpec(
             # The LSI is already scaled by its singular values; the source
@@ -774,16 +745,16 @@ STUDIES: dict[str, Study] = {
                 # of principal components. Keeping 30, the Signac and ArchR
                 # default, or dropping the depth-correlated first component
                 # gave the 50-component partition back up to Louvain's own
-                # run-to-run variation on 50,164 atlas cells (2026-10-03), so
-                # neither is a pipeline of its own; 10 components differ.
+                # run-to-run variation on the atlas, so neither is a pipeline
+                # of its own; 10 components differ.
                 ("lsi", {"n_components": [50]}),
                 ("lsi", {"n_components": [10]}),
                 # t-SNE of all 50 components at the source's perplexity, 30,
                 # and at 100, the top of the standard range of 10 to 100 for
                 # large data (Kobak and Berens 2019) and near the log-scale
                 # midpoint between 30 and n/100 of a subsample (310 to 501).
-                # The preliminary run's perplexity 300 stayed within about
-                # 0.03 of 100 at every resolution, at 1.4 times the cost.
+                # Perplexity 300 stayed within about 0.03 of 100 at every
+                # resolution, at 1.4 times the cost.
                 # Perplexities compared on a small subsample do not transfer:
                 # in a 927-cell subsample most source clusters are already
                 # smaller than perplexity 30. Each perplexity is its own
@@ -798,8 +769,7 @@ STUDIES: dict[str, Study] = {
         ),
         # The figure draws CARVE's partition and the source's on one t-SNE of
         # every cell at perplexity 100, the more stable of the two t-SNE
-        # pipelines at the selected resolution of the 150-resample run
-        # (stability 0.792 against 0.776 at perplexity 30, 2026-10-04).
+        # pipelines at the selected resolution.
         map_option=("tsne", {"perplexity": [100]}),
     ),
     "heca": Study(
@@ -808,19 +778,16 @@ STUDIES: dict[str, Study] = {
         # Leiden on two graphs: 15 neighbors, the scanpy convention hECA's
         # own EpiScanpy annotation inherits, and 50, the graph CATlas (Zhang
         # 2021) and Hocker 2021 clustered; those two supply 221,029 of the
-        # pooled cells. Both optimize modularity. See the 2026-10-01 spec.
+        # pooled cells. Both optimize modularity.
         estimator=EstimatorSpec(name="leiden", params=(("n_neighbors", 15),)),
         partners=(EstimatorSpec(name="leiden", params=(("n_neighbors", 50),)),),
         candidate_k=(),
         scales={"publication": None},
         default_scale="publication",
-        # From the Longleaf calibration run 20261005-5ed30fc (2026-10-06).
-        # The rule proposed 15 log-spaced values from 0.001 to 3.9, but both
-        # settings give the same 6 clusters from 0.001 to 0.011, so the first
-        # five values would repeat one partition. The grid starts at 0.01
-        # instead, keeping one value on that floor, and ends at 3.9, where
-        # the 50-neighbor setting gives 103 clusters and the 15-neighbor
-        # setting 146. 15 log-spaced values, two significant figures.
+        # 15 log-spaced values from 0.01 to 3.9, two significant figures.
+        # Both settings give the same 6 clusters up to about 0.011, so one
+        # value sits on that floor. At 3.9 the 50-neighbor setting gives 103
+        # clusters and the 15-neighbor setting 146.
         resolutions=(
             0.01,
             0.015,

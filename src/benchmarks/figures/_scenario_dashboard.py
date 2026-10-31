@@ -1,10 +1,9 @@
 """One scenario's whole story in one figure.
 
 Not a manuscript figure. This is what each family section of the
-benchmarking notebook carries, in place of the overview-plus-table pair it
-used to. The four rows answer four questions in reading order: what the data
-looks like, what each method scored on it, why each method chose the k it
-chose, and how often it chose each k.
+benchmarking notebook carries. The four rows answer four questions in reading
+order: what the data looks like, what each method scored on it, why each
+method chose the k it chose, and how often it chose each k.
 
 Every panel is drawn through the same primitives as the manuscript figures,
 and the ARI row draws Fig 4's series from the same artifact, so a section and
@@ -80,12 +79,9 @@ def figure_scenario_dashboard(
     axis_name = str(results["axis_name"].iloc[0])
     values, labels = _axis_points(results)
 
-    # The example and criterion panels are simulated or read per registry
-    # anchor; the curves come from the artifact. A run directory is
-    # content-addressed on its config, so an older run whose axis has since
-    # been redefined still sits on disk and still reads. The two halves would
-    # then describe different experiments, with the x ticks taken from the
-    # artifact hiding the disagreement.
+    # The example and criterion panels come from the registry, the curves
+    # from the artifact. An older run whose axis has since changed would make
+    # the two disagree, so the axes are compared.
     registered = list(scenario.axis.values)
     if values != registered:
         raise ValueError(
@@ -140,9 +136,7 @@ def figure_scenario_dashboard(
             show_points=True,
             dodge=POINT_DODGE_FRACTION * float(span),
         )
-        # Ticks sit on the swept anchors, not on matplotlib's automatic
-        # scale. A scaling family holds data at exactly three values, and
-        # auto ticks put marks at 2000 and 8000 where nothing was measured.
+        # Ticks on the swept values only.
         ari_ax.set_xticks(values)
         if axis_name == DIFFICULTY_AXIS_NAME:
             ari_ax.set_xticklabels([label.capitalize() for label in labels])
@@ -170,25 +164,10 @@ def figure_scenario_dashboard(
                 criterion_axes[index].set_ylabel("")
                 heatmap_axes[index].set_yticklabels([])
 
-        # The reference line has no entry in the shared foot legend --
-        # metric_legend's grouping only classifies metric names, so a
-        # free-form label like this one cannot surface through it, and a
-        # second figure-level legend would break the "one shared legend"
-        # contract. Naming it on the leftmost criterion panel alone, from
-        # that panel's own handle, is what keeps the label appearing once
-        # rather than once per axis point. criterion_curves omits the line
-        # entirely when a cell has no classical-index rows, so this is a
-        # no-op then.
-        #
-        # Placed below the axes' data rectangle (bbox_to_anchor y < 0, in
-        # the panel's own axes fraction), not inside it. candidate_k is
-        # centered on k_star for every registered scenario, so an in-panel
-        # "lower center" placement sits exactly on the one k every curve is
-        # normalized toward -- a criterion that fails to prefer k* troughs
-        # there, and min-max normalization puts every such curve at 0
-        # simultaneously, so the legend text would sit right on top of the
-        # point where the curves converge. Anchoring outside the data
-        # rectangle entirely means no curve shape can ever collide with it.
+        # The reference line is named once, on the leftmost criterion panel,
+        # because metric_legend only groups metric names. criterion_curves
+        # omits the line when a cell has no classical-index rows. The legend
+        # sits below the axes, where no curve can run into it.
         handles, texts = criterion_axes[0].get_legend_handles_labels()
         reference = [
             (handle, text)

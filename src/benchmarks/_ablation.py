@@ -4,9 +4,8 @@ Each unit runs in a loky worker, which computes the rows for the frames it
 owns and writes them itself (_run_and_write); the parent only schedules
 units and writes the manifest. Every CARVE fit runs on one worker with its
 forest capped at the worker's share of the cores (see _run.cpu_cap).
-Nothing here saves a fitted CARVE: 120 Klein fits of n-by-n consensus
-matrices would cost far more disk than the rows the analysis reads, and
-the fit cache's filename does not distinguish rho or the seed.
+Nothing here saves a fitted CARVE; the fit cache's filename does not
+distinguish rho or the seed.
 """
 
 import dataclasses
@@ -314,14 +313,11 @@ def cell_rows(
         measure = metric_measure(metric_name)
         rule = metric_rule(metric_name)
         if results[measure].isna().all():
-            # A degenerate resampling draw (small B, small n, or an unlucky
-            # seed) can leave one sample with zero consensus co-occurrences,
-            # which makes this measure NaN for every configuration -- see
-            # CARVE's stability_gini_scores_/stability_ce_scores_ .mean(),
-            # not .nanmean(). select_best_row_by_rule's idxmax then raises on
-            # an all-NaN column. That is CARVE's own behavior (src/carve/ is
-            # out of scope here), so this cell records an unselected row for
-            # the metric instead of crashing the whole run.
+            # A degenerate resampling draw (small B, small n or an unlucky
+            # seed) can leave a sample with no consensus co-occurrences, which
+            # makes this measure NaN for every configuration, and
+            # select_best_row_by_rule's idxmax raises on an all-NaN column.
+            # The cell records an unselected row for the metric instead.
             warnings.warn(
                 f"Cell {key}: metric {metric_name!r} is NaN for every "
                 f"configuration (measure {measure!r} could not be scored); "
@@ -440,11 +436,8 @@ def unit_label(unit: Unit) -> str:
 
 
 def _run_and_write(unit, rd, ablation, scale, data, thread_cap) -> tuple[str, float]:
-    # Module level, not a closure: joblib decides whether to memmap an
-    # array argument by its size (max_nbytes), not by whether the callable
-    # wrapping it is a closure. This stays at module scope so it pickles by
-    # qualified name for any joblib backend, and so run_unit is a global
-    # tests can monkeypatch (see test_ablation.py's resume test).
+    # At module level so it pickles by qualified name for any joblib
+    # backend, and so tests can monkeypatch run_unit.
     started = time.perf_counter()
     frames = run_unit(
         unit, ablation=ablation, scale=scale, data=data, thread_cap=thread_cap

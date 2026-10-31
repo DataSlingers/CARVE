@@ -177,15 +177,10 @@ def load_cusanovich(
         )
 
     # The matrix columns are in cell_metadata.txt row order. The release's
-    # .cells.txt holds the same barcodes in a different order and is not the
-    # column order: reindexing the metadata by it kept tissue blocks roughly
-    # intact but gave every cell another cell's label, cluster and t-SNE
-    # position within its tissue. Verified on the released atlas (2026-09):
-    # in the loader's own LSI, 15-nearest-neighbor purity by the source's
-    # cell_label is 0.83 under metadata order and 0.29 under .cells.txt
-    # order, and within-tissue cell-type classification is 0.89-1.00 versus
-    # the permuted-label baseline. The cells file is still checked, as the
-    # one independent record of which barcodes the matrix holds.
+    # .cells.txt holds the same barcodes in a different order: reindexing by
+    # it gives each cell another cell's label within the same tissue. The
+    # cells file is still checked, as the one independent record of which
+    # barcodes the matrix holds.
     n_cells_full = int(matrix.shape[1])
     if (
         len(cells) != n_cells_full
@@ -228,11 +223,9 @@ def load_cusanovich(
     ]
 
     if n_peaks_kept == 0:
-        # A threshold this strict leaves no signal to embed. TruncatedSVD
-        # requires at least one feature, so report a zero embedding rather
-        # than raising a confusing sklearn error deep in the SVD call. Warn
-        # and record the skip in meta rather than silently claiming the
-        # TF-IDF/SVD chain ran, which it did not.
+        # A threshold this strict leaves no features, and TruncatedSVD needs
+        # at least one, so the embedding is zero; the skip is warned about
+        # and recorded in meta.
         warnings.warn(
             f"site_frequency_threshold={site_frequency_threshold} removed "
             "every peak in the Cusanovich atlas; returning a zero embedding "

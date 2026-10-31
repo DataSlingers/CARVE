@@ -174,10 +174,8 @@ def agreement_summary(
     A row whose selection is undefined (selected_estimator or selected_k is
     NaN, per cell_rows' all-NaN-measure case) is dropped before choices are
     built: it never selected anything, so it neither agrees nor disagrees.
-    Casting both sides to str before concatenating (rather than relying on
-    selected_estimator already being an object column of strings) keeps this
-    from raising when a metric's selected_estimator is NaN for every row
-    passed in, which leaves the column float64 even after filtering to zero
+    Both sides are cast to str before concatenating, since an all-NaN
+    selected_estimator column stays float64 even after filtering to zero
     rows.
     """
     rows = selection[selection["metric_name"].isin(metrics)].copy()
@@ -190,12 +188,9 @@ def agreement_summary(
         .agg(_pair_agreement)
         .rename(columns={"choice": "agreement"})
     )
-    # On a fully empty input (every selection in a group undefined), the
-    # groupby-apply above has nothing to call _pair_agreement on and keeps
-    # "agreement"'s dtype from "choice" (a string column) instead of the
-    # float _pair_agreement actually returns; force it back to float so the
-    # downstream mean in _with_pooled does not raise on an all-undefined
-    # group.
+    # When every selection in a group is undefined, the groupby-apply never
+    # calls _pair_agreement, and "agreement" keeps the string dtype of
+    # "choice".
     per_dataset["agreement"] = per_dataset["agreement"].astype(float)
     return _with_pooled(
         per_dataset,
@@ -375,11 +370,10 @@ def study_ari_summary(
     """Mean, standard error and count of the selected labels' ARI to a
     study's reference labels, one row per (x, metric).
 
-    Restricted to one study rather than pooled: unlike the simulations,
-    a case study's replicates all score against the same reference
-    labels, so there is nothing to pool over. An undefined selection
-    (ari_selected NaN, cell_rows' all-NaN-measure case) is dropped before
-    aggregating rather than counted as a zero.
+    Per study: a case study's replicates all score against the same
+    reference labels, so there is nothing to pool over. An undefined
+    selection (ari_selected NaN, cell_rows' all-NaN-measure case) is
+    dropped before aggregating.
     """
     rows = selection[
         (selection["study"] == study) & selection["metric_name"].isin(metrics)
@@ -426,10 +420,8 @@ def table_rows(
     not use it; they read _tables.ablation_table_frame.
 
     A partial run (an empty selection frame, or one with no rows for the
-    named study) leaves modal empty; declaring the merge frame's columns
-    up front keeps the [x, "metric_name"] merge keys present so this
-    returns a zero-row frame with the documented columns instead of
-    raising KeyError.
+    named study) leaves modal empty and returns a zero-row frame with the
+    documented columns.
     """
     selection = view["selection"]
     pooled = ari_summary(selection, view["at_k"], x=x, metrics=metrics)

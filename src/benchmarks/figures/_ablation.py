@@ -1,14 +1,14 @@
 """The two SI figures of the rho/B ablation.
 
-figure_ablation answers the sensitivity question (R4.4): the ARI to the
-true labels of the labels each headline selector returns, against the
-subsampling proportion (the rho arm, at the default B) and against the
-resample count (the B arm, at the default rho). A dashed line marks the
+figure_ablation draws the ARI to the true labels of the labels each
+headline selector returns, against the subsampling proportion (the rho arm,
+at the default B) and against the resample count (the B arm, at the default
+rho). A dashed line marks the
 oracle at k*. An ablation with a case study adds a row with the study's
 selected labels scored against its reference labels.
 
-figure_ablation_resampling answers how resampling affects the clustering
-(R1.3), against rho: the bias of the selected k, recall of the smallest
+figure_ablation_resampling draws how resampling affects the clustering,
+against rho: the bias of the selected k, recall of the smallest
 true cluster, and the agreement of a subsample's clustering with the
 full-data clustering. All three need a true k, so it draws the simulations
 only.
@@ -78,10 +78,9 @@ B_LABEL = r"Resamples $B$"
 Z_95 = 1.96
 # The y axis of an ARI or proportion panel is fitted to what the panel
 # draws, error bars included, rounded out to whole Y_STEPs and never
-# narrower than MIN_Y_SPAN. The full 0 to 1 scale flattened every line; a
-# tight fit made differences of a few hundredths look like trends. Y_PAD
-# keeps markers at the limits clear of the spines. Ticks fall every Y_STEP,
-# or every two on a span wider than WIDE_Y_SPAN.
+# narrower than MIN_Y_SPAN. Y_PAD keeps markers at the limits clear of the
+# spines. Ticks fall every Y_STEP, or every two on a span wider than
+# WIDE_Y_SPAN.
 Y_STEP = 0.05
 MIN_Y_SPAN = 0.2
 WIDE_Y_SPAN = 0.3

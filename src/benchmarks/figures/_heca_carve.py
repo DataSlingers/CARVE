@@ -48,15 +48,11 @@ def figure_heca_carve(
 ) -> Figure:
     """Draw stability, generalizability and cluster count over resolution.
 
-    Each panel's own legend is suppressed (``legend=False``): CARVE's
-    legend text is long enough -- the full estimator repr, e.g.
-    "LeidenClustering, n_neighbors=15, objective_function=modularity" --
-    that three of them side by side at this panel width overflow their own
-    axes into the next panel. The three panels' colored lines name the same
-    two settings, so one legend below the figure, de-duplicated by label
-    text and built from the handles CARVE already attached to each axes,
-    says it once instead of three times, while keeping each panel's own
-    selected-resolution line (its label differs per panel) in the legend.
+    Each panel's own legend is suppressed (``legend=False``), since CARVE's
+    full estimator reprs overflow the panel width. One legend below the
+    figure, de-duplicated by label from the handles CARVE attached to each
+    axes, names the two settings once and keeps each panel's
+    selected-resolution line.
     """
     with theme_context():
         fig, axes = plt.subplots(1, 3, figsize=(15.0, 4.2))

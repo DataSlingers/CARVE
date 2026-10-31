@@ -30,8 +30,8 @@ PLOS_FIGURE_NUMBER = 1
 SAVE_NAME = "clustering_problem.png"
 MOTIVATION_DIR = VIS_ROOT / "motivational_plots"
 
-# Marker areas are given for the 16-inch layout the figure was first drawn
-# at, and scale with the area at the print width.
+# Marker areas are given for a 16-inch layout and scale with the area at the
+# print width.
 _SCREEN_WIDTH_IN = 16.0
 _PRINT_MARKER_SCALE = (PRINT_WIDTH_IN / _SCREEN_WIDTH_IN) ** 2
 _ROW_HEIGHT_IN = 2.1

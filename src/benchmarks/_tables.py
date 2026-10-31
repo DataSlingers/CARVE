@@ -1,12 +1,7 @@
 """Summarize a run into the manuscript's supplementary tables.
 
-One summarizer covers every experiment. The two it replaces shared 105 of
-122 code lines and differed only in whether they grouped by "difficulty" or
-"stage"; with axis_label unified there is nothing left to differ about.
-
-Tables are written to disk as .tex fragments under their manuscript names
-rather than printed for copy-paste, so the supplementary tables stop drifting
-from what the code produces.
+One summarizer covers every experiment, grouped by axis_label. Tables are
+written to disk as .tex fragments under their manuscript names.
 """
 
 from collections.abc import Mapping, Sequence
@@ -195,13 +190,8 @@ def summarize(
 def _tex_escape(text: str) -> str:
     """Escape the LaTeX special characters that appear in captions.
 
-    Maps each input character through the table in a single pass over the
-    original string, rather than a sequence of ``str.replace`` calls. A
-    sequential-replace implementation would rescan its own output: escaping
-    a backslash inserts the literal braces in ``\\textbackslash{}``, and a
-    later rule for ``{``/``}`` would then re-escape those, corrupting the
-    result. Mapping character-by-character means nothing already emitted is
-    ever looked at again.
+    Maps each character through the table in one pass, so the braces
+    inserted by ``\\textbackslash{}`` are not escaped again.
     """
     replacements = {
         "\\": r"\textbackslash{}",
@@ -278,10 +268,8 @@ def render_grouped_tex(
 def _ranked(values: Sequence[float]) -> tuple[float | None, float | None]:
     """The best and second-best finite values in a column.
 
-    Second-best is None when the best is tied, matching the committed S2
-    table: three cells at 0.932 are all bold and nothing in that column is
-    underlined. Marking a runner-up below a tied first place would say the
-    column has a clear ordering when it does not.
+    Second-best is None when the best is tied, so a tied column has bold
+    cells and no underline.
     """
     finite = sorted({float(v) for v in values if pd.notna(v)}, reverse=True)
     if not finite:
@@ -306,10 +294,8 @@ def _marked(
     return text
 
 
-# The committed S2 table and the manuscript prose write these two CVI names
-# with an en dash; METRIC_DISPLAY_NAMES keeps the plain hyphen because
-# figure legends read it too. Table-only, so it lives here rather than
-# there.
+# The tables write these two names with an en dash; figure legends keep the
+# hyphen from METRIC_DISPLAY_NAMES.
 _TABLE_EN_DASH_NAMES: dict[str, str] = {
     "davies_bouldin": "Davies--Bouldin",
     "calinski_harabasz": "Calinski--Harabasz",
@@ -336,14 +322,9 @@ def _metric_rows(
     with a \\midrule between groups, bold for the best value in a column and
     underline for the second.
 
-    Ranking is per column, over the rows this call actually renders -- the
-    metrics in `groups`, i.e. the declared groups intersected with what is
-    present in `summary` -- and excludes the oracle, which is the reference
-    the rest are measured against rather than a competitor. summary can
-    carry metrics outside the groups (metrics= wasn't restricted to the
-    published set), and ranking over those too let an unrendered value
-    outscore every rendered one, which then rendered as unmarked instead of
-    bold.
+    Ranking is per column, over the rows this call renders (the metrics in
+    `groups` that are present in `summary`), and excludes the oracle, which
+    is the reference the others are measured against.
     """
     rendered_metrics = {metric for group in groups for metric in group}
     ranks: dict[Any, tuple[float | None, float | None]] = {}
@@ -418,8 +399,7 @@ def _comment_safe(text: str) -> str:
     A literal newline would end the LaTeX comment right there, leaving
     whatever follows as real (un-commented) file content rather than part
     of the comment, so newlines become spaces. A percent sign is stripped
-    too, defensively -- TABLE_CAPTIONS carries none today, but nothing here
-    should depend on that staying true.
+    too.
     """
     single_line = text.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
     return single_line.replace("%", "")
@@ -447,18 +427,10 @@ def render_paired_tex(
     10000) rather than start/middle/end. A label it does not map keeps its
     own text.
 
-    This replaces render_grouped_tex's single flat table, which merged both
-    quantities into one unranked grid. The numbers were right; the layout
-    was not, and every fragment had to be reshaped by hand before it could
-    go into the manuscript.
-
-    The fragment is the float only -- no \\caption, no \\label. The
-    manuscript never puts either inside a supplementary table: each is an
-    author-written \\paragraph*{Sn Table.}, \\label{Sn_Table}, and caption
-    prose above a caption-free \\begin{table}[H]. caption and label are kept
-    as a single leading LaTeX comment instead, so a generated file can still
-    be identified without adding a second label or an in-float caption a
-    dropped-in fragment would otherwise carry.
+    The fragment is the float only, without \\caption or \\label, since the
+    manuscript sets both above each supplementary table. caption and label
+    go into a leading LaTeX comment, so a generated file can still be
+    identified.
     """
     axis_labels = list(dict.fromkeys(summary["axis_label"]))
     present = set(summary["metric"])
@@ -689,8 +661,7 @@ def write_ablation_table(
 
 
 # --- The case-study comparison tables ---------------------------------------------
-#: Default captions. Stated here rather than at the call site so the notebook
-#: and any later caller cannot caption the same table differently.
+#: Default captions, shared by the notebook and any other caller.
 KLEIN_COMPARISON_CAPTION: str = (
     "Selections and their agreement with the reported time points on the Klein "
     "case study, for CARVE, the four classical validation indices, M3C and SC3, "
@@ -717,10 +688,9 @@ def render_comparison_tex(
     sweeps resolution passes "Clusters", since its selections are cluster
     counts rather than a swept k.
 
-    Runtime is deliberately not a column. fit_or_load_carve caches state
-    rather than timings, so a runtime column would be measured under
-    different conditions for CARVE than for M3C and SC3; the runtimes are
-    reported in prose instead.
+    There is no runtime column: fit_or_load_carve caches state but not
+    timings, so CARVE's runtime would not be measured the way M3C's and
+    SC3's are.
     """
     header = "$k$" if k_header == "k" else _tex_escape(k_header)
     lines = [
