@@ -33,3 +33,28 @@ them into the manuscript is a manual step. Case-study fits are cached in
 
 The R packages install through `make levine-setup`, `make m3c-setup` and `make sc3-setup`. S5 Text and
 S7 to S13 Text describe the studies behind these notebooks.
+
+## Terms
+
+| Term | Meaning |
+|---|---|
+| Configuration | One clustering estimator with fixed hyperparameters at one value of the swept parameter, k or a resolution. |
+| Resample | One draw of two overlapping subsamples, each holding a fraction rho (`subsample_ratio`, 0.618 by default) of the samples, and a test set, the samples outside the first subsample. B (`n_resamples`, 100 by default) is the number of resamples. |
+| ARI | The adjusted Rand index: 1 for two labelings that agree up to the names of the clusters, near 0 for unrelated ones. |
+| Stability | The mean over resamples of the ARI between the clusterings of the two subsamples, on the samples they share. |
+| Generalizability | The mean over resamples of the ARI between a classifier's predictions for the test set, trained on the first subsample's clusters, and the test set's own clustering. |
+| Consensus matrix | For each pair of samples, the share of the resamples drawing both in which the two fell in the same cluster. CARVE keeps one built from the subsample clusterings (stability) and one from the classifier's predictions on the test sets (generalizability). |
+| Consensus labels | The labels `get_labels()` returns: an average-linkage tree built from the consensus matrix, cut at the selected number of clusters. |
+| Per-sample scores | Gini and cross-entropy stability, from a sample's row of the consensus matrix, are 1 when every other sample drawn with it fell in its cluster either every time or never. Accuracy is the share of the test sets holding the sample in which the classifier predicted its cluster. The case studies call these per-cell scores. |
+| PAC | The proportion of ambiguous clustering, the share of consensus entries strictly between 0.05 and 0.95. CARVE reports 1 - PAC. |
+| Selection rules | `max` takes the best mean score. `1se` takes the finest configuration whose score is within one standard error of the best, and `quantile` the finest within the 5th to 95th percentiles of the best configuration's resample scores. Finest means the most clusters on a k sweep and the highest `sweep_rank` on other sweeps. `not_two` leaves k = 2 out. |
+| Randomized preprocessing | Each resample draws one normalization and dimensionality-reduction pipeline and fits it on its subsamples, so that the scores can be split by pipeline. |
+| Anchors | On large data, the samples over which the consensus matrices are kept (`consensus_anchors`). Every sample still gets its per-sample scores. |
+| k* and k-hat | The true number of clusters of a simulation, and the number a method selects. |
+| Oracle | The ARI of a scenario's own clustering method run at k*. |
+| k-recovery | The share of data sets in which a method selects k*. |
+| Difficulty | The easy, medium and hard settings of a simulation, at which the oracle reaches an ARI of about 0.9 to 1.0, 0.8 to 0.9 and 0.7 to 0.8. |
+| CVIs | The classical cluster validity indices: silhouette and Calinski-Harabasz (higher is better), Davies-Bouldin (lower is better) and the gap statistic (Tibshirani's rule). |
+| M3C, SC3 | Consensus clustering tools in R. M3C picks the k with the largest relative cluster stability index (RCSI); SC3's k here is its Tracy-Widom estimate from the eigenvalues of the data. |
+
+The guide to reading the curves of the criteria over k is under Reading the curves in section 4 of [Tutorial.ipynb](Tutorial.ipynb). S4 Text of the manuscript gives the same guidance with figures.
