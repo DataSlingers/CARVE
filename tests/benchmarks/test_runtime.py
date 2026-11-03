@@ -384,3 +384,38 @@ def test_provenance_groups_fits_by_when_where_and_what_they_measured():
     assert set(provenance.carve_commit) == {"3975da5"}
     assert set(provenance.measured) == {"2026-09-15"}
     assert "identity | TSNE(perplexity=30)" in " ".join(provenance.pipelines)
+
+
+def test_ladder_display_holds_the_cells_of_the_latex_ladder():
+    from benchmarks._runtime import runtime_ladder_display
+
+    frame = _ladder_frame()
+    latex = runtime_ladder_latex(frame).splitlines()
+    table = runtime_ladder_display(frame, caption="S14 Table. c")
+    for (_, cells), row in zip(table.cells.index, table.cells.to_numpy()):
+        texts = [text.replace("–", "--") for text in row]
+        assert " & ".join([cells.replace(",", "{,}"), *texts]) + r" \\" in latex
+    assert len(table.cells) == sum(1 for line in latex if line[:1].isdigit())
+
+
+def test_ladder_display_blocks_the_rungs_by_setting():
+    from benchmarks._runtime import runtime_ladder_display
+
+    table = runtime_ladder_display(_ladder_frame(), caption="c")
+    titles = list(dict.fromkeys(table.cells.index.get_level_values(0)))
+    assert titles == ["Data as given", "Randomized preprocessing, refit per resample"]
+
+
+def test_ladder_display_heads_its_columns_as_the_latex_does():
+    from benchmarks._runtime import runtime_ladder_display
+
+    table = runtime_ladder_display(_ladder_frame(), caption="c", n_resamples=150)
+    assert list(table.cells.columns) == [
+        "Per resample (s)",
+        "B = 150 (h)",
+        "Embedding (%)",
+        "Louvain (%)",
+        "Forest (%)",
+        "Other (%)",
+        "Peak memory (GB)",
+    ]

@@ -771,6 +771,7 @@ STUDIES: dict[str, Study] = {
         # every cell at perplexity 100, the more stable of the two t-SNE
         # pipelines at the selected resolution.
         map_option=("tsne", {"perplexity": [100]}),
+        source_option=("tsne", {"perplexity": [30]}),
     ),
     "heca": Study(
         name="heca",

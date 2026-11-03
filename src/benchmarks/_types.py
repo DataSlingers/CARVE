@@ -271,6 +271,10 @@ class Study:
     on the result, so the map does not change with whichever pipeline a fit
     rates best.
 
+    source_option, when set, is also one of those options: the pipeline the
+    data's source clustered, which the case-study tables report beside
+    CARVE's selection.
+
     comparators, when set, is how the study runs M3C and SC3 for the
     comparison figure and table; None for studies without that comparison.
     """
@@ -290,6 +294,7 @@ class Study:
     not_two: bool = False
     reported_k: int | None = None
     map_option: tuple[str, dict[str, list[Any]]] | None = None
+    source_option: tuple[str, dict[str, list[Any]]] | None = None
     comparators: ComparatorSpec | None = None
 
     def __post_init__(self) -> None:
@@ -305,14 +310,16 @@ class Study:
                 f"Study {self.name!r}: default_scale {self.default_scale!r} is "
                 f"not among the declared scales {sorted(self.scales)}."
             )
-        if self.map_option is not None and (
-            self.preprocessing is None
-            or self.map_option not in self.preprocessing.dim_reduction
-        ):
-            raise ValueError(
-                f"Study {self.name!r}: map_option {self.map_option!r} is not "
-                "one of the study's dim_reduction options."
-            )
+        for field in ("map_option", "source_option"):
+            option = getattr(self, field)
+            if option is not None and (
+                self.preprocessing is None
+                or option not in self.preprocessing.dim_reduction
+            ):
+                raise ValueError(
+                    f"Study {self.name!r}: {field} {option!r} is not one of the "
+                    "study's dim_reduction options."
+                )
 
 
 @dataclass(frozen=True)

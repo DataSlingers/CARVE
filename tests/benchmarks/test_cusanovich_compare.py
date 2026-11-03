@@ -8,6 +8,7 @@ from sklearn.metrics import adjusted_rand_score
 
 from benchmarks._cusanovich_compare import (
     TABLE_FILENAMES,
+    CusanovichInputs,
     best_pipeline,
     prepare_cusanovich_inputs,
     save_tables,
@@ -277,3 +278,113 @@ class TestPrepareCusanovichInputs:
         assert len(pd.read_csv(paths[0])) == len(carve.preprocessing_results_)
         written = pd.read_csv(paths[1])
         assert list(written["quantity"]) == list(selection_summary(inputs)["quantity"])
+
+
+_L50 = "identity | LSI(n_components=50)"
+_T30 = "identity | TSNE(perplexity=30)"
+
+
+def _spec(label, name, params):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(label=label, dim_reduction=SimpleNamespace(name=name, params=params))
+
+
+class TestCusanovichDisplayTables:
+    """y has four clusters. The source's t-SNE is 3.5 and 4.5 clusters at
+    resolutions 0.1 and 0.2, a tie that goes to the lower resolution."""
+
+    @pytest.fixture
+    def inputs(self):
+        def row(method_id, pipeline, resolution, stability, generalizability, observed, b):
+            values = _row(method_id, pipeline, resolution, stability, generalizability, observed)
+            return {**values, "n_resamples": b}
+
+        table = pd.DataFrame(
+            [
+                row("m0", _L50, 0.1, 0.90, 0.85, 2.0, 10),
+                row("m0", _L50, 0.2, 0.95, 0.90, 3.0, 10),
+                row("m0", _L50, 0.4, 0.80, 0.75, 4.2, 10),
+                row("m0", _T30, 0.1, 0.70, 0.65, 3.5, 9),
+                row("m0", _T30, 0.2, 0.75, 0.70, 4.5, 9),
+                row("m0", _T30, 0.4, 0.60, 0.55, 6.0, 9),
+                row("m1", _T30, 0.1, 0.99, 0.99, 4.0, 9),
+            ]
+        )
+        pooled = pd.DataFrame(
+            [
+                {"method_id": "m0", "sweep_value": 0.1, "n_clusters_observed": 2.8,
+                 "ari_stability": 0.82, "ari_generalizability": 0.77},
+                {"method_id": "m0", "sweep_value": 0.2, "n_clusters_observed": 3.6,
+                 "ari_stability": 0.86, "ari_generalizability": 0.81},
+                {"method_id": "m0", "sweep_value": 0.4, "n_clusters_observed": 4.1,
+                 "ari_stability": 0.70, "ari_generalizability": 0.66},
+            ]
+        )
+        pipelines = {
+            _L50: _spec(_L50, "LSI", {"n_components": 50}),
+            _T30: _spec(_T30, "TSNE", {"perplexity": 30}),
+        }
+        carve = _FakeCarve(table, pipelines=pipelines, selected=pooled.iloc[1].to_dict(), results=pooled)
+        return CusanovichInputs(
+            X=np.zeros((8, 2)),
+            y=np.array(list("aabbccdd")),
+            carve=carve,
+            carve_labels=np.zeros(8, dtype=int),
+            map_coordinates=np.zeros((8, 2)),
+            map_name="t-SNE",
+            map_axis_labels=("t-SNE 1", "t-SNE 2"),
+            best_pipeline_row=table.iloc[1],
+            operating_point=(0.4, 4.1),
+        )
+
+    def test_the_selection_table_holds_the_four_rows_of_s16(self, inputs):
+        from benchmarks._cusanovich_compare import selection_granularity_table
+
+        table = selection_granularity_table(inputs, source_option=("tsne", {"perplexity": [30]}))
+        assert table.caption.startswith("S16 Table. ")
+        assert list(table.cells.columns) == ["Resolution", "Clusters", "Stability", "Generalizability"]
+        assert table.cells.to_dict("split")["data"] == [
+            ["0.2", "3.6", "0.860", "0.810"],
+            ["0.2", "3.0", "0.950", "0.900"],
+            ["0.4", "4.1", "0.700", "0.660"],
+            ["0.1", "3.5", "0.700", "0.650"],
+        ]
+        assert list(table.cells.index) == [
+            "CARVE selection, pooled over pipelines",
+            "Best pipeline at CARVE-selected resolution: LSI, 50 components",
+            "Pooled, nearest Cusanovich et al.'s 4 clusters",
+            "Cusanovich et al.'s pipeline (t-SNE, perplexity 30), nearest to 4 clusters",
+        ]
+
+    def test_the_pipeline_table_follows_the_options_with_b_per_pipeline(self, inputs):
+        from benchmarks._cusanovich_compare import pipeline_table
+
+        options = (("lsi", {"n_components": [50]}), ("tsne", {"perplexity": [30]}))
+        table = pipeline_table(inputs, options=options)
+        assert table.caption.startswith("S17 Table. ")
+        assert list(table.cells.index) == [
+            ("LSI, 50 components, B = 10", "Selected resolution"),
+            ("LSI, 50 components, B = 10", "Nearest 4 clusters"),
+            ("t-SNE, perplexity 30, B = 9", "Selected resolution"),
+            ("t-SNE, perplexity 30, B = 9", "Nearest 4 clusters"),
+        ]
+        assert table.cells.to_dict("split")["data"] == [
+            ["0.2", "3.0", "0.950", "0.900"],
+            ["0.4", "4.2", "0.800", "0.750"],
+            ["0.2", "4.5", "0.750", "0.700"],
+            ["0.1", "3.5", "0.700", "0.650"],
+        ]
+
+
+@pytest.mark.requires_graph
+def test_the_selection_table_agrees_with_the_selection_summary(inputs):
+    from benchmarks._cusanovich_compare import selection_granularity_table
+
+    summary = selection_summary(inputs).set_index("quantity")["value"]
+    table = selection_granularity_table(inputs, source_option=_TSNE_30)
+    selected, best = table.cells.iloc[0], table.cells.iloc[1]
+    assert selected["Resolution"] == f"{summary['selected_resolution']:g}"
+    assert selected["Stability"] == f"{summary['selected_ari_stability']:.3f}"
+    assert best["Stability"] == f"{summary['best_pipeline_ari_stability']:.3f}"
+    assert best["Generalizability"] == f"{summary['best_pipeline_ari_generalizability']:.3f}"

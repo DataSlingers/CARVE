@@ -236,3 +236,110 @@ class TestTablesCli:
         monkeypatch.setattr("benchmarks._artifacts.read_run", _fake_read_run)
         main(["--tables", str(tmp_path / "out"), "--root", str(root)])
         assert seen["path"].name == "aaa"
+
+
+class TestManuscriptTables:
+    def test_one_table_per_scenario_in_the_order_of_their_numbers(self):
+        from benchmarks.tables import manuscript_tables
+
+        tables = manuscript_tables({"moons": _frame("moons"), "gaussians": _frame("gaussians")})
+        assert [t.caption.split(".")[0] for t in tables] == ["S2 Table", "S6 Table"]
+
+    def test_the_caption_states_k_star(self):
+        from benchmarks.tables import manuscript_tables
+
+        (table,) = manuscript_tables({"gaussians": _frame("gaussians")})
+        assert table.caption == f"S2 Table. {TABLE_CAPTIONS['gaussians']} k* = 5."
+
+    def test_the_cells_are_those_of_the_written_fragment(self, tmp_path):
+        from benchmarks.tables import manuscript_tables
+
+        from ._helpers import tex_lines
+
+        frames = {"gaussians": _frame("gaussians")}
+        (path,) = write_all_tables(frames, tmp_path)
+        (table,) = manuscript_tables(frames)
+        tex = path.read_text().splitlines()
+        for block in ("Mean ARI", "k-recovery"):
+            columns = [c for c in table.cells.columns if c[0] == block]
+            assert all(line in tex for line in tex_lines(table, columns)), block
+
+    def test_excluded_metrics_have_no_row(self):
+        from benchmarks.tables import manuscript_tables
+
+        (table,) = manuscript_tables({"gaussians": _frame("gaussians")})
+        assert "ARI (avg, 1SE)" not in table.cells.index
+        assert "Baseline (Oracle)" in table.cells.index
+
+    def test_skips_a_scenario_with_no_rows(self):
+        from benchmarks.tables import manuscript_tables
+
+        assert manuscript_tables({"gaussians": pd.DataFrame(columns=list(SCHEMA))}) == []
+
+    def test_a_scaling_table_is_headed_with_its_swept_values(self):
+        from benchmarks.tables import manuscript_tables
+
+        frame = synthetic_run_frame("gaussians_samples")
+        (table,) = manuscript_tables({"gaussians_samples": frame})
+        values = sorted(frame["axis_value"].unique())
+        assert [c[1] for c in table.cells.columns][: len(values)] == [str(int(v)) for v in values]
+
+
+def _runtimes(scenario, axis_name, values, stability, generalizability):
+    """Three seeds per axis value: base + seed for stability, base + 2 * seed
+    for generalizability, so the sample SDs are 1 and 2."""
+    rows = []
+    for value, stab, gen in zip(values, stability, generalizability):
+        for seed in range(3):
+            rows.append(
+                {
+                    "scenario": scenario,
+                    "axis_name": axis_name,
+                    "axis_value": value,
+                    "seed": seed,
+                    "t_stability_s": stab + seed,
+                    "t_generalizability_s": gen + 2 * seed,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+class TestRuntimeSecondsTable:
+    @pytest.fixture
+    def runtimes(self):
+        return {
+            "gaussians_dimensionality": _runtimes(
+                "gaussians_dimensionality", "p", (50, 525, 1000), (10, 20, 30), (5, 15, 25)
+            ),
+            "gaussians_samples": _runtimes(
+                "gaussians_samples", "n_total", (1000, 5500, 10000), (1, 2, 3), (4, 5, 6)
+            ),
+        }
+
+    def test_cells_are_the_mean_and_sample_sd_over_data_sets(self, runtimes):
+        from benchmarks.tables import runtime_seconds_table
+
+        table = runtime_seconds_table(runtimes)
+        samples = table.cells.xs("CARVE stability", level=1).iloc[0]
+        assert list(samples) == ["2.00 (1.00)", "3.00 (1.00)", "4.00 (1.00)"]
+        generalizability = table.cells.xs("CARVE generalizability", level=1).iloc[1]
+        assert list(generalizability) == ["7.00 (2.00)", "17.00 (2.00)", "27.00 (2.00)"]
+
+    def test_settings_follow_their_table_numbers(self, runtimes):
+        from benchmarks.tables import runtime_seconds_table
+
+        settings = list(dict.fromkeys(runtime_seconds_table(runtimes).cells.index.get_level_values(0)))
+        assert settings == [
+            "Gaussian mixtures over sample size (n = 1000 / 5500 / 10000)",
+            "Gaussian mixtures over feature dimension (p = 50 / 525 / 1000)",
+        ]
+
+    def test_columns_run_from_the_lowest_axis_value_to_the_highest(self, runtimes):
+        from benchmarks.tables import runtime_seconds_table
+
+        assert list(runtime_seconds_table(runtimes).cells.columns) == ["low", "mid", "high"]
+
+    def test_the_caption_is_s13(self, runtimes):
+        from benchmarks.tables import runtime_seconds_table
+
+        assert runtime_seconds_table(runtimes).caption.startswith("S13 Table. ")

@@ -21,6 +21,7 @@ from carve._pipeline import PipelineSpec, pipeline_from_spec
 from carve._selection import MEASURE_MAP
 
 from ._preprocessing import PREPROCESSOR_NAMES
+from ._tables import DisplayTable
 
 #: How far the nearest pooled observed cluster count may sit from the target
 #: before source_operating_point warns, as a fraction of the target.
@@ -126,6 +127,13 @@ def map_coordinates(
     return Z, name, (f"{prefix} 1", f"{prefix} 2")
 
 
+def _nearest(rows: pd.DataFrame, target_k: int) -> pd.Series:
+    """The row whose n_clusters_observed is nearest target_k, ties going to
+    the lower resolution."""
+    rows = rows.sort_values("sweep_value", kind="stable")
+    return rows.loc[(rows["n_clusters_observed"] - target_k).abs().idxmin()]
+
+
 def source_operating_point(
     carve: Any, *, method_id: str, target_k: int
 ) -> tuple[float, float]:
@@ -147,9 +155,7 @@ def source_operating_point(
             f"Available: {sorted(results['method_id'].unique())}."
         )
 
-    rows = rows.sort_values("sweep_value", kind="stable")
-    distance = (rows["n_clusters_observed"] - target_k).abs()
-    row = rows.loc[distance.idxmin()]
+    row = _nearest(rows, target_k)
     resolution = float(row["sweep_value"])
     observed = float(row["n_clusters_observed"])
     if abs(observed - target_k) > OPERATING_POINT_TOLERANCE * target_k:
@@ -294,3 +300,117 @@ def save_tables(inputs: CusanovichInputs, out_dir: Path) -> list[Path]:
     inputs.carve.preprocessing_results_.to_csv(results_path, index=False)
     selection_summary(inputs).to_csv(summary_path, index=False)
     return [results_path, summary_path]
+
+
+CUSANOVICH_SELECTION_CAPTION: str = (
+    "S16 Table. CARVE's selection and Cusanovich et al.'s granularity on the "
+    "Cusanovich data."
+)
+CUSANOVICH_PIPELINE_CAPTION: str = (
+    "S17 Table. Stability and generalizability by preprocessing pipeline on the "
+    "Cusanovich data."
+)
+
+_GRANULARITY_COLUMNS: list[str] = [
+    "Resolution",
+    "Clusters",
+    "Stability",
+    "Generalizability",
+]
+
+
+def _granularity_cells(row: pd.Series) -> list[str]:
+    return [
+        f"{float(row['sweep_value']):g}",
+        f"{float(row['n_clusters_observed']):.1f}",
+        f"{float(row['ari_stability']):.3f}",
+        f"{float(row['ari_generalizability']):.3f}",
+    ]
+
+
+def _pipeline_name(label: str) -> str:
+    """A pipeline as the tables name it: "LSI, 50 components"."""
+    from .figures._cusanovich_results import _short_label
+
+    return _short_label(label)
+
+
+def _at(rows: pd.DataFrame, sweep_value: float) -> pd.Series:
+    return rows.loc[
+        np.isclose(rows["sweep_value"].astype(float), float(sweep_value))
+    ].iloc[0]
+
+
+def selection_granularity_table(
+    inputs: CusanovichInputs,
+    *,
+    source_option: tuple[str, dict[str, list[Any]]],
+    caption: str = CUSANOVICH_SELECTION_CAPTION,
+) -> DisplayTable:
+    """S16 Table: CARVE's selection, the best pipeline there, the pooled
+    resolution nearest the reference cluster count, and the source's own
+    pipeline (source_option) at the resolution nearest that count."""
+    carve = inputs.carve
+    target = int(np.unique(inputs.y).size)
+    selected, _, _, _ = carve._select_row(
+        measure=inputs.measure, rule=inputs.rule, not_two=inputs.not_two
+    )
+    method_id = selected["method_id"]
+    pooled = carve.estimator_results_
+    pooled = pooled[pooled["method_id"] == method_id]
+    source = map_pipeline(carve, source_option)
+    table = _per_pipeline_table(carve)
+    source_rows = table[
+        (table["method_id"] == method_id) & (table["pipeline"] == source.label)
+    ]
+    best = inputs.best_pipeline_row
+    rows = {
+        "CARVE selection, pooled over pipelines": selected,
+        "Best pipeline at CARVE-selected resolution: "
+        f"{_pipeline_name(best['pipeline'])}": best,
+        f"Pooled, nearest Cusanovich et al.'s {target} clusters": _at(
+            pooled, inputs.operating_point[0]
+        ),
+        f"Cusanovich et al.'s pipeline ({_pipeline_name(source.label)}), "
+        f"nearest to {target} clusters": _nearest(source_rows, target),
+    }
+    cells = pd.DataFrame(
+        [_granularity_cells(row) for row in rows.values()],
+        index=pd.Index(list(rows), name="Configuration"),
+        columns=_GRANULARITY_COLUMNS,
+    )
+    return DisplayTable(caption=caption, cells=cells)
+
+
+def pipeline_table(
+    inputs: CusanovichInputs,
+    *,
+    options: tuple[tuple[str, dict[str, list[Any]]], ...],
+    caption: str = CUSANOVICH_PIPELINE_CAPTION,
+) -> DisplayTable:
+    """S17 Table: each pipeline of options, in that order, at CARVE's
+    selected resolution and at its own resolution nearest the reference
+    cluster count, with the number of resamples it received."""
+    carve = inputs.carve
+    target = int(np.unique(inputs.y).size)
+    selected, _, _, _ = carve._select_row(
+        measure=inputs.measure, rule=inputs.rule, not_two=inputs.not_two
+    )
+    table = _per_pipeline_table(carve)
+    at_method = table[table["method_id"] == selected["method_id"]]
+    index, rows = [], []
+    for option in options:
+        label = map_pipeline(carve, option).label
+        own = at_method[at_method["pipeline"] == label]
+        block = f"{_pipeline_name(label)}, B = {int(own['n_resamples'].iloc[0])}"
+        index += [(block, "Selected resolution"), (block, f"Nearest {target} clusters")]
+        rows += [
+            _granularity_cells(_at(own, selected["sweep_value"])),
+            _granularity_cells(_nearest(own, target)),
+        ]
+    cells = pd.DataFrame(
+        rows,
+        index=pd.MultiIndex.from_tuples(index, names=["Pipeline", "Granularity"]),
+        columns=_GRANULARITY_COLUMNS,
+    )
+    return DisplayTable(caption=caption, cells=cells)

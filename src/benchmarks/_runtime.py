@@ -51,6 +51,7 @@ from ._artifacts import provenance
 from ._estimators import RESOLUTION_ESTIMATORS
 from ._preprocessing import resolve_preprocessing
 from ._studies import fit_carve, study_model_grids, study_resolution_grids
+from ._tables import DisplayTable
 from ._types import Study
 
 #: Cell counts of the size ladder. The data set's own size is always the last
@@ -605,15 +606,61 @@ def runtime_ladder_table(
     return table.reset_index(drop=True)
 
 
-def _cells(n: int) -> str:
-    return f"{int(n):,}".replace(",", "{,}")
+def _ladder_rows(
+    frame: pd.DataFrame, n_resamples: int
+) -> list[tuple[str, list[list[str]]]]:
+    """Per setting, its title and one row of cell text per rung, as S14 Table
+    prints them. The fixed setting embeds nothing, so its share is a dash."""
+    table = runtime_ladder_table(frame, n_resamples=n_resamples)
+    blocks = []
+    for setting, group in table.groupby("setting", sort=False):
+        rows = []
+        for row in group.itertuples(index=False):
+            embedding = "\u2013" if setting == "fixed" else f"{row.embedding_pct:.0f}"
+            rows.append(
+                [
+                    f"{int(row.cells):,}",
+                    f"{row.per_resample_s:.1f}",
+                    f"{row.projected_h:.1f}",
+                    embedding,
+                    f"{row.clustering_pct:.0f}",
+                    f"{row.forest_pct:.0f}",
+                    f"{row.other_pct:.0f}",
+                    f"{row.peak_memory_gb:.1f}",
+                ]
+            )
+        blocks.append((_SETTING_TITLES[setting], rows))
+    return blocks
+
+
+def runtime_ladder_display(
+    frame: pd.DataFrame, *, caption: str, n_resamples: int = PROJECTED_RESAMPLES
+) -> DisplayTable:
+    """runtime_ladder_latex's table for a notebook, its rows indexed by
+    (setting, cells)."""
+    clustering = str(frame["estimator"].iloc[0]).capitalize()
+    index, rows = [], []
+    for title, block in _ladder_rows(frame, n_resamples):
+        for cells, *rest in block:
+            index.append((title, cells))
+            rows.append(rest)
+    columns = [
+        "Per resample (s)",
+        f"B = {n_resamples} (h)",
+        "Embedding (%)",
+        f"{clustering} (%)",
+        "Forest (%)",
+        "Other (%)",
+        "Peak memory (GB)",
+    ]
+    cells = pd.DataFrame(rows, index=pd.MultiIndex.from_tuples(index), columns=columns)
+    return DisplayTable(caption=caption, cells=cells)
 
 
 def runtime_ladder_latex(
     frame: pd.DataFrame, *, n_resamples: int = PROJECTED_RESAMPLES
 ) -> str:
     """The ladder as a booktabs tabular, the layout of S14 Table."""
-    table = runtime_ladder_table(frame, n_resamples=n_resamples)
     clustering = str(frame["estimator"].iloc[0]).capitalize()
     lines = [
         r"\begin{tabular}{rrrrrrrr}",
@@ -623,18 +670,13 @@ def runtime_ladder_latex(
         r" & (s) & (h) & (\%) & (\%) & (\%) & (\%) & (GB) \\",
         r"\midrule",
     ]
-    for i, (setting, group) in enumerate(table.groupby("setting", sort=False)):
+    for i, (title, block) in enumerate(_ladder_rows(frame, n_resamples)):
         if i:
             lines.append(r"\addlinespace")
-        lines.append(rf"\multicolumn{{8}}{{l}}{{{_SETTING_TITLES[setting]}}} \\")
-        for row in group.itertuples(index=False):
-            embedding = "--" if setting == "fixed" else f"{row.embedding_pct:.0f}"
-            lines.append(
-                f"{_cells(row.cells)} & {row.per_resample_s:.1f} & "
-                f"{row.projected_h:.1f} & {embedding} & {row.clustering_pct:.0f} & "
-                f"{row.forest_pct:.0f} & {row.other_pct:.0f} & "
-                f"{row.peak_memory_gb:.1f} \\\\"
-            )
+        lines.append(rf"\multicolumn{{8}}{{l}}{{{title}}} \\")
+        for cells, *rest in block:
+            texts = [text.replace("\u2013", "--") for text in rest]
+            lines.append(" & ".join([cells.replace(",", "{,}"), *texts]) + r" \\")
     lines += [r"\bottomrule", r"\end{tabular}"]
     return "\n".join(lines) + "\n"
 

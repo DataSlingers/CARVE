@@ -829,3 +829,165 @@ class TestComparisonTable:
         # Parentheses and dollar signs are not escaped.
         assert r"M3C \(at" not in tex
         assert r"\$k" not in tex
+
+
+class TestDisplayTable:
+    @pytest.fixture
+    def table(self):
+        from benchmarks._tables import DisplayTable
+
+        cells = pd.DataFrame({"x": ["0.900", "0.800"], "y": ["a<b", "0.700"]}, index=["r1", "r2"])
+        marks = pd.DataFrame({"x": ["best", "second"], "y": ["", ""]}, index=["r1", "r2"])
+        return DisplayTable(caption="S0 Table. A caption.", cells=cells, marks=marks)
+
+    def test_html_sets_the_best_cell_bold_and_the_second_underlined(self, table):
+        html = table._repr_html_()
+        assert "<b>0.900</b>" in html
+        assert "<u>0.800</u>" in html
+        assert "<b>0.700</b>" not in html and "<u>0.700</u>" not in html
+
+    def test_html_escapes_the_cell_text(self, table):
+        assert "a&lt;b" in table._repr_html_()
+
+    def test_html_leads_with_the_caption(self, table):
+        html = table._repr_html_()
+        assert html.index("S0 Table. A caption.") < html.index("<table")
+
+    def test_text_shows_the_caption_and_every_cell(self, table):
+        text = repr(table)
+        assert text.startswith("S0 Table. A caption.")
+        for cell in ("0.900", "0.800", "a<b", "0.700"):
+            assert cell in text
+
+    def test_marks_default_to_none(self):
+        from benchmarks._tables import DisplayTable
+
+        table = DisplayTable(caption="c", cells=pd.DataFrame({"x": ["1"]}))
+        assert table.marks.iloc[0, 0] == ""
+
+    def test_marks_must_match_the_cells(self):
+        from benchmarks._tables import DisplayTable
+
+        with pytest.raises(ValueError, match="marks"):
+            DisplayTable(
+                caption="c",
+                cells=pd.DataFrame({"x": ["1", "2"]}),
+                marks=pd.DataFrame({"x": [""]}),
+            )
+
+
+class TestPairedTable:
+    def test_each_sub_table_holds_the_cells_of_its_tex_tabular(self, paired_summary):
+        from benchmarks._tables import paired_table
+
+        from ._helpers import tex_lines
+
+        tex = render_paired_tex(paired_summary, caption="c", label="l").splitlines()
+        table = paired_table(paired_summary, caption="c")
+        for block in ("Mean ARI", "k-recovery"):
+            columns = [c for c in table.cells.columns if c[0] == block]
+            lines = tex_lines(table, columns)
+            assert all(line in tex for line in lines), block
+            positions = [tex.index(line) for line in lines]
+            assert positions == sorted(positions)
+
+    def test_every_tex_row_is_in_the_display(self, paired_summary):
+        from benchmarks._tables import paired_table
+
+        tex = render_paired_tex(paired_summary, caption="c", label="l")
+        n_rows = sum(1 for line in tex.splitlines() if line.endswith(r"\\") and "&" in line)
+        header_rows = 2
+        assert len(paired_table(paired_summary, caption="c").cells) * 2 == n_rows - header_rows
+
+    def test_columns_pair_mean_ari_and_k_recovery_under_each_header(self, paired_summary):
+        from benchmarks._tables import paired_table
+
+        table = paired_table(paired_summary, caption="c", column_headers={"easy": "1000"})
+        assert list(table.cells.columns) == [("Mean ARI", "1000"), ("k-recovery", "1000")]
+
+    def test_the_cvi_rows_print_their_names_with_an_en_dash(self, paired_summary):
+        from benchmarks._tables import paired_table
+
+        index = list(paired_table(paired_summary, caption="c").cells.index)
+        assert "Davies–Bouldin" in index and "Calinski–Harabasz" in index
+
+    def test_the_oracle_k_recovery_cell_is_blank(self, paired_summary):
+        from benchmarks._tables import paired_table
+
+        table = paired_table(paired_summary, caption="c")
+        oracle = METRIC_DISPLAY_NAMES["baseline_oracle"]
+        assert table.cells.loc[oracle, ("k-recovery", "easy")] == ""
+        assert table.marks.loc[oracle, ("Mean ARI", "easy")] == ""
+
+
+class TestAblationDisplayTables:
+    @pytest.fixture(scope="class")
+    @classmethod
+    def run(cls, tmp_path_factory):
+        from benchmarks._registry import ABLATIONS
+        from tests.benchmarks._helpers import small_ablation, synthetic_ablation_frames
+
+        ablation = small_ablation(ABLATIONS["rho_b"], scenarios=("gaussians", "circles"))
+        frames = synthetic_ablation_frames(
+            ablation, "test", seed=2, tmp_path=tmp_path_factory.mktemp("ablation_display")
+        )
+        paths = write_ablation_table(
+            frames, ablation=ablation, scale="test", out_dir=tmp_path_factory.mktemp("tex")
+        )
+        return ablation, frames, paths
+
+    def test_one_display_per_written_table_with_its_s_number(self, run):
+        from benchmarks._tables import ablation_tables
+
+        ablation, frames, paths = run
+        tables = ablation_tables(frames, ablation=ablation, scale="test")
+        assert len(tables) == len(paths)
+        assert [t.caption.split(".")[0] for t in tables] == ["S8 Table", "S9 Table", "S10 Table"]
+
+    def test_the_cells_are_the_tex_cells(self, run):
+        from benchmarks._tables import ablation_tables
+
+        from ._helpers import tex_lines
+
+        ablation, frames, paths = run
+        for table, path in zip(ablation_tables(frames, ablation=ablation, scale="test"), paths):
+            tex = path.read_text().splitlines()
+            lines = tex_lines(table)
+            assert all(line in tex for line in lines), path.name
+            body = [line for line in tex if line.endswith(r"\\") and "multicolumn" not in line]
+            assert len(lines) == len(body) - 1, path.name
+
+    def test_rows_are_blocked_by_scenario_in_registry_order(self, run):
+        from benchmarks._tables import ablation_tables
+
+        ablation, frames, _ = run
+        table = ablation_tables(frames, ablation=ablation, scale="test")[0]
+        blocks = list(dict.fromkeys(table.cells.index.get_level_values(0)))
+        assert blocks == [ABLATION_BLOCK_TITLES[s] for s in ablation.scenarios]
+
+
+class TestComparisonDisplayTable:
+    def test_the_cells_are_the_tex_cells(self):
+        from benchmarks._tables import comparison_table, render_comparison_tex
+
+        from ._helpers import tex_lines
+
+        ari_df = pd.DataFrame(
+            [
+                {"method": "CARVE", "metric": "ari_generalizability_1se", "ari": 0.8123, "k": 4},
+                {"method": "M3C (1,000 cells)", "metric": "m3c_rcsi", "ari": 0.41, "k": 2},
+            ]
+        )
+        tex = render_comparison_tex(ari_df, caption="c", label="l").splitlines()
+        table = comparison_table(ari_df, caption="S15 Table. c")
+        lines = tex_lines(table, label=str)
+        expected = [line for line in tex if line.endswith(r"\\")][1:]
+        assert [line.replace("$", "") for line in expected] == lines
+        assert list(table.cells.columns) == ["k", "ARI"]
+
+    def test_a_resolution_study_heads_the_count_column_clusters(self):
+        from benchmarks._tables import comparison_table
+
+        ari_df = pd.DataFrame([{"method": "CARVE", "metric": "m", "ari": 0.9, "k": 8}])
+        table = comparison_table(ari_df, caption="c", k_header="Clusters")
+        assert list(table.cells.columns) == ["Clusters", "ARI"]

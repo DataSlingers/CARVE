@@ -482,20 +482,24 @@ class TestStudyMapOption:
         options.update(override)
         return Study(**options)
 
-    def test_defaults_to_none(self):
-        assert self._study().map_option is None
+    @pytest.mark.parametrize("field", ["map_option", "source_option"])
+    def test_defaults_to_none(self, field):
+        assert getattr(self._study(), field) is None
 
-    def test_accepts_one_of_the_studys_dim_reduction_options(self):
+    @pytest.mark.parametrize("field", ["map_option", "source_option"])
+    def test_accepts_one_of_the_studys_dim_reduction_options(self, field):
         option = ("tsne", {"perplexity": [30]})
-        assert self._study(map_option=option).map_option == option
+        assert getattr(self._study(**{field: option}), field) == option
 
-    def test_rejects_an_option_the_study_does_not_draw(self):
-        with pytest.raises(ValueError, match="map_option"):
-            self._study(map_option=("tsne", {"perplexity": [100]}))
+    @pytest.mark.parametrize("field", ["map_option", "source_option"])
+    def test_rejects_an_option_the_study_does_not_draw(self, field):
+        with pytest.raises(ValueError, match=field):
+            self._study(**{field: ("tsne", {"perplexity": [100]})})
 
-    def test_rejects_a_map_without_preprocessing(self):
-        with pytest.raises(ValueError, match="map_option"):
-            self._study(preprocessing=None, map_option=("tsne", {"perplexity": [30]}))
+    @pytest.mark.parametrize("field", ["map_option", "source_option"])
+    def test_rejects_an_option_without_preprocessing(self, field):
+        with pytest.raises(ValueError, match=field):
+            self._study(preprocessing=None, **{field: ("tsne", {"perplexity": [30]})})
 
 
 class TestStudyDefaults:

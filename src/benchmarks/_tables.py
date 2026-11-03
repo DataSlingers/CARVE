@@ -1,10 +1,13 @@
 """Summarize a run into the manuscript's supplementary tables.
 
 One summarizer covers every experiment, grouped by axis_label. Tables are
-written to disk as .tex fragments under their manuscript names.
+written to disk as .tex fragments under their manuscript names, and shown in
+the notebooks as DisplayTable objects built from the same cells.
 """
 
+import html
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -187,6 +190,82 @@ def summarize(
     return out
 
 
+@dataclass(frozen=True, repr=False, eq=False)
+class DisplayTable:
+    """A manuscript table as a notebook shows it.
+
+    cells holds the text of every cell as the paper prints it, and marks, of
+    the same shape, "best", "second" or "" per cell: the paper's bold and
+    underline. Jupyter draws it through _repr_html_; the text form is the
+    caption above the cells.
+    """
+
+    caption: str
+    cells: pd.DataFrame
+    marks: pd.DataFrame | None = None
+
+    def __post_init__(self) -> None:
+        if self.marks is None:
+            blank = pd.DataFrame("", index=self.cells.index, columns=self.cells.columns)
+            object.__setattr__(self, "marks", blank)
+        elif self.marks.shape != self.cells.shape:
+            raise ValueError(
+                f"marks has shape {self.marks.shape}, the cells {self.cells.shape}."
+            )
+
+    def __repr__(self) -> str:
+        return f"{self.caption}\n{self.cells.to_string()}"
+
+    def _repr_html_(self) -> str:
+        tags = {"best": "<b>{}</b>", "second": "<u>{}</u>", "": "{}"}
+        body = pd.DataFrame(
+            [
+                [
+                    tags[mark].format(html.escape(str(text)))
+                    for text, mark in zip(row, marks)
+                ]
+                for row, marks in zip(self.cells.to_numpy(), self.marks.to_numpy())
+            ],
+            index=_html_index(self.cells.index),
+            columns=_html_index(self.cells.columns),
+        )
+        return f"<p>{html.escape(self.caption)}</p>\n" + body.to_html(escape=False)
+
+
+def _html_index(index: pd.Index) -> pd.Index:
+    if isinstance(index, pd.MultiIndex):
+        return pd.MultiIndex.from_tuples(
+            [tuple(html.escape(str(v)) for v in key) for key in index],
+            names=index.names,
+        )
+    return pd.Index([html.escape(str(v)) for v in index], name=index.name)
+
+
+def _frame_pair(
+    index: Sequence[Any],
+    columns: Sequence[Any],
+    rows: Sequence[Sequence[tuple[str, str]]],
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Cells and marks frames from rows of (text, mark) pairs."""
+    as_index = (
+        pd.MultiIndex.from_tuples(index)
+        if index and isinstance(index[0], tuple)
+        else index
+    )
+    as_columns = (
+        pd.MultiIndex.from_tuples(columns)
+        if columns and isinstance(columns[0], tuple)
+        else columns
+    )
+    cells = pd.DataFrame(
+        [[text for text, _ in row] for row in rows], index=as_index, columns=as_columns
+    )
+    marks = pd.DataFrame(
+        [[mark for _, mark in row] for row in rows], index=as_index, columns=as_columns
+    )
+    return cells, marks
+
+
 def _tex_escape(text: str) -> str:
     """Escape the LaTeX special characters that appear in captions.
 
@@ -280,16 +359,25 @@ def _ranked(values: Sequence[float]) -> tuple[float | None, float | None]:
     return best, (finite[1] if len(finite) > 1 else None)
 
 
-def _marked(
+def _mark(
     value: float, best: float | None, second: float | None, decimals: int
-) -> str:
-    """One cell, bold if best in its column and underlined if second."""
+) -> tuple[str, str]:
+    """One cell's text, and "best" or "second" if it ranks so in its column."""
     if pd.isna(value):
-        return ""
+        return "", ""
     text = f"{value:.{decimals}f}"
     if best is not None and float(value) == best:
-        return rf"\textbf{{{text}}}"
+        return text, "best"
     if second is not None and float(value) == second:
+        return text, "second"
+    return text, ""
+
+
+def _tex_mark(text: str, mark: str) -> str:
+    """A cell as LaTeX: bold if best in its column, underlined if second."""
+    if mark == "best":
+        return rf"\textbf{{{text}}}"
+    if mark == "second":
         return rf"\underline{{{text}}}"
     return text
 
@@ -311,16 +399,21 @@ def _table_display_name(metric: str) -> str:
     return _TABLE_EN_DASH_NAMES.get(metric, METRIC_DISPLAY_NAMES.get(metric, metric))
 
 
-def _metric_rows(
+def _display_name(metric: str) -> str:
+    """A table's row label as a notebook prints it, with the en dash as a character."""
+    return _table_display_name(metric).replace("--", "\u2013")
+
+
+def _metric_cells(
     summary: pd.DataFrame,
     groups: Sequence[Sequence[str]],
     axis_labels: Sequence[Any],
     column: str,
     decimals: int,
-) -> list[str]:
-    """The body of a table: one row per metric in groups, in that order,
-    with a \\midrule between groups, bold for the best value in a column and
-    underline for the second.
+) -> list[list[tuple[str, list[tuple[str, str]]]]]:
+    """The body of a table before markup: per group, one (metric, cells)
+    pair per metric of the group present in summary, in that order, each
+    cell a (text, mark) pair.
 
     Ranking is per column, over the rows this call renders (the metrics in
     `groups` that are present in `summary`), and excludes the oracle, which
@@ -336,27 +429,51 @@ def _metric_rows(
         ][column]
         ranks[axis_label] = _ranked(candidates.tolist())
 
-    lines: list[str] = []
-    for index, group in enumerate(groups):
-        if index:
-            lines.append(r"\midrule")
+    body: list[list[tuple[str, list[tuple[str, str]]]]] = []
+    for group in groups:
+        rows: list[tuple[str, list[tuple[str, str]]]] = []
         for metric in group:
             match = summary[summary["metric"] == metric]
             if match.empty:
                 continue
-            cells = [_tex_escape(_table_display_name(metric))]
+            cells: list[tuple[str, str]] = []
             for axis_label in axis_labels:
                 row = match[match["axis_label"] == axis_label]
                 if row.empty:
-                    cells.append("")
+                    cells.append(("", ""))
                     continue
                 value = row.iloc[0][column]
                 if metric == BASELINE_METRIC:
-                    cells.append("" if pd.isna(value) else f"{value:.{decimals}f}")
+                    cells.append(
+                        ("" if pd.isna(value) else f"{value:.{decimals}f}", "")
+                    )
                 else:
                     best, second = ranks[axis_label]
-                    cells.append(_marked(value, best, second, decimals))
-            lines.append(" & ".join(cells) + r" \\")
+                    cells.append(_mark(value, best, second, decimals))
+            rows.append((metric, cells))
+        body.append(rows)
+    return body
+
+
+def _metric_rows(
+    summary: pd.DataFrame,
+    groups: Sequence[Sequence[str]],
+    axis_labels: Sequence[Any],
+    column: str,
+    decimals: int,
+) -> list[str]:
+    """_metric_cells as LaTeX rows, with a \\midrule between groups."""
+    lines: list[str] = []
+    for index, rows in enumerate(
+        _metric_cells(summary, groups, axis_labels, column, decimals)
+    ):
+        if index:
+            lines.append(r"\midrule")
+        for metric, cells in rows:
+            texts = [_tex_mark(text, mark) for text, mark in cells]
+            lines.append(
+                " & ".join([_tex_escape(_table_display_name(metric)), *texts]) + r" \\"
+            )
     return lines
 
 
@@ -405,6 +522,56 @@ def _comment_safe(text: str) -> str:
     return single_line.replace("%", "")
 
 
+def _paired_layout(
+    summary: pd.DataFrame,
+    groups: Sequence[Sequence[str]],
+    column_headers: Mapping[str, str] | None,
+) -> tuple[list[Any], list[list[str]], list[Any]]:
+    """Axis labels, the groups present in summary, and the column headers."""
+    axis_labels = list(dict.fromkeys(summary["axis_label"]))
+    present = set(summary["metric"])
+    groups = [[m for m in group if m in present] for group in groups]
+    groups = [group for group in groups if group]
+    headers = [(column_headers or {}).get(a, a) for a in axis_labels]
+    return axis_labels, groups, headers
+
+
+#: The two halves of a benchmark table, and the summary column each reads.
+PAIRED_BLOCKS: tuple[tuple[str, str], ...] = (
+    ("Mean ARI", "ari_mean"),
+    ("k-recovery", "k_recovery"),
+)
+
+
+def paired_table(
+    summary: pd.DataFrame,
+    *,
+    caption: str,
+    decimals: int = 3,
+    groups: Sequence[Sequence[str]] = TABLE_ROW_GROUPS,
+    column_headers: Mapping[str, str] | None = None,
+) -> DisplayTable:
+    """render_paired_tex's table for a notebook: the same rows and cells,
+    with mean ARI and k-recovery side by side under each axis header."""
+    axis_labels, groups, headers = _paired_layout(summary, groups, column_headers)
+    blocks = [
+        [
+            row
+            for rows in _metric_cells(summary, groups, axis_labels, column, decimals)
+            for row in rows
+        ]
+        for _, column in PAIRED_BLOCKS
+    ]
+    index = [_display_name(metric) for metric, _ in blocks[0]]
+    rows = [
+        [cell for _, cells in block_rows for cell in cells]
+        for block_rows in zip(*blocks)
+    ]
+    columns = [(name, str(header)) for name, _ in PAIRED_BLOCKS for header in headers]
+    cells, marks = _frame_pair(index, columns, rows)
+    return DisplayTable(caption=caption, cells=cells, marks=marks)
+
+
 def render_paired_tex(
     summary: pd.DataFrame,
     *,
@@ -432,11 +599,7 @@ def render_paired_tex(
     go into a leading LaTeX comment, so a generated file can still be
     identified.
     """
-    axis_labels = list(dict.fromkeys(summary["axis_label"]))
-    present = set(summary["metric"])
-    groups = [[m for m in group if m in present] for group in groups]
-    groups = [group for group in groups if group]
-    headers = [(column_headers or {}).get(a, a) for a in axis_labels]
+    axis_labels, groups, headers = _paired_layout(summary, groups, column_headers)
 
     lines = [
         f"% {label}: {_comment_safe(caption)}",
@@ -581,6 +744,24 @@ def ablation_table_frame(
     return frame[["study", "axis_label", "metric", "ari_mean", "agreement"]]
 
 
+def _ablation_blocks(
+    summary: pd.DataFrame,
+    column: str,
+    studies: Sequence[str],
+    groups: Sequence[Sequence[str]],
+) -> list[tuple[str, pd.DataFrame, list[list[str]]]]:
+    """Per study: its block title, its rows with a value in column, and the
+    groups present in them."""
+    blocks = []
+    for study in studies:
+        block = summary[(summary["study"] == study) & summary[column].notna()]
+        present = set(block["metric"])
+        block_groups = [[m for m in group if m in present] for group in groups]
+        block_groups = [group for group in block_groups if group]
+        blocks.append((ABLATION_BLOCK_TITLES.get(study, study), block, block_groups))
+    return blocks
+
+
 def render_ablation_tex(
     summary: pd.DataFrame,
     *,
@@ -614,20 +795,69 @@ def render_ablation_tex(
         r"\toprule",
         "Metric & " + " & ".join(f"{a:g}" for a in axis_labels) + r" \\",
     ]
-    for study in studies:
-        block = summary[(summary["study"] == study) & summary[column].notna()]
-        present = set(block["metric"])
-        block_groups = [[m for m in group if m in present] for group in groups]
-        block_groups = [group for group in block_groups if group]
-        title = _tex_escape(ABLATION_BLOCK_TITLES.get(study, study))
+    for title, block, block_groups in _ablation_blocks(
+        summary, column, studies, groups
+    ):
         lines += [
             r"\midrule",
-            f"\\multicolumn{{{width}}}{{l}}{{{title}}} \\\\",
+            f"\\multicolumn{{{width}}}{{l}}{{{_tex_escape(title)}}} \\\\",
             r"\midrule",
         ]
         lines += _metric_rows(block, block_groups, axis_labels, column, decimals)
     lines += [r"\bottomrule", r"\end{tabular}%", "}", r"\end{table}"]
     return "\n".join(lines) + "\n"
+
+
+#: The SI numbers of ABLATION_TABLES, for the captions a notebook prints.
+ABLATION_TABLE_NUMBERS: dict[str, str] = {
+    "si_table_ablation_rho": "S8 Table",
+    "si_table_ablation_b": "S9 Table",
+    "si_table_ablation_agreement": "S10 Table",
+}
+
+
+def ablation_table(
+    summary: pd.DataFrame,
+    *,
+    column: str,
+    studies: Sequence[str],
+    caption: str,
+    decimals: int = 3,
+    groups: Sequence[Sequence[str]] = TABLE_ROW_GROUPS,
+) -> DisplayTable:
+    """render_ablation_tex's table for a notebook, its rows indexed by
+    (block title, selector)."""
+    axis_labels = sorted(summary["axis_label"].unique())
+    index, rows = [], []
+    for title, block, block_groups in _ablation_blocks(
+        summary, column, studies, groups
+    ):
+        for group_rows in _metric_cells(
+            block, block_groups, axis_labels, column, decimals
+        ):
+            for metric, cells in group_rows:
+                index.append((title, _display_name(metric)))
+                rows.append(cells)
+    cells, marks = _frame_pair(index, [f"{a:g}" for a in axis_labels], rows)
+    return DisplayTable(caption=caption, cells=cells, marks=marks)
+
+
+def ablation_tables(
+    frames: Mapping[str, pd.DataFrame], *, ablation, scale: str
+) -> list[DisplayTable]:
+    """S8, S9 and S10 for a notebook, from the cells write_ablation_table writes."""
+    tables = []
+    for name, arm, column, caption in ABLATION_TABLES:
+        view = arm_view(frames, ablation=ablation, scale=scale, arm=arm)
+        tables.append(
+            ablation_table(
+                ablation_table_frame(view, x=_ARM_COLUMNS[arm]),
+                column=column,
+                studies=ablation.scenarios,
+                caption=f"{ABLATION_TABLE_NUMBERS[name]}. {caption}",
+            )
+        )
+    return tables
 
 
 def write_ablation_table(
@@ -672,6 +902,26 @@ LEVINE_COMPARISON_CAPTION: str = (
 )
 
 
+def _comparison_rows(ari_df: pd.DataFrame, decimals: int) -> list[tuple[str, str, str]]:
+    """(method, selected k, ARI) per row, as the table prints them."""
+    return [
+        (str(row["method"]), str(int(row["k"])), _fmt(row["ari"], decimals))
+        for _, row in ari_df.iterrows()
+    ]
+
+
+def comparison_table(
+    ari_df: pd.DataFrame, *, caption: str, k_header: str = "k", decimals: int = 3
+) -> DisplayTable:
+    """render_comparison_tex's table for a notebook, one row per method."""
+    rows = _comparison_rows(ari_df, decimals)
+    index = pd.Index([method for method, _, _ in rows], name="Method")
+    cells = pd.DataFrame(
+        [[k, ari] for _, k, ari in rows], index=index, columns=[k_header, "ARI"]
+    )
+    return DisplayTable(caption=caption, cells=cells)
+
+
 def render_comparison_tex(
     ari_df: pd.DataFrame,
     *,
@@ -701,13 +951,10 @@ def render_comparison_tex(
         f"Method & {header} & ARI \\\\",
         r"\midrule",
     ]
-    for _, row in ari_df.iterrows():
-        method = str(row["method"])
+    for method, k, ari in _comparison_rows(ari_df, decimals):
         # Method names may carry math; only names with none are escaped.
         rendered = method if "$" in method else _tex_escape(method)
-        lines.append(
-            f"{rendered} & ${int(row['k'])}$ & {_fmt(row['ari'], decimals)} \\\\"
-        )
+        lines.append(f"{rendered} & ${k}$ & {ari} \\\\")
     lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
     return "\n".join(lines) + "\n"
 

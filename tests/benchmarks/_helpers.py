@@ -543,3 +543,33 @@ def small_heca_study(root):
         n_resamples=2,
         consensus_anchors=None,
     )
+
+
+def tex_cell(text, mark=""):
+    """A display cell as the LaTeX renderers write it."""
+    text = text.replace("–", "--")
+    if mark == "best":
+        return rf"\textbf{{{text}}}"
+    if mark == "second":
+        return rf"\underline{{{text}}}"
+    return text
+
+
+def tex_lines(table, columns=None, *, label=None):
+    """The LaTeX body rows a DisplayTable's cells stand for, one per row.
+
+    columns picks and orders the columns of one tabular (the paired tables
+    hold two side by side); label maps a row's index entry to its first cell
+    and defaults to the last index level, with en dashes written as "--".
+    """
+    columns = list(table.cells.columns) if columns is None else list(columns)
+    lines = []
+    for position, key in enumerate(table.cells.index):
+        entry = key[-1] if isinstance(key, tuple) else key
+        first = label(entry) if label else str(entry).replace("–", "--")
+        cells = [
+            tex_cell(table.cells.iloc[position][c], table.marks.iloc[position][c])
+            for c in columns
+        ]
+        lines.append(" & ".join([first, *cells]) + r" \\")
+    return lines
