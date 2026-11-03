@@ -404,14 +404,11 @@ class TestTableRowGroups:
 
 
 class TestScalingTableRowGroups:
-    def test_the_groups_reproduce_the_committed_s8_and_s9_tables(self):
-        """S8 and S9 order the classical indices Silhouette, Davies-Bouldin,
-        Calinski-Harabasz, Gap; S2 orders them Davies-Bouldin, Silhouette,
-        Gap, Calinski-Harabasz."""
+    def test_the_groups_reproduce_the_manuscripts_s11_and_s12_tables(self):
+        """S11 and S12 have no rows for the classical indices."""
         assert SCALING_TABLE_ROW_GROUPS == (
             ("baseline_oracle",),
             ("ari_stability_1se", "ari_generalizability_1se"),
-            ("silhouette", "davies_bouldin", "calinski_harabasz", "gap"),
             (
                 "ari_stability_quant",
                 "consensus_gini_stability",
@@ -422,9 +419,8 @@ class TestScalingTableRowGroups:
             ),
         )
 
-    def test_the_scaling_tables_carry_the_same_rows_as_s2(self):
-        """The two declarations hold the same metrics; only the order
-        differs."""
+    def test_the_scaling_tables_carry_the_rows_of_s2_without_the_classical_indices(self):
+        cvis = {"silhouette", "davies_bouldin", "calinski_harabasz", "gap"}
         assert [set(g) for g in SCALING_TABLE_ROW_GROUPS] == [
-            set(g) for g in TABLE_ROW_GROUPS
+            set(g) for g in TABLE_ROW_GROUPS if not set(g) <= cvis
         ]

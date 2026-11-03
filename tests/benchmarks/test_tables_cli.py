@@ -141,9 +141,9 @@ def _left_body(text):
 
 
 class TestScalingTables:
-    """The committed S11 and S12 head their columns with the swept values and
-    order the classical indices differently from S2. A fragment that
-    differs in either needs hand-editing before it can replace them."""
+    """The manuscript's S11 and S12 head their columns with the swept values
+    and have no rows for the classical indices. A fragment that differs in
+    either needs hand-editing before it can replace them."""
 
     @pytest.fixture(
         params=[
@@ -171,6 +171,12 @@ class TestScalingTables:
                 expected.append(r"\midrule")
             expected.extend(_table_display_name(m) for m in group)
         assert _left_body(text) == expected
+
+    def test_the_classical_indices_have_no_rows(self, fragment):
+        text, _ = fragment
+        rows = _left_body(text)
+        for metric in ("silhouette", "davies_bouldin", "calinski_harabasz", "gap"):
+            assert _table_display_name(metric) not in rows
 
     def test_a_difficulty_table_keeps_its_labels(self, tmp_path):
         frame = synthetic_run_frame("gaussians", n_seeds=2, metrics=table_metrics())

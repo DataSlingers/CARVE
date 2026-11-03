@@ -99,13 +99,11 @@ TABLE_ROW_GROUPS: tuple[tuple[str, ...], ...] = (
     ),
 )
 
-# The scaling tables order the classical indices Silhouette,
-# Davies-Bouldin, Calinski-Harabasz, Gap. The other groups match
-# TABLE_ROW_GROUPS.
+# The scaling tables leave out the classical indices, as the manuscript's
+# S11 and S12 do. The other groups match TABLE_ROW_GROUPS.
 SCALING_TABLE_ROW_GROUPS: tuple[tuple[str, ...], ...] = (
     (BASELINE_METRIC,),
     ("ari_stability_1se", "ari_generalizability_1se"),
-    ("silhouette", "davies_bouldin", "calinski_harabasz", "gap"),
     (
         "ari_stability_quant",
         "consensus_gini_stability",
