@@ -139,6 +139,9 @@ quick start passed the selection arguments to it. With the defaults
 plot_metric_over_n_clusters(fit_moons)
 ```
 
+The section on reading the curves in `vignette("CARVE", package = "CARVE")`
+lists the patterns to look for in this plot.
+
 `plot_n_clusters_over_sweep()` draws the number of clusters each method
 returned, averaged over the resamples. It needs a sweep over a parameter
 other than `n_clusters`, such as a resolution, where the count is an
@@ -468,6 +471,10 @@ mclust::adjustedRandIndex(labels_pbmc, pbmc$seurat_clusters)
 table(get_labels(fit_pbmc, consensus_k = 4))
 ```
 
+CARVE's `r length(unique(labels_pbmc))` clusters agree with Seurat's
+`r nlevels(pbmc$seurat_clusters)` at an ARI of
+`r round(mclust::adjustedRandIndex(labels_pbmc, pbmc$seurat_clusters), 2)`,
+and the table shows which of Seurat's clusters each CARVE cluster joins.
 `consensus_k` cuts the selected consensus matrix into another number of
 clusters, to see how the cells group at a coarser level.
 
@@ -525,7 +532,10 @@ get_sweep_value(fit_hdbscan)
 From the grid, CARVE infers that `min_cluster_size` is swept and that
 larger values give fewer clusters. `noise_fraction` is the share of cells
 labeled noise, averaged over the resamples. By default, `noise_policy =
-"drop"` leaves noise cells out of each resample's scores.
+"drop"` leaves noise cells out of each resample's scores. The stability
+1-SE rule selects a minimum cluster size of
+`r get_sweep_value(fit_hdbscan)`, which gives `r get_k(fit_hdbscan)`
+clusters, rounded from the mean over the resamples.
 
 ## Graph methods on their own, and neighborhood sizes
 
@@ -545,6 +555,9 @@ fit_neighbors <- carve(pcs, estimator_param_grids = neighbor_grid, n_jobs = n_jo
 sweep_spec(fit_neighbors)
 plot_metric_over_n_clusters(fit_neighbors)
 ```
+
+Each neighbor count gets its own line, so the plot shows how the graph's
+construction changes stability at each resolution.
 
 ## Randomized preprocessing
 
