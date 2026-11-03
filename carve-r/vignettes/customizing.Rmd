@@ -140,6 +140,13 @@ fit_knn <- carve(
 get_k(fit_knn, measure = "generalizability")
 ```
 
+The classifier has to be able to draw the boundaries the clustering
+draws. The random forest assumes nothing about their shape. k-means
+partitions have linear boundaries, and for them a linear classifier, such
+as linear discriminant analysis, can score generalizability better. If
+stability is high and generalizability low for every configuration, try
+another classifier.
+
 ## Randomized preprocessing
 
 Clustering often runs on transformed data: scaled, reduced with PCA, or
@@ -183,8 +190,10 @@ plot_metric_by_pipeline(fit_random)
 
 `preprocessing_results()` splits each configuration's scores by the
 pipeline its resamples used, and `plot_metric_by_pipeline()` draws one
-line per pipeline for the selected method. `preprocessing_pipelines()`
-returns the pipelines by label, and `pipeline_from_spec()` turns one into
+line per pipeline for the selected method. Each line rests only on the
+resamples that drew its pipeline, a share of the 24, so it is noisier
+than the pooled score; the `n_resamples` column gives the count.
+`preprocessing_pipelines()` returns the pipelines by label, and `pipeline_from_spec()` turns one into
 a function that applies it to data, for example to embed all the samples:
 
 ```{r pipelines}

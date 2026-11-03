@@ -87,7 +87,10 @@ plot_n_clusters_over_sweep(sce)
 
 The first plot has the resolution on the x axis. The second shows how
 many clusters each method found at each resolution, averaged over the
-resamples, with standard error bars.
+resamples, with standard error bars. The curves are read as in
+`vignette("CARVE", package = "CARVE")`: a second peak at a finer
+resolution is a candidate to compare with the selection, using the
+per-cell plots below.
 
 ```{r sce-cells, fig.width = 6, fig.height = 4.5}
 plot_cluster_scatter(sce, basis = "UMAP")

@@ -76,7 +76,8 @@ mean of the two. The table also has three scores computed from each
 configuration's consensus matrix (`consensus_pac_stability`,
 `consensus_gini_stability` and `consensus_ce_stability`) and the
 classifier's accuracy on the held-out samples
-(`accuracy_generalizability`).
+(`accuracy_generalizability`). Every score in the table is higher for
+better partitions.
 
 ## Selecting a configuration
 
@@ -100,6 +101,11 @@ pick a configuration:
 The consensus and accuracy scores have no standard errors or percentiles.
 With them, `"1se"` and `"quantile"` fall back to `"max"` with a warning, so
 pass `rule = "max"`.
+
+The rules compare all configurations at once, methods and numbers of
+clusters together, so the selection names a method as well as a number of
+clusters. On these data the default selection is `r get_k(fit)` clusters,
+for four simulated groups.
 
 `get_sweep_value()` returns the selected value of the swept parameter,
 here the number of clusters again. `get_estimator()` returns the selected
@@ -186,6 +192,28 @@ shape gives the cluster and the fill the score.
 plot_cluster_scatter(fit)
 plot_diagnostic_scatter(fit, source = "ce")
 ```
+
+## Reading the curves
+
+S4 Text of the CARVE manuscript sorts the curves of
+`plot_metric_over_n_clusters()` into three groups.
+
+In the first group the choice is clear: both scores peak at the same
+configuration, a score plateaus over several numbers of clusters, or one
+method scores above the others everywhere. On a plateau, take the largest
+number of clusters, which is what `"1se"` and `"quantile"` formalize.
+
+In the second group there are several candidates: stability and
+generalizability select different numbers of clusters, a curve has
+several peaks, or two clusters score high and a second peak follows.
+Compare the candidates with the consensus matrices and the per-sample
+plots above. As a guideline, the finer candidate is often the better one.
+
+In the third group the run should change: the best score sits at the edge
+of the range, the error bars all overlap, or every score is below about
+0.5. Widen the range, try other methods or, when generalizability is low
+while stability is high, another classifier
+(`vignette("customizing", package = "CARVE")`).
 
 ## Scores and matrices of one configuration
 
