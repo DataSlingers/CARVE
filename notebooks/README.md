@@ -23,7 +23,7 @@ them into the manuscript is a manual step. Case-study fits are cached in
 
 | Notebook | Manuscript items | Inputs | Cost |
 |---|---|---|---|
-| [Benchmarking.ipynb](Benchmarking.ipynb) | Fig 4, S1 Fig, S4 Fig, S5 Fig, S2 to S7 Table, S11 Table, S12 Table | Run artifacts in `results/runs/` from `python -m benchmarks.run --all` | Reads the artifacts only |
+| [Benchmarking.ipynb](Benchmarking.ipynb) | Fig 4, S1 Fig, S4 Fig, S5 Fig, S2 to S7 Table, S11 to S13 Table | Run artifacts in `results/runs/` from `python -m benchmarks.run --all` | Reads the artifacts only |
 | [Resampling_Ablation.ipynb](Resampling_Ablation.ipynb) | S2 Fig, S3 Fig, S8 to S10 Table | A run from `python -m benchmarks.run --ablation rho_b` | Reads the run only |
 | [case_studies/Motivation.ipynb](case_studies/Motivation.ipynb) | Fig 1 | Levine data through HDCytoData, Klein data in `data/Klein/` | KMeans fits and one t-SNE |
 | [case_studies/Klein.ipynb](case_studies/Klein.ipynb) | Fig 3, Fig 5, S7 Fig, S15 Table | GEO GSE65525 in `data/Klein/`; R with M3C and SC3 | Cached; M3C took 17 minutes and SC3 5 minutes |
