@@ -38,14 +38,20 @@ jobs:
   # resolution-sweep tests skip, leaving that mode uncovered in CI.
   # [benchmarks] pulls pyarrow (parquet checkpoints) and scanpy (the hECA
   # and Klein loaders); tests/benchmarks/ fails at import without them.
+  #
+  # The carve job runs on every Python version pyproject.toml supports.
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@v5
 
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: ${{ matrix.python-version }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -65,7 +71,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-report-carve
+          name: test-report-carve-${{ matrix.python-version }}
           path: report.xml
 
   test-benchmarks:

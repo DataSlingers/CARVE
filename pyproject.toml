@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "carve-validate"
-version = "1.0.0"
+version = "2.0.0"
 description = "Cluster Analysis with Resampling for Validation and Exploration: stability- and generalizability-based clustering validation."
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [
@@ -26,6 +26,7 @@ classifiers = [
   "Intended Audience :: Science/Research",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering :: Bio-Informatics",
   "Typing :: Typed",
@@ -42,7 +43,6 @@ dependencies = [
 ]
 
 [project.urls]
-Documentation = "https://carve-validate.readthedocs.io/"
 Homepage = "https://github.com/DataSlingers/CARVE"
 Repository = "https://github.com/DataSlingers/CARVE"
 Issues = "https://github.com/DataSlingers/CARVE/issues"
@@ -98,8 +98,11 @@ benchmarks = [
 where = ["src"]
 exclude = ["carve.sim", "carve.sim.*", "benchmarks", "benchmarks.*"]
 
+[tool.setuptools.package-data]
+carve = ["py.typed"]
+
 [tool.ruff]
-target-version = "py313"
+target-version = "py312"
 
 [tool.ruff.lint]
 # Pinned explicitly rather than relying on ruff's defaults, which expand
