@@ -36,7 +36,7 @@ Authors:
 
 Other contributors:
 \itemize{
-  \item The scikit-learn developers (HDBSCAN cluster selection in R/estimators.R, ported from scikit-learn) [copyright holder]
+  \item The scikit-learn developers (k-means++ seeding and Lloyd iterations in R/estimators.R, following scikit-learn) [copyright holder]
 }
 
 }

@@ -132,19 +132,6 @@ resolution_case <- function() {
   )
 }
 
-hdbscan_case <- function() {
-  X <- blobs(500, 1.0, 7, centers = 4L)
-  sizes <- c(5L, 10L, 20L, 40L)
-  r_fit <- carve(X, sweep = "min_cluster_size", sweep_values = sizes, n_resamples = n_resamples, random_state = 0)
-  py_fit <- pycarve$CARVE(sweep = "min_cluster_size", sweep_values = np$array(sizes),
-                          n_resamples = n_resamples, random_state = 0L)$fit(X)
-  compare_fits(
-    "min_cluster_size sweep, HDBSCAN", r_fit, py_fit, c("method_label", "min_cluster_size"),
-    by_value = TRUE,
-    note = "dbscan and scikit-learn can merge tied distances in a different order, so HDBSCAN can select different clusters on some subsamples (see the HDBSCAN help page)."
-  )
-}
-
 anchored_case <- function(X) {
   # The anchored warning is expected.
   r_fit <- suppressWarnings(carve(X, n_clusters = ks, n_resamples = n_resamples, anchor_threshold = 200,
@@ -238,7 +225,6 @@ results <- list(
   k_case("hard blobs", blobs(500, 2.3, 3)),
   k_case("circles", datasets$make_circles(n_samples = 400L, factor = 0.5, noise = 0.05, random_state = 0L)[[1L]]),
   resolution_case(),
-  hdbscan_case(),
   anchored_case(easy),
   randomized_case(),
   pbmc_case()

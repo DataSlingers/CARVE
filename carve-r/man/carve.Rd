@@ -60,16 +60,17 @@ it themselves. Estimators that take a number of clusters and estimators
 that take a resolution cannot share a run.}
 
 \item{sweep_values}{Values of \code{sweep} when it is neither \code{"n_clusters"}
-nor \code{"resolution"}, such as minimum cluster sizes for \code{\link[=HDBSCAN]{HDBSCAN()}}.}
+nor \code{"resolution"}, such as minimum cluster sizes.}
 
 \item{finer_is_larger}{Whether larger values of \code{sweep} give more
 clusters. It is known for \code{n_clusters} and \code{resolution} (\code{TRUE}) and for
 \code{min_cluster_size} (\code{FALSE}), and required for any other parameter.}
 
-\item{noise_policy}{What to do with the -1 labels of density-based
-methods such as \code{\link[=HDBSCAN]{HDBSCAN()}}. \code{"drop"} leaves those samples out of the
-resample, so the consensus matrix, the ARI and the classifier treat them
-as not drawn. \code{"as_cluster"} keeps -1 as an ordinary label, and
+\item{noise_policy}{What to do with the -1 labels that density-based
+methods give noise. A clustering function of your own must label noise
+-1; a label of 0 is an ordinary cluster. \code{"drop"} leaves those samples
+out of the resample, so the consensus matrix, the ARI and the classifier
+treat them as not drawn. \code{"as_cluster"} keeps -1 as an ordinary label, and
 \code{"singleton"} puts each of them in a cluster of its own.}
 
 \item{n_resamples}{Resamples per configuration.}
@@ -93,9 +94,8 @@ runs KMeans, Ward-linkage agglomerative and self-tuning spectral
 clustering, and \code{"full"} adds average, single and complete linkage and
 RBF spectral clustering. On the \code{resolution} axis \code{"light"} runs Leiden
 and Louvain on 15-neighbor graphs, and \code{"full"} adds 10- and 30-neighbor
-graphs. On the \code{min_cluster_size} axis \code{"light"} runs HDBSCAN with
-excess-of-mass selection, and \code{"full"} adds leaf selection. All grids
-must sweep the same parameter over the same values.}
+graphs. Other axes have no preset and need a list. All grids must sweep
+the same parameter over the same values.}
 
 \item{normalization_options, dim_reduction_options}{Lists of
 \code{\link[=preprocessing_option]{preprocessing_option()}} objects for randomized preprocessing. \code{NULL}
@@ -166,10 +166,11 @@ both in which the two fell in the same cluster.
 \details{
 A run sweeps one parameter. By default it is \code{n_clusters}. Giving
 \code{resolution} sweeps the resolution of \code{\link[=LeidenClustering]{LeidenClustering()}} and
-\code{\link[=LouvainClustering]{LouvainClustering()}}, and \code{sweep = "min_cluster_size"} with
-\code{sweep_values} sweeps the minimum cluster size of \code{\link[=HDBSCAN]{HDBSCAN()}}. Off the
-\code{n_clusters} axis the number of clusters is an outcome, recorded for each
-configuration as its mean over the resamples.
+\code{\link[=LouvainClustering]{LouvainClustering()}}. Any other parameter, such as a minimum cluster size,
+is swept with \code{sweep}, \code{sweep_values} and grids of your own in
+\code{estimator_param_grids}. Off the \code{n_clusters} axis the number of clusters
+is an outcome, recorded for each configuration as its mean over the
+resamples.
 
 Resample \code{b}, counting from 0, draws its first subsample with seed
 \code{random_state + b} and its second with \code{random_state + b + n_resamples},

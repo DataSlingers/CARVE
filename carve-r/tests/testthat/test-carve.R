@@ -247,20 +247,28 @@ test_that("resolution and a different sweep cannot be combined", {
   )
 })
 
-test_that("a min_cluster_size sweep runs HDBSCAN with ranks running backwards", {
-  skip_if_not_installed("dbscan")
+# KMeans with three clusters; the samples of any cluster smaller than
+# min_cluster_size are labeled noise.
+small_clusters_noise <- function(X, min_cluster_size = 5L, random_state = NULL) {
+  labels <- KMeans(X, 3L, random_state = random_state)
+  labels[tabulate(labels)[labels] < min_cluster_size] <- -1L
+  labels
+}
+
+test_that("a min_cluster_size sweep of a function of your own runs with ranks running backwards", {
+  grid <- list(estimator_grid(small_clusters_noise, min_cluster_size = c(5L, 8L, 10L)))
   fit <- carve(blobs3d$X, sweep = "min_cluster_size", sweep_values = c(5, 8, 10),
-               n_resamples = 4, random_state = 0)
+               estimator_param_grids = grid, n_resamples = 4, random_state = 0)
   expect_false(fit@sweep@finer_is_larger)
   results <- fit@estimator_results
-  expect_identical(unique(results$estimator), "HDBSCAN")
+  expect_identical(unique(results$estimator), "small_clusters_noise")
   expect_identical(results$min_cluster_size, c(5L, 8L, 10L))
   expect_identical(results$sweep_rank, c(2L, 1L, 0L))
   expect_true(all(results$noise_fraction >= 0 & results$noise_fraction < 1))
   expect_length(get_labels(fit, sweep_value = 10), 90L)
   selected <- get_estimator(fit)
-  expect_identical(attr(selected, "estimator"), "HDBSCAN")
-  expect_identical(attr(selected, "params")$cluster_selection_method, "eom")
+  expect_identical(attr(selected, "estimator"), "small_clusters_noise")
+  expect_true(attr(selected, "params")$min_cluster_size %in% c(5L, 8L, 10L))
 })
 
 # Labels the first five rows of every subsample noise.

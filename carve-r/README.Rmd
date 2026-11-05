@@ -19,9 +19,9 @@ Each candidate configuration clusters many subsamples of the data and is
 scored for stability, the agreement between the clusterings of two
 overlapping subsamples, and for generalizability, how well a classifier
 trained on one subsample predicts the clusters of the held-out samples.
-CARVE compares numbers of clusters, Leiden and Louvain resolutions, or
-HDBSCAN's minimum cluster size, on a matrix or on a SingleCellExperiment
-or Seurat object.
+CARVE compares numbers of clusters, Leiden and Louvain resolutions, or a
+parameter of a clustering function of your own, on a matrix or on a
+SingleCellExperiment or Seurat object.
 
 This is the R package. The Python package, carve-validate, is in the same
 repository and has the same scores, selection rules and defaults;
@@ -38,9 +38,9 @@ To build the vignettes as well, call
 `remotes::install_github("DataSlingers/CARVE", subdir = "carve-r", dependencies = TRUE, build_vignettes = TRUE)`.
 `dependencies = TRUE` installs the packages the vignettes use, knitr and
 rmarkdown among them, and building them needs pandoc, which RStudio
-includes. Without `dependencies = TRUE`, HDBSCAN needs the dbscan package,
-UMAP the uwot package and Seurat objects the SeuratObject package; CARVE
-suggests them but does not install them.
+includes. Without `dependencies = TRUE`, UMAP needs the uwot package and
+Seurat objects the SeuratObject package; CARVE suggests them but does not
+install them.
 
 ## Example
 
@@ -66,8 +66,8 @@ clusters, and `estimator_results(fit)` holds them as a table.
 - `vignette("single-cell", package = "CARVE")`: SingleCellExperiment and
   Seurat objects, Leiden and Louvain resolutions, and large data sets.
 - `vignette("customizing", package = "CARVE")`: methods and parameters,
-  HDBSCAN, the classifier, randomized preprocessing, reference labels and
-  parallel runs.
+  clustering functions of your own, noise, the classifier, randomized
+  preprocessing, reference labels and parallel runs.
 - `vignette("python-users", package = "CARVE")`: the Python names and
   their R equivalents, and where the results differ.
 - `notebooks/R_Tutorial.Rmd` in the repository goes through every function
@@ -95,5 +95,6 @@ If you use CARVE, please cite:
 
 ## License
 
-MIT. The HDBSCAN cluster selection is ported from scikit-learn and keeps
-its BSD 3-Clause notice; see `inst/COPYRIGHTS`.
+MIT. The k-means++ seeding and Lloyd iterations of `KMeans()` follow
+scikit-learn's code and keep its BSD 3-Clause notice; see
+`inst/COPYRIGHTS`.

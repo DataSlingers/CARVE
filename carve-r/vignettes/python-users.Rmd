@@ -44,7 +44,7 @@ accessor.
 
 The estimators keep their Python and scikit-learn names: `KMeans()`,
 `AgglomerativeClustering()`, `SpectralClustering()`,
-`LeidenClustering()`, `LouvainClustering()` and `HDBSCAN()`. So do the
+`LeidenClustering()` and `LouvainClustering()`. So do the
 transforms `StandardScaler()`, `PCA()`, `TSNE()` and `UMAP()`, with
 `Identity()` and `Log1p()` for the two `FunctionTransformer` options.
 Each takes the data matrix first and returns labels or a transformed
@@ -160,14 +160,6 @@ methods differ in these ways.
   labels at the default selection agree with an adjusted Rand index of
   0.918. Louvain runs igraph's code in both packages, and its scores agree
   within the seed-to-seed spread.
-- HDBSCAN builds its tree with the dbscan package and selects clusters
-  with a port of scikit-learn's selection. Where mutual reachability
-  distances tie, dbscan can merge samples in a different order, which
-  changes the tree and so the clusters. In the parity check's HDBSCAN case
-  the scores agree within 0.007, although the stability measure selects a
-  minimum cluster size of 5 in R and 10 in Python. dbscan computes all
-  pairwise distances, so its memory grows with the square of the number of
-  samples.
 - The default classifier is a ranger probability forest with scikit-learn's
   settings, which predicts the class with the highest mean leaf
   probability, as scikit-learn's random forest does.

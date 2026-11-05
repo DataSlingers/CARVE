@@ -16,7 +16,6 @@ default_estimator_grids <- function(X, preset, sweep) {
   switch(sweep@param,
     n_clusters = default_k_grids(X, sweep@values, preset),
     resolution = default_resolution_grids(sweep@values, preset),
-    min_cluster_size = default_min_cluster_size_grids(sweep@values, preset),
     stop(sprintf(
       "No default estimator grids for sweep parameter %s. Pass estimator_param_grids=... explicitly.",
       format_repr(sweep@param)
@@ -60,22 +59,6 @@ default_resolution_grids <- function(resolutions, preset) {
     grids <- c(grids, list(
       estimator_grid(LeidenClustering, resolution = resolutions, n_neighbors = c(10L, 30L)),
       estimator_grid(LouvainClustering, resolution = resolutions, n_neighbors = c(10L, 30L))
-    ))
-  }
-  grids
-}
-
-# HDBSCAN swept over min_cluster_size with excess-of-mass selection; the full
-# preset adds leaf selection.
-default_min_cluster_size_grids <- function(sizes, preset) {
-  require_package("dbscan", "HDBSCAN")
-  sizes <- as.integer(sizes)
-  grids <- list(
-    estimator_grid(HDBSCAN, min_cluster_size = sizes, cluster_selection_method = "eom")
-  )
-  if (identical(preset, "full")) {
-    grids <- c(grids, list(
-      estimator_grid(HDBSCAN, min_cluster_size = sizes, cluster_selection_method = "leaf")
     ))
   }
   grids

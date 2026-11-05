@@ -1,9 +1,9 @@
 CARVE is distributed under the MIT license; see the file LICENSE.
 
-The functions condense_tree() and select_hdbscan_clusters() in
-R/estimators.R are ported from sklearn/cluster/_hdbscan/_tree.pyx in
-scikit-learn 1.7.2. scikit-learn is distributed under the following
-license.
+The functions kmeans_plusplus() and kmeans_lloyd() in R/estimators.R
+follow _kmeans_plusplus() and _kmeans_single_lloyd() in
+sklearn/cluster/_kmeans.py of scikit-learn 1.7.2. scikit-learn is
+distributed under the following license.
 
 BSD 3-Clause License
 

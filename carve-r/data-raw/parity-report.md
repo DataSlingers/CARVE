@@ -112,35 +112,6 @@ Rows compared: 10 of 10.
 
 ARI between the R and Python labels at the default selection (stability, 1se): 1.000
 
-## min_cluster_size sweep, HDBSCAN
-
-dbscan and scikit-learn can merge tied distances in a different order, so HDBSCAN can select different clusters on some subsamples (see the HDBSCAN help page).
-
-Rows compared: 4 of 4.
-
-| Column | Largest difference | Tolerance |
-|---|---|---|
-| ari_stability | 0.006 | 0.05 |
-| ari_generalizability | 0.003 | 0.05 |
-| ari_average | 0.002 | 0.05 |
-| consensus_pac_stability | 0.007 | 0.03 |
-| consensus_gini_stability | 0.005 | 0.03 |
-| consensus_ce_stability | 0.005 | 0.03 |
-| accuracy_generalizability | 0.001 | 0.03 |
-| n_clusters_observed | 0.010 | 0.50 |
-| noise_fraction | 0.001 | 0.02 |
-
-| Measure | Rule | R | Python |
-|---|---|---|---|
-| stability | max | 5 | 10 |
-| generalizability | max | 5 | 5 |
-| average | max | 5 | 10 |
-| stability | 1se | 5 | 10 |
-| generalizability | 1se | 5 | 5 |
-| average | 1se | 5 | 5 |
-
-ARI between the R and Python labels at the default selection (stability, 1se): 1.000
-
 ## easy blobs, anchored over 200 of 500 samples
 
 The two languages draw different anchors. PAC covers anchor pairs only, so it can differ more than in the exact case.

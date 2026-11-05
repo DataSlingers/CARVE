@@ -34,8 +34,8 @@ read through accessor functions such as `estimator_results()`,
 ## New features
 
 - Resolution sweeps with `LeidenClustering()` and `LouvainClustering()`,
-  and minimum cluster size sweeps with `HDBSCAN()`, with a noise policy
-  for HDBSCAN's -1 labels.
+  sweeps over a parameter of a clustering function of your own, and a
+  noise policy for the -1 labels of density-based methods.
 - Anchored consensus above `anchor_threshold` samples, 5,000 by default,
   which keeps memory bounded on large data.
 - Randomized preprocessing, with `preprocessing_option()`,
@@ -60,5 +60,5 @@ read through accessor functions such as `estimator_results()`,
 R6, furrr, future, progressr and patchwork are no longer used.
 BiocParallel, igraph, irlba, Rtsne, S4Vectors, scales,
 SingleCellExperiment, SummarizedExperiment and withr are new imports.
-dbscan, SeuratObject and uwot are suggested, for HDBSCAN, Seurat objects
-and UMAP.
+dbscan, SeuratObject and uwot are suggested, for the density-based
+example in the customizing vignette, Seurat objects and UMAP.

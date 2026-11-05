@@ -15,10 +15,11 @@ NULL
 #'
 #' A run sweeps one parameter. By default it is `n_clusters`. Giving
 #' `resolution` sweeps the resolution of [LeidenClustering()] and
-#' [LouvainClustering()], and `sweep = "min_cluster_size"` with
-#' `sweep_values` sweeps the minimum cluster size of [HDBSCAN()]. Off the
-#' `n_clusters` axis the number of clusters is an outcome, recorded for each
-#' configuration as its mean over the resamples.
+#' [LouvainClustering()]. Any other parameter, such as a minimum cluster size,
+#' is swept with `sweep`, `sweep_values` and grids of your own in
+#' `estimator_param_grids`. Off the `n_clusters` axis the number of clusters
+#' is an outcome, recorded for each configuration as its mean over the
+#' resamples.
 #'
 #' Resample `b`, counting from 0, draws its first subsample with seed
 #' `random_state + b` and its second with `random_state + b + n_resamples`,
@@ -84,14 +85,15 @@ NULL
 #'   it themselves. Estimators that take a number of clusters and estimators
 #'   that take a resolution cannot share a run.
 #' @param sweep_values Values of `sweep` when it is neither `"n_clusters"`
-#'   nor `"resolution"`, such as minimum cluster sizes for [HDBSCAN()].
+#'   nor `"resolution"`, such as minimum cluster sizes.
 #' @param finer_is_larger Whether larger values of `sweep` give more
 #'   clusters. It is known for `n_clusters` and `resolution` (`TRUE`) and for
 #'   `min_cluster_size` (`FALSE`), and required for any other parameter.
-#' @param noise_policy What to do with the -1 labels of density-based
-#'   methods such as [HDBSCAN()]. `"drop"` leaves those samples out of the
-#'   resample, so the consensus matrix, the ARI and the classifier treat them
-#'   as not drawn. `"as_cluster"` keeps -1 as an ordinary label, and
+#' @param noise_policy What to do with the -1 labels that density-based
+#'   methods give noise. A clustering function of your own must label noise
+#'   -1; a label of 0 is an ordinary cluster. `"drop"` leaves those samples
+#'   out of the resample, so the consensus matrix, the ARI and the classifier
+#'   treat them as not drawn. `"as_cluster"` keeps -1 as an ordinary label, and
 #'   `"singleton"` puts each of them in a cluster of its own.
 #' @param n_resamples Resamples per configuration.
 #' @param subsample_ratio Share of the samples drawn, without replacement,
@@ -110,9 +112,8 @@ NULL
 #'   clustering, and `"full"` adds average, single and complete linkage and
 #'   RBF spectral clustering. On the `resolution` axis `"light"` runs Leiden
 #'   and Louvain on 15-neighbor graphs, and `"full"` adds 10- and 30-neighbor
-#'   graphs. On the `min_cluster_size` axis `"light"` runs HDBSCAN with
-#'   excess-of-mass selection, and `"full"` adds leaf selection. All grids
-#'   must sweep the same parameter over the same values.
+#'   graphs. Other axes have no preset and need a list. All grids must sweep
+#'   the same parameter over the same values.
 #' @param normalization_options,dim_reduction_options Lists of
 #'   [preprocessing_option()] objects for randomized preprocessing. `NULL`
 #'   uses the defaults: identity, standardization and, for data without

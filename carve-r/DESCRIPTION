@@ -4,7 +4,7 @@ Version: 2.0.0
 Authors@R: c(
     person("Kai", "Wycik", email = "kai.wycik@columbia.edu", role = c("aut", "cre")),
     person("The scikit-learn developers", role = "cph",
-           comment = "HDBSCAN cluster selection in R/estimators.R, ported from scikit-learn")
+           comment = "k-means++ seeding and Lloyd iterations in R/estimators.R, following scikit-learn")
   )
 Description: Chooses the number of clusters and the clustering method by
     resampling. Every candidate configuration clusters many subsamples of

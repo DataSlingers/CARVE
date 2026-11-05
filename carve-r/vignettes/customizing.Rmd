@@ -82,12 +82,22 @@ function needs `estimator_grid(..., name = )`.
 
 ## Density-based clustering and noise
 
-HDBSCAN takes a minimum cluster size instead of a number of clusters, and
-labels the samples in sparse regions -1, for noise. It needs the dbscan
-package, which CARVE suggests but does not install.
+A density-based method such as HDBSCAN takes a minimum cluster size
+instead of a number of clusters, and leaves the samples in sparse regions
+unassigned. CARVE reads the label -1 as noise, and 0, like any other
+label from 0 up, as a cluster. This function runs HDBSCAN from the dbscan
+package, which labels noise 0, and relabels it -1:
 
 ```{r hdbscan, eval = requireNamespace("dbscan", quietly = TRUE)}
-fit_hdbscan <- carve(X, sweep = "min_cluster_size", sweep_values = c(5, 10),
+hdbscan_labels <- function(X, min_cluster_size = 5L) {
+  labels <- dbscan::hdbscan(X, minPts = min_cluster_size)$cluster
+  labels[labels == 0L] <- -1L
+  labels
+}
+sizes <- c(5L, 10L)
+hdbscan_grid <- list(estimator_grid(hdbscan_labels, min_cluster_size = sizes))
+fit_hdbscan <- carve(X, sweep = "min_cluster_size", sweep_values = sizes,
+                     estimator_param_grids = hdbscan_grid,
                      n_resamples = 20, random_state = 0)
 estimator_results(fit_hdbscan)[, c("min_cluster_size", "ari_stability", "ari_stability_se",
                                    "noise_fraction", "n_clusters_observed")]
@@ -97,8 +107,8 @@ get_sweep_value(fit_hdbscan)
 A larger minimum size gives fewer clusters, so on this axis `"1se"` takes
 the smallest size whose score is within one standard error of the best.
 Size 5 scores more than one standard error below size 10, so the
-selection is 10. `HDBSCAN()` can also be used in a grid, with
-`estimator_grid(HDBSCAN, min_cluster_size = ...)`.
+selection is 10. `sweep` names the swept parameter, and the grid must
+cover the same values as `sweep_values`.
 
 `noise_policy` sets what happens to the -1 labels in each resample.
 `"drop"`, the default, leaves those samples out, so the consensus matrix,
@@ -109,9 +119,10 @@ cluster of its own. `noise_fraction` is the share of the samples labeled
 the same subsamples, so only the scores change:
 
 ```{r hdbscan-policy, eval = requireNamespace("dbscan", quietly = TRUE)}
-fit_kept <- carve(X, sweep = "min_cluster_size", sweep_values = c(5, 10),
-                  noise_policy = "as_cluster", n_resamples = 20, random_state = 0)
-data.frame(min_cluster_size = c(5, 10),
+fit_kept <- carve(X, sweep = "min_cluster_size", sweep_values = sizes,
+                  estimator_param_grids = hdbscan_grid, noise_policy = "as_cluster",
+                  n_resamples = 20, random_state = 0)
+data.frame(min_cluster_size = sizes,
            drop = estimator_results(fit_hdbscan)$ari_stability,
            as_cluster = estimator_results(fit_kept)$ari_stability)
 get_sweep_value(fit_kept)
