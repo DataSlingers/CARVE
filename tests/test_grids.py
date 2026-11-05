@@ -4,7 +4,7 @@ import importlib.util
 
 import numpy as np
 import pytest
-from sklearn.cluster import HDBSCAN, AgglomerativeClustering, KMeans
+from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.model_selection import ParameterGrid
@@ -291,32 +291,11 @@ class TestResolutionGrids:
 
 
 class TestMinClusterSizeGrids:
-    def _grids(self, preset="light"):
-        return default_estimator_grids(
-            np.zeros((20, 3)),
-            preset=preset,
-            sweep=resolve_sweep(sweep="min_cluster_size", sweep_values=[5, 10, 25]),
-        )
-
-    def test_light_returns_one_hdbscan_grid(self):
-        grids = self._grids()
-        assert len(grids) == 1
-        assert grids[0][0] is HDBSCAN
-        assert grids[0][1]["cluster_selection_method"] == ["eom"]
-
-    def test_sizes_propagated_as_ints(self):
-        grid = self._grids()[0][1]
-        assert grid["min_cluster_size"] == [5, 10, 25]
-        assert all(isinstance(s, int) for s in grid["min_cluster_size"])
-
-    def test_full_preset_adds_leaf_selection(self):
-        grids = self._grids(preset="full")
-        assert len(grids) == 2
-        methods = sorted(grid["cluster_selection_method"][0] for _, grid in grids)
-        assert methods == ["eom", "leaf"]
-
-    def test_no_n_clusters_key(self):
-        assert "n_clusters" not in self._grids()[0][1]
+    def test_no_default_grids(self):
+        sweep = resolve_sweep(sweep="min_cluster_size", sweep_values=[5, 10, 25])
+        for preset in ("light", "full"):
+            with pytest.raises(ValueError, match="No default estimator grids"):
+                default_estimator_grids(np.zeros((20, 3)), preset=preset, sweep=sweep)
 
 
 class TestSweepDispatch:

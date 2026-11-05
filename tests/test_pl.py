@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from matplotlib.collections import PolyCollection
 from matplotlib.legend import Legend
-from sklearn.cluster import AgglomerativeClustering, KMeans
+from sklearn.cluster import HDBSCAN, AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import FunctionTransformer, StandardScaler
 
@@ -99,6 +99,12 @@ def sweep_model():
     m = CARVE(
         sweep="min_cluster_size",
         sweep_values=np.array([3, 5, 8]),
+        estimator_param_grids=[
+            (
+                HDBSCAN,
+                {"min_cluster_size": [3, 5, 8], "cluster_selection_method": ["eom"]},
+            )
+        ],
         n_resamples=5,
         random_state=0,
     )

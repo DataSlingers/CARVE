@@ -477,6 +477,12 @@ class TestRefit:
         carve = CARVE(
             sweep="min_cluster_size",
             sweep_values=np.array([3, 5, 8]),
+            estimator_param_grids=[
+                (
+                    HDBSCAN,
+                    {"min_cluster_size": [3, 5, 8], "cluster_selection_method": ["eom"]},
+                )
+            ],
             consensus_anchors=30,
             n_resamples=3,
             normalization_options=[(FunctionTransformer, {}), (StandardScaler, {})],
@@ -1088,6 +1094,12 @@ def fitted_hdbscan(X_res_blobs):
     carve = CARVE(
         sweep="min_cluster_size",
         sweep_values=np.array([3, 5, 8]),
+        estimator_param_grids=[
+            (
+                HDBSCAN,
+                {"min_cluster_size": [3, 5, 8], "cluster_selection_method": ["eom"]},
+            )
+        ],
         n_resamples=3,
         normalization_options=[],
         dim_reduction_options=[],
@@ -1169,6 +1181,12 @@ class TestMinClusterSizeMode:
         return CARVE(
             sweep="min_cluster_size",
             sweep_values=np.array([5, 10, 20]),
+            estimator_param_grids=[
+                (
+                    HDBSCAN,
+                    {"min_cluster_size": [5, 10, 20], "cluster_selection_method": ["eom"]},
+                )
+            ],
             n_resamples=3,
             normalization_options=[],
             dim_reduction_options=[],

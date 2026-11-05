@@ -5,7 +5,7 @@ import warnings
 from typing import Literal
 
 import numpy as np
-from sklearn.cluster import HDBSCAN, AgglomerativeClustering, KMeans
+from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.neighbors import NearestNeighbors
@@ -95,8 +95,6 @@ def default_estimator_grids(
         return _default_k_grids(X, sweep.values, preset)
     if sweep.param == "resolution":
         return _default_resolution_grids(sweep.values, preset)
-    if sweep.param == "min_cluster_size":
-        return _default_min_cluster_size_grids(sweep.values, preset)
 
     raise ValueError(
         f"No default estimator grids for sweep parameter {sweep.param!r}. "
@@ -165,44 +163,6 @@ def _default_resolution_grids(
     if preset == "full":
         grids.append((LeidenClustering, {"resolution": res, "n_neighbors": [10, 30]}))
         grids.append((LouvainClustering, {"resolution": res, "n_neighbors": [10, 30]}))
-
-    return grids
-
-
-def _default_min_cluster_size_grids(
-    min_cluster_sizes: np.ndarray,
-    preset: Literal["light", "full"] = "light",
-) -> list[GridSpec]:
-    """Grids for HDBSCAN swept over ``min_cluster_size``.
-
-    Parameters
-    ----------
-    min_cluster_sizes : ndarray
-        Minimum cluster sizes to evaluate.
-    preset : {"light", "full"}, default="light"
-        ``"full"`` additionally evaluates leaf cluster selection.
-
-    Returns
-    -------
-    grids : list of tuple
-        List of (EstimatorClass, param_grid) tuples.
-    """
-    sizes = [int(s) for s in np.asarray(min_cluster_sizes).tolist()]
-
-    grids: list[GridSpec] = [
-        (
-            HDBSCAN,
-            {"min_cluster_size": sizes, "cluster_selection_method": ["eom"]},
-        ),
-    ]
-
-    if preset == "full":
-        grids.append(
-            (
-                HDBSCAN,
-                {"min_cluster_size": sizes, "cluster_selection_method": ["leaf"]},
-            )
-        )
 
     return grids
 
