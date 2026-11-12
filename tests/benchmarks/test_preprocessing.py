@@ -1,5 +1,6 @@
 """Tests for preprocessing option construction."""
 
+import inspect
 import sys
 import warnings
 
@@ -59,6 +60,17 @@ def test_registry_keys_name_their_classes(key, expected):
 def test_the_umap_key_names_umap():
     umap = pytest.importorskip("umap")
     assert preprocessor_class("umap") is umap.UMAP
+
+
+def test_umap_keeps_the_legacy_layout_outside_the_fingerprint():
+    umap = pytest.importorskip("umap")
+    if "compatibility_layout" not in inspect.signature(umap.UMAP).parameters:
+        pytest.skip("umap-learn before 0.6 has no compatibility_layout")
+    spec = _spec(dim_reduction=(("umap", {"n_neighbors": [15]}),))
+    ((transformer, name, _),) = resolve_preprocessing(spec)["dim_reduction_options"]
+    assert name == "UMAP"
+    assert transformer(n_neighbors=15).compatibility_layout is True
+    assert "compatibility_layout" not in preprocessing_fingerprint(spec)
 
 
 def test_an_unknown_key_raises():

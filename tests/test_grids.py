@@ -1,6 +1,7 @@
 """Tests for carve._grids module."""
 
 import importlib.util
+import inspect
 
 import numpy as np
 import pytest
@@ -142,6 +143,11 @@ def no_umap(monkeypatch):
     monkeypatch.setattr("carve._grids.importlib.util.find_spec", lambda name: None)
 
 
+def _umap_option(options):
+    (option,) = [o for o in options if len(o) == 3 and o[1] == "UMAP"]
+    return option
+
+
 class TestDefaultDimReductionOptions:
     def test_structure(self):
         X = np.random.RandomState(0).randn(100, 10)
@@ -156,8 +162,18 @@ class TestDefaultDimReductionOptions:
         from umap import UMAP
 
         X = np.random.RandomState(0).randn(100, 10)
-        options = default_dim_reduction_options(X)
-        assert any(cls is UMAP for cls, _ in options)
+        transformer, _, _ = _umap_option(default_dim_reduction_options(X))
+        assert getattr(transformer, "func", transformer) is UMAP
+
+    def test_umap_keeps_the_legacy_layout(self):
+        pytest.importorskip("umap")
+        from umap import UMAP
+
+        if "compatibility_layout" not in inspect.signature(UMAP).parameters:
+            pytest.skip("umap-learn before 0.6 has no compatibility_layout")
+        X = np.random.RandomState(0).randn(100, 10)
+        transformer, _, _ = _umap_option(default_dim_reduction_options(X))
+        assert transformer(n_components=2).compatibility_layout is True
 
     def test_warns_when_umap_missing(self, no_umap):
         X = np.random.RandomState(0).randn(100, 10)
@@ -196,11 +212,11 @@ class TestDefaultDimReductionOptions:
 
     def test_umap_grid_is_filtered(self):
         pytest.importorskip("umap")
-        from umap import UMAP
 
         X = np.random.RandomState(0).randn(60, 10)
-        grids = dict(default_dim_reduction_options(X, subsample_ratio=0.618))
-        assert grids[UMAP] == {
+        options = default_dim_reduction_options(X, subsample_ratio=0.618)
+        _, _, grid = _umap_option(options)
+        assert grid == {
             "n_components": [2],
             "n_neighbors": [15],
             "min_dist": [0.1],

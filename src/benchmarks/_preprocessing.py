@@ -10,6 +10,7 @@ when this module is, so umap-learn is needed only by a spec that names UMAP.
 """
 
 import importlib
+import inspect
 from functools import partial
 from typing import Any
 
@@ -120,7 +121,14 @@ def preprocessor_class(key: str) -> type:
 
 def _resolve_option(key: str, grid: Any) -> ResolvedOption:
     cls = preprocessor_class(key)
-    fixed = PREPROCESSOR_DEFAULTS[key]
+    fixed = dict(PREPROCESSOR_DEFAULTS[key])
+    if key == "umap" and "compatibility_layout" in inspect.signature(cls).parameters:
+        # umap-learn 0.6 warns on every fit that leaves the layout unset, and a
+        # later release switches to a layout with different embeddings; True
+        # keeps the 0.5.x ones. It stays out of PREPROCESSOR_DEFAULTS because
+        # umap-learn 0.5 rejects it, and out of the fingerprint because the
+        # embeddings are the same.
+        fixed["compatibility_layout"] = True
     transformer = partial(cls, **fixed) if fixed else cls
     return (
         transformer,

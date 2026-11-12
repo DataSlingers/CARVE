@@ -942,6 +942,7 @@ class TestEmbedResample:
         assert stab.X_test is None and stab.X_2.shape == (48, 5)
         assert gen.X_2 is None and gen.X_test.shape == (12, 5)
 
+    @pytest.mark.filterwarnings("ignore:compatibility_layout was not set:FutureWarning")
     def test_seeded_umap_fits_without_its_parallelism_warning(self):
         # filterwarnings = error turns umap-learn's warning that the seed
         # disables its parallelism into a failure unless embed_resample

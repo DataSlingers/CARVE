@@ -1,8 +1,10 @@
 """Default estimator and preprocessing grids for CARVE."""
 
 import importlib.util
+import inspect
 import warnings
-from typing import Literal
+from functools import partial
+from typing import Any, Literal
 
 import numpy as np
 from sklearn.cluster import AgglomerativeClustering, KMeans
@@ -12,7 +14,7 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import FunctionTransformer, StandardScaler
 
 from ._sweep import SweepSpec, resolve_sweep
-from ._types import GridSpec, PreprocSpec
+from ._types import GridSpec, PreprocOption, PreprocSpec
 from .cluster import LeidenClustering, LouvainClustering, SpectralClustering
 
 
@@ -225,7 +227,7 @@ def _warn_omitted(name: str, param: str, limit: int) -> None:
 def default_dim_reduction_options(
     X: np.ndarray,
     subsample_ratio: float = 0.6,
-) -> list[PreprocSpec]:
+) -> list[PreprocOption]:
     """Return default dimensionality reduction options.
 
     Discrete grids, each filtered to what the smallest subsample a pipeline
@@ -235,7 +237,8 @@ def default_dim_reduction_options(
     - PCA, ``n_components`` in {2, 5, 10, 20, 50}, below ``min(n_min, p)``
     - t-SNE, two components, ``perplexity`` in {15, 30, 50}, below ``n_min``
     - UMAP when umap-learn is installed, two components, ``n_neighbors`` in
-      {15, 30} below ``n_min``, ``min_dist`` 0.1
+      {15, 30} below ``n_min``, ``min_dist`` 0.1, and on umap-learn 0.6 and
+      later ``compatibility_layout=True``, which keeps the 0.5.x embeddings
 
     ``n_min`` is the size of the smaller of a resample's training subsample
     and held-out set, which is the held-out set at any ratio above 0.5. An
@@ -251,14 +254,16 @@ def default_dim_reduction_options(
     Returns
     -------
     options : list of tuple
-        List of (TransformerClass, param_grid) pairs.
+        (TransformerClass, param_grid) pairs, and for UMAP a
+        (transformer, "UMAP", param_grid) triple whose transformer is a
+        ``functools.partial`` when it binds ``compatibility_layout``.
     """
     n_samples, p = X.shape
     # Same arithmetic split_subsample_indices uses for the training size.
     n_train = int(np.float64(subsample_ratio * n_samples))
     n_min = min(n_train, n_samples - n_train)
 
-    options: list[PreprocSpec] = [(FunctionTransformer, {})]
+    options: list[PreprocOption] = [(FunctionTransformer, {})]
 
     pca_limit = min(n_min, p)
     components = [c for c in _PCA_COMPONENTS if c < pca_limit]
@@ -290,9 +295,18 @@ def default_dim_reduction_options(
 
     from umap import UMAP
 
+    umap: Any = UMAP
+    if "compatibility_layout" in inspect.signature(UMAP).parameters:
+        # umap-learn 0.6 warns on every fit that leaves the layout unset, and a
+        # later release switches to a layout with different embeddings; True
+        # keeps the 0.5.x ones. A grid entry would add a random draw per
+        # resample and a term to the pipeline label, so it is bound here.
+        umap = partial(UMAP, compatibility_layout=True)
+
     options.append(
         (
-            UMAP,
+            umap,
+            "UMAP",
             {"n_components": [2], "n_neighbors": neighbors, "min_dist": [0.1]},
         )
     )
