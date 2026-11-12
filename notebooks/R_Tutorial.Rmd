@@ -18,9 +18,8 @@ folder and fits at full size, with the default 100 resamples except in the
 randomized preprocessing fits, which use 60. The
 package's vignettes explain the same steps on smaller data:
 `vignette("CARVE", package = "CARVE")` for the scores and the selection
-rules, `vignette("single-cell", package = "CARVE")`,
-`vignette("customizing", package = "CARVE")` and
-`vignette("python-users", package = "CARVE")`.
+rules, `vignette("single-cell", package = "CARVE")` and
+`vignette("customizing", package = "CARVE")`.
 
 Part 1 needs the mclust package, and part 2 also needs Seurat,
 SeuratObject and dbscan. Part 2 downloads 7 MB from 10x Genomics into

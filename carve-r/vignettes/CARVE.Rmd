@@ -24,9 +24,8 @@ configuration's resamples.
 
 This vignette fits CARVE to simulated data and goes through the results.
 `vignette("single-cell", package = "CARVE")` covers SingleCellExperiment
-and Seurat objects, `vignette("customizing", package = "CARVE")` the
-options of a run, and `vignette("python-users", package = "CARVE")` the
-differences from the Python package.
+and Seurat objects, and `vignette("customizing", package = "CARVE")` the
+options of a run.
 
 ## Simulated data
 

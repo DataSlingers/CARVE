@@ -1,17 +1,33 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 title: "CARVE: Cluster Analysis with Resampling for Validation and Exploration"
+abstract: >-
+  CARVE chooses the number of clusters and the clustering method by
+  resampling. Every candidate configuration clusters many subsamples of the
+  data and is scored for stability, the agreement between the clusterings of
+  two overlapping subsamples, and for generalizability, how well a classifier
+  trained on one subsample predicts the clusters of the held-out samples.
+  The repository has a Python package, carve-validate, and an R package,
+  CARVE.
 type: software
 authors:
   - family-names: Wycik
-    given-names: Kai
+    given-names: Kai R.
+    affiliation: Columbia University
+    orcid: "https://orcid.org/0009-0008-5139-9863"
   - family-names: Tang
     given-names: Tiffany M.
+    affiliation: University of Notre Dame
+    orcid: "https://orcid.org/0000-0002-8079-6867"
   - family-names: Zikry
     given-names: Tarek M.
+    affiliation: University of North Carolina Chapel Hill
+    orcid: "https://orcid.org/0000-0003-3360-249X"
   - family-names: Allen
     given-names: Genevera I.
+    affiliation: Columbia University
 version: 2.0.0
+date-released: 2026-11-11
 doi: 10.5281/zenodo.20417991
 url: "https://doi.org/10.5281/zenodo.20417991"
 repository-code: "https://github.com/DataSlingers/CARVE"

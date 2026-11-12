@@ -66,7 +66,7 @@ labels = carve.get_labels(measure="generalizability", rule="1se")
 print(f"Selected k={k}")
 ```
 
-See [`notebooks/Tutorial.ipynb`](notebooks/Tutorial.ipynb) for a walkthrough, and [`notebooks/case_studies/`](notebooks/case_studies/) for real-world analyses on scRNA-seq and mass cytometry datasets.
+See [`notebooks/Tutorial.ipynb`](https://github.com/DataSlingers/CARVE/blob/main/notebooks/Tutorial.ipynb) for a walkthrough, and [`notebooks/case_studies/`](https://github.com/DataSlingers/CARVE/tree/main/notebooks/case_studies) for real-world analyses on scRNA-seq and mass cytometry datasets.
 
 ## Visualization
 
@@ -92,7 +92,7 @@ If you use CARVE in your research, please cite:
 
 > Wycik, K. R., Tang, T. M., Zikry, T. M., & Allen, G. I. (2026). *CARVE: Cluster
 > Analysis with Resampling for Validation and Exploration.* Zenodo.
-> https://doi.org/10.5281/zenodo.20448965
+> https://doi.org/10.5281/zenodo.20417991
 
 ```bibtex
 @software{wycik2026carve,
@@ -100,8 +100,8 @@ If you use CARVE in your research, please cite:
   title     = {{CARVE}: Cluster Analysis with Resampling for Validation and Exploration},
   year      = {2026},
   publisher = {Zenodo},
-  doi       = {10.5281/zenodo.20448965},
-  url       = {https://doi.org/10.5281/zenodo.20448965}
+  doi       = {10.5281/zenodo.20417991},
+  url       = {https://doi.org/10.5281/zenodo.20417991}
 }
 ```
 

@@ -1,9 +1,8 @@
 # CARVE 2.0.0
 
 Version 2.0.0 is a rewrite with the same scores, selection rules and
-defaults as the Python package, carve-validate;
-`vignette("python-users")` lists where the two differ. Its interface is
-not compatible with version 1.0.0.
+defaults as the Python package, carve-validate. Its interface is not
+compatible with version 1.0.0.
 
 ## Replaced functions
 
@@ -52,8 +51,8 @@ read through accessor functions such as `estimator_results()`,
   in SingleCellExperiment and Seurat objects with the Python package's
   layout.
 - The data set `pbmc3k_subset`, 1,000 cells of 10x Genomics' PBMC 3k.
-- Four vignettes: `vignette("CARVE")`, `vignette("single-cell")`,
-  `vignette("customizing")` and `vignette("python-users")`.
+- Three vignettes: `vignette("CARVE")`, `vignette("single-cell")` and
+  `vignette("customizing")`.
 
 ## Dependencies
 

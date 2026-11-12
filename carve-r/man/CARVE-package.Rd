@@ -14,9 +14,8 @@ with a selection rule.
 }
 \details{
 Start with \code{vignette("CARVE", package = "CARVE")}. The other vignettes
-cover single-cell data (\code{"single-cell"}), the options of a run
-(\code{"customizing"}) and the differences from the Python package
-(\code{"python-users"}).
+cover single-cell data (\code{"single-cell"}) and the options of a run
+(\code{"customizing"}).
 }
 \seealso{
 Useful links:

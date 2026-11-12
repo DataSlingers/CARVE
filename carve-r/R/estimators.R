@@ -427,8 +427,6 @@ knn_graph <- function(X, n_neighbors = 15L, weighting = "connectivity") {
 #' scale, so the two should not share a resolution grid. igraph's Leiden and
 #' leidenalg are separate implementations, so the partitions, and the scores
 #' CARVE derives from them, differ somewhat from the Python package's.
-#' `vignette("python-users", package = "CARVE")` gives the measured
-#' differences.
 #'
 #' @param X Numeric matrix or data frame, one row per sample.
 #' @param resolution Resolution of the quality function. Larger values give

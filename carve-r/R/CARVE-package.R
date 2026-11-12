@@ -7,9 +7,8 @@
 #' with a selection rule.
 #'
 #' Start with `vignette("CARVE", package = "CARVE")`. The other vignettes
-#' cover single-cell data (`"single-cell"`), the options of a run
-#' (`"customizing"`) and the differences from the Python package
-#' (`"python-users"`).
+#' cover single-cell data (`"single-cell"`) and the options of a run
+#' (`"customizing"`).
 #'
 #' @keywords internal
 #' @importFrom methods new setClass setClassUnion setGeneric setMethod

@@ -24,8 +24,7 @@ parameter of a clustering function of your own, on a matrix or on a
 SingleCellExperiment or Seurat object.
 
 This is the R package. The Python package, carve-validate, is in the same
-repository and has the same scores, selection rules and defaults;
-`vignette("python-users", package = "CARVE")` lists where the two differ.
+repository and has the same scores, selection rules and defaults.
 
 ## Installation
 
@@ -68,8 +67,6 @@ clusters, and `estimator_results(fit)` holds them as a table.
 - `vignette("customizing", package = "CARVE")`: methods and parameters,
   clustering functions of your own, noise, the classifier, randomized
   preprocessing, reference labels and parallel runs.
-- `vignette("python-users", package = "CARVE")`: the Python names and
-  their R equivalents, and where the results differ.
 - `notebooks/R_Tutorial.Rmd` in the repository goes through every function
   on full-size data, and `notebooks/R_Tutorial.html` is its rendered
   output.
@@ -80,7 +77,7 @@ If you use CARVE, please cite:
 
 > Wycik, K. R., Tang, T. M., Zikry, T. M., & Allen, G. I. (2026). CARVE:
 > Cluster Analysis with Resampling for Validation and Exploration. Zenodo.
-> https://doi.org/10.5281/zenodo.20448965
+> https://doi.org/10.5281/zenodo.20417991
 
 ```bibtex
 @software{wycik2026carve,
@@ -88,8 +85,8 @@ If you use CARVE, please cite:
   title     = {{CARVE}: Cluster Analysis with Resampling for Validation and Exploration},
   year      = {2026},
   publisher = {Zenodo},
-  doi       = {10.5281/zenodo.20448965},
-  url       = {https://doi.org/10.5281/zenodo.20448965}
+  doi       = {10.5281/zenodo.20417991},
+  url       = {https://doi.org/10.5281/zenodo.20417991}
 }
 ```
 

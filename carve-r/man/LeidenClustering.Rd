@@ -60,8 +60,6 @@ resolution, the objective the Python package optimizes with leidenalg.
 scale, so the two should not share a resolution grid. igraph's Leiden and
 leidenalg are separate implementations, so the partitions, and the scores
 CARVE derives from them, differ somewhat from the Python package's.
-\code{vignette("python-users", package = "CARVE")} gives the measured
-differences.
 }
 \examples{
 X <- rbind(matrix(rnorm(80, 0, 0.3), ncol = 2), matrix(rnorm(80, 3, 0.3), ncol = 2))
